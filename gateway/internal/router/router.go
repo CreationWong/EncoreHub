@@ -26,6 +26,7 @@ func Setup(cfg Config) *gin.Engine {
 	convHandler := handler.NewConversationHandler(cfg.Engine)
 	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine)
 	providerHandler := handler.NewProviderHandler(cfg.Registry)
+	searchHandler := handler.NewSearchHandler()
 
 	api := r.Group("/api/v1")
 	{
@@ -45,6 +46,9 @@ func Setup(cfg Config) *gin.Engine {
 			// Chat endpoint (gateway handles AI provider calls)
 			conv.POST("/:id/chat", chatHandler.SendMessage)
 		}
+
+		// Search
+		api.POST("/search", searchHandler.Search)
 
 		// Providers
 		prov := api.Group("/providers")

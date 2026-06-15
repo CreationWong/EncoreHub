@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/provider"
+	"github.com/encorehub/gateway/internal/search"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
@@ -26,6 +28,7 @@ type SendMessageRequest struct {
 	Provider    string  `json:"provider"`
 	Model       string  `json:"model"`
 	Stream      bool    `json:"stream"`
+	Search      bool    `json:"search"`
 	Temperature float32 `json:"temperature"`
 }
 
@@ -75,20 +78,53 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		Msg("chat request")
 
 	// Step 1: Always store the user message in the engine first.
-	// We do this with a direct engine client call, not through engine.SendMessage
-	// (which would also generate a mock reply).
 	userMsgID := h.storeUserMessage(convID, req.Content)
 
-	// Step 2: Get conversation context from engine (includes the user message we just stored)
+	// Step 1.5: Optional web search
+	var searchContext string
+	if req.Search {
+		ddg := search.NewDuckDuckGo()
+		searchResp, err := ddg.Search(c.Request.Context(), req.Content, 5)
+		if err != nil {
+			log.Warn().Err(err).Msg("web search failed")
+		} else {
+			searchContext = search.FormatForContext(searchResp)
+			log.Info().Int("results", len(searchResp.Results)).Msg("web search completed")
+		}
+	}
+
+	// Step 2: Search memories relevant to this query
+	var memoryContext string
+	memReq, _ := http.NewRequestWithContext(c.Request.Context(), "GET",
+		fmt.Sprintf("http://127.0.0.1:3000/api/memories/search?q=%s&top_k=3", req.Content), nil)
+	if memResp, err := http.DefaultClient.Do(memReq); err == nil {
+		defer memResp.Body.Close()
+		var memData struct {
+			Results []struct {
+				Content string `json:"content"`
+				Scope   string `json:"scope"`
+			} `json:"results"`
+		}
+		if err := json.NewDecoder(memResp.Body).Decode(&memData); err == nil && len(memData.Results) > 0 {
+			memoryContext = "\n\n[Relevant Memories]\n"
+			for i, m := range memData.Results {
+				memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, m.Scope, m.Content)
+			}
+		}
+	}
+
+	// Step 4: Build chat request (includes messages + search results + memory context)
+	systemExtra := searchContext + memoryContext
 	var chatReq *provider.ChatRequest
 	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-		chatReq = buildChatRequest(convDetail, req)
+		chatReq = buildChatRequest(convDetail, req, systemExtra)
 	} else {
 		chatReq = &provider.ChatRequest{
 			Model:       req.Model,
 			Stream:      req.Stream,
 			Temperature: req.Temperature,
 			MaxTokens:   4096,
+			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Use provided context." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
 			},
@@ -261,15 +297,14 @@ func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content string) {
 
 // ===== Helpers =====
 
-func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest) *provider.ChatRequest {
+func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
 		Model:       req.Model,
 		Stream:      req.Stream,
 		Temperature: req.Temperature,
 		MaxTokens:   4096,
 	}
-	// System prompt
-	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately."
+	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately." + systemExtra
 
 	for _, msg := range conv.Messages {
 		cr.Messages = append(cr.Messages, provider.Message{
@@ -286,18 +321,17 @@ func generateMockReply(userInput string) string {
 		input = input[:100] + "..."
 	}
 
-	// Simple keyword-based mock responses
 	switch {
 	case containsLower(input, "hello") || containsLower(input, "hi") || containsLower(input, "你好"):
-		return "Hello! I'm EncoreHub's assistant (mock mode). How can I help you today?"
+		return "Hello! I'm EncoreHub's assistant (mock mode). How can I help you today?\n\nTry searching the web — add `\"search\": true` to your request!"
 	case containsLower(input, "who are you") || containsLower(input, "你是谁"):
-		return "I'm EncoreHub, a multi-provider AI chat client. I support OpenAI, Anthropic, Gemini, and more. Right now I'm in mock mode — connect an API key to use real AI!"
+		return "I'm EncoreHub, a multi-provider AI chat client. I support OpenAI, Anthropic, Gemini, DuckDuckGo web search, and more. Connect an API key to use real AI!"
 	case containsLower(input, "memory") || containsLower(input, "记忆"):
-		return "**Memory System**\n\n- Conversation memory: active (SQLite FTS5)\n- Global memory: schema ready (LanceDB pending)\n- All messages are persisted and searchable."
+		return "**Memory System**\n\n- Conversation memory: active (SQLite FTS5 + LanceDB)\n- Global memory: cross-conversation retrieval\n- Search: `GET /api/memories/search?q=...`\n- All messages persisted and searchable."
 	case containsLower(input, "help") || containsLower(input, "帮助"):
-		return "**Commands**: `hello`, `who are you`, `memory`, `help`. Anything else gets this contextual echo."
+		return "**EncoreHub Commands**\n\n- `hello` — greeting\n- `who are you` — about\n- `memory` — memory status\n- `help` — this message\n- `search: true` in request → DuckDuckGo web search"
 	default:
-		return fmt.Sprintf("You said: \"%s\"\n\nThis is a mock reply. Add an API key in the sidebar to connect to real AI providers (OpenAI, Anthropic, etc.).", input)
+		return fmt.Sprintf("[Mock Reply]\n\nYou said: \"%s\"\n\nAdd an API key to use real AI, or enable `search: true` for web search results.", input)
 	}
 }
 

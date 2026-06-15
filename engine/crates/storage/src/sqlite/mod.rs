@@ -6,8 +6,8 @@
 mod migrations;
 
 use encorehub_core::{
-    ConfigEntry, Conversation, ConversationSummary, EngineError, Memory, MemoryScope, MemoryType,
-    Message, PinnedMessage, Role, SearchCacheEntry, ToolCall,
+    ConfigEntry, Conversation, ConversationSummary, Document, DocumentChunk, EngineError, Memory,
+    MemoryScope, MemoryType, Message, PinnedMessage, Role, SearchCacheEntry, ToolCall,
 };
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
@@ -577,6 +577,84 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT key FROM config ORDER BY key")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    // ===== Knowledge Base =====
+
+    pub fn insert_document(&self, doc: &Document) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO documents (id, title, file_type, chunk_count, size_bytes, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                doc.id, doc.title, doc.file_type, doc.chunk_count,
+                doc.size_bytes, doc.created_at.timestamp_millis(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn insert_chunk(&self, chunk: &DocumentChunk) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO document_chunks (id, document_id, content, chunk_index, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![chunk.id, chunk.document_id, chunk.content, chunk.chunk_index, chunk.token_count],
+        )?;
+        conn.execute(
+            "INSERT INTO chunks_fts (rowid, content) VALUES ((SELECT rowid FROM document_chunks WHERE id = ?1), ?2)",
+            params![chunk.id, chunk.content],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_documents(&self, limit: i64, offset: i64) -> Result<Vec<Document>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, file_type, chunk_count, size_bytes, created_at
+             FROM documents ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit, offset], |row| {
+            Ok(Document {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                file_type: row.get(2)?,
+                chunk_count: row.get(3)?,
+                size_bytes: row.get(4)?,
+                created_at: ts_to_dt(row.get::<_, i64>(5)?),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn delete_document(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM documents WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn search_chunks_fts(&self, query: &str, limit: i64) -> Result<Vec<(DocumentChunk, f64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.token_count, rank
+             FROM document_chunks dc
+             INNER JOIN chunks_fts fts ON dc.rowid = fts.rowid
+             WHERE chunks_fts MATCH ?1
+             ORDER BY rank LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![query, limit], |row| {
+            Ok((
+                DocumentChunk {
+                    id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    content: row.get(2)?,
+                    chunk_index: row.get(3)?,
+                    token_count: row.get(4)?,
+                },
+                row.get::<_, f64>(5)?,
+            ))
+        })?;
         rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
     }
 }

@@ -100,6 +100,32 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     ",
+    // 005: Knowledge base
+    "
+    CREATE TABLE IF NOT EXISTS documents (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        chunk_count INTEGER DEFAULT 0,
+        size_bytes INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_chunks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        token_count INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chunks_document ON document_chunks(document_id, chunk_index);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+        content,
+        content_rowid='rowid'
+    );
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {

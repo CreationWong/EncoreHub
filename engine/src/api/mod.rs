@@ -1,23 +1,25 @@
-//! HTTP API layer built on axum.
-//!
-//! Provides REST endpoints for the frontend to interact with the engine.
-
 mod conversations;
+mod knowledge;
+mod memories;
 
-use axum::{routing::{get, post}, Router};
+use axum::{routing::{get, post, delete}, Router};
 use encorehub_storage::Database;
+use serde::Serialize;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-/// Shared application state passed to all handlers.
 pub struct AppState {
     pub db: Database,
 }
 
 pub type SharedState = Arc<AppState>;
 
-/// Build the full API router.
+#[derive(Debug, Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
 pub fn build_router(db: Database) -> Router {
     let state = Arc::new(AppState { db });
 
@@ -27,13 +29,19 @@ pub fn build_router(db: Database) -> Router {
         .allow_headers(Any);
 
     Router::new()
-        // Append single message (used by gateway)
+        // Knowledge base
+        .route("/api/knowledge", get(knowledge::list).post(knowledge::ingest))
+        .route("/api/knowledge/search", get(knowledge::search))
+        .route("/api/knowledge/:id", delete(knowledge::delete))
+        // Memory search
+        .route("/api/memories", get(memories::list))
+        .route("/api/memories/search", get(memories::search))
+        .route("/api/memories/:id", delete(memories::delete))
+        // Messages
         .route("/api/conversations/:id/messages/append", post(conversations::add_message))
-        // Messages sub-route
         .route("/api/conversations/:id/messages", get(conversations::get_messages).post(conversations::send_message))
-        // Conversation by ID
+        // Conversations
         .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete))
-        // Conversation collection
         .route("/api/conversations", get(conversations::list).post(conversations::create))
         // Health
         .route("/health", get(health_check))
