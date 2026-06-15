@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Rust
+engine/target/
+**/*.rs.bk
+*.pdb
+
+# Go
+gateway/bin/
+gateway/vendor/
+
+# Python
+data-services/__pycache__/
+data-services/**/__pycache__/
+data-services/.venv/
+data-services/venv/
+data-services/*.egg-info/
+data-services/dist/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Build outputs
+dist/
+build/
+out/
+target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.log
+
+# Database (local data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+lancedb_data/
+
+# Docker
+docker-compose.override.yml
+
+# Tauri
+frontend/src-tauri/target/
+frontend/node_modules/
+
+# Misc
+.cache/
+tmp/
+temp/
