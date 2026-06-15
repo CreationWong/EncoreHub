@@ -53,11 +53,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-text-muted/20 rounded-full;
+    background: rgba(108, 117, 125, 0.2);
+    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-text-muted/40;
+    background: rgba(108, 117, 125, 0.4);
   }
 }
 
