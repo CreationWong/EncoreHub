@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package encorehub.v1;
+
+// ===== Common Types =====
+
+message Pagination {
+  int32 page = 1;
+  int32 page_size = 2;
+  int32 total = 3;
+}
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}

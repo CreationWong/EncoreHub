@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package encorehub.v1;
+
+import "encorehub/v1/common.proto";
+
+// ===== Memory Service =====
+
+service MemoryService {
+  rpc StoreMemory(StoreMemoryRequest) returns (Memory);
+  rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
+  rpc ConsolidateMemories(ConsolidateRequest) returns (ConsolidateResponse);
+  rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+}
+
+message Memory {
+  string id = 1;
+  MemoryScope scope = 2;
+  MemoryType type = 3;
+  string conversation_id = 4;  // empty for global memories
+  string content = 5;
+  float importance = 6;  // 0.0 - 1.0
+  Timestamp created_at = 7;
+  Timestamp last_accessed = 8;
+}
+
+enum MemoryScope {
+  MEMORY_SCOPE_UNSPECIFIED = 0;
+  MEMORY_SCOPE_CONVERSATION = 1;
+  MEMORY_SCOPE_GLOBAL = 2;
+}
+
+enum MemoryType {
+  MEMORY_TYPE_UNSPECIFIED = 0;
+  MEMORY_TYPE_WORKING = 1;
+  MEMORY_TYPE_EPISODIC = 2;
+  MEMORY_TYPE_SEMANTIC = 3;
+  MEMORY_TYPE_PINNED = 4;
+}
+
+message StoreMemoryRequest {
+  MemoryScope scope = 1;
+  MemoryType type = 2;
+  string conversation_id = 3;
+  string content = 4;
+  float importance = 5;
+}
+
+message SearchMemoriesRequest {
+  string query = 1;
+  MemoryScope scope = 2;  // optional filter
+  int32 top_k = 3;
+}
+
+message SearchMemoriesResponse {
+  repeated MemoryResult results = 1;
+}
+
+message MemoryResult {
+  Memory memory = 1;
+  float score = 2;  // relevance score
+}
+
+message ConsolidateRequest {
+  string conversation_id = 1;
+}
+
+message ConsolidateResponse {
+  int32 memories_created = 1;
+  int32 memories_updated = 2;
+  int32 memories_merged = 3;
+}
+
+message DeleteMemoryRequest {
+  string id = 1;
+}
+
+message DeleteMemoryResponse {
+  bool success = 1;
+}

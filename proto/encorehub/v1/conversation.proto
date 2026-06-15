@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package encorehub.v1;
+
+import "encorehub/v1/common.proto";
+
+// ===== Conversation Service =====
+
+service ConversationService {
+  rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  rpc GetConversation(GetConversationRequest) returns (Conversation);
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  rpc DeleteConversation(DeleteConversationRequest) returns (DeleteConversationResponse);
+  rpc SendMessage(SendMessageRequest) returns (stream ChatEvent);
+}
+
+message Conversation {
+  string id = 1;
+  string title = 2;
+  repeated Message messages = 3;
+  string provider = 4;
+  string model = 5;
+  Timestamp created_at = 6;
+  Timestamp updated_at = 7;
+}
+
+message Message {
+  string id = 1;
+  Role role = 2;
+  string content = 3;
+  repeated ToolCall tool_calls = 4;
+  string parent_id = 5;
+  Timestamp created_at = 6;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER = 1;
+  ROLE_ASSISTANT = 2;
+  ROLE_SYSTEM = 3;
+  ROLE_TOOL = 4;
+}
+
+message ToolCall {
+  string id = 1;
+  string name = 2;
+  string arguments = 3;  // JSON string
+}
+
+// ===== Requests =====
+
+message CreateConversationRequest {
+  string title = 1;
+  string provider = 2;
+  string model = 3;
+}
+
+message GetConversationRequest {
+  string id = 1;
+}
+
+message ListConversationsRequest {
+  Pagination pagination = 1;
+}
+
+message ListConversationsResponse {
+  repeated Conversation conversations = 1;
+  Pagination pagination = 2;
+}
+
+message DeleteConversationRequest {
+  string id = 1;
+}
+
+message DeleteConversationResponse {
+  bool success = 1;
+}
+
+message SendMessageRequest {
+  string conversation_id = 1;
+  string content = 2;
+  string provider = 3;
+  string model = 4;
+  bool stream = 5;
+  ChatContext context = 6;
+}
+
+message ChatContext {
+  repeated MemoryRef memories = 1;
+  repeated KnowledgeRef knowledge_chunks = 2;
+  repeated SearchResultRef search_results = 3;
+}
+
+message MemoryRef {
+  string id = 1;
+  string scope = 2;  // "conversation" | "global"
+  string content = 3;
+}
+
+message KnowledgeRef {
+  string document_id = 1;
+  string chunk_id = 2;
+  string content = 3;
+}
+
+message SearchResultRef {
+  string title = 1;
+  string url = 2;
+  string snippet = 3;
+}
+
+// ===== Streaming Events =====
+
+message ChatEvent {
+  oneof event {
+    ContentDelta delta = 1;
+    ToolCallRequest tool_call = 2;
+    UsageInfo usage = 3;
+    ErrorEvent error = 4;
+  }
+}
+
+message ContentDelta {
+  string content = 1;
+}
+
+message ToolCallRequest {
+  string id = 1;
+  string name = 2;
+  string arguments = 3;
+}
+
+message UsageInfo {
+  int32 input_tokens = 1;
+  int32 output_tokens = 2;
+}
+
+message ErrorEvent {
+  string code = 1;
+  string message = 2;
+}

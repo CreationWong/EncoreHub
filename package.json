@@ -1,0 +1,23 @@
+{
+  "name": "encorehub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI Chat Client - multi-provider, cross-platform",
+  "scripts": {
+    "frontend:dev": "cd frontend && pnpm dev",
+    "frontend:build": "cd frontend && pnpm build",
+    "gateway:dev": "cd gateway && go run ./cmd/gateway",
+    "gateway:build": "cd gateway && go build -o bin/gateway ./cmd/gateway",
+    "engine:dev": "cd engine && cargo run",
+    "engine:build": "cd engine && cargo build --release",
+    "data:dev": "cd data-services && uv run uvicorn src.main:app --reload",
+    "dev": "concurrently \"pnpm frontend:dev\" \"pnpm gateway:dev\" \"pnpm engine:dev\"",
+    "test": "pnpm --filter '*' test",
+    "lint": "pnpm --filter '*' lint",
+    "proto:gen": "buf generate"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

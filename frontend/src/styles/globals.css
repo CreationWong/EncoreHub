@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-surface: #ffffff;
+    --color-surface-alt: #f8f9fa;
+    --color-surface-hover: #f1f3f5;
+    --color-border: #e9ecef;
+    --color-text-primary: #212529;
+    --color-text-secondary: #495057;
+    --color-text-muted: #868e96;
+    --color-accent: #4263eb;
+    --color-accent-hover: #3b5bdb;
+  }
+
+  .dark {
+    --color-surface: #1a1b1e;
+    --color-surface-alt: #2c2e33;
+    --color-surface-hover: #373a40;
+    --color-border: #373a40;
+    --color-text-primary: #e9ecef;
+    --color-text-secondary: #adb5bd;
+    --color-text-muted: #6c757d;
+    --color-accent: #5c7cfa;
+    --color-accent-hover: #748ffc;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-surface text-text-primary;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-text-muted/20 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted/40;
+  }
+}
+
+/* Code block styling */
+pre {
+  @apply bg-surface-alt rounded-lg p-4 overflow-x-auto text-sm;
+}
+
+code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}

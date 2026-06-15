@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  # ===== API Gateway (Go) =====
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "9090:9090"  # gRPC
+    environment:
+      - GIN_MODE=debug
+      - ENGINE_ADDR=engine:50051
+      - DATA_SERVICE_ADDR=data-services:8000
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./gateway:/app
+    depends_on:
+      - engine
+      - redis
+    restart: unless-stopped
+
+  # ===== Core Engine (Rust) =====
+  engine:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"  # gRPC
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=sqlite:///data/encorehub.db
+      - LANCEDB_PATH=/data/lancedb
+    volumes:
+      - engine_data:/data
+      - ./engine:/app
+    restart: unless-stopped
+
+  # ===== Data Services (Python) =====
+  data-services:
+    build:
+      context: ./data-services
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENGINE_ADDR=engine:50051
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./data-services:/app
+    depends_on:
+      - engine
+      - redis
+    restart: unless-stopped
+
+  # ===== Redis (cache + message queue) =====
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  engine_data:
+  redis_data:
