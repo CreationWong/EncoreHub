@@ -1,16 +1,20 @@
 mod conversations;
 mod knowledge;
 mod memories;
+mod plugins;
+mod skills;
 
-use axum::{routing::{get, post, delete}, Router};
+use axum::{routing::{delete, get, post}, Router};
+use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
 use serde::Serialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub struct AppState {
     pub db: Database,
+    pub skill_registry: Mutex<SkillRegistry>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -20,8 +24,11 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
-pub fn build_router(db: Database) -> Router {
-    let state = Arc::new(AppState { db });
+pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
+    let state = Arc::new(AppState {
+        db,
+        skill_registry: Mutex::new(skill_registry),
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -29,6 +36,12 @@ pub fn build_router(db: Database) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        // Plugins
+        .route("/api/plugins", get(plugins::list_plugins).post(plugins::install_plugin))
+        // Skills
+        .route("/api/skills", get(skills::list_skills))
+        .route("/api/skills/match", get(skills::match_skills))
+        .route("/api/skills/:id/toggle", post(skills::toggle_skill))
         // Knowledge base
         .route("/api/knowledge", get(knowledge::list).post(knowledge::ingest))
         .route("/api/knowledge/search", get(knowledge::search))

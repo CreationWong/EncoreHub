@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/storage",
+    "crates/skill",
 ]
 
 [workspace.package]
@@ -58,16 +59,25 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Root package — the engine binary
+# Root package — engine + MCP server binaries
 [package]
 name = "encorehub-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "encorehub-engine"
+path = "src/main.rs"
+
+[[bin]]
+name = "encorehub-mcp"
+path = "src/mcp_server.rs"
+
 [dependencies]
 encorehub-core = { path = "crates/core" }
 encorehub-storage = { path = "crates/storage" }
+encorehub-skill = { path = "crates/skill" }
 
 tokio.workspace = true
 tracing.workspace = true

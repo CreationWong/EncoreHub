@@ -1,0 +1,8 @@
+{
+  "name": "hello-world",
+  "version": "1.0.0",
+  "description": "A simple example plugin that greets the user",
+  "author": "EncoreHub",
+  "hooks": ["on_message", "on_startup"],
+  "permissions": ["read_config", "write_log"]
+}
