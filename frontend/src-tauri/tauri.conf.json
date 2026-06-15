@@ -55,30 +55,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "binaries/encorehub-engine",
-          "sidecar": true
-        },
-        {
-          "name": "binaries/gateway",
-          "sidecar": true
-        }
-      ]
-    },
-    "notification": {
-      "all": true
-    },
-    "clipboard-manager": {
-      "all": true
-    },
-    "fs": {
-      "all": true,
-      "scope": ["**"]
-    },
-    "global-shortcut": {
-      "all": true
+      "open": true
     }
   }
 }

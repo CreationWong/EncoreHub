@@ -17,6 +17,7 @@ import (
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/provider"
 	"github.com/encorehub/gateway/internal/provider/anthropic"
+	"github.com/encorehub/gateway/internal/provider/deepseek"
 	"github.com/encorehub/gateway/internal/provider/openai"
 	"github.com/encorehub/gateway/internal/router"
 	"github.com/rs/zerolog"
@@ -45,6 +46,7 @@ func main() {
 	registry := provider.NewRegistry(
 		openai.New(),
 		anthropic.New(),
+		deepseek.New(),
 	)
 
 	log.Info().

@@ -6,6 +6,7 @@ const PROVIDERS = [
   { id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1"] },
   { id: "anthropic", name: "Anthropic", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"] },
   { id: "deepseek", name: "DeepSeek", models: ["deepseek-chat", "deepseek-reasoner"] },
+  { id: "google", name: "Google", models: ["gemini-2.5-flash", "gemini-2.5-pro"] },
   { id: "ollama", name: "Ollama (Local)", models: ["llama3.2", "qwen2.5", "codestral", "mistral"] },
 ];
 

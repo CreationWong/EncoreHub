@@ -1,37 +1,33 @@
-// Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::process::{Child, Command};
 use std::sync::Mutex;
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
 
 struct ServiceState {
-    engine_child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
-    gateway_child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
+    engine_child: Mutex<Option<Child>>,
+    gateway_child: Mutex<Option<Child>>,
 }
 
 #[tauri::command]
 fn check_engine_health() -> Result<String, String> {
-    ureq::get("http://127.0.0.1:3000/health")
-        .call()
-        .map_err(|e| format!("Engine not reachable: {}", e))
-        .and_then(|r| r.into_string().map_err(|e| format!("{}", e)))
+    match ureq::get("http://127.0.0.1:3000/health").call() {
+        Ok(r) => r.into_string().map_err(|e| format!("{e}")),
+        Err(e) => Err(format!("Engine not ready: {e}")),
+    }
 }
 
 #[tauri::command]
 fn check_gateway_health() -> Result<String, String> {
-    ureq::get("http://127.0.0.1:8080/api/v1/health")
-        .call()
-        .map_err(|e| format!("Gateway not reachable: {}", e))
-        .and_then(|r| r.into_string().map_err(|e| format!("{}", e)))
+    match ureq::get("http://127.0.0.1:8080/api/v1/health").call() {
+        Ok(r) => r.into_string().map_err(|e| format!("{e}")),
+        Err(e) => Err(format!("Gateway not ready: {e}")),
+    }
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_fs::init())
         .manage(ServiceState {
             engine_child: Mutex::new(None),
             gateway_child: Mutex::new(None),
@@ -41,45 +37,58 @@ fn main() {
             check_gateway_health,
         ])
         .setup(|app| {
-            let shell = app.shell();
+            // Get the directory containing the main executable
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| {
+                    app.path().resource_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                });
 
-            // Spawn engine sidecar
-            let engine_cmd = shell.sidecar("encorehub-engine").unwrap();
-            let (mut engine_rx, engine_child) = engine_cmd.spawn().expect("Failed to start engine");
-            app.state::<ServiceState>()
-                .engine_child
-                .lock()
-                .unwrap()
-                .replace(engine_child);
+            eprintln!("EncoreHub starting, resource dir: {:?}", exe_dir);
 
-            // Log engine output
-            tauri::async_runtime::spawn(async move {
-                use tauri_plugin_shell::process::CommandEvent;
-                while let Some(event) = engine_rx.recv().await {
-                    if let CommandEvent::Stdout(line) = event {
-                        println!("[engine] {}", String::from_utf8_lossy(&line));
+            // ---- Spawn engine ----
+            let engine_path = find_binary(&exe_dir, "encorehub-engine");
+            eprintln!("Engine path: {:?}", engine_path);
+            if let Some(path) = engine_path {
+                match Command::new(&path)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(child) => {
+                        eprintln!("Engine started (pid: {})", child.id());
+                        app.state::<ServiceState>()
+                            .engine_child.lock().unwrap()
+                            .replace(child);
                     }
+                    Err(e) => eprintln!("Failed to start engine: {e}"),
                 }
-            });
+            } else {
+                eprintln!("Engine binary not found!");
+            }
 
-            // Spawn gateway sidecar
-            let gateway_cmd = shell.sidecar("gateway").unwrap();
-            let (mut gateway_rx, gateway_child) = gateway_cmd.spawn().expect("Failed to start gateway");
-            app.state::<ServiceState>()
-                .gateway_child
-                .lock()
-                .unwrap()
-                .replace(gateway_child);
-
-            // Log gateway output
-            tauri::async_runtime::spawn(async move {
-                use tauri_plugin_shell::process::CommandEvent;
-                while let Some(event) = gateway_rx.recv().await {
-                    if let CommandEvent::Stdout(line) = event {
-                        println!("[gateway] {}", String::from_utf8_lossy(&line));
+            // ---- Spawn gateway ----
+            let gateway_path = find_binary(&exe_dir, "gateway");
+            eprintln!("Gateway path: {:?}", gateway_path);
+            if let Some(path) = gateway_path {
+                match Command::new(&path)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                {
+                    Ok(child) => {
+                        eprintln!("Gateway started (pid: {})", child.id());
+                        app.state::<ServiceState>()
+                            .gateway_child.lock().unwrap()
+                            .replace(child);
                     }
+                    Err(e) => eprintln!("Failed to start gateway: {e}"),
                 }
-            });
+            } else {
+                eprintln!("Gateway binary not found!");
+            }
 
             Ok(())
         })
@@ -93,14 +102,33 @@ fn main() {
                     window.state::<ServiceState>()
                         .gateway_child.lock().unwrap().take()
                 };
-                if let Some(child) = engine {
+                if let Some(mut child) = engine {
                     let _ = child.kill();
+                    let _ = child.wait();
                 }
-                if let Some(child) = gateway {
+                if let Some(mut child) = gateway {
                     let _ = child.kill();
+                    let _ = child.wait();
                 }
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running EncoreHub");
+}
+
+/// Find a binary in the given directory, trying multiple naming conventions.
+fn find_binary(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    let candidates = vec![
+        dir.join(format!("{name}.exe")),
+        dir.join("binaries").join(format!("{name}.exe")),
+        dir.join(format!("{name}-x86_64-pc-windows-msvc.exe")),
+        dir.join("binaries").join(format!("{name}-x86_64-pc-windows-msvc.exe")),
+    ];
+    for c in &candidates {
+        if c.exists() {
+            return Some(c.clone());
+        }
+    }
+    eprintln!("Tried paths: {:?}", candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>());
+    None
 }
