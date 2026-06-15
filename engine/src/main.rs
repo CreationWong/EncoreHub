@@ -10,6 +10,7 @@
 //! - Web search orchestration
 //! - OS abstraction layer
 
+use encorehub_storage::Database;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
@@ -22,16 +23,22 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("EncoreHub Engine starting...");
 
-    // TODO: Initialize database connections (SQLite + LanceDB)
-    // TODO: Start gRPC server
-    // TODO: Initialize memory system
-    // TODO: Initialize skill/plugin registries
+    // Open SQLite database
+    let db = Database::open_and_return("data/encorehub.db")?;
+    tracing::info!("Database initialized");
 
-    tracing::info!("EncoreHub Engine ready");
+    // Verify database works with a simple operation
+    let config_key = "engine.version";
+    db.set_config(config_key, r#""0.1.0""#)?;
+    if let Some(entry) = db.get_config(config_key)? {
+        tracing::info!("Config '{}' = {}", entry.key, entry.value_json);
+    }
+
+    tracing::info!("EncoreHub Engine ready. Press Ctrl+C to stop.");
 
     // Keep alive until shutdown signal
     tokio::signal::ctrl_c().await?;
-    tracing::info!("EncoreHub Engine shutting down");
+    tracing::info!("EncoreHub Engine shutting down...");
 
     Ok(())
 }

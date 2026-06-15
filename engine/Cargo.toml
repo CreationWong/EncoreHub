@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/*",
+    "crates/core",
+    "crates/storage",
 ]
 
 [workspace.package]
@@ -20,9 +21,9 @@ serde_json = "1"
 anyhow = "1"
 thiserror = "2"
 # Database
-rusqlite = { version = "0.32", features = ["bundled", "fts5"] }
-# Vector DB (LanceDB via lancedb crate or REST)
-lancedb = "0.17"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Vector DB — lancedb Rust SDK (placeholder until available)
+# lancedb = "0.17"
 # gRPC
 tonic = "0.12"
 prost = "0.13"
@@ -45,10 +46,26 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 unicode-segmentation = "1"
 regex = "1"
 # WASM runtime for plugins
-wasmtime = "25"
+# wasmtime = "25"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# Root package — the engine binary
+[package]
+name = "encorehub-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+encorehub-core = { path = "crates/core" }
+encorehub-storage = { path = "crates/storage" }
+
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true

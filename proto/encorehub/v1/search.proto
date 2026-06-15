@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package encorehub.v1;
+
+import "encorehub/v1/common.proto";
+
+// ===== Web Search Service =====
+
+service SearchService {
+  rpc SearchWeb(SearchWebRequest) returns (SearchWebResponse);
+  rpc FetchPage(FetchPageRequest) returns (FetchPageResponse);
+  rpc ClearCache(ClearCacheRequest) returns (ClearCacheResponse);
+}
+
+message SearchWebRequest {
+  string query = 1;
+  string provider = 2;  // brave, tavily, serpapi, duckduckgo
+  int32 max_results = 3;
+  bool fetch_content = 4;  // also scrape page content
+  bool use_cache = 5;
+}
+
+message SearchWebResponse {
+  repeated SearchResult results = 1;
+  string provider_used = 2;
+}
+
+message SearchResult {
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  string snippet = 4;
+  string full_content = 5;  // scraped page text (empty if fetch_content=false)
+  float relevance_score = 6;
+}
+
+message FetchPageRequest {
+  string url = 1;
+}
+
+message FetchPageResponse {
+  string url = 1;
+  string title = 2;
+  string content = 3;
+  string content_type = 4;
+}
+
+message ClearCacheRequest {
+  string query = 1;  // empty = clear all
+}
+
+message ClearCacheResponse {
+  int32 entries_removed = 1;
+}

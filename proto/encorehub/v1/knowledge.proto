@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package encorehub.v1;
+
+import "encorehub/v1/common.proto";
+
+// ===== Knowledge Base Service =====
+
+service KnowledgeService {
+  rpc IngestDocument(IngestDocumentRequest) returns (Document);
+  rpc GetDocument(GetDocumentRequest) returns (Document);
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc DeleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
+  rpc SearchKnowledge(SearchKnowledgeRequest) returns (SearchKnowledgeResponse);
+}
+
+message Document {
+  string id = 1;
+  string title = 2;
+  string file_type = 3;  // pdf, docx, md, txt, code, web
+  int32 chunk_count = 4;
+  int64 size_bytes = 5;
+  Timestamp created_at = 6;
+}
+
+message DocumentChunk {
+  string id = 1;
+  string document_id = 2;
+  string content = 3;
+  int32 chunk_index = 4;
+  int32 token_count = 5;
+}
+
+// ===== Requests =====
+
+message IngestDocumentRequest {
+  string title = 1;
+  string file_type = 2;
+  bytes content = 3;  // raw file bytes
+}
+
+message GetDocumentRequest {
+  string id = 1;
+}
+
+message ListDocumentsRequest {
+  Pagination pagination = 1;
+}
+
+message ListDocumentsResponse {
+  repeated Document documents = 1;
+  Pagination pagination = 2;
+}
+
+message DeleteDocumentRequest {
+  string id = 1;
+}
+
+message DeleteDocumentResponse {
+  bool success = 1;
+}
+
+message SearchKnowledgeRequest {
+  string query = 1;
+  int32 top_k = 2;
+  repeated string document_ids = 3;  // optional filter
+}
+
+message SearchKnowledgeResponse {
+  repeated KnowledgeResult results = 1;
+}
+
+message KnowledgeResult {
+  DocumentChunk chunk = 1;
+  float score = 2;
+}
