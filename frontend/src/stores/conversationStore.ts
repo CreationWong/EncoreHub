@@ -2,24 +2,23 @@ import { create } from "zustand";
 import type { Conversation, ConversationDetail, Message } from "../services/conversation";
 import * as convApi from "../services/conversation";
 import { chatApi } from "../services/chat";
+import { useSettingsStore } from "./settingsStore";
 
 interface ConversationState {
-  // Data
   conversations: Conversation[];
   activeId: string | null;
   messages: Message[];
   loading: boolean;
   streaming: boolean;
   streamingContent: string;
+  error: string | null;
 
-  // Actions
   loadList: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   newConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
-  appendStreamDelta: (content: string) => void;
-  finishStream: (fullContent: string) => void;
+  clearError: () => void;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -29,6 +28,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   loading: false,
   streaming: false,
   streamingContent: "",
+  error: null,
 
   loadList: async () => {
     try {
@@ -40,24 +40,30 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   selectConversation: async (id: string) => {
-    set({ activeId: id, loading: true, streaming: false, streamingContent: "" });
+    set({ activeId: id, loading: true, streaming: false, streamingContent: "", error: null });
     try {
       const detail = await convApi.getConversation(id);
       set({ messages: detail.messages, loading: false });
     } catch (err) {
       console.error("Failed to load conversation:", err);
-      set({ loading: false });
+      set({ loading: false, error: "Failed to load conversation" });
     }
   },
 
   newConversation: async () => {
     try {
-      const conv = await convApi.createConversation();
+      const { provider, model } = useSettingsStore.getState();
+      const conv = await convApi.createConversation(
+        "New Chat",
+        provider || "",
+        model || "",
+      );
       await get().loadList();
-      set({ activeId: conv.id, messages: [], streamingContent: "" });
+      set({ activeId: conv.id, messages: [], streamingContent: "", error: null });
       return conv.id;
     } catch (err) {
       console.error("Failed to create conversation:", err);
+      set({ error: "Failed to create conversation" });
       return "";
     }
   },
@@ -72,6 +78,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       await get().loadList();
     } catch (err) {
       console.error("Failed to delete conversation:", err);
+      set({ error: "Failed to delete conversation" });
     }
   },
 
@@ -79,15 +86,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const { activeId, messages } = get();
     let convId = activeId;
 
-    // Auto-create conversation if none active
     if (!convId) {
       convId = await get().newConversation();
       if (!convId) return;
     }
 
+    // Get API key from settings
+    const { provider, apiKeys } = useSettingsStore.getState();
+    const providerKey = provider ? apiKeys[provider] : undefined;
+
     // Optimistic user message
     const userMsg: Message = {
-      id: `temp-${Date.now()}`,
+      id: `user-${Date.now()}`,
       role: "user",
       content,
       parent_id: null,
@@ -99,60 +109,45 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       messages: [...messages, userMsg],
       streaming: true,
       streamingContent: "",
+      error: null,
     });
 
-    try {
-      const resp = await chatApi.sendMessage(convId, content);
-      // Replace temp message + add real reply
-      set((state) => ({
-        messages: [
-          ...state.messages.filter((m) => m.id !== userMsg.id),
-          resp.user_message ?? userMsg,
-          resp.assistant_message ?? {
-            id: `resp-${Date.now()}`,
-            role: "assistant",
-            content: resp.reply,
-            parent_id: null,
-            tool_calls: [],
-            created_at: new Date().toISOString(),
-          },
-        ],
-        streaming: false,
-        streamingContent: "",
-      }));
-      // Refresh list for title update
-      get().loadList();
-    } catch (err) {
-      console.error("Failed to send message:", err);
-      set((state) => ({
-        messages: state.messages.filter((m) => m.id !== userMsg.id),
-        streaming: false,
-        streamingContent: "",
-      }));
-    }
+    // Try streaming first, fall back to non-streaming
+    await chatApi.sendMessageStream(convId, content, providerKey, {
+      onDelta(delta) {
+        set((s) => ({ streamingContent: s.streamingContent + delta }));
+      },
+      onDone(fullContent) {
+        const final = fullContent || "(empty response)";
+        set((s) => ({
+          messages: [
+            ...s.messages.filter((m) => m.id !== userMsg.id),
+            userMsg,
+            {
+              id: `asst-${Date.now()}`,
+              role: "assistant",
+              content: final,
+              parent_id: userMsg.id,
+              tool_calls: [],
+              created_at: new Date().toISOString(),
+            },
+          ],
+          streaming: false,
+          streamingContent: "",
+        }));
+        get().loadList(); // refresh for title updates
+      },
+      onError(errorMsg) {
+        console.error("Stream error:", errorMsg);
+        set((s) => ({
+          messages: s.messages.filter((m) => m.id !== userMsg.id),
+          streaming: false,
+          streamingContent: "",
+          error: errorMsg,
+        }));
+      },
+    });
   },
 
-  appendStreamDelta: (content: string) => {
-    set((state) => ({
-      streamingContent: state.streamingContent + content,
-    }));
-  },
-
-  finishStream: (fullContent: string) => {
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          id: `stream-${Date.now()}`,
-          role: "assistant",
-          content: fullContent,
-          parent_id: null,
-          tool_calls: [],
-          created_at: new Date().toISOString(),
-        },
-      ],
-      streaming: false,
-      streamingContent: "",
-    }));
-  },
+  clearError: () => set({ error: null }),
 }));

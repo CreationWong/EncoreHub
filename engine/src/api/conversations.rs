@@ -245,6 +245,29 @@ pub async fn get_messages(
     Ok(Json(responses))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AddMessageRequest {
+    pub content: String,
+    pub role: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+}
+
+/// Store a message without generating a reply.
+/// Used by the Go gateway when it handles the AI call itself.
+pub async fn add_message(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+    Json(req): Json<AddMessageRequest>,
+) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let _conv = state.db.get_conversation(&conv_id).map_err(not_found)?;
+    let role = Role::from_str(&req.role).unwrap_or(Role::User);
+    let msg = Message::new(&conv_id, role, &req.content, req.parent_id);
+    state.db.append_message(&msg).map_err(internal_error)?;
+
+    Ok(Json(build_msg_response(&msg, &[])))
+}
+
 /// Send a message and get a mock AI reply.
 ///
 /// Currently returns a mock echo reply. In the future this will call the

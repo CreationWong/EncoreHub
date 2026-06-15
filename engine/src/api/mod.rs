@@ -4,7 +4,7 @@
 
 mod conversations;
 
-use axum::{routing::get, Router};
+use axum::{routing::{get, post}, Router};
 use encorehub_storage::Database;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
@@ -27,7 +27,9 @@ pub fn build_router(db: Database) -> Router {
         .allow_headers(Any);
 
     Router::new()
-        // Messages sub-route (using :id syntax for axum compatibility)
+        // Append single message (used by gateway)
+        .route("/api/conversations/:id/messages/append", post(conversations::add_message))
+        // Messages sub-route
         .route("/api/conversations/:id/messages", get(conversations::get_messages).post(conversations::send_message))
         // Conversation by ID
         .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete))

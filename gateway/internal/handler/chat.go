@@ -12,32 +12,26 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// ChatHandler handles chat requests and proxies to AI providers.
 type ChatHandler struct {
-	registry    *provider.Registry
-	engine      *engine.Client
+	registry *provider.Registry
+	engine   *engine.Client
 }
 
 func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *ChatHandler {
-	return &ChatHandler{
-		registry: registry,
-		engine:    engineClient,
-	}
+	return &ChatHandler{registry: registry, engine: engineClient}
 }
 
-// ===== Request/Response types =====
-
 type SendMessageRequest struct {
-	Content       string  `json:"content" binding:"required"`
-	Provider      string  `json:"provider"`
-	Model         string  `json:"model"`
-	Stream        bool    `json:"stream"`
-	Temperature   float32 `json:"temperature"`
+	Content     string  `json:"content" binding:"required"`
+	Provider    string  `json:"provider"`
+	Model       string  `json:"model"`
+	Stream      bool    `json:"stream"`
+	Temperature float32 `json:"temperature"`
 }
 
 type ChatResponse struct {
 	ConversationID string               `json:"conversation_id"`
-	UserMessage    engine.Message       `json:"user_message"`
+	UserMessage    engine.Message       `json:"user_message,omitempty"`
 	Reply          string               `json:"reply"`
 	Provider       string               `json:"provider"`
 	Model          string               `json:"model"`
@@ -45,22 +39,15 @@ type ChatResponse struct {
 }
 
 // SendMessage handles POST /api/v1/conversations/:id/chat
-//
-// Flow:
-//  1. Store user message via engine
-//  2. Call AI provider with conversation context
-//  3. Store assistant reply via engine
-//  4. Return unified response
 func (h *ChatHandler) SendMessage(c *gin.Context) {
 	convID := c.Param("id")
-
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Default provider/model from engine's conversation metadata
+	// Resolve provider/model from engine metadata if not specified
 	if req.Provider == "" {
 		if conv, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
 			req.Provider = conv.Provider
@@ -74,7 +61,6 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		req.Model = "gpt-4o"
 	}
 
-	// Get API key from header
 	apiKey := c.GetHeader("X-Provider-Key")
 	if apiKey == "" {
 		apiKey = c.GetHeader("X-" + req.Provider + "-Key")
@@ -85,61 +71,57 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		Str("provider", req.Provider).
 		Str("model", req.Model).
 		Bool("stream", req.Stream).
+		Bool("has_key", apiKey != "").
 		Msg("chat request")
 
-	// Fallback: if no API key, delegate to engine's mock AI
-	if apiKey == "" {
-		log.Info().Msg("no API key — falling back to engine mock")
-		h.mockChat(c, convID, req)
-		return
-	}
+	// Step 1: Always store the user message in the engine first.
+	// We do this with a direct engine client call, not through engine.SendMessage
+	// (which would also generate a mock reply).
+	userMsgID := h.storeUserMessage(convID, req.Content)
 
-	// Build context from engine (get conversation messages + memories)
-	convDetail, err := h.engine.GetConversation(c.Request.Context(), convID)
-	if err != nil {
-		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to get conversation from engine, continuing")
-	}
-
-	// Build unified chat request
-	chatReq := &provider.ChatRequest{
-		Model:       req.Model,
-		Stream:      req.Stream,
-		Temperature: req.Temperature,
-		MaxTokens:   4096,
-	}
-
-	if convDetail != nil {
-		for _, msg := range convDetail.Messages {
-			chatReq.Messages = append(chatReq.Messages, provider.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
+	// Step 2: Get conversation context from engine (includes the user message we just stored)
+	var chatReq *provider.ChatRequest
+	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
+		chatReq = buildChatRequest(convDetail, req)
+	} else {
+		chatReq = &provider.ChatRequest{
+			Model:       req.Model,
+			Stream:      req.Stream,
+			Temperature: req.Temperature,
+			MaxTokens:   4096,
+			Messages: []provider.Message{
+				{Role: "user", Content: req.Content},
+			},
 		}
 	}
 
-	// Add current message
-	chatReq.Messages = append(chatReq.Messages, provider.Message{
-		Role:    "user",
-		Content: req.Content,
-	})
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer cancel()
 
-	// Get the provider adapter
+	// Step 3: If no API key, use mock mode (supports both stream and non-stream)
+	if apiKey == "" {
+		log.Info().Msg("no API key — using mock AI")
+		if req.Stream {
+			h.mockStream(c, convID, userMsgID, req)
+		} else {
+			h.mockReply(c, convID, userMsgID, req)
+		}
+		return
+	}
+
+	// Step 4: Call real AI provider
 	adapter, err := h.registry.Get(req.Provider)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
-	defer cancel()
-
-	// Streaming mode
 	if req.Stream {
-		h.handleStream(ctx, c, adapter, chatReq, convID, req)
+		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, userMsgID, req)
 		return
 	}
 
-	// Non-streaming mode
+	// Non-streaming
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
 	if err != nil {
 		log.Error().Err(err).Msg("provider chat failed")
@@ -147,17 +129,12 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Store assistant message in engine
-	engineResp, err := h.engine.SendMessage(ctx, convID, req.Content)
-	if err != nil {
-		log.Warn().Err(err).Msg("engine send_message failed, returning provider response only")
-	}
-
-	reply := assistantContent(engineResp, chatResp)
+	// Store assistant reply in engine
+	h.storeAssistantMessage(convID, userMsgID, chatResp.Content)
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
-		Reply:          reply,
+		Reply:          chatResp.Content,
 		Provider:       req.Provider,
 		Model:          req.Model,
 		Usage: &provider.UsageEvent{
@@ -167,14 +144,12 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	})
 }
 
-func (h *ChatHandler) handleStream(ctx context.Context, c *gin.Context, adapter provider.Adapter, req *provider.ChatRequest, convID string, origReq SendMessageRequest) {
-	// Store user message first
-	var userMsgID string
-	if engineResp, err := h.engine.SendMessage(ctx, convID, origReq.Content); err == nil {
-		userMsgID = engineResp.UserMessage.ID
-	}
+// ===== Streaming (real provider) =====
 
-	events, err := adapter.ChatStream(ctx, req, c.GetHeader("X-Provider-Key"))
+func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
+	req *provider.ChatRequest, apiKey, convID, userMsgID string, origReq SendMessageRequest) {
+
+	events, err := adapter.ChatStream(ctx, req, apiKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -183,71 +158,170 @@ func (h *ChatHandler) handleStream(ctx context.Context, c *gin.Context, adapter 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
 
 	var fullContent string
+	flusher, _ := c.Writer.(http.Flusher)
+
 	for ev := range events {
 		if ev.Error != nil {
 			log.Error().Err(ev.Error).Msg("stream error")
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", ev.Error.Error())
-			c.Writer.Flush()
+			if flusher != nil {
+				flusher.Flush()
+			}
 			return
 		}
-
 		if ev.Delta != nil {
 			fullContent += ev.Delta.Content
 			fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", ev.Delta.Content)
-			c.Writer.Flush()
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
-
 		if ev.Usage != nil {
 			fmt.Fprintf(c.Writer, "event: usage\ndata: {\"input_tokens\":%d,\"output_tokens\":%d}\n\n",
 				ev.Usage.InputTokens, ev.Usage.OutputTokens)
-			c.Writer.Flush()
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
 
-	// Store assistant reply in engine
-	go func() {
-		// Create a message in the engine with the full response
-		if userMsgID != "" {
-			h.engine.SendMessage(context.Background(), convID, "[STREAM_COMPLETE]")
-		}
-		_ = userMsgID
-	}()
+	// Store assistant reply
+	go h.storeAssistantMessage(convID, userMsgID, fullContent)
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
-	c.Writer.Flush()
+	if flusher != nil {
+		flusher.Flush()
+	}
 }
 
-func assistantContent(engineResp *engine.SendMessageResponse, chatResp *provider.ChatResponse) string {
-	if engineResp != nil {
-		return engineResp.AssistantMessage.Content
-	}
-	if chatResp != nil {
-		return chatResp.Content
-	}
-	return ""
-}
+// ===== Mock mode =====
 
-// mockChat delegates to the engine's mock AI when no API key is available.
-func (h *ChatHandler) mockChat(c *gin.Context, convID string, req SendMessageRequest) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	engineResp, err := h.engine.SendMessage(ctx, convID, req.Content)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Refresh to get title
-	conv, _ := h.engine.GetConversation(ctx, convID)
-
+func (h *ChatHandler) mockReply(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
+	reply := generateMockReply(req.Content)
+	h.storeAssistantMessage(convID, userMsgID, reply)
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
-		UserMessage:    engineResp.UserMessage,
-		Reply:          engineResp.AssistantMessage.Content,
+		Reply:          reply,
 		Provider:       "mock (engine)",
-		Model:          conv.Model,
+		Model:          req.Model,
 	})
+}
+
+func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	flusher, _ := c.Writer.(http.Flusher)
+	reply := generateMockReply(req.Content)
+
+	// Stream the mock reply character by character (simulated typing)
+	for i, ch := range reply {
+		fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", string(ch))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		// Small delay for typing effect
+		if i%3 == 0 {
+			time.Sleep(15 * time.Millisecond)
+		}
+	}
+
+	// Store assistant reply
+	go h.storeAssistantMessage(convID, userMsgID, reply)
+
+	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+// ===== Engine helpers =====
+
+func (h *ChatHandler) storeUserMessage(convID, content string) string {
+	msg, err := h.engine.AppendMessage(context.Background(), convID, content, "user", "")
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to store user message via engine")
+		return fmt.Sprintf("user-%d", time.Now().UnixNano())
+	}
+	return msg.ID
+}
+
+func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content string) {
+	_, err := h.engine.AppendMessage(context.Background(), convID, content, "assistant", userMsgID)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to store assistant message via engine")
+	}
+	log.Debug().Str("conv_id", convID).Int("len", len(content)).Msg("assistant reply stored")
+}
+
+// ===== Helpers =====
+
+func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest) *provider.ChatRequest {
+	cr := &provider.ChatRequest{
+		Model:       req.Model,
+		Stream:      req.Stream,
+		Temperature: req.Temperature,
+		MaxTokens:   4096,
+	}
+	// System prompt
+	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately."
+
+	for _, msg := range conv.Messages {
+		cr.Messages = append(cr.Messages, provider.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	return cr
+}
+
+func generateMockReply(userInput string) string {
+	input := userInput
+	if len(input) > 100 {
+		input = input[:100] + "..."
+	}
+
+	// Simple keyword-based mock responses
+	switch {
+	case containsLower(input, "hello") || containsLower(input, "hi") || containsLower(input, "你好"):
+		return "Hello! I'm EncoreHub's assistant (mock mode). How can I help you today?"
+	case containsLower(input, "who are you") || containsLower(input, "你是谁"):
+		return "I'm EncoreHub, a multi-provider AI chat client. I support OpenAI, Anthropic, Gemini, and more. Right now I'm in mock mode — connect an API key to use real AI!"
+	case containsLower(input, "memory") || containsLower(input, "记忆"):
+		return "**Memory System**\n\n- Conversation memory: active (SQLite FTS5)\n- Global memory: schema ready (LanceDB pending)\n- All messages are persisted and searchable."
+	case containsLower(input, "help") || containsLower(input, "帮助"):
+		return "**Commands**: `hello`, `who are you`, `memory`, `help`. Anything else gets this contextual echo."
+	default:
+		return fmt.Sprintf("You said: \"%s\"\n\nThis is a mock reply. Add an API key in the sidebar to connect to real AI providers (OpenAI, Anthropic, etc.).", input)
+	}
+}
+
+func containsLower(s, substr string) bool {
+	return len(s) >= len(substr) && containsStr(toLower(s), substr)
+}
+
+func toLower(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

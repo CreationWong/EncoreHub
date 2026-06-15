@@ -123,6 +123,26 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+// AppendMessage stores a single message in the engine without auto-reply.
+type AppendMessageRequest struct {
+	Content  string `json:"content"`
+	Role     string `json:"role"`
+	ParentID string `json:"parent_id,omitempty"`
+}
+
+func (c *Client) AppendMessage(ctx context.Context, convID, content, role, parentID string) (*Message, error) {
+	body := AppendMessageRequest{
+		Content:  content,
+		Role:     role,
+		ParentID: parentID,
+	}
+	var msg Message
+	if err := c.doJSON(ctx, "POST", "/api/conversations/"+convID+"/messages/append", body, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
 	url := c.baseURL + path
 
