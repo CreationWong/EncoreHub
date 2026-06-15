@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "composite": true,
     "target": "ES2021",
     "lib": ["ES2021"],
     "module": "ESNext",
@@ -8,7 +9,7 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
+    "noEmit": false,
     "strict": true
   },
   "include": ["vite.config.ts"]
