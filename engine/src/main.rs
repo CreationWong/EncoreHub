@@ -3,12 +3,14 @@
 //! The Rust backend providing:
 //! - Conversation management with SQLite persistence
 //! - Memory system (conversation + global, LanceDB + SQLite)
-//! - Knowledge base (vector search + fulltext)
-//! - MCP Server/Client protocol implementation
-//! - Skill execution engine
-//! - Plugin host (WASM runtime)
-//! - Web search orchestration
-//! - OS abstraction layer
+//! - REST API for the frontend and Go gateway
+//! - MCP Server/Client protocol (coming)
+//! - Skill execution engine (coming)
+//! - Plugin host (coming)
+//! - Web search orchestration (coming)
+//! - OS abstraction layer (coming)
+
+mod api;
 
 use encorehub_storage::Database;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -25,20 +27,20 @@ async fn main() -> anyhow::Result<()> {
 
     // Open SQLite database
     let db = Database::open_and_return("data/encorehub.db")?;
-    tracing::info!("Database initialized");
+    tracing::info!("Database initialized ({} migrations applied)", 4);
 
-    // Verify database works with a simple operation
+    // Verify database works
     let config_key = "engine.version";
     db.set_config(config_key, r#""0.1.0""#)?;
-    if let Some(entry) = db.get_config(config_key)? {
-        tracing::info!("Config '{}' = {}", entry.key, entry.value_json);
-    }
 
-    tracing::info!("EncoreHub Engine ready. Press Ctrl+C to stop.");
+    // Build the HTTP router
+    let app = api::build_router(db);
+    let bind_addr = "127.0.0.1:3000";
 
-    // Keep alive until shutdown signal
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("EncoreHub Engine shutting down...");
+    tracing::info!("EncoreHub Engine listening on http://{}", bind_addr);
+
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
