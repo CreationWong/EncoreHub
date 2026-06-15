@@ -37,6 +37,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": [
+      "binaries/encorehub-engine",
+      "binaries/gateway"
+    ],
     "windows": {
       "wix": {}
     },
@@ -51,7 +55,17 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": true,
+      "scope": [
+        {
+          "name": "binaries/encorehub-engine",
+          "sidecar": true
+        },
+        {
+          "name": "binaries/gateway",
+          "sidecar": true
+        }
+      ]
     },
     "notification": {
       "all": true
