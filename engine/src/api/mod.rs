@@ -4,11 +4,16 @@ mod memories;
 mod plugins;
 mod skills;
 
-use axum::{routing::{delete, get, post}, Router};
+use axum::{
+    extract::State,
+    routing::{delete, get, post},
+    Json, Router,
+};
 use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -22,6 +27,22 @@ pub type SharedState = Arc<AppState>;
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DatabaseStatus {
+    ok: bool,
+    latency_ms: u128,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+    database: DatabaseStatus,
 }
 
 pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
@@ -63,6 +84,29 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
         .with_state(state)
 }
 
-async fn health_check() -> &'static str {
-    "ok"
+async fn health_check(State(state): State<SharedState>) -> Json<HealthResponse> {
+    // Cheap round-trip: read a config row that always exists post-migration.
+    // Failure here means SQLite is unreachable / locked — the rest of the
+    // service is effectively dead but we still report 200 so the gateway can
+    // distinguish "engine process up but database broken" from "engine down".
+    let start = Instant::now();
+    let db = match state.db.get_config("engine.version") {
+        Ok(_) => DatabaseStatus {
+            ok: true,
+            latency_ms: start.elapsed().as_millis(),
+            error: None,
+        },
+        Err(e) => DatabaseStatus {
+            ok: false,
+            latency_ms: start.elapsed().as_millis(),
+            error: Some(e.to_string()),
+        },
+    };
+
+    Json(HealthResponse {
+        status: "ok",
+        service: "encorehub-engine",
+        version: env!("CARGO_PKG_VERSION"),
+        database: db,
+    })
 }
