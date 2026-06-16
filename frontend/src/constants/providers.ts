@@ -3,6 +3,10 @@ export interface ProviderDef {
 	name: string;
 	models: string[];
 	keyHint?: string;
+	/** Pending backend support — show in UI as greyed/locked. */
+	disabled?: boolean;
+	/** Reason shown in tooltip when disabled. */
+	disabledReason?: string;
 }
 
 export const PROVIDERS: ProviderDef[] = [
@@ -33,13 +37,19 @@ export const PROVIDERS: ProviderDef[] = [
 		name: "Google",
 		models: ["gemini-2.5-flash", "gemini-2.5-pro"],
 		keyHint: "AI...",
+		disabled: true,
+		disabledReason: "Gateway adapter not implemented yet",
 	},
 	{
 		id: "ollama",
 		name: "Ollama (Local)",
 		models: ["llama3.2", "qwen2.5", "codestral", "mistral"],
+		disabled: true,
+		disabledReason: "Gateway adapter not implemented yet",
 	},
 ];
+
+export const ENABLED_PROVIDERS = PROVIDERS.filter((p) => !p.disabled);
 
 export function getProvider(id: string): ProviderDef | undefined {
 	return PROVIDERS.find((p) => p.id === id);

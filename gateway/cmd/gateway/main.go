@@ -10,9 +10,13 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/provider"
@@ -23,6 +27,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
+
+const shutdownTimeout = 5 * time.Second
 
 func main() {
 	// Setup structured logging
@@ -70,17 +76,42 @@ func main() {
 		Engine:   engineClient,
 	})
 
-	// Start server in background
+	// Wrap gin in *http.Server so we can call Shutdown(ctx).
+	srv := &http.Server{
+		Addr:              listenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	serveErr := make(chan error, 1)
 	go func() {
 		log.Info().Str("addr", listenAddr).Msg("Gateway listening")
-		if err := r.Run(listenAddr); err != nil {
-			log.Fatal().Err(err).Msg("server failed")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
 		}
+		close(serveErr)
 	}()
 
-	// Wait for shutdown signal
+	// Wait for shutdown signal or fatal listen error.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Info().Str("signal", sig.String()).Msg("Gateway shutting down")
+
+	select {
+	case sig := <-quit:
+		log.Info().Str("signal", sig.String()).Msg("shutdown requested")
+	case err := <-serveErr:
+		if err != nil {
+			log.Fatal().Err(err).Msg("server failed")
+		}
+		return
+	}
+
+	// Drain in-flight requests with a bounded timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Warn().Err(err).Msg("graceful shutdown timed out")
+	} else {
+		log.Info().Msg("Gateway stopped cleanly")
+	}
 }
