@@ -198,6 +198,32 @@ func (c *Client) SearchKnowledge(ctx context.Context, q string, topK int) ([]Kno
 	return resp.Results, nil
 }
 
+// requestIDKey is used to pull a propagated X-Request-ID out of context.
+// Handlers stash the gin-context id under "request_id"; we mirror that here
+// so engine.Client picks it up automatically without touching every callsite.
+type requestIDKeyType struct{}
+
+var requestIDKey = requestIDKeyType{}
+
+// WithRequestID returns ctx tagged with id; engine.Client.doJSON will forward
+// it as X-Request-ID on the outbound request.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	if id == "" || ctx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, requestIDKey, id)
+}
+
+func requestIDFromCtx(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(requestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
 	url := c.baseURL + path
 
@@ -215,6 +241,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interf
 		return fmt.Errorf("engine request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if id := requestIDFromCtx(ctx); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

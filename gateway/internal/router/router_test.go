@@ -47,6 +47,26 @@ func TestHealthIsUnauthenticated(t *testing.T) {
 	}
 }
 
+func TestHealthReportsEngineUnreachable(t *testing.T) {
+	// newRouter() points the engine client at 127.0.0.1:0, which always
+	// refuses TCP — health should still be 200 but flag engine.ok=false.
+	r := newRouter()
+	rec := do(t, r, http.MethodGet, "/api/v1/health", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"engine":`,
+		`"ok":false`,
+		`"latency_ms":`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q\nbody=%s", want, body)
+		}
+	}
+}
+
 func TestProvidersOpenWhenNoToken(t *testing.T) {
 	t.Setenv("ENCOREHUB_AUTH_TOKEN", "")
 	r := newRouter()
@@ -131,5 +151,24 @@ func TestMetricsEndpointPublic(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics body missing %q\nbody=%s", want, body)
 		}
+	}
+}
+
+func TestRequestIDGeneratedWhenAbsent(t *testing.T) {
+	r := newRouter()
+	rec := do(t, r, http.MethodGet, "/api/v1/health", nil)
+	got := rec.Header().Get("X-Request-ID")
+	if len(got) != 32 { // 16 random bytes hex-encoded
+		t.Fatalf("expected 32-char hex id, got %q (len=%d)", got, len(got))
+	}
+}
+
+func TestRequestIDEchoedWhenSupplied(t *testing.T) {
+	r := newRouter()
+	rec := do(t, r, http.MethodGet, "/api/v1/health", map[string]string{
+		"X-Request-ID": "my-trace-42",
+	})
+	if got := rec.Header().Get("X-Request-ID"); got != "my-trace-42" {
+		t.Fatalf("inbound id should be echoed; got %q", got)
 	}
 }

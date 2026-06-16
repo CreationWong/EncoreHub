@@ -1,6 +1,8 @@
 package router
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,6 +17,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// requestIDHeader is the canonical header gateway emits / honours.
+const requestIDHeader = "X-Request-ID"
+
 // Config holds dependencies for the router.
 type Config struct {
 	Registry *provider.Registry
@@ -25,7 +30,8 @@ type Config struct {
 func Setup(cfg Config) *gin.Engine {
 	r := gin.New()
 
-	// Middleware (order matters: CORS -> rate limit -> metrics -> auth -> handlers)
+	// Middleware (order matters: request-id -> CORS -> rate limit -> metrics -> auth)
+	r.Use(requestIDMiddleware())
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
@@ -38,11 +44,10 @@ func Setup(cfg Config) *gin.Engine {
 	providerHandler := handler.NewProviderHandler(cfg.Registry)
 	searchHandler := handler.NewSearchHandler()
 	engineProxy := handler.NewEngineProxy(cfg.Engine)
+	healthHandler := handler.NewHealthHandler(cfg.Engine)
 
 	// Health is unauthenticated to support container probes.
-	r.GET("/api/v1/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "service": "encorehub-gateway"})
-	})
+	r.GET("/api/v1/health", healthHandler.Get)
 
 	// Prometheus exposition — public on purpose; same convention as kube /metrics.
 	r.GET("/metrics", metrics.Handler())
@@ -206,4 +211,31 @@ func envInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// requestIDMiddleware honours an inbound X-Request-ID, generating one if
+// missing. The id is reflected into the response header, stored on the gin
+// context as `request_id`, and bound onto c.Request.Context() so downstream
+// http calls (engine.Client) can propagate it transparently.
+func requestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := strings.TrimSpace(c.GetHeader(requestIDHeader))
+		if id == "" {
+			id = newRequestID()
+		}
+		c.Set("request_id", id)
+		c.Writer.Header().Set(requestIDHeader, id)
+		c.Request = c.Request.WithContext(engine.WithRequestID(c.Request.Context(), id))
+		c.Next()
+	}
+}
+
+// newRequestID returns a 16-byte hex token. Falls back to a short timestamp
+// if /dev/urandom is unavailable — collisions are non-fatal here.
+func newRequestID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "req-" + strconv.FormatInt(int64(len(b)), 16)
+	}
+	return hex.EncodeToString(b[:])
 }
