@@ -8,11 +8,7 @@ use axum::{
 };
 use encorehub_skill::SkillRegistry;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-
-pub struct SkillState {
-    pub registry: Mutex<SkillRegistry>,
-}
+use std::sync::MutexGuard;
 
 #[derive(Debug, Serialize)]
 pub struct SkillResponse {
@@ -37,28 +33,40 @@ pub struct ToggleRequest {
     pub enabled: bool,
 }
 
+/// Acquire the skill-registry lock or return 500 — never panic.
+///
+/// `PoisonError` only happens if a thread holding the lock panicked, which
+/// must not take the whole engine down with it.
+fn lock_registry(
+    state: &SharedState,
+) -> Result<MutexGuard<'_, SkillRegistry>, StatusCode> {
+    state.skill_registry.lock().map_err(|err| {
+        tracing::error!(?err, "skill registry lock poisoned");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
+fn to_response(s: &encorehub_skill::Skill) -> SkillResponse {
+    SkillResponse {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        description: s.description.clone(),
+        version: s.version.clone(),
+        author: s.author.clone(),
+        enabled: s.enabled,
+        builtin: s.builtin,
+        triggers: s.triggers.clone(),
+        tool_count: s.tools.len(),
+    }
+}
+
 /// List all skills.
 pub async fn list_skills(
     State(state): State<SharedState>,
-) -> Json<SkillListResponse> {
-    let registry = state.skill_registry.lock().unwrap();
-    let skills: Vec<SkillResponse> = registry
-        .list()
-        .into_iter()
-        .map(|s| SkillResponse {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            description: s.description.clone(),
-            version: s.version.clone(),
-            author: s.author.clone(),
-            enabled: s.enabled,
-            builtin: s.builtin,
-            triggers: s.triggers.clone(),
-            tool_count: s.tools.len(),
-        })
-        .collect();
-
-    Json(SkillListResponse { skills })
+) -> Result<Json<SkillListResponse>, StatusCode> {
+    let registry = lock_registry(&state)?;
+    let skills: Vec<SkillResponse> = registry.list().into_iter().map(to_response).collect();
+    Ok(Json(SkillListResponse { skills }))
 }
 
 /// Toggle a skill on/off.
@@ -66,12 +74,12 @@ pub async fn toggle_skill(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     Json(req): Json<ToggleRequest>,
-) -> StatusCode {
-    let mut registry = state.skill_registry.lock().unwrap();
+) -> Result<StatusCode, StatusCode> {
+    let mut registry = lock_registry(&state)?;
     if registry.toggle(&id, req.enabled) {
-        StatusCode::OK
+        Ok(StatusCode::OK)
     } else {
-        StatusCode::NOT_FOUND
+        Ok(StatusCode::NOT_FOUND)
     }
 }
 
@@ -79,24 +87,13 @@ pub async fn toggle_skill(
 pub async fn match_skills(
     State(state): State<SharedState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Json<SkillListResponse> {
+) -> Result<Json<SkillListResponse>, StatusCode> {
     let query = params.get("q").map(|s| s.as_str()).unwrap_or("");
-    let registry = state.skill_registry.lock().unwrap();
-    let matches = registry.find_matches(query);
-    let skills: Vec<SkillResponse> = matches
+    let registry = lock_registry(&state)?;
+    let skills: Vec<SkillResponse> = registry
+        .find_matches(query)
         .into_iter()
-        .map(|s| SkillResponse {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            description: s.description.clone(),
-            version: s.version.clone(),
-            author: s.author.clone(),
-            enabled: s.enabled,
-            builtin: s.builtin,
-            triggers: s.triggers.clone(),
-            tool_count: s.tools.len(),
-        })
+        .map(to_response)
         .collect();
-
-    Json(SkillListResponse { skills })
+    Ok(Json(SkillListResponse { skills }))
 }
