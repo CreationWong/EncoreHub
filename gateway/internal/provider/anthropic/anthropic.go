@@ -140,47 +140,56 @@ func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, api
 
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
-
-			data := strings.TrimPrefix(line, "data: ")
-			var ev sseEvent
-			if err := json.Unmarshal([]byte(data), &ev); err != nil {
-				continue
-			}
-
-			switch ev.Type {
-			case "content_block_delta":
-				if ev.Delta != nil && ev.Delta.Type == "text_delta" {
-					events <- provider.StreamEvent{
-						Delta: &provider.DeltaEvent{Content: ev.Delta.Text},
-					}
+			for _, ev := range decodeStreamLine(scanner.Text()) {
+				events <- ev
+				if ev.Error != nil {
+					return
 				}
-			case "message_delta":
-				if ev.Usage != nil {
-					events <- provider.StreamEvent{
-						Usage: &provider.UsageEvent{
-							InputTokens:  ev.Usage.InputTokens,
-							OutputTokens: ev.Usage.OutputTokens,
-						},
-					}
-				}
-			case "message_stop":
-				events <- provider.StreamEvent{
-					Delta: &provider.DeltaEvent{FinishReason: "stop"},
-				}
-			case "error":
-				events <- provider.StreamEvent{
-					Error: fmt.Errorf("anthropic stream error: %s", data),
-				}
-				return
 			}
 		}
 	}()
 
 	return events, nil
+}
+
+// decodeStreamLine parses one SSE line from the Anthropic /messages stream
+// and returns 0..N adapter events. Pure function, exposed for tests.
+func decodeStreamLine(line string) []provider.StreamEvent {
+	if !strings.HasPrefix(line, "data: ") {
+		return nil
+	}
+	data := strings.TrimPrefix(line, "data: ")
+	var ev sseEvent
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
+		return nil
+	}
+
+	switch ev.Type {
+	case "content_block_delta":
+		if ev.Delta != nil && ev.Delta.Type == "text_delta" {
+			return []provider.StreamEvent{{
+				Delta: &provider.DeltaEvent{Content: ev.Delta.Text},
+			}}
+		}
+	case "message_delta":
+		if ev.Usage != nil {
+			return []provider.StreamEvent{{
+				Usage: &provider.UsageEvent{
+					InputTokens:  ev.Usage.InputTokens,
+					OutputTokens: ev.Usage.OutputTokens,
+				},
+			}}
+		}
+	case "message_stop":
+		return []provider.StreamEvent{{
+			Delta: &provider.DeltaEvent{FinishReason: "stop"},
+		}}
+	case "error":
+		return []provider.StreamEvent{{
+			Error: fmt.Errorf("anthropic stream error: %s", data),
+		}}
+	}
+	return nil
 }
 
 func (a *Adapter) ListModels(_ context.Context, _ string) ([]provider.ModelInfo, error) {
