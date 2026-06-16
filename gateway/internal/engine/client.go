@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -141,6 +142,60 @@ func (c *Client) AppendMessage(ctx context.Context, convID, content, role, paren
 		return nil, err
 	}
 	return &msg, nil
+}
+
+// MemoryHit is a single result from memory search.
+type MemoryHit struct {
+	Content string `json:"content"`
+	Scope   string `json:"scope"`
+}
+
+type memorySearchResponse struct {
+	Results []MemoryHit `json:"results"`
+}
+
+// SearchMemories runs FTS memory search via the engine.
+func (c *Client) SearchMemories(ctx context.Context, q string, topK int) ([]MemoryHit, error) {
+	if q == "" {
+		return nil, nil
+	}
+	if topK <= 0 {
+		topK = 3
+	}
+	path := fmt.Sprintf("/api/memories/search?q=%s&top_k=%d", url.QueryEscape(q), topK)
+	var resp memorySearchResponse
+	if err := c.doJSON(ctx, "GET", path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
+}
+
+// KnowledgeHit is a single chunk match from knowledge search.
+type KnowledgeHit struct {
+	Content    string  `json:"content"`
+	DocumentID string  `json:"document_id"`
+	ChunkIndex int     `json:"chunk_index"`
+	Score      float64 `json:"score"`
+}
+
+type knowledgeSearchResponse struct {
+	Results []KnowledgeHit `json:"results"`
+}
+
+// SearchKnowledge runs knowledge-base chunk search via the engine.
+func (c *Client) SearchKnowledge(ctx context.Context, q string, topK int) ([]KnowledgeHit, error) {
+	if q == "" {
+		return nil, nil
+	}
+	if topK <= 0 {
+		topK = 3
+	}
+	path := fmt.Sprintf("/api/knowledge/search?q=%s&top_k=%d", url.QueryEscape(q), topK)
+	var resp knowledgeSearchResponse
+	if err := c.doJSON(ctx, "GET", path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {

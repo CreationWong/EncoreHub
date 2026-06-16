@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -101,28 +100,30 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		}
 	}
 
-	// Step 2: Search memories relevant to this query
+	// Step 2: Pull relevant memories + knowledge chunks via the engine client
+	// (uses ENGINE_URL — no hardcoded localhost).
 	var memoryContext string
-	memReq, _ := http.NewRequestWithContext(c.Request.Context(), "GET",
-		fmt.Sprintf("http://127.0.0.1:3000/api/memories/search?q=%s&top_k=3", req.Content), nil)
-	if memResp, err := http.DefaultClient.Do(memReq); err == nil {
-		defer memResp.Body.Close()
-		var memData struct {
-			Results []struct {
-				Content string `json:"content"`
-				Scope   string `json:"scope"`
-			} `json:"results"`
+	if hits, err := h.engine.SearchMemories(c.Request.Context(), req.Content, 3); err == nil && len(hits) > 0 {
+		memoryContext = "\n\n[Relevant Memories]\n"
+		for i, m := range hits {
+			memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, m.Scope, m.Content)
 		}
-		if err := json.NewDecoder(memResp.Body).Decode(&memData); err == nil && len(memData.Results) > 0 {
-			memoryContext = "\n\n[Relevant Memories]\n"
-			for i, m := range memData.Results {
-				memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, m.Scope, m.Content)
-			}
-		}
+	} else if err != nil {
+		log.Debug().Err(err).Msg("memory search failed (non-fatal)")
 	}
 
-	// Step 4: Build chat request (includes messages + search results + memory context)
-	systemExtra := searchContext + memoryContext
+	var knowledgeContext string
+	if hits, err := h.engine.SearchKnowledge(c.Request.Context(), req.Content, 3); err == nil && len(hits) > 0 {
+		knowledgeContext = "\n\n[Knowledge Base]\n"
+		for i, k := range hits {
+			knowledgeContext += fmt.Sprintf("%d. (chunk %d, score %.2f) %s\n", i+1, k.ChunkIndex, k.Score, k.Content)
+		}
+	} else if err != nil {
+		log.Debug().Err(err).Msg("knowledge search failed (non-fatal)")
+	}
+
+	// Step 4: Build chat request (includes messages + search results + memory + knowledge context)
+	systemExtra := searchContext + memoryContext + knowledgeContext
 	var chatReq *provider.ChatRequest
 	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
 		chatReq = buildChatRequest(convDetail, req, systemExtra)
