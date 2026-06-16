@@ -3,6 +3,7 @@ package router_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/encorehub/gateway/internal/engine"
@@ -107,5 +108,28 @@ func TestCorsUnknownOriginNotEchoed(t *testing.T) {
 	})
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("CORS should not echo unknown origin, got %q", got)
+	}
+}
+
+func TestMetricsEndpointPublic(t *testing.T) {
+	t.Setenv("ENCOREHUB_AUTH_TOKEN", "secret-xyz")
+	r := newRouter()
+
+	// Trigger one health request so a counter sample exists.
+	_ = do(t, r, http.MethodGet, "/api/v1/health", nil)
+
+	rec := do(t, r, http.MethodGet, "/metrics", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"encorehub_gateway_requests_total",
+		"encorehub_gateway_request_duration_seconds",
+		"encorehub_gateway_in_flight_requests",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics body missing %q\nbody=%s", want, body)
+		}
 	}
 }

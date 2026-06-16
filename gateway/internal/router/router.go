@@ -9,6 +9,7 @@ import (
 
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/handler"
+	"github.com/encorehub/gateway/internal/metrics"
 	"github.com/encorehub/gateway/internal/provider"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
@@ -24,11 +25,12 @@ type Config struct {
 func Setup(cfg Config) *gin.Engine {
 	r := gin.New()
 
-	// Middleware (order matters: CORS -> rate limit -> auth -> handlers)
+	// Middleware (order matters: CORS -> rate limit -> metrics -> auth -> handlers)
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
 	r.Use(rateLimitMiddleware())
+	r.Use(metrics.Middleware())
 
 	// Handlers
 	convHandler := handler.NewConversationHandler(cfg.Engine)
@@ -41,6 +43,9 @@ func Setup(cfg Config) *gin.Engine {
 	r.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "encorehub-gateway"})
 	})
+
+	// Prometheus exposition — public on purpose; same convention as kube /metrics.
+	r.GET("/metrics", metrics.Handler())
 
 	api := r.Group("/api/v1")
 	api.Use(authMiddleware())
