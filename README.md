@@ -55,9 +55,19 @@ cd frontend && pnpm install && pnpm dev
 | `ENCOREHUB_AUTH_TOKEN` | _空_ | 设了则 gateway `/api/v1/*` 校验 `Authorization: Bearer …`；前端通过 `VITE_AUTH_TOKEN` 传 |
 | `ENCOREHUB_CORS_ORIGINS` | _空_ | 追加 CORS 来源（逗号分隔） |
 | `ENCOREHUB_RATE_LIMIT_RPS` | `30` | 每 IP 限速 |
+| `ENCOREHUB_RATE_LIMIT_BURST` | `60` | 每 IP 突发上限 |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
 
 前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_ENGINE_URL` / `VITE_AUTH_TOKEN`。
+
+## Ops & 可观测性
+
+| Endpoint | 用途 |
+|----------|------|
+| `GET /api/v1/health` | gateway + engine 反向探活；返回 `{status, service, engine: {url, ok, latency_ms}}`。**永远 200**——即使 engine 不可达也是 200，靠 `engine.ok` 区分 readiness |
+| `GET /metrics` | Prometheus 指标（公开，无 auth）。包含 `encorehub_gateway_requests_total{method,route,status}`、`encorehub_gateway_request_duration_seconds` 直方图、`encorehub_gateway_in_flight_requests` |
+
+每个请求 gateway 会注入 `X-Request-ID`（如客户端已带则透传），并 reflect 到响应头；引擎下游调用同样透传，方便跨服务串联日志。
 
 ## 关键功能
 
