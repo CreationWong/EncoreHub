@@ -36,6 +36,7 @@ beforeEach(() => {
 		streamingContent: "",
 		error: null,
 		abortController: null,
+		pendingDraft: null,
 	});
 	sendMessageStream.mockReset();
 });
@@ -47,6 +48,17 @@ describe("pushSystemMessage", () => {
 		expect(msgs).toHaveLength(1);
 		expect(msgs[0].role).toBe("system");
 		expect(msgs[0].content).toBe("hello");
+	});
+});
+
+describe("draft mailbox", () => {
+	it("setDraft writes pendingDraft, clearDraft resets it", () => {
+		const store = useConversationStore.getState();
+		expect(store.pendingDraft).toBeNull();
+		store.setDraft("> quoted memory");
+		expect(useConversationStore.getState().pendingDraft).toBe("> quoted memory");
+		useConversationStore.getState().clearDraft();
+		expect(useConversationStore.getState().pendingDraft).toBeNull();
 	});
 });
 
