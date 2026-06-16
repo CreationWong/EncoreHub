@@ -2,11 +2,19 @@
 
 EncoreHub 项目变更记录。日期均为 UTC。
 
-## Unreleased — 2026-06-16
+## Unreleased — 2026-06-16 / 2026-06-17
 
-> 一次密集开发会话的产出。所有 P0 阻塞问题修复，前端从骨架变成可用产品，三端测试覆盖从 0 起步至 ~50 个用例。
+> 一次密集开发会话的产出。所有 P0 阻塞问题修复，前端从骨架变成可用产品，三端测试覆盖从 0 起步至 60+ 个用例。
 
-### Added
+### Added (2026-06-17)
+
+- **engine**：`/health` 返回 JSON——`{status, service, version (CARGO_PKG_VERSION), database: {ok, latency_ms, error?}}`，db round-trip 用 `get_config("engine.version")`
+- **gateway**：`engine_proxy` 透传单测 5 个（路径前缀转换、查询字符串、POST body 透传、502 fallback、状态码原样回传）
+- **gateway**：`handler/chat` 纯函数单测 7 个（`buildChatRequest`、`containsLower`、`generateMockReply`、`devMockEnabled`）
+- **frontend**：`services/api.ts` 单测 7 个（`buildHeaders` token 注入、`apiFetch` 204/JSON/错误降级）
+- **frontend**：`commands/slash.ts` 单测 12 个（`matchCommands` 前缀、registry 唯一性、各命令处理器调用契约）
+
+### Added (2026-06-16)
 
 - **gateway**：Prometheus `/metrics` 端点（`requests_total`、`request_duration_seconds`、`in_flight_requests`），按 gin 匹配路由打标签
 - **gateway**：`/api/v1/health` 增加引擎反向 ping，返回 `{engine: {url, ok, latency_ms}}`
@@ -20,7 +28,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **frontend**：流式可中断（Stop 按钮 + Esc），中断时已流出的内容保留并标 `(stopped)`
 - **frontend**：消息复制按钮（消息级 + 代码块级），代码块带语言标签
 - **frontend**：`VITE_GATEWAY_URL` / `VITE_ENGINE_URL` / `VITE_AUTH_TOKEN` 集中配置
-- **frontend**：vitest 接通，conversationStore + slash commands 共 16 测试
+- **frontend**：vitest 接通，conversationStore + slash + api 共 23 测试
 - **engine**：SQLite 集成测试 5 个（CRUD + FTS5 删除/搜索/scope 过滤）
 - **docs**：根 `README.md`，`docs/IMPROVEMENT_REPORT.md`，`docs/adr/0001-language-split.md`，`docs/adr/0002-http-first-grpc-later.md`
 - **docs**：CHANGELOG.md（本文件）
@@ -56,10 +64,10 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 | 模块 | 用例数 |
 |------|--------|
-| frontend (vitest) | 16 |
+| frontend (vitest) | 23 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
-| gateway/handler | 7 |
+| gateway/handler | 12 |
 | engine/storage | 5 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **51** |
+| **合计** | **63** |
