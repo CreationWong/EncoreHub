@@ -13,6 +13,11 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **gateway**：`handler/chat` 纯函数单测 7 个（`buildChatRequest`、`containsLower`、`generateMockReply`、`devMockEnabled`）
 - **frontend**：`services/api.ts` 单测 7 个（`buildHeaders` token 注入、`apiFetch` 204/JSON/错误降级）
 - **frontend**：`commands/slash.ts` 单测 12 个（`matchCommands` 前缀、registry 唯一性、各命令处理器调用契约）
+- **frontend**：InputBox bash-style ↑/↓ 历史导航（空草稿 + 光标 0 触发，发送/切会话复位）
+- **frontend**：`/inspect` slash 命令——把当前会话状态 dump 成 fenced JSON system message
+- **frontend**：MemoryPanel + KnowledgePanel 加 Quote 按钮——把内容写到 `pendingDraft` 并关 Settings；InputBox 监听 `pendingDraft` 把它 append 到本地 input
+- **frontend**：MessageBubble system 分支改用 ReactMarkdown，`/inspect` 的 fenced JSON 现在能渲染高亮（之前是 `<pre>` 显示 raw 反引号）
+- **frontend**：`conversationStore` `setDraft`/`clearDraft` actions 单测
 
 ### Added (2026-06-16)
 
@@ -64,10 +69,10 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 | 模块 | 用例数 |
 |------|--------|
-| frontend (vitest) | 23 |
+| frontend (vitest) | 25 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
 | gateway/handler | 12 |
 | engine/storage | 5 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **63** |
+| **合计** | **65** |
