@@ -70,6 +70,21 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
 	);
 }
 
+const markdownCodeComponents = {
+	code({ className, children, ...props }: React.HTMLAttributes<HTMLElement>) {
+		const match = /language-(\w+)/.exec(className || "");
+		const codeStr = String(children).replace(/\n$/, "");
+		if (match) {
+			return <CodeBlock language={match[1]} value={codeStr} />;
+		}
+		return (
+			<code className={className} {...props}>
+				{children}
+			</code>
+		);
+	},
+};
+
 export default function MessageBubble({ message, isStreaming }: Props) {
 	const isUser = message.role === "user";
 	const isSystem = message.role === "system";
@@ -78,10 +93,10 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 		return (
 			<div className="group flex gap-3 px-4 py-2">
 				<Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
-				<div className="min-w-0 flex-1 text-xs text-text-muted">
-					<pre className="whitespace-pre-wrap break-words font-sans">
+				<div className="prose prose-xs dark:prose-invert min-w-0 flex-1 max-w-none text-xs text-text-muted">
+					<ReactMarkdown components={markdownCodeComponents}>
 						{message.content}
-					</pre>
+					</ReactMarkdown>
 				</div>
 			</div>
 		);
@@ -120,22 +135,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 					)}
 				</div>
 				<div className="prose prose-sm dark:prose-invert max-w-none text-text-primary">
-					<ReactMarkdown
-						components={{
-							code({ className, children, ...props }) {
-								const match = /language-(\w+)/.exec(className || "");
-								const codeStr = String(children).replace(/\n$/, "");
-								if (match) {
-									return <CodeBlock language={match[1]} value={codeStr} />;
-								}
-								return (
-									<code className={className} {...props}>
-										{children}
-									</code>
-								);
-							},
-						}}
-					>
+					<ReactMarkdown components={markdownCodeComponents}>
 						{message.content}
 					</ReactMarkdown>
 					{isStreaming && (
