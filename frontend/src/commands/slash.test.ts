@@ -101,8 +101,9 @@ describe("command handlers", () => {
 			settings: s.settings,
 		});
 		expect(result).toBeUndefined();
-		expect(s._conv.pushSystemMessage).toHaveBeenCalledOnce();
-		const body = s._conv.pushSystemMessage.mock.calls[0][0] as string;
+		const push = s._conv.pushSystemMessage as ReturnType<typeof vi.fn>;
+		expect(push).toHaveBeenCalledOnce();
+		const body = push.mock.calls[0][0] as string;
 		expect(body).toContain("/help");
 		expect(body).toContain("/new");
 	});

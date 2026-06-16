@@ -59,7 +59,7 @@ describe("apiFetch", () => {
 			ok: true,
 			status: 200,
 			json: async () => ({ hello: "world" }),
-		} as Response);
+		} as unknown as Response);
 
 		const { apiFetch } = await freshApi();
 		const out = await apiFetch<{ hello: string }>("/things");
@@ -76,7 +76,7 @@ describe("apiFetch", () => {
 			json: async () => {
 				throw new Error("body should not be parsed");
 			},
-		} as Response);
+		} as unknown as Response);
 
 		const { apiFetch } = await freshApi();
 		const out = await apiFetch<unknown>("/things/1", { method: "DELETE" });
@@ -113,7 +113,7 @@ describe("apiFetch", () => {
 			ok: false,
 			status: 500,
 			text: async () => "boom",
-		} as Response);
+		} as unknown as Response);
 
 		const { apiFetch } = await freshApi();
 		await expect(apiFetch("/things")).rejects.toMatchObject({

@@ -15,15 +15,30 @@ const WARN_AT = 7000;
 export default function InputBox() {
 	const [input, setInput] = useState("");
 	const [menuIndex, setMenuIndex] = useState(0);
+	const [historyIdx, setHistoryIdx] = useState<number>(-1);
+	const draftRef = useRef("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const sendMessage = useConversationStore((s) => s.sendMessage);
 	const stopStreaming = useConversationStore((s) => s.stopStreaming);
 	const streaming = useConversationStore((s) => s.streaming);
 	const activeId = useConversationStore((s) => s.activeId);
+	const messages = useConversationStore((s) => s.messages);
+
+	// Most-recent-first list of user prompts in this conversation.
+	const userHistory = useMemo(
+		() =>
+			messages
+				.filter((m) => m.role === "user")
+				.map((m) => m.content)
+				.reverse(),
+		[messages],
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: focus on intent
 	useEffect(() => {
 		textareaRef.current?.focus();
+		setHistoryIdx(-1);
+		draftRef.current = "";
 	}, [activeId, streaming]);
 
 	// Slash menu visibility: input begins with `/` and has no spaces yet.
@@ -115,6 +130,29 @@ export default function InputBox() {
 		if (e.key === "Escape" && streaming) {
 			e.preventDefault();
 			stopStreaming();
+			return;
+		}
+
+		// Bash-style history: empty caret + ArrowUp -> previous user message.
+		if (
+			e.key === "ArrowUp" &&
+			!e.nativeEvent.isComposing &&
+			userHistory.length > 0 &&
+			historyIdx + 1 < userHistory.length &&
+			(historyIdx >= 0 || textareaRef.current?.selectionStart === 0)
+		) {
+			e.preventDefault();
+			if (historyIdx === -1) draftRef.current = input;
+			const next = historyIdx + 1;
+			setHistoryIdx(next);
+			setInput(userHistory[next]);
+			return;
+		}
+		if (e.key === "ArrowDown" && historyIdx >= 0) {
+			e.preventDefault();
+			const next = historyIdx - 1;
+			setHistoryIdx(next);
+			setInput(next === -1 ? draftRef.current : userHistory[next]);
 		}
 	};
 
