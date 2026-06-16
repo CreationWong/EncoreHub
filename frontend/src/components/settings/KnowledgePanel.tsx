@@ -1,10 +1,12 @@
-import { FileText, Loader2, Search, Trash2, Upload } from "lucide-react";
+import { FileText, Loader2, Quote, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
 	type KnowledgeChunk,
 	type KnowledgeDoc,
 	knowledgeApi,
 } from "../../services/knowledge";
+import { useConversationStore } from "../../stores/conversationStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 function fmtBytes(n: number): string {
 	if (n < 1024) return `${n} B`;
@@ -25,6 +27,14 @@ export default function KnowledgePanel() {
 	const [uploadTitle, setUploadTitle] = useState("");
 	const [uploadContent, setUploadContent] = useState("");
 	const [uploading, setUploading] = useState(false);
+
+	const setDraft = useConversationStore((s) => s.setDraft);
+	const closeSettings = useSettingsStore((s) => s.closeSettings);
+
+	const onQuote = (c: KnowledgeChunk) => {
+		setDraft(`> [knowledge chunk #${c.chunk_index}] ${c.content}`);
+		closeSettings();
+	};
 
 	const refresh = async () => {
 		setLoading(true);
@@ -172,11 +182,21 @@ export default function KnowledgePanel() {
 						{results.map((r) => (
 							<li
 								key={r.id}
-								className="rounded-lg border border-border bg-surface-alt/40 p-3 text-sm"
+								className="group rounded-lg border border-border bg-surface-alt/40 p-3 text-sm"
 							>
 								<div className="mb-1 flex items-center justify-between text-[11px] text-text-muted">
 									<span>chunk #{r.chunk_index}</span>
-									<span>score {r.score.toFixed(3)}</span>
+									<span className="flex items-center gap-2">
+										<span>score {r.score.toFixed(3)}</span>
+										<button
+											type="button"
+											onClick={() => onQuote(r)}
+											className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent"
+											title="Quote into chat input"
+										>
+											<Quote className="h-3.5 w-3.5" />
+										</button>
+									</span>
 								</div>
 								<p className="whitespace-pre-wrap break-words text-text-primary">
 									{r.content}
