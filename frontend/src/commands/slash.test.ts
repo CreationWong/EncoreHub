@@ -107,4 +107,37 @@ describe("command handlers", () => {
 		expect(body).toContain("/help");
 		expect(body).toContain("/new");
 	});
+
+	it("/inspect dumps a JSON snapshot to a system message", async () => {
+		const s = fakeStores({
+			activeId: "c1",
+			messages: [
+				{
+					id: "u1",
+					role: "user",
+					content: "hi",
+					parent_id: null,
+					tool_calls: [],
+					created_at: "",
+				},
+				{
+					id: "a1",
+					role: "assistant",
+					content: "hello",
+					parent_id: "u1",
+					tool_calls: [],
+					created_at: "",
+				},
+			],
+			streaming: false,
+		});
+		await find("inspect").run("", { conv: s.conv, settings: s.settings });
+		const push = s._conv.pushSystemMessage as ReturnType<typeof vi.fn>;
+		expect(push).toHaveBeenCalledOnce();
+		const body = push.mock.calls[0][0] as string;
+		expect(body).toContain("```json");
+		expect(body).toContain('"activeId": "c1"');
+		expect(body).toContain('"messageCount": 2');
+		expect(body).toContain('"lastUser": "hi"');
+	});
 });

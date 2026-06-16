@@ -23,6 +23,26 @@ export default function InputBox() {
 	const streaming = useConversationStore((s) => s.streaming);
 	const activeId = useConversationStore((s) => s.activeId);
 	const messages = useConversationStore((s) => s.messages);
+	const pendingDraft = useConversationStore((s) => s.pendingDraft);
+	const clearDraft = useConversationStore((s) => s.clearDraft);
+
+	// External components (MemoryPanel "quote", future "edit-and-resend") push
+	// text into the input via store.setDraft. Pull it onto the local state and
+	// clear so we don't loop on the next render.
+	useEffect(() => {
+		if (pendingDraft == null) return;
+		setInput((prev) => (prev ? `${prev}\n\n${pendingDraft}` : pendingDraft));
+		clearDraft();
+		// Resize after the next paint.
+		queueMicrotask(() => {
+			const el = textareaRef.current;
+			if (el) {
+				el.style.height = "auto";
+				el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+				el.focus();
+			}
+		});
+	}, [pendingDraft, clearDraft]);
 
 	// Most-recent-first list of user prompts in this conversation.
 	const userHistory = useMemo(

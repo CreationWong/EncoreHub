@@ -17,6 +17,7 @@ interface ConversationState {
 	streamingContent: string;
 	error: string | null;
 	abortController: AbortController | null;
+	pendingDraft: string | null;
 
 	loadList: () => Promise<void>;
 	selectConversation: (id: string) => Promise<void>;
@@ -25,6 +26,8 @@ interface ConversationState {
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
+	setDraft: (content: string) => void;
+	clearDraft: () => void;
 	clearError: () => void;
 }
 
@@ -37,6 +40,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	streamingContent: "",
 	error: null,
 	abortController: null,
+	pendingDraft: null,
 
 	loadList: async () => {
 		try {
@@ -214,6 +218,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			],
 		}));
 	},
+
+	setDraft: (content: string) => set({ pendingDraft: content }),
+	clearDraft: () => set({ pendingDraft: null }),
 
 	clearError: () => set({ error: null }),
 }));

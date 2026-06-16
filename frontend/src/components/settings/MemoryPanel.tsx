@@ -1,6 +1,8 @@
-import { Loader2, Search, Trash2 } from "lucide-react";
+import { Loader2, Quote, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Memory, memoriesApi } from "../../services/memories";
+import { useConversationStore } from "../../stores/conversationStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 const SCOPES = [
 	{ id: "", label: "All" },
@@ -14,6 +16,14 @@ export default function MemoryPanel() {
 	const [query, setQuery] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	const setDraft = useConversationStore((s) => s.setDraft);
+	const closeSettings = useSettingsStore((s) => s.closeSettings);
+
+	const onQuote = (m: Memory) => {
+		setDraft(`> [memory] ${m.content}`);
+		closeSettings();
+	};
 
 	const load = async (q: string, scopeFilter: string) => {
 		setLoading(true);
@@ -113,14 +123,24 @@ export default function MemoryPanel() {
 								<span>{m.memory_type}</span>
 								<span>· importance {m.importance.toFixed(2)}</span>
 							</span>
-							<button
-								type="button"
-								onClick={() => onDelete(m.id)}
-								className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
-								title="Delete"
-							>
-								<Trash2 className="h-3.5 w-3.5" />
-							</button>
+							<span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+								<button
+									type="button"
+									onClick={() => onQuote(m)}
+									className="text-text-muted hover:text-accent"
+									title="Quote into chat input"
+								>
+									<Quote className="h-3.5 w-3.5" />
+								</button>
+								<button
+									type="button"
+									onClick={() => onDelete(m.id)}
+									className="text-text-muted hover:text-red-400"
+									title="Delete"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</button>
+							</span>
 						</div>
 						<p className="whitespace-pre-wrap break-words text-sm text-text-primary">
 							{m.content}

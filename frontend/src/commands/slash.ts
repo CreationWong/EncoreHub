@@ -87,6 +87,27 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		},
 	},
 	{
+		id: "inspect",
+		name: "/inspect",
+		description: "Dump the current conversation state for debugging",
+		run: (_args, { conv }) => {
+			const snapshot = {
+				activeId: conv.activeId,
+				messageCount: conv.messages.length,
+				streaming: conv.streaming,
+				lastUser: conv.messages.filter((m) => m.role === "user").at(-1)
+					?.content,
+				lastAssistant: conv.messages
+					.filter((m) => m.role === "assistant")
+					.at(-1)
+					?.content?.slice(0, 200),
+			};
+			conv.pushSystemMessage(
+				`Conversation state:\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\``,
+			);
+		},
+	},
+	{
 		id: "help",
 		name: "/help",
 		description: "Show available commands",
