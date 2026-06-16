@@ -1,5 +1,9 @@
 version: "3.9"
 
+# NOTE: Gateway <-> Engine currently communicates over HTTP/JSON.
+# gRPC is planned (see docs/IMPROVEMENT_REPORT.md) but not yet wired up;
+# 50051/9090 ports are intentionally not exposed until tonic is enabled.
+
 services:
   # ===== API Gateway (Go) =====
   gateway:
@@ -8,11 +12,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-      - "9090:9090"  # gRPC
     environment:
       - GIN_MODE=debug
-      - ENGINE_ADDR=engine:50051
-      - DATA_SERVICE_ADDR=data-services:8000
+      - LISTEN_ADDR=:8080
+      - ENGINE_URL=http://engine:3000
+      - DATA_SERVICE_URL=http://data-services:8000
       - REDIS_URL=redis://redis:6379
     volumes:
       - ./gateway:/app
@@ -27,9 +31,10 @@ services:
       context: ./engine
       dockerfile: Dockerfile
     ports:
-      - "50051:50051"  # gRPC
+      - "3000:3000"
     environment:
       - RUST_LOG=info
+      - ENGINE_BIND=0.0.0.0:3000
       - DATABASE_URL=sqlite:///data/encorehub.db
       - LANCEDB_PATH=/data/lancedb
     volumes:
@@ -45,7 +50,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ENGINE_ADDR=engine:50051
+      - ENGINE_URL=http://engine:3000
       - REDIS_URL=redis://redis:6379
     volumes:
       - ./data-services:/app

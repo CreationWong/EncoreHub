@@ -26,10 +26,10 @@ async fn main() -> anyhow::Result<()> {
 
     // HTTP server
     let app = api::build_router(db, skill_registry);
-    let bind_addr = "127.0.0.1:3000";
+    let bind_addr = std::env::var("ENGINE_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     tracing::info!("Listening on http://{}", bind_addr);
 
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

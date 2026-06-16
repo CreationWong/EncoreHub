@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
@@ -13,6 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
+
+// devMockEnabled returns true only when ENCOREHUB_DEV_MOCK is explicitly set
+// to "1" / "true". Mock replies must never be served from a production build.
+func devMockEnabled() bool {
+	v := os.Getenv("ENCOREHUB_DEV_MOCK")
+	return v == "1" || v == "true"
+}
 
 type ChatHandler struct {
 	registry *provider.Registry
@@ -134,9 +142,17 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
 	defer cancel()
 
-	// Step 3: If no API key, use mock mode (supports both stream and non-stream)
+	// Step 3: If no API key, refuse — unless ENCOREHUB_DEV_MOCK is set,
+	// in which case fall through to the canned replies below.
 	if apiKey == "" {
-		log.Info().Msg("no API key — using mock AI")
+		if !devMockEnabled() {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "missing provider API key (X-Provider-Key header). " +
+					"Set ENCOREHUB_DEV_MOCK=1 to enable mock replies in development.",
+			})
+			return
+		}
+		log.Warn().Msg("ENCOREHUB_DEV_MOCK active — serving mock reply")
 		if req.Stream {
 			h.mockStream(c, convID, userMsgID, req)
 		} else {

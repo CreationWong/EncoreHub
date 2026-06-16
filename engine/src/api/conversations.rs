@@ -270,13 +270,28 @@ pub async fn add_message(
 
 /// Send a message and get a mock AI reply.
 ///
-/// Currently returns a mock echo reply. In the future this will call the
-/// Go gateway which routes to the actual AI provider.
+/// **Dev-only.** This is a placeholder kept for engine smoke tests; in
+/// production the Go gateway handles the AI call and writes both messages via
+/// `add_message`. Returns 503 unless `ENCOREHUB_DEV_MOCK=1` is set.
 pub async fn send_message(
     State(state): State<SharedState>,
     Path(conv_id): Path<String>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let mock_enabled = std::env::var("ENCOREHUB_DEV_MOCK")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    if !mock_enabled {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "engine mock chat is disabled; route chat through the gateway. \
+                        Set ENCOREHUB_DEV_MOCK=1 to enable for local testing."
+                    .into(),
+            }),
+        ));
+    }
+
     // Verify conversation exists
     let _conv = state.db.get_conversation(&conv_id).map_err(not_found)?;
 
