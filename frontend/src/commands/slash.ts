@@ -79,13 +79,22 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		},
 	},
 	{
+		id: "knowledge",
+		name: "/knowledge",
+		description: "Open knowledge base panel",
+		run: (_args, { settings }) => {
+			settings.openSettings("knowledge");
+		},
+	},
+	{
 		id: "help",
 		name: "/help",
 		description: "Show available commands",
-		run: () => {
-			return SLASH_COMMANDS.map((c) => `${c.name} — ${c.description}`).join(
-				"\n",
-			);
+		run: (_args, { conv }) => {
+			const lines = SLASH_COMMANDS.map(
+				(c) => `${c.name.padEnd(12)} ${c.description}`,
+			).join("\n");
+			conv.pushSystemMessage(`Available commands:\n${lines}`);
 		},
 	},
 ];

@@ -24,6 +24,7 @@ interface ConversationState {
 	deleteConversation: (id: string) => Promise<void>;
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
+	pushSystemMessage: (content: string) => void;
 	clearError: () => void;
 }
 
@@ -196,6 +197,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	stopStreaming: () => {
 		const { abortController } = get();
 		if (abortController) abortController.abort();
+	},
+
+	pushSystemMessage: (content: string) => {
+		set((s) => ({
+			messages: [
+				...s.messages,
+				{
+					id: `sys-${Date.now()}`,
+					role: "system",
+					content,
+					parent_id: null,
+					tool_calls: [],
+					created_at: new Date().toISOString(),
+				},
+			],
+		}));
 	},
 
 	clearError: () => set({ error: null }),

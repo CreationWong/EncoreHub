@@ -1,7 +1,12 @@
 import { create } from "zustand";
 
 export type Theme = "system" | "dark" | "light";
-export type SettingsTab = "providers" | "skills" | "memories" | "appearance";
+export type SettingsTab =
+	| "providers"
+	| "skills"
+	| "knowledge"
+	| "memories"
+	| "appearance";
 
 interface SettingsState {
 	theme: Theme;

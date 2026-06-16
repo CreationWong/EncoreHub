@@ -1,7 +1,8 @@
-import { BookOpen, Bot, Palette, Sparkles, X } from "lucide-react";
+import { BookOpen, Bot, Database, Palette, Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
+import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ProvidersPanel from "./ProvidersPanel";
 import SkillsPanel from "./SkillsPanel";
@@ -9,6 +10,7 @@ import SkillsPanel from "./SkillsPanel";
 const TABS: { id: SettingsTab; label: string; icon: typeof Bot }[] = [
 	{ id: "providers", label: "Providers", icon: Bot },
 	{ id: "skills", label: "Skills", icon: Sparkles },
+	{ id: "knowledge", label: "Knowledge", icon: Database },
 	{ id: "memories", label: "Memories", icon: BookOpen },
 	{ id: "appearance", label: "Appearance", icon: Palette },
 ];
@@ -86,6 +88,7 @@ export default function SettingsModal() {
 					<div className="flex-1 overflow-y-auto p-5">
 						{tab === "providers" && <ProvidersPanel />}
 						{tab === "skills" && <SkillsPanel />}
+						{tab === "knowledge" && <KnowledgePanel />}
 						{tab === "memories" && <MemoryPanel />}
 						{tab === "appearance" && <AppearancePanel />}
 					</div>

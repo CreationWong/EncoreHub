@@ -1,4 +1,4 @@
-import { Check, Copy, Sparkles, User } from "lucide-react";
+import { Check, Copy, Info, Sparkles, User } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -72,6 +72,20 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
 
 export default function MessageBubble({ message, isStreaming }: Props) {
 	const isUser = message.role === "user";
+	const isSystem = message.role === "system";
+
+	if (isSystem) {
+		return (
+			<div className="group flex gap-3 px-4 py-2">
+				<Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
+				<div className="min-w-0 flex-1 text-xs text-text-muted">
+					<pre className="whitespace-pre-wrap break-words font-sans">
+						{message.content}
+					</pre>
+				</div>
+			</div>
+		);
+	}
 
 	if (isUser) {
 		return (
