@@ -1,63 +1,108 @@
-import { useState, useRef, useCallback } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Loader2, Send, Square } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConversationStore } from "../../stores/conversationStore";
 
+const MAX_CHARS = 8000;
+const WARN_AT = 7000;
+
 export default function InputBox() {
-  const [input, setInput] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const sendMessage = useConversationStore((s) => s.sendMessage);
-  const streaming = useConversationStore((s) => s.streaming);
+	const [input, setInput] = useState("");
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const sendMessage = useConversationStore((s) => s.sendMessage);
+	const stopStreaming = useConversationStore((s) => s.stopStreaming);
+	const streaming = useConversationStore((s) => s.streaming);
+	const activeId = useConversationStore((s) => s.activeId);
 
-  const handleSend = useCallback(async () => {
-    const content = input.trim();
-    if (!content || streaming) return;
-    setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-    await sendMessage(content);
-  }, [input, streaming, sendMessage]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: focus on intent
+	useEffect(() => {
+		// Refocus when switching conversations or after sending.
+		textareaRef.current?.focus();
+	}, [activeId, streaming]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+	const handleSend = useCallback(async () => {
+		const content = input.trim();
+		if (!content || streaming) return;
+		setInput("");
+		if (textareaRef.current) {
+			textareaRef.current.style.height = "auto";
+		}
+		await sendMessage(content);
+	}, [input, streaming, sendMessage]);
 
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  };
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+			e.preventDefault();
+			handleSend();
+			return;
+		}
+		if (e.key === "Escape" && streaming) {
+			e.preventDefault();
+			stopStreaming();
+		}
+	};
 
-  return (
-    <div className="border-t border-border bg-surface p-4">
-      <div className="flex items-end gap-3 max-w-3xl mx-auto">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-          rows={1}
-          className="flex-1 resize-none rounded-xl border border-border bg-surface-alt px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-          disabled={streaming}
-        />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={!input.trim() || streaming}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white transition-all hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {streaming ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-    </div>
-  );
+	const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const next = e.target.value.slice(0, MAX_CHARS);
+		setInput(next);
+		const el = e.target;
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+	};
+
+	const charCount = input.length;
+	const warn = charCount >= WARN_AT;
+
+	return (
+		<div className="border-t border-border bg-surface p-4">
+			<div className="mx-auto flex max-w-3xl items-end gap-3">
+				<div className="relative flex-1">
+					<textarea
+						ref={textareaRef}
+						value={input}
+						onChange={handleInput}
+						onKeyDown={handleKeyDown}
+						placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+						rows={1}
+						maxLength={MAX_CHARS}
+						className="w-full resize-none rounded-xl border border-border bg-surface-alt px-4 py-3 pr-16 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+					/>
+					{charCount > 0 && (
+						<span
+							className={`pointer-events-none absolute bottom-1.5 right-3 text-[10px] tabular-nums ${
+								warn ? "text-amber-500" : "text-text-muted"
+							}`}
+						>
+							{charCount}/{MAX_CHARS}
+						</span>
+					)}
+				</div>
+				{streaming ? (
+					<button
+						type="button"
+						onClick={stopStreaming}
+						title="Stop generating"
+						className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-alt text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+					>
+						<Square className="h-3.5 w-3.5" fill="currentColor" />
+					</button>
+				) : (
+					<button
+						type="button"
+						onClick={handleSend}
+						disabled={!input.trim()}
+						title="Send (Enter)"
+						className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white transition-all hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
+					>
+						<Send className="h-4 w-4" />
+					</button>
+				)}
+			</div>
+			{streaming && (
+				<div className="mx-auto mt-2 flex max-w-3xl items-center gap-2 text-xs text-text-muted">
+					<Loader2 className="h-3 w-3 animate-spin" />
+					<span>Generating... press Stop or Esc to cancel</span>
+				</div>
+			)}
+		</div>
+	);
 }
