@@ -35,6 +35,7 @@ func Setup(cfg Config) *gin.Engine {
 	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine)
 	providerHandler := handler.NewProviderHandler(cfg.Registry)
 	searchHandler := handler.NewSearchHandler()
+	engineProxy := handler.NewEngineProxy(cfg.Engine)
 
 	// Health is unauthenticated to support container probes.
 	r.GET("/api/v1/health", func(c *gin.Context) {
@@ -64,6 +65,13 @@ func Setup(cfg Config) *gin.Engine {
 		{
 			prov.GET("", providerHandler.ListProviders)
 			prov.GET("/:provider/models", providerHandler.ListModels)
+		}
+
+		// Engine resources (skills / memories / knowledge): transparent proxy.
+		// All standard CRUD verbs land on the proxy; engine enforces shape.
+		for _, res := range []string{"skills", "memories", "knowledge"} {
+			api.Any("/"+res, engineProxy.Forward)
+			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}
 	}
 

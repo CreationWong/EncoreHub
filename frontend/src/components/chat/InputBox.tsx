@@ -1,12 +1,20 @@
 import { Loader2, Send, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	SLASH_COMMANDS,
+	type SlashCommand,
+	matchCommands,
+} from "../../commands/slash";
 import { useConversationStore } from "../../stores/conversationStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import SlashCommandMenu from "./SlashCommandMenu";
 
 const MAX_CHARS = 8000;
 const WARN_AT = 7000;
 
 export default function InputBox() {
 	const [input, setInput] = useState("");
+	const [menuIndex, setMenuIndex] = useState(0);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const sendMessage = useConversationStore((s) => s.sendMessage);
 	const stopStreaming = useConversationStore((s) => s.stopStreaming);
@@ -15,21 +23,90 @@ export default function InputBox() {
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: focus on intent
 	useEffect(() => {
-		// Refocus when switching conversations or after sending.
 		textareaRef.current?.focus();
 	}, [activeId, streaming]);
 
-	const handleSend = useCallback(async () => {
-		const content = input.trim();
-		if (!content || streaming) return;
+	// Slash menu visibility: input begins with `/` and has no spaces yet.
+	const slashOpen = input.startsWith("/") && !input.includes(" ");
+	const slashMatches = useMemo<SlashCommand[]>(
+		() => (slashOpen ? matchCommands(input) : []),
+		[input, slashOpen],
+	);
+
+	useEffect(() => {
+		if (menuIndex >= slashMatches.length) setMenuIndex(0);
+	}, [slashMatches.length, menuIndex]);
+
+	const runCommand = useCallback(async (cmd: SlashCommand, args: string) => {
+		const ctx = {
+			conv: useConversationStore.getState(),
+			settings: useSettingsStore.getState(),
+		};
+		const result = await cmd.run(args, ctx);
 		setInput("");
-		if (textareaRef.current) {
-			textareaRef.current.style.height = "auto";
+		if (textareaRef.current) textareaRef.current.style.height = "auto";
+		if (typeof result === "string" && result) {
+			// /help and similar return text — push as a fake assistant message
+			// by routing through sendMessage with the result content. Simpler:
+			// just put it in the input so the user can edit before sending.
+			setInput(result);
 		}
-		await sendMessage(content);
-	}, [input, streaming, sendMessage]);
+	}, []);
+
+	const handleSend = useCallback(async () => {
+		const raw = input.trim();
+		if (!raw || streaming) return;
+
+		// If the line is exactly "/cmd args...", run it instead of sending.
+		if (raw.startsWith("/")) {
+			const [head, ...rest] = raw.slice(1).split(/\s+/);
+			const cmd = SLASH_COMMANDS.find(
+				(c) => c.id === head || c.name === `/${head}`,
+			);
+			if (cmd) {
+				await runCommand(cmd, rest.join(" "));
+				return;
+			}
+		}
+
+		setInput("");
+		if (textareaRef.current) textareaRef.current.style.height = "auto";
+		await sendMessage(raw);
+	}, [input, streaming, sendMessage, runCommand]);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (slashOpen && slashMatches.length > 0) {
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				setMenuIndex((i) => (i + 1) % slashMatches.length);
+				return;
+			}
+			if (e.key === "ArrowUp") {
+				e.preventDefault();
+				setMenuIndex(
+					(i) => (i - 1 + slashMatches.length) % slashMatches.length,
+				);
+				return;
+			}
+			if (e.key === "Tab") {
+				e.preventDefault();
+				const cmd = slashMatches[menuIndex];
+				if (cmd) setInput(`${cmd.name} `);
+				return;
+			}
+			if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+				e.preventDefault();
+				const cmd = slashMatches[menuIndex];
+				if (cmd) runCommand(cmd, "");
+				return;
+			}
+			if (e.key === "Escape") {
+				e.preventDefault();
+				setInput("");
+				return;
+			}
+		}
+
 		if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
 			e.preventDefault();
 			handleSend();
@@ -56,12 +133,20 @@ export default function InputBox() {
 		<div className="border-t border-border bg-surface p-4">
 			<div className="mx-auto flex max-w-3xl items-end gap-3">
 				<div className="relative flex-1">
+					{slashOpen && (
+						<SlashCommandMenu
+							items={slashMatches}
+							activeIndex={menuIndex}
+							onHover={setMenuIndex}
+							onSelect={(cmd) => runCommand(cmd, "")}
+						/>
+					)}
 					<textarea
 						ref={textareaRef}
 						value={input}
 						onChange={handleInput}
 						onKeyDown={handleKeyDown}
-						placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+						placeholder="Type a message or / for commands"
 						rows={1}
 						maxLength={MAX_CHARS}
 						className="w-full resize-none rounded-xl border border-border bg-surface-alt px-4 py-3 pr-16 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"

@@ -1,9 +1,11 @@
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import ChatView from "./components/chat/ChatView";
+import SettingsModal from "./components/settings/SettingsModal";
 import Sidebar from "./components/sidebar/Sidebar";
 import { HEALTH_ENGINE, HEALTH_GATEWAY } from "./services/config";
 import { useConversationStore } from "./stores/conversationStore";
+import { useSettingsStore } from "./stores/settingsStore";
 
 type ServiceStatus = {
 	engine: boolean;
@@ -12,11 +14,24 @@ type ServiceStatus = {
 
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
+	const openSettings = useSettingsStore((s) => s.openSettings);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
 		gateway: false,
 	});
 	const [checking, setChecking] = useState(true);
+
+	// Cmd/Ctrl + , opens Settings — convention from VS Code / Chrome.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+				e.preventDefault();
+				openSettings();
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [openSettings]);
 
 	// Poll backend health on startup
 	useEffect(() => {
@@ -100,6 +115,7 @@ export default function App() {
 			<main className="flex-1 flex flex-col min-w-0">
 				<ChatView />
 			</main>
+			<SettingsModal />
 		</div>
 	);
 }
