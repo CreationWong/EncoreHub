@@ -14,6 +14,15 @@ frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust)
                                             /DeepSeek)          pending)
 ```
 
+## Conventions
+
+- Commit messages: English, format `type(scope): description` (e.g. `fix(engine): handle empty conversation list`)
+- No copyright headers on new files
+- Prefer native/standard-library APIs; avoid pulling in dependencies for trivial operations
+- Before modifying auth-related code, flag the security implications explicitly
+- Never log or comment API keys, tokens, or secrets — treat them as opaque strings
+- Before writing code for non-trivial changes, briefly explain the approach; when multiple valid approaches exist, present them as options
+
 ## Component Map
 
 | Module | Language | Role |
