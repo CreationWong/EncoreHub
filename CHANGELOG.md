@@ -10,6 +10,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 - **engine**：`/health` 返回 JSON——`{status, service, version (CARGO_PKG_VERSION), database: {ok, latency_ms, error?}}`，db round-trip 用 `get_config("engine.version")`
 - **engine**：新 `PATCH /api/conversations/:id { title }` 支持会话重命名（auto-titling 之外的用户覆盖）
+- **engine**：tests/api_smoke.rs — 用 `tower::ServiceExt::oneshot` 跑 axum 路由集成测试（health / conversations CRUD / rename / knowledge ingest+search+delete / memories empty list/search / skills empty）；为此新增 src/lib.rs 暴露 `pub mod api`
 - **engine/storage tests**：rename + updated_at 不回退测试
 - **gateway**：`engine_proxy` 透传单测 5 个、`handler/chat` 纯函数单测 7 个
 - **gateway**：`engine.Client.RenameConversation` + `ConversationHandler.Rename` + router PATCH 路由
@@ -73,12 +74,19 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Tests
 
+### Fixed (2026-06-17)
+
+- **frontend bug found by axum smoke test**：`KnowledgeListResponse` 前端类型 `{documents, total}` 与引擎实际响应（flat `Vec<DocumentResponse>`）不符，导致 Knowledge tab 上传后看不到自己的文档。Service 改为返回 `KnowledgeDoc[]`，Panel `setDocs(r)` 同步。
+
+### Tests
+
 | 模块 | 用例数 |
 |------|--------|
-| frontend (vitest) | 62 |
+| frontend (vitest) | 68 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
 | gateway/handler | 15 |
+| engine/api smoke | 7 |
 | engine/storage | 6 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **106** |
+| **合计** | **119** |
