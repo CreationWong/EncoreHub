@@ -65,6 +65,7 @@ describe("command handlers", () => {
 	});
 
 	it("/clear deletes when an active conversation exists", async () => {
+		vi.spyOn(window, "confirm").mockReturnValueOnce(true);
 		const s = fakeStores({ activeId: "c1" });
 		await find("clear").run("", { conv: s.conv, settings: s.settings });
 		expect(s._conv.deleteConversation).toHaveBeenCalledWith("c1");
@@ -72,6 +73,13 @@ describe("command handlers", () => {
 
 	it("/clear is a no-op when nothing is active", async () => {
 		const s = fakeStores({ activeId: null });
+		await find("clear").run("", { conv: s.conv, settings: s.settings });
+		expect(s._conv.deleteConversation).not.toHaveBeenCalled();
+	});
+
+	it("/clear bails out when the user cancels the confirm", async () => {
+		vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+		const s = fakeStores({ activeId: "c1" });
 		await find("clear").run("", { conv: s.conv, settings: s.settings });
 		expect(s._conv.deleteConversation).not.toHaveBeenCalled();
 	});

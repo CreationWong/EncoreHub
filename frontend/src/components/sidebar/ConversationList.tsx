@@ -70,7 +70,13 @@ export default function ConversationList() {
               className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-hover text-text-muted hover:text-red-400 transition-all"
               onClick={(e) => {
                 e.stopPropagation();
-                deleteConversation(conv.id);
+                if (
+                  window.confirm(
+                    `Delete "${conv.title}"? This cannot be undone.`,
+                  )
+                ) {
+                  deleteConversation(conv.id);
+                }
               }}
             >
               <Trash2 className="h-3.5 w-3.5" />
