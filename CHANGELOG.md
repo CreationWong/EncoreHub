@@ -9,15 +9,19 @@ EncoreHub 项目变更记录。日期均为 UTC。
 ### Added (2026-06-17)
 
 - **engine**：`/health` 返回 JSON——`{status, service, version (CARGO_PKG_VERSION), database: {ok, latency_ms, error?}}`，db round-trip 用 `get_config("engine.version")`
-- **gateway**：`engine_proxy` 透传单测 5 个（路径前缀转换、查询字符串、POST body 透传、502 fallback、状态码原样回传）
-- **gateway**：`handler/chat` 纯函数单测 7 个（`buildChatRequest`、`containsLower`、`generateMockReply`、`devMockEnabled`）
-- **frontend**：`services/api.ts` 单测 7 个（`buildHeaders` token 注入、`apiFetch` 204/JSON/错误降级）
-- **frontend**：`commands/slash.ts` 单测 12 个（`matchCommands` 前缀、registry 唯一性、各命令处理器调用契约）
+- **engine**：新 `PATCH /api/conversations/:id { title }` 支持会话重命名（auto-titling 之外的用户覆盖）
+- **engine/storage tests**：rename + updated_at 不回退测试
+- **gateway**：`engine_proxy` 透传单测 5 个、`handler/chat` 纯函数单测 7 个
+- **gateway**：`engine.Client.RenameConversation` + `ConversationHandler.Rename` + router PATCH 路由
+- **frontend**：`services/api.ts` 单测 7 个、`commands/slash.ts` 单测 12 个、`MessageBubble` DOM 渲染 5 个、`renameConversation` 乐观/回滚 3 个
 - **frontend**：InputBox bash-style ↑/↓ 历史导航（空草稿 + 光标 0 触发，发送/切会话复位）
 - **frontend**：`/inspect` slash 命令——把当前会话状态 dump 成 fenced JSON system message
 - **frontend**：MemoryPanel + KnowledgePanel 加 Quote 按钮——把内容写到 `pendingDraft` 并关 Settings；InputBox 监听 `pendingDraft` 把它 append 到本地 input
 - **frontend**：MessageBubble system 分支改用 ReactMarkdown，`/inspect` 的 fenced JSON 现在能渲染高亮（之前是 `<pre>` 显示 raw 反引号）
 - **frontend**：`conversationStore` `setDraft`/`clearDraft` actions 单测
+- **frontend**：KnowledgePanel "Load .txt/.md" 文件选择按钮（File.text() 自动填 title + content）
+- **frontend**：`/clear` 与侧边栏 Trash 改成 `window.confirm` 二次确认（不可逆操作）
+- **frontend**：ConversationList 双击会话标题 inline 编辑（Enter 保存 / Esc 取消 / Blur 保存），乐观更新 + 失败回滚
 
 ### Added (2026-06-16)
 
@@ -69,10 +73,10 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 | 模块 | 用例数 |
 |------|--------|
-| frontend (vitest) | 25 |
+| frontend (vitest) | 34 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
 | gateway/handler | 12 |
-| engine/storage | 5 |
+| engine/storage | 6 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **65** |
+| **合计** | **75** |
