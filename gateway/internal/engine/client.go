@@ -86,6 +86,16 @@ func (c *Client) CreateConversation(ctx context.Context, title, provider, model 
 	return &conv, nil
 }
 
+// RenameConversation updates the title of an existing conversation.
+func (c *Client) RenameConversation(ctx context.Context, id, title string) (*Conversation, error) {
+	body := map[string]string{"title": title}
+	var conv Conversation
+	if err := c.doJSON(ctx, "PATCH", "/api/conversations/"+id, body, &conv); err != nil {
+		return nil, err
+	}
+	return &conv, nil
+}
+
 // GetConversation retrieves a conversation with messages.
 func (c *Client) GetConversation(ctx context.Context, id string) (*ConversationDetail, error) {
 	var detail ConversationDetail

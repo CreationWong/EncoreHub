@@ -23,6 +23,7 @@ interface ConversationState {
 	selectConversation: (id: string) => Promise<void>;
 	newConversation: () => Promise<string>;
 	deleteConversation: (id: string) => Promise<void>;
+	renameConversation: (id: string, title: string) => Promise<void>;
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
@@ -102,6 +103,29 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			console.error("Failed to delete conversation:", err);
 			set({ error: "Failed to delete conversation" });
+		}
+	},
+
+	renameConversation: async (id: string, title: string) => {
+		const trimmed = title.trim();
+		if (!trimmed) return;
+		// Optimistic local rename — undo on server failure.
+		const prev = get().conversations.find((c) => c.id === id)?.title;
+		set((s) => ({
+			conversations: s.conversations.map((c) =>
+				c.id === id ? { ...c, title: trimmed } : c,
+			),
+		}));
+		try {
+			await convApi.renameConversation(id, trimmed);
+		} catch (err) {
+			console.error("rename failed:", err);
+			set((s) => ({
+				conversations: s.conversations.map((c) =>
+					c.id === id && prev !== undefined ? { ...c, title: prev } : c,
+				),
+				error: "Rename failed",
+			}));
 		}
 	},
 

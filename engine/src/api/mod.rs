@@ -75,7 +75,7 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
         .route("/api/conversations/:id/messages/append", post(conversations::add_message))
         .route("/api/conversations/:id/messages", get(conversations::get_messages).post(conversations::send_message))
         // Conversations
-        .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete))
+        .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete).patch(conversations::update))
         .route("/api/conversations", get(conversations::list).post(conversations::create))
         // Health
         .route("/health", get(health_check))

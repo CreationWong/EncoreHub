@@ -210,6 +210,41 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateRequest {
+    pub title: String,
+}
+
+pub async fn update(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateRequest>,
+) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let title = req.title.trim();
+    if title.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "title cannot be empty".into(),
+            }),
+        ));
+    }
+    state
+        .db
+        .update_conversation_title(&id, title)
+        .map_err(internal_error)?;
+    let conv = state.db.get_conversation(&id).map_err(not_found)?;
+    Ok(Json(ConversationResponse {
+        id: conv.id,
+        title: conv.title,
+        provider: conv.provider,
+        model: conv.model,
+        message_count: 0,
+        created_at: conv.created_at.to_rfc3339(),
+        updated_at: conv.updated_at.to_rfc3339(),
+    }))
+}
+
 pub async fn get_messages(
     State(state): State<SharedState>,
     Path(id): Path<String>,

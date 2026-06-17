@@ -77,3 +77,24 @@ func (h *ConversationHandler) Delete(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+type renameReq struct {
+	Title string `json:"title" binding:"required"`
+}
+
+// Rename handles PATCH /api/v1/conversations/:id { title }
+func (h *ConversationHandler) Rename(c *gin.Context) {
+	id := c.Param("id")
+	var req renameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	conv, err := h.engine.RenameConversation(c.Request.Context(), id, req.Title)
+	if err != nil {
+		log.Error().Err(err).Msg("engine rename failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, conv)
+}
