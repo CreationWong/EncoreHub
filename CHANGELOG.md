@@ -22,6 +22,8 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **frontend**：KnowledgePanel "Load .txt/.md" 文件选择按钮（File.text() 自动填 title + content）
 - **frontend**：`/clear` 与侧边栏 Trash 改成 `window.confirm` 二次确认（不可逆操作）
 - **frontend**：ConversationList 双击会话标题 inline 编辑（Enter 保存 / Esc 取消 / Blur 保存），乐观更新 + 失败回滚
+- **frontend**：Sidebar 一键主题切换（Sun/Moon 图标在 dark↔light 间循环；展开/折叠两态都有；system 留给 Settings 配）
+- **frontend tests**：MessageBubble 5（用户对齐 / markdown / 流式光标 / system fenced JSON / clipboard 复制）、ConversationList 5（rename Enter/Esc/blur + delete confirm）、Sidebar 4（theme cycle + Settings 入口）、InputBox 7（slash 菜单出现 / Tab 补全 / Arrow 导航 / Esc 清空 / plain Enter 发送 / 空 Enter no-op / 流式 Stop）
 
 ### Added (2026-06-16)
 
@@ -73,10 +75,10 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 | 模块 | 用例数 |
 |------|--------|
-| frontend (vitest) | 34 |
+| frontend (vitest) | 50 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
 | gateway/handler | 12 |
 | engine/storage | 6 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **75** |
+| **合计** | **91** |
