@@ -72,6 +72,19 @@ export default function KnowledgePanel() {
 		}
 	};
 
+	const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		try {
+			const text = await file.text();
+			setUploadTitle((prev) => prev || file.name);
+			setUploadContent(text);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "read failed");
+		}
+		e.target.value = "";
+	};
+
 	const onUpload = async () => {
 		const title = uploadTitle.trim();
 		const content = uploadContent.trim();
@@ -138,25 +151,38 @@ export default function KnowledgePanel() {
 						rows={6}
 						className="w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
 					/>
-					<div className="flex justify-end gap-2">
-						<button
-							type="button"
-							onClick={() => setShowUpload(false)}
-							className="rounded-md px-3 py-1 text-xs text-text-muted hover:text-text-primary"
-						>
-							Cancel
-						</button>
-						<button
-							type="button"
-							onClick={onUpload}
-							disabled={
-								uploading || !uploadTitle.trim() || !uploadContent.trim()
-							}
-							className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-40"
-						>
-							{uploading && <Loader2 className="h-3 w-3 animate-spin" />}
-							Ingest
-						</button>
+					<div className="flex items-center justify-between gap-2">
+						<label className="cursor-pointer text-xs text-text-muted hover:text-text-primary">
+							<input
+								type="file"
+								accept=".txt,.md,.markdown,text/plain,text/markdown"
+								onChange={onPickFile}
+								className="hidden"
+							/>
+							<span className="rounded-md border border-border px-2 py-1">
+								Load .txt/.md...
+							</span>
+						</label>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => setShowUpload(false)}
+								className="rounded-md px-3 py-1 text-xs text-text-muted hover:text-text-primary"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={onUpload}
+								disabled={
+									uploading || !uploadTitle.trim() || !uploadContent.trim()
+								}
+								className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-40"
+							>
+								{uploading && <Loader2 className="h-3 w-3 animate-spin" />}
+								Ingest
+							</button>
+						</div>
 					</div>
 				</div>
 			)}
