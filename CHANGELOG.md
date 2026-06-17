@@ -78,7 +78,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 | frontend (vitest) | 62 |
 | gateway/router | 11 |
 | gateway/provider/anthropic | 10 |
-| gateway/handler | 12 |
+| gateway/handler | 15 |
 | engine/storage | 6 |
 | engine 单元（skill/migrations） | 2 |
-| **合计** | **103** |
+| **合计** | **106** |
