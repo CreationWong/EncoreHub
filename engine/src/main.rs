@@ -1,7 +1,6 @@
 //! EncoreHub Core Engine
 
-mod api;
-
+use encorehub_engine::api;
 use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
