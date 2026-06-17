@@ -17,11 +17,6 @@ export interface KnowledgeChunk {
 	score: number;
 }
 
-interface KnowledgeListResponse {
-	documents: KnowledgeDoc[];
-	total: number;
-}
-
 interface KnowledgeSearchResponse {
 	results: KnowledgeChunk[];
 	query: string;
@@ -34,8 +29,8 @@ export interface IngestPayload {
 }
 
 export const knowledgeApi = {
-	list(): Promise<KnowledgeListResponse> {
-		return apiFetch<KnowledgeListResponse>("/knowledge");
+	list(): Promise<KnowledgeDoc[]> {
+		return apiFetch<KnowledgeDoc[]>("/knowledge");
 	},
 
 	ingest(payload: IngestPayload): Promise<KnowledgeDoc> {

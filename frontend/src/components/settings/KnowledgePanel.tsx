@@ -41,7 +41,7 @@ export default function KnowledgePanel() {
 		setError(null);
 		try {
 			const r = await knowledgeApi.list();
-			setDocs(r.documents);
+			setDocs(r);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "load failed");
 		} finally {

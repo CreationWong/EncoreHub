@@ -185,3 +185,113 @@ async fn skills_list_works_with_empty_registry() {
     let v = body_json(resp).await;
     assert!(v["skills"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn knowledge_ingest_list_search_delete() {
+    let (_dir, app) = make_app();
+
+    // Ingest
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/knowledge",
+            json!({
+                "title": "encorehub-readme",
+                "content": "EncoreHub uses Tauri for the desktop shell.",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let doc = body_json(resp).await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+    assert_eq!(doc["title"], "encorehub-readme");
+    assert!(doc["chunk_count"].as_i64().unwrap() >= 1);
+
+    // List
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let listed = body_json(resp).await;
+    // engine returns a flat array (Vec<DocumentResponse>), not {documents,total}
+    let arr = listed.as_array().expect("list returns an array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["id"], doc_id);
+
+    // Search
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge/search?q=Tauri&top_k=3")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let hits = body_json(resp).await;
+    assert!(hits["results"].as_array().unwrap().len() >= 1);
+
+    // Delete
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/knowledge/{doc_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "delete status = {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
+async fn memories_list_and_search_are_empty_initially() {
+    // Memories are populated by chat-side consolidation logic; from a fresh
+    // db the HTTP surface should still respond with empty arrays rather than
+    // 500.
+    let (_dir, app) = make_app();
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert_eq!(v["total"], 0);
+    assert!(v["memories"].as_array().unwrap().is_empty());
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories/search?q=anything")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert_eq!(v["query"], "anything");
+    assert!(v["results"].as_array().unwrap().is_empty());
+}
