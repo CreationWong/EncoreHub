@@ -53,6 +53,30 @@ fn conversation_lifecycle() {
 }
 
 #[test]
+fn rename_bumps_updated_at() {
+    let (_dir, db) = fresh_db();
+    let conv = encorehub_core::Conversation::new("orig", "x", "y");
+    db.create_conversation(&conv).unwrap();
+
+    let before = db.get_conversation(&conv.id).unwrap().updated_at;
+
+    // SQLite created_at uses second-level precision via UNIX time; sleep 1.1s
+    // is overkill for CI but keeps the assertion robust against clock skew.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    db.update_conversation_title(&conv.id, "new title").unwrap();
+    let after = db.get_conversation(&conv.id).unwrap();
+
+    assert_eq!(after.title, "new title");
+    assert!(
+        after.updated_at >= before,
+        "updated_at should not move backwards: before={before} after={after_t}",
+        before = before,
+        after_t = after.updated_at,
+    );
+}
+
+#[test]
 fn message_append_and_retrieve_keeps_order() {
     let (_dir, db) = fresh_db();
     let conv = encorehub_core::Conversation::new("c", "x", "y");

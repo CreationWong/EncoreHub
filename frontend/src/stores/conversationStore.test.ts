@@ -12,6 +12,7 @@ vi.mock("../services/chat", () => ({
 
 // conversation API mocked too so newConversation/deleteConversation/loadList
 // are no-ops.
+const renameConversationApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
 	createConversation: vi
@@ -21,6 +22,7 @@ vi.mock("../services/conversation", () => ({
 		.fn()
 		.mockResolvedValue({ id: "c1", title: "x", messages: [] }),
 	deleteConversation: vi.fn().mockResolvedValue(undefined),
+	renameConversation: (...args: unknown[]) => renameConversationApi(...args),
 }));
 
 // Force module evaluation order: import store after the mocks above.
@@ -39,6 +41,7 @@ beforeEach(() => {
 		pendingDraft: null,
 	});
 	sendMessageStream.mockReset();
+	renameConversationApi.mockReset();
 });
 
 describe("pushSystemMessage", () => {
@@ -59,6 +62,47 @@ describe("draft mailbox", () => {
 		expect(useConversationStore.getState().pendingDraft).toBe("> quoted memory");
 		useConversationStore.getState().clearDraft();
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
+	});
+});
+
+describe("renameConversation", () => {
+	const seed = (title: string) =>
+		useConversationStore.setState({
+			conversations: [
+				{
+					id: "c1",
+					title,
+					provider: "",
+					model: "",
+					message_count: 0,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+
+	it("optimistically updates the title and persists on success", async () => {
+		seed("old");
+		renameConversationApi.mockResolvedValueOnce({});
+		await useConversationStore.getState().renameConversation("c1", "  new  ");
+		expect(useConversationStore.getState().conversations[0].title).toBe("new");
+		expect(renameConversationApi).toHaveBeenCalledWith("c1", "new");
+	});
+
+	it("rolls back the title and surfaces error on server failure", async () => {
+		seed("old");
+		renameConversationApi.mockRejectedValueOnce(new Error("nope"));
+		await useConversationStore.getState().renameConversation("c1", "new");
+		const s = useConversationStore.getState();
+		expect(s.conversations[0].title).toBe("old");
+		expect(s.error).toBe("Rename failed");
+	});
+
+	it("ignores empty/whitespace titles without calling the API", async () => {
+		seed("kept");
+		await useConversationStore.getState().renameConversation("c1", "   ");
+		expect(renameConversationApi).not.toHaveBeenCalled();
+		expect(useConversationStore.getState().conversations[0].title).toBe("kept");
 	});
 });
 
