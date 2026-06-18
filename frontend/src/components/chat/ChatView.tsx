@@ -1,4 +1,4 @@
-import { MessageSquare, X } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useConversationStore } from "../../stores/conversationStore";
 import InputBox from "./InputBox";
@@ -10,8 +10,6 @@ export default function ChatView() {
 	const streamingContent = useConversationStore((s) => s.streamingContent);
 	const loading = useConversationStore((s) => s.loading);
 	const activeId = useConversationStore((s) => s.activeId);
-	const error = useConversationStore((s) => s.error);
-	const clearError = useConversationStore((s) => s.clearError);
 	const bottomRef = useRef<HTMLDivElement>(null);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new content
@@ -21,20 +19,6 @@ export default function ChatView() {
 
 	return (
 		<div className="flex flex-col h-full">
-			{/* Error toast */}
-			{error && (
-				<div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400">
-					<span className="flex-1">{error}</span>
-					<button
-						type="button"
-						onClick={clearError}
-						className="hover:text-red-300"
-					>
-						<X className="h-4 w-4" />
-					</button>
-				</div>
-			)}
-
 			{/* Empty state */}
 			{!activeId && (
 				<div className="flex-1 flex flex-col">

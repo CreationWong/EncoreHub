@@ -49,6 +49,7 @@ export default function ConversationList() {
 				<button
 					type="button"
 					onClick={toggleSidebar}
+					aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
 					className="ml-1 p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
 				>
 					{sidebarOpen ? (
@@ -114,7 +115,8 @@ export default function ConversationList() {
 						)}
 						<button
 							type="button"
-							className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-hover text-text-muted hover:text-red-400 transition-all"
+							aria-label="Delete conversation"
+							className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-hover text-text-muted hover:text-danger transition-all"
 							onClick={(e) => {
 								e.stopPropagation();
 								if (

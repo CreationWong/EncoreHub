@@ -22,6 +22,9 @@ frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust)
 - Before modifying auth-related code, flag the security implications explicitly
 - Never log or comment API keys, tokens, or secrets — treat them as opaque strings
 - Before writing code for non-trivial changes, briefly explain the approach; when multiple valid approaches exist, present them as options
+- Frontend UI: use semantic color tokens (`success`/`warning`/`danger`/`info` + `-bg`/`-border` variants, defined in `styles/globals.css`, wired through `tailwind.config.js`) — never hardcode Tailwind palette colors like `red-400`
+- Frontend errors/feedback: surface via the global toast store (`stores/toastStore.ts` — `toast.success/error/info`), not inline error bars
+- Frontend a11y: icon-only buttons must carry an `aria-label`; keyboard focus uses the global `:focus-visible` ring (no per-component focus styling needed)
 
 ## Component Map
 

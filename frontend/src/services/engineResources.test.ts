@@ -85,6 +85,8 @@ describe("knowledgeApi", () => {
 
 	it("delete -> DELETE /knowledge/:id", async () => {
 		await knowledgeApi.delete("k1");
-		expect(apiFetch).toHaveBeenCalledWith("/knowledge/k1", { method: "DELETE" });
+		expect(apiFetch).toHaveBeenCalledWith("/knowledge/k1", {
+			method: "DELETE",
+		});
 	});
 });

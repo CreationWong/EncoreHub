@@ -3,7 +3,9 @@ import { SLASH_COMMANDS, matchCommands } from "./slash";
 
 type Stores = Parameters<(typeof SLASH_COMMANDS)[0]["run"]>[1];
 
-function fakeStores(overrides: Partial<Stores["conv"] & Stores["settings"]> = {}) {
+function fakeStores(
+	overrides: Partial<Stores["conv"] & Stores["settings"]> = {},
+) {
 	const conv = {
 		newConversation: vi.fn().mockResolvedValue("c1"),
 		deleteConversation: vi.fn().mockResolvedValue(undefined),

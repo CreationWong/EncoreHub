@@ -48,7 +48,7 @@ function CopyButton({
 
 function CodeBlock({ language, value }: { language: string; value: string }) {
 	return (
-		<div className="my-3 overflow-hidden rounded-lg border border-border bg-[#1e1e1e]">
+		<div className="my-3 overflow-hidden rounded-lg border border-border bg-code-bg">
 			<div className="flex items-center justify-between bg-surface-alt/40 px-3 py-1 text-[11px] text-text-muted">
 				<span className="font-mono">{language}</span>
 				<CopyButton text={value} />

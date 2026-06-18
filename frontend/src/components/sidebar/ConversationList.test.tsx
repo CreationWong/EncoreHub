@@ -94,9 +94,12 @@ describe("ConversationList rename", () => {
 		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
 		render(<ConversationList />);
 		// Trash icon button: locate by parent .group + svg query
-		const trashBtn = screen.getAllByRole("button").find((b) => b.querySelector('svg[class*="lucide-trash"]'));
+		const trashBtn = screen
+			.getAllByRole("button")
+			.find((b) => b.querySelector('svg[class*="lucide-trash"]'));
 		// Fallback: last button in the row contains the Trash svg.
-		fireEvent.click(trashBtn ?? screen.getAllByRole("button").at(-1)!);
+		const buttons = screen.getAllByRole("button");
+		fireEvent.click(trashBtn ?? buttons[buttons.length - 1]);
 		expect(confirmSpy).toHaveBeenCalled();
 		expect(deleteConversation).not.toHaveBeenCalled();
 	});

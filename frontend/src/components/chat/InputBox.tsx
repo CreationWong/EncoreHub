@@ -212,7 +212,7 @@ export default function InputBox() {
 					{charCount > 0 && (
 						<span
 							className={`pointer-events-none absolute bottom-1.5 right-3 text-[10px] tabular-nums ${
-								warn ? "text-amber-500" : "text-text-muted"
+								warn ? "text-warning" : "text-text-muted"
 							}`}
 						>
 							{charCount}/{MAX_CHARS}
@@ -223,6 +223,7 @@ export default function InputBox() {
 					<button
 						type="button"
 						onClick={stopStreaming}
+						aria-label="Stop generating"
 						title="Stop generating"
 						className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-alt text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
 					>
@@ -233,6 +234,7 @@ export default function InputBox() {
 						type="button"
 						onClick={handleSend}
 						disabled={!input.trim()}
+						aria-label="Send message"
 						title="Send (Enter)"
 						className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white transition-all hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
 					>

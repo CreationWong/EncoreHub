@@ -1,11 +1,13 @@
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../../services/conversation";
 import MessageBubble from "./MessageBubble";
 
 afterEach(cleanup);
 
-function msg(over: Partial<Message> & { content: string; role: Message["role"] }): Message {
+function msg(
+	over: Partial<Message> & { content: string; role: Message["role"] },
+): Message {
 	return {
 		id: over.id ?? "m1",
 		parent_id: over.parent_id ?? null,
@@ -28,7 +30,9 @@ describe("MessageBubble: user", () => {
 
 describe("MessageBubble: assistant", () => {
 	it("renders markdown — fenced code becomes a CodeBlock with language label", () => {
-		const md = ["here is some code", "", "```ts", "const x = 1;", "```"].join("\n");
+		const md = ["here is some code", "", "```ts", "const x = 1;", "```"].join(
+			"\n",
+		);
 		const { container } = render(
 			<MessageBubble message={msg({ role: "assistant", content: md })} />,
 		);
@@ -52,10 +56,7 @@ describe("MessageBubble: assistant", () => {
 
 describe("MessageBubble: system", () => {
 	it("renders fenced JSON via markdown — /inspect output is now readable", () => {
-		const body =
-			"Conversation state:\n```json\n" +
-			JSON.stringify({ activeId: "c1", messageCount: 2 }, null, 2) +
-			"\n```";
+		const body = `Conversation state:\n\`\`\`json\n${JSON.stringify({ activeId: "c1", messageCount: 2 }, null, 2)}\n\`\`\``;
 		const { container } = render(
 			<MessageBubble message={msg({ role: "system", content: body })} />,
 		);

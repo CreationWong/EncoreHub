@@ -31,6 +31,7 @@ export default function Sidebar() {
 					type="button"
 					onClick={toggleSidebar}
 					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+					aria-label="Open sidebar"
 					title="Open sidebar"
 				>
 					<PanelLeft className="h-4 w-4" />
@@ -40,6 +41,7 @@ export default function Sidebar() {
 					type="button"
 					onClick={() => setTheme(nextTheme(theme))}
 					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+					aria-label={themeLabel}
 					title={themeLabel}
 				>
 					<ThemeIcon className="h-4 w-4" />
@@ -48,6 +50,7 @@ export default function Sidebar() {
 					type="button"
 					onClick={() => openSettings()}
 					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+					aria-label="Settings"
 					title="Settings (Ctrl+,)"
 				>
 					<Settings className="h-4 w-4" />
@@ -77,6 +80,7 @@ export default function Sidebar() {
 					type="button"
 					onClick={() => setTheme(nextTheme(theme))}
 					className="border-l border-border px-3 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+					aria-label={themeLabel}
 					title={themeLabel}
 				>
 					<ThemeIcon className="h-3.5 w-3.5" />

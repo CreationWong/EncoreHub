@@ -29,9 +29,10 @@ vi.mock("../../stores/conversationStore", () => {
 });
 
 vi.mock("../../stores/settingsStore", () => {
-	const hook = <T,>(sel: (s: typeof settingsState) => T): T => sel(settingsState);
-	(hook as unknown as { getState: () => typeof settingsState }).getState =
-		() => settingsState;
+	const hook = <T,>(sel: (s: typeof settingsState) => T): T =>
+		sel(settingsState);
+	(hook as unknown as { getState: () => typeof settingsState }).getState = () =>
+		settingsState;
 	return { useSettingsStore: hook };
 });
 
@@ -64,7 +65,11 @@ describe("InputBox slash menu", () => {
 		const ta = getTextarea();
 		fireEvent.change(ta, { target: { value: "/" } });
 		// Menu items render command names like /new, /clear...
-		expect(screen.getAllByText(/^\/(new|clear|help|stop|settings|skills|knowledge|memory|inspect|model)$/).length).toBeGreaterThan(3);
+		expect(
+			screen.getAllByText(
+				/^\/(new|clear|help|stop|settings|skills|knowledge|memory|inspect|model)$/,
+			).length,
+		).toBeGreaterThan(3);
 	});
 
 	it("Tab autocompletes the highlighted command", () => {

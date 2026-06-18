@@ -59,7 +59,9 @@ describe("draft mailbox", () => {
 		const store = useConversationStore.getState();
 		expect(store.pendingDraft).toBeNull();
 		store.setDraft("> quoted memory");
-		expect(useConversationStore.getState().pendingDraft).toBe("> quoted memory");
+		expect(useConversationStore.getState().pendingDraft).toBe(
+			"> quoted memory",
+		);
 		useConversationStore.getState().clearDraft();
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
 	});
@@ -170,9 +172,7 @@ describe("stopStreaming", () => {
 				// Don't call onDone — caller will abort.
 				await new Promise<void>((resolve, reject) => {
 					if (signal.aborted) {
-						reject(
-							new DOMException("aborted", "AbortError"),
-						);
+						reject(new DOMException("aborted", "AbortError"));
 						return;
 					}
 					signal.addEventListener("abort", () =>

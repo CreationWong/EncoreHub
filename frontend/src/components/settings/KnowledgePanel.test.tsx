@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const list = vi.fn();
@@ -17,12 +23,10 @@ vi.mock("../../services/knowledge", () => ({
 const setDraft = vi.fn();
 const closeSettings = vi.fn();
 vi.mock("../../stores/conversationStore", () => ({
-	useConversationStore: <T,>(sel: (s: unknown) => T): T =>
-		sel({ setDraft }),
+	useConversationStore: <T,>(sel: (s: unknown) => T): T => sel({ setDraft }),
 }));
 vi.mock("../../stores/settingsStore", () => ({
-	useSettingsStore: <T,>(sel: (s: unknown) => T): T =>
-		sel({ closeSettings }),
+	useSettingsStore: <T,>(sel: (s: unknown) => T): T => sel({ closeSettings }),
 }));
 
 import KnowledgePanel from "./KnowledgePanel";
@@ -68,10 +72,9 @@ describe("KnowledgePanel", () => {
 		fireEvent.change(screen.getByPlaceholderText("Title"), {
 			target: { value: "doc" },
 		});
-		fireEvent.change(
-			screen.getByPlaceholderText(/Paste document content/),
-			{ target: { value: "hello" } },
-		);
+		fireEvent.change(screen.getByPlaceholderText(/Paste document content/), {
+			target: { value: "hello" },
+		});
 		fireEvent.click(screen.getByText("Ingest"));
 
 		await waitFor(() =>

@@ -1,20 +1,19 @@
 import { Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type Skill, skillsApi } from "../../services/skills";
+import { toast } from "../../stores/toastStore";
 
 export default function SkillsPanel() {
 	const [skills, setSkills] = useState<Skill[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 
 	const load = async () => {
 		setLoading(true);
-		setError(null);
 		try {
 			const r = await skillsApi.list();
 			setSkills(r.skills);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "load failed");
+			toast.error(err instanceof Error ? err.message : "load failed");
 		} finally {
 			setLoading(false);
 		}
@@ -31,7 +30,7 @@ export default function SkillsPanel() {
 		try {
 			await skillsApi.toggle(id, next);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "toggle failed");
+			toast.error(err instanceof Error ? err.message : "toggle failed");
 			// rollback
 			setSkills((s) =>
 				s.map((x) => (x.id === id ? { ...x, enabled: !next } : x)),
@@ -53,12 +52,6 @@ export default function SkillsPanel() {
 				Skills are loaded from the engine's <code>skills/</code> directory.
 				Toggle to enable/disable for the chat session.
 			</p>
-
-			{error && (
-				<div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-					{error}
-				</div>
-			)}
 
 			{skills.length === 0 && !loading && (
 				<p className="py-10 text-center text-sm text-text-muted">

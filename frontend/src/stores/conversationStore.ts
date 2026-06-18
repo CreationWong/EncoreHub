@@ -7,6 +7,7 @@ import type {
 } from "../services/conversation";
 import * as convApi from "../services/conversation";
 import { useSettingsStore } from "./settingsStore";
+import { toast } from "./toastStore";
 
 interface ConversationState {
 	conversations: Conversation[];
@@ -66,6 +67,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			console.error("Failed to load conversation:", err);
 			set({ loading: false, error: "Failed to load conversation" });
+			toast.error("Failed to load conversation");
 		}
 	},
 
@@ -88,6 +90,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			console.error("Failed to create conversation:", err);
 			set({ error: "Failed to create conversation" });
+			toast.error("Failed to create conversation");
 			return "";
 		}
 	},
@@ -103,6 +106,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			console.error("Failed to delete conversation:", err);
 			set({ error: "Failed to delete conversation" });
+			toast.error("Failed to delete conversation");
 		}
 	},
 
@@ -126,6 +130,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				),
 				error: "Rename failed",
 			}));
+			toast.error("Rename failed");
 		}
 	},
 
@@ -202,6 +207,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						error: errorMsg,
 						abortController: null,
 					}));
+					toast.error(errorMsg);
 				},
 			},
 			controller.signal,

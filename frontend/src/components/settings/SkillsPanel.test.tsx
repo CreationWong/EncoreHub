@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const list = vi.fn();
@@ -10,6 +16,7 @@ vi.mock("../../services/skills", () => ({
 	},
 }));
 
+import { useToastStore } from "../../stores/toastStore";
 import SkillsPanel from "./SkillsPanel";
 
 const skillFixture = {
@@ -27,6 +34,7 @@ const skillFixture = {
 beforeEach(() => {
 	list.mockReset().mockResolvedValue({ skills: [skillFixture] });
 	toggle.mockReset().mockResolvedValue(undefined);
+	useToastStore.setState({ toasts: [] });
 });
 
 afterEach(cleanup);
@@ -52,12 +60,8 @@ describe("SkillsPanel", () => {
 		expect(sw.getAttribute("aria-checked")).toBe("true");
 		fireEvent.click(sw);
 
-		await waitFor(() =>
-			expect(toggle).toHaveBeenCalledWith("skill-1", false),
-		);
-		await waitFor(() =>
-			expect(sw.getAttribute("aria-checked")).toBe("false"),
-		);
+		await waitFor(() => expect(toggle).toHaveBeenCalledWith("skill-1", false));
+		await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("false"));
 	});
 
 	it("rolls back the switch and surfaces an error on API failure", async () => {
@@ -68,9 +72,11 @@ describe("SkillsPanel", () => {
 		fireEvent.click(sw);
 		await waitFor(() => expect(toggle).toHaveBeenCalled());
 		await waitFor(() => {
-			// rolled back to original (true) and error visible
+			// rolled back to original (true) and error surfaced via toast
 			expect(sw.getAttribute("aria-checked")).toBe("true");
-			expect(screen.getByText("nope")).toBeDefined();
+			expect(
+				useToastStore.getState().toasts.some((t) => t.message === "nope"),
+			).toBe(true);
 		});
 	});
 
