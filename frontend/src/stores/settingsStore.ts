@@ -6,7 +6,8 @@ export type SettingsTab =
 	| "skills"
 	| "knowledge"
 	| "memories"
-	| "appearance";
+	| "appearance"
+	| "developer";
 
 interface SettingsState {
 	theme: Theme;
@@ -16,6 +17,7 @@ interface SettingsState {
 	sidebarOpen: boolean;
 	settingsOpen: boolean;
 	settingsTab: SettingsTab;
+	devMode: boolean;
 
 	setTheme: (theme: Theme) => void;
 	setProvider: (provider: string, model?: string) => void;
@@ -25,6 +27,7 @@ interface SettingsState {
 	toggleSidebar: () => void;
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
+	setDevMode: (on: boolean) => void;
 }
 
 function getSystemTheme(): "dark" | "light" {
@@ -92,6 +95,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	sidebarOpen: true,
 	settingsOpen: false,
 	settingsTab: "providers",
+	devMode:
+		typeof window !== "undefined"
+			? localStorage.getItem("encorehub-dev-mode") === "1"
+			: false,
 
 	setTheme: (theme: Theme) => {
 		set({ theme });
@@ -144,6 +151,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	openSettings: (tab?: SettingsTab) =>
 		set({ settingsOpen: true, settingsTab: tab ?? get().settingsTab }),
 	closeSettings: () => set({ settingsOpen: false }),
+
+	setDevMode: (on: boolean) => {
+		set({ devMode: on });
+		try {
+			localStorage.setItem("encorehub-dev-mode", on ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
+	},
 }));
 
 if (typeof window !== "undefined") {

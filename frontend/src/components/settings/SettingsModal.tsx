@@ -1,7 +1,16 @@
-import { BookOpen, Bot, Database, Palette, Sparkles, X } from "lucide-react";
+import {
+	BookOpen,
+	Bot,
+	Database,
+	Palette,
+	Sparkles,
+	Terminal,
+	X,
+} from "lucide-react";
 import { useEffect } from "react";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
+import DeveloperPanel from "./DeveloperPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ProvidersPanel from "./ProvidersPanel";
@@ -15,11 +24,20 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Bot }[] = [
 	{ id: "appearance", label: "Appearance", icon: Palette },
 ];
 
+const DEV_TAB: { id: SettingsTab; label: string; icon: typeof Bot } = {
+	id: "developer",
+	label: "Developer",
+	icon: Terminal,
+};
+
 export default function SettingsModal() {
 	const open = useSettingsStore((s) => s.settingsOpen);
 	const tab = useSettingsStore((s) => s.settingsTab);
 	const setTab = useSettingsStore((s) => s.openSettings);
 	const close = useSettingsStore((s) => s.closeSettings);
+	const devMode = useSettingsStore((s) => s.devMode);
+
+	const tabs = devMode ? [...TABS, DEV_TAB] : TABS;
 
 	useEffect(() => {
 		if (!open) return;
@@ -53,7 +71,7 @@ export default function SettingsModal() {
 					<div className="mb-4 px-2 text-sm font-semibold text-text-primary">
 						Settings
 					</div>
-					{TABS.map((t) => (
+					{tabs.map((t) => (
 						<button
 							key={t.id}
 							type="button"
@@ -79,6 +97,7 @@ export default function SettingsModal() {
 						<button
 							type="button"
 							onClick={close}
+							aria-label="Close settings"
 							title="Close (Esc)"
 							className="rounded-md p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
 						>
@@ -91,6 +110,7 @@ export default function SettingsModal() {
 						{tab === "knowledge" && <KnowledgePanel />}
 						{tab === "memories" && <MemoryPanel />}
 						{tab === "appearance" && <AppearancePanel />}
+						{tab === "developer" && <DeveloperPanel />}
 					</div>
 				</div>
 			</dialog>
