@@ -8,9 +8,9 @@
 
 ## 进度总览（完成一个阶段就打勾）
 
-- [ ] **阶段 0**：UI 地基（色 token + Toast + a11y 基线）
+- [x] **阶段 0**：UI 地基（色 token + Toast + a11y 基线）
 - [ ] **阶段 1**：隐藏终端窗口（S8）
-- [ ] **阶段 2**：开发者模式（S9）
+- [x] **阶段 2**：开发者模式（S9）
 - [ ] **阶段 3**：供应商模板化（S5）
 - [ ] **阶段 4**：密钥口令加密（S6）
 - [ ] **阶段 5**：思考链 + 工具调用链（S7）
@@ -19,7 +19,7 @@
 - [ ] **阶段 8**：向量检索打通（S3）
 - [ ] **阶段 9**：契约与文档对齐（S4）
 
-> 当前进度指针：**阶段 0**（从这里开始）
+> 当前进度指针：**阶段 3**（供应商模板化）。注:阶段 1 的 1.3 为手动桌面验证项,待本地 `pnpm tauri dev` 确认无终端弹窗后再勾选总览阶段 1。
 
 ---
 
@@ -36,12 +36,12 @@
 
 > 目标:建立后续所有新界面复用的设计原语,避免返工。改动集中在 `frontend/src`。
 
-- [ ] 0.1 语义色 token：在 `styles/globals.css` 增加 `success/warning/danger/info` 及其 `-bg`/`-border` 变体,亮/暗双主题,接入 Tailwind token
-- [ ] 0.2 替换硬编码色：把现有 `green-400`/`red-500/10`/`amber-500`/`#1e1e1e` 等替换为语义 token
-- [ ] 0.3 统一 Toast 组件：新建可全局调用的 toast(success/error/info),右下角堆叠、可关闭、自动消失
-- [ ] 0.4 接入 Toast：把 ChatView 红色错误条、各设置面板内联错误改为统一 toast
-- [ ] 0.5 a11y 基线：统一 `focus-visible` 焦点环;为现有图标按钮补 `aria-label` 规范(建立约定供后续遵循)
-- [ ] **阶段 0 完成**：`pnpm lint && pnpm test` 通过 → 勾选总览阶段 0
+- [x] 0.1 语义色 token：在 `styles/globals.css` 增加 `success/warning/danger/info` 及其 `-bg`/`-border` 变体,亮/暗双主题,接入 Tailwind token
+- [x] 0.2 替换硬编码色：把现有 `green-400`/`red-500/10`/`amber-500`/`#1e1e1e` 等替换为语义 token
+- [x] 0.3 统一 Toast 组件：新建可全局调用的 toast(success/error/info),右下角堆叠、可关闭、自动消失
+- [x] 0.4 接入 Toast：把 ChatView 红色错误条、各设置面板内联错误改为统一 toast
+- [x] 0.5 a11y 基线：统一 `focus-visible` 焦点环;为现有图标按钮补 `aria-label` 规范(建立约定供后续遵循)
+- [x] **阶段 0 完成**：`pnpm lint && pnpm test` 通过 → 勾选总览阶段 0
 
 ---
 
@@ -49,8 +49,8 @@
 
 > 目标:Windows 启动不弹终端。改动在 `frontend/src-tauri/src/main.rs`。
 
-- [ ] 1.1 给引擎/网关两个 `Command` 加 `CREATE_NO_WINDOW`：引入 `std::os::windows::process::CommandExt`,`.creation_flags(0x08000000)`,`cfg(target_os="windows")` 门控
-- [ ] 1.2 修复管道死锁隐患:为 `stdout`/`stderr` 起读取线程持续 drain(为阶段 2 日志做准备,先简单丢弃或 `eprintln`)
+- [x] 1.1 给引擎/网关两个 `Command` 加 `CREATE_NO_WINDOW`：引入 `std::os::windows::process::CommandExt`,`.creation_flags(0x08000000)`,`cfg(target_os="windows")` 门控
+- [x] 1.2 修复管道死锁隐患:为 `stdout`/`stderr` 起读取线程持续 drain(为阶段 2 日志做准备,先简单丢弃或 `eprintln`)
 - [ ] 1.3 验证:`pnpm tauri dev` 与打包后启动,确认 Windows 下无终端弹窗、子进程长跑不卡
 - [ ] **阶段 1 完成** → 勾选总览阶段 1
 
@@ -60,13 +60,13 @@
 
 > 目标:软件内查看程序/网关/引擎状态与实时日志。Tauri + 前端。
 
-- [ ] 2.1 日志缓冲:把阶段 1 的读取线程改为写入环形缓冲(限行数),区分来源(engine/gateway)与级别
-- [ ] 2.2 日志推送:`app.emit()` 实时推前端,或暴露 `#[tauri::command]` 拉取
-- [ ] 2.3 状态采集:复用 `check_engine_health`/`check_gateway_health` 周期轮询,采集 PID/端口/运行时长
-- [ ] 2.4 设置开关:设置中新增「开发者模式」开关(默认关)
-- [ ] 2.5 开发者面板:状态卡片(三方存活灯+PID+端口)+ 日志视图(实时滚动、按来源/级别过滤、搜索、清空、导出)
-- [ ] 2.6 脱敏:日志展示前过滤密钥/密码
-- [ ] **阶段 2 完成**:`pnpm lint && pnpm test` 通过 → 勾选总览阶段 2
+- [x] 2.1 日志缓冲:把阶段 1 的读取线程改为写入环形缓冲(限行数),区分来源(engine/gateway)与级别
+- [x] 2.2 日志推送:`app.emit()` 实时推前端,或暴露 `#[tauri::command]` 拉取
+- [x] 2.3 状态采集:复用 `check_engine_health`/`check_gateway_health` 周期轮询,采集 PID/端口/运行时长
+- [x] 2.4 设置开关:设置中新增「开发者模式」开关(默认关)
+- [x] 2.5 开发者面板:状态卡片(三方存活灯+PID+端口)+ 日志视图(实时滚动、按来源/级别过滤、搜索、清空、导出)
+- [x] 2.6 脱敏:日志展示前过滤密钥/密码
+- [x] **阶段 2 完成**:`pnpm lint && pnpm test` 通过 → 勾选总览阶段 2
 
 ---
 
