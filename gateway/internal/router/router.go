@@ -22,8 +22,9 @@ const requestIDHeader = "X-Request-ID"
 
 // Config holds dependencies for the router.
 type Config struct {
-	Registry *provider.Registry
-	Engine   *engine.Client
+	Registry     *provider.Registry
+	Engine       *engine.Client
+	ProfileStore *handler.ProfileStore
 }
 
 // Setup builds the Gin router with all middleware and routes.
@@ -41,7 +42,7 @@ func Setup(cfg Config) *gin.Engine {
 	// Handlers
 	convHandler := handler.NewConversationHandler(cfg.Engine)
 	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine)
-	providerHandler := handler.NewProviderHandler(cfg.Registry)
+	providerHandler := handler.NewProviderHandler(cfg.Registry, cfg.ProfileStore)
 	searchHandler := handler.NewSearchHandler()
 	engineProxy := handler.NewEngineProxy(cfg.Engine)
 	healthHandler := handler.NewHealthHandler(cfg.Engine)
@@ -75,6 +76,7 @@ func Setup(cfg Config) *gin.Engine {
 		prov := api.Group("/providers")
 		{
 			prov.GET("", providerHandler.ListProviders)
+			prov.PUT("", providerHandler.UpdateProviders)
 			prov.GET("/:provider/models", providerHandler.ListModels)
 		}
 

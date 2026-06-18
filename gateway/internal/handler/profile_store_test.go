@@ -1,0 +1,105 @@
+package handler
+
+import (
+	"testing"
+
+	"github.com/encorehub/gateway/internal/provider"
+)
+
+func validProfile() provider.ProviderProfile {
+	return provider.ProviderProfile{
+		ID:       "custom",
+		Name:     "Custom",
+		Protocol: provider.ProtocolOpenAI,
+		BaseURL:  "https://api.example.com/v1",
+		Models:   []string{"model-a"},
+		Enabled:  true,
+	}
+}
+
+func TestValidateProfiles_OK(t *testing.T) {
+	if err := validateProfiles([]provider.ProviderProfile{validProfile()}); err != nil {
+		t.Fatalf("expected valid, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RejectsEmptyID(t *testing.T) {
+	p := validProfile()
+	p.ID = "  "
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected empty-id rejection")
+	}
+}
+
+func TestValidateProfiles_RejectsDuplicateID(t *testing.T) {
+	p := validProfile()
+	if err := validateProfiles([]provider.ProviderProfile{p, p}); err == nil {
+		t.Fatal("expected duplicate-id rejection")
+	}
+}
+
+func TestValidateProfiles_RejectsUnknownProtocol(t *testing.T) {
+	p := validProfile()
+	p.Protocol = "carrier-pigeon"
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected unknown-protocol rejection")
+	}
+}
+
+func TestValidateProfiles_RequiresBaseURLForCustom(t *testing.T) {
+	p := validProfile()
+	p.BaseURL = ""
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected base_url rejection for non-builtin")
+	}
+}
+
+func TestValidateProfiles_AllowsEmptyBaseURLForBuiltinOpenAI(t *testing.T) {
+	p := validProfile()
+	p.ID = "openai"
+	p.BaseURL = ""
+	p.Builtin = true
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("builtin openai may omit base_url, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RequiresAtLeastOneModel(t *testing.T) {
+	p := validProfile()
+	p.Models = nil
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected model rejection")
+	}
+}
+
+func TestCheckBuiltinsPresent_BlocksBuiltinDeletion(t *testing.T) {
+	s := &ProfileStore{
+		profiles: []provider.ProviderProfile{
+			{ID: "openai", Builtin: true},
+			{ID: "custom", Builtin: false},
+		},
+	}
+	// Dropping the custom one is fine.
+	if err := s.checkBuiltinsPresent([]provider.ProviderProfile{{ID: "openai", Builtin: true}}); err != nil {
+		t.Fatalf("dropping non-builtin should be allowed, got %v", err)
+	}
+	// Dropping the builtin one is not.
+	if err := s.checkBuiltinsPresent([]provider.ProviderProfile{{ID: "custom"}}); err == nil {
+		t.Fatal("expected builtin-deletion rejection")
+	}
+}
+
+func TestSortedProfiles_BuiltinsFirstThenName(t *testing.T) {
+	in := []provider.ProviderProfile{
+		{ID: "z-custom", Name: "Zeta", Builtin: false},
+		{ID: "a-custom", Name: "Alpha", Builtin: false},
+		{ID: "openai", Name: "OpenAI", Builtin: true},
+	}
+	out := sortedProfiles(in)
+	if !out[0].Builtin {
+		t.Fatalf("expected builtin first, got %q", out[0].ID)
+	}
+	if out[1].Name != "Alpha" || out[2].Name != "Zeta" {
+		t.Fatalf("non-builtins should sort by name: %q, %q", out[1].Name, out[2].Name)
+	}
+}

@@ -22,16 +22,38 @@ const anthropicBaseURL = "https://api.anthropic.com/v1"
 // Adapter implements provider.Adapter for Anthropic.
 type Adapter struct {
 	httpClient *http.Client
+	id         string
+	baseURL    string
+	models     []string
 }
 
+// New builds the default Anthropic adapter (id "anthropic", official endpoint).
 func New() *Adapter {
 	return &Adapter{
 		httpClient: &http.Client{},
+		id:         "anthropic",
+		baseURL:    anthropicBaseURL,
+	}
+}
+
+// NewFromProfile builds an Anthropic-protocol adapter from a profile, allowing
+// a custom id, endpoint, and model list. An empty BaseURL falls back to the
+// official endpoint.
+func NewFromProfile(p provider.ProviderProfile) *Adapter {
+	base := p.BaseURL
+	if base == "" {
+		base = anthropicBaseURL
+	}
+	return &Adapter{
+		httpClient: &http.Client{},
+		id:         p.ID,
+		baseURL:    base,
+		models:     p.Models,
 	}
 }
 
 func (a *Adapter) ID() string {
-	return "anthropic"
+	return a.id
 }
 
 // ===== Request/Response types for Anthropic Messages API =====
@@ -61,10 +83,10 @@ type anthropicUsage struct {
 }
 
 type anthropicResp struct {
-	Content []anthropicContent `json:"content"`
-	StopReason string          `json:"stop_reason"`
-	Usage      anthropicUsage  `json:"usage"`
-	Model      string          `json:"model"`
+	Content    []anthropicContent `json:"content"`
+	StopReason string             `json:"stop_reason"`
+	Usage      anthropicUsage     `json:"usage"`
+	Model      string             `json:"model"`
 	Error      *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
@@ -73,9 +95,9 @@ type anthropicResp struct {
 
 // SSE event types
 type sseEvent struct {
-	Type  string           `json:"type"`
-	Delta *sseTextDelta    `json:"delta,omitempty"`
-	Usage *anthropicUsage  `json:"usage,omitempty"`
+	Type    string          `json:"type"`
+	Delta   *sseTextDelta   `json:"delta,omitempty"`
+	Usage   *anthropicUsage `json:"usage,omitempty"`
 	Message *struct {
 		StopReason string `json:"stop_reason"`
 	} `json:"message,omitempty"`
@@ -193,7 +215,15 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 }
 
 func (a *Adapter) ListModels(_ context.Context, _ string) ([]provider.ModelInfo, error) {
-	// Anthropic doesn't have a list-models API; return known models.
+	// Anthropic doesn't have a list-models API. Prefer the profile's model
+	// list when present (custom profiles), else fall back to known defaults.
+	if len(a.models) > 0 {
+		out := make([]provider.ModelInfo, 0, len(a.models))
+		for _, m := range a.models {
+			out = append(out, provider.ModelInfo{ID: m, Name: m, Provider: a.id, ContextLimit: 200000})
+		}
+		return out, nil
+	}
 	return []provider.ModelInfo{
 		{ID: "claude-opus-4-8", Name: "Claude Opus 4.8", Provider: "anthropic", ContextLimit: 200000},
 		{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6", Provider: "anthropic", ContextLimit: 200000},
@@ -241,7 +271,7 @@ func (a *Adapter) doRequest(ctx context.Context, method, path, apiKey string, bo
 		return nil, fmt.Errorf("anthropic marshal: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, method, anthropicBaseURL+path, bytes.NewReader(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, method, a.baseURL+path, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic request: %w", err)
 	}

@@ -20,34 +20,34 @@ type Client struct {
 
 // Conversation represents a conversation from the engine.
 type Conversation struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Provider     string    `json:"provider"`
-	Model        string    `json:"model"`
-	MessageCount int       `json:"message_count"`
-	CreatedAt    string    `json:"created_at"`
-	UpdatedAt    string    `json:"updated_at"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	MessageCount int    `json:"message_count"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // ConversationDetail includes messages.
 type ConversationDetail struct {
-	ID        string              `json:"id"`
-	Title     string              `json:"title"`
-	Provider  string              `json:"provider"`
-	Model     string              `json:"model"`
-	Messages  []Message           `json:"messages"`
-	Summary   *string             `json:"summary"`
-	CreatedAt string              `json:"created_at"`
-	UpdatedAt string              `json:"updated_at"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Provider  string    `json:"provider"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	Summary   *string   `json:"summary"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 }
 
 // Message represents a single message.
 type Message struct {
-	ID        string   `json:"id"`
-	Role      string   `json:"role"`
-	Content   string   `json:"content"`
-	ParentID  *string  `json:"parent_id"`
-	CreatedAt string   `json:"created_at"`
+	ID        string  `json:"id"`
+	Role      string  `json:"role"`
+	Content   string  `json:"content"`
+	ParentID  *string `json:"parent_id"`
+	CreatedAt string  `json:"created_at"`
 }
 
 // SendMessageResponse is the response from sending a message to the engine.
@@ -206,6 +206,18 @@ func (c *Client) SearchKnowledge(ctx context.Context, q string, topK int) ([]Kno
 		return nil, err
 	}
 	return resp.Results, nil
+}
+
+// GetConfig reads a JSON config value by key from the engine. `out` is the
+// destination to unmarshal into. A null/unset key leaves `out` at its zero
+// value (json.Unmarshal of `null` is a no-op for most types) without erroring.
+func (c *Client) GetConfig(ctx context.Context, key string, out interface{}) error {
+	return c.doJSON(ctx, "GET", "/api/config/"+url.PathEscape(key), nil, out)
+}
+
+// SetConfig writes a JSON config value by key. The value is stored verbatim.
+func (c *Client) SetConfig(ctx context.Context, key string, value interface{}) error {
+	return c.doJSON(ctx, "PUT", "/api/config/"+url.PathEscape(key), value, nil)
 }
 
 // requestIDKey is used to pull a propagated X-Request-ID out of context.

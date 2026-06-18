@@ -19,10 +19,8 @@ import (
 	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
+	"github.com/encorehub/gateway/internal/handler"
 	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/provider/anthropic"
-	"github.com/encorehub/gateway/internal/provider/deepseek"
-	"github.com/encorehub/gateway/internal/provider/openai"
 	"github.com/encorehub/gateway/internal/router"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -48,16 +46,9 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	// Initialize provider registry
-	registry := provider.NewRegistry(
-		openai.New(),
-		anthropic.New(),
-		deepseek.New(),
-	)
-
-	log.Info().
-		Strs("providers", registry.List()).
-		Msg("registered providers")
+	// Provider registry starts empty; the ProfileStore populates it from
+	// persisted profiles (or builtin defaults) during Load below.
+	registry := provider.NewRegistry()
 
 	// Initialize engine client
 	engineClient := engine.NewClient(engineURL)
@@ -70,10 +61,21 @@ func main() {
 		log.Info().Str("engine_url", engineURL).Msg("engine connected")
 	}
 
+	// Load provider profiles into the registry. On engine failure this falls
+	// back to builtin defaults so chat still works against the default set.
+	profileStore := handler.NewProfileStore(engineClient, registry)
+	if err := profileStore.Load(context.Background()); err != nil {
+		log.Warn().Err(err).Msg("provider profiles loaded with fallback/partial errors")
+	}
+	log.Info().
+		Strs("providers", registry.List()).
+		Msg("registered providers")
+
 	// Setup router
 	r := router.Setup(router.Config{
-		Registry: registry,
-		Engine:   engineClient,
+		Registry:     registry,
+		Engine:       engineClient,
+		ProfileStore: profileStore,
 	})
 
 	// Wrap gin in *http.Server so we can call Shutdown(ctx).

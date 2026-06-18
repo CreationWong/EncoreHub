@@ -7,8 +7,8 @@ import (
 
 // Registry manages all registered AI provider adapters.
 type Registry struct {
-	mu        sync.RWMutex
-	adapters  map[string]Adapter
+	mu       sync.RWMutex
+	adapters map[string]Adapter
 }
 
 // NewRegistry creates a registry with the given adapters.
@@ -39,6 +39,18 @@ func (r *Registry) Register(a Adapter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.adapters[a.ID()] = a
+}
+
+// Replace atomically swaps the entire adapter set. Used when provider profiles
+// change at runtime so in-flight Get() calls always see a consistent map.
+func (r *Registry) Replace(adapters []Adapter) {
+	next := make(map[string]Adapter, len(adapters))
+	for _, a := range adapters {
+		next[a.ID()] = a
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.adapters = next
 }
 
 // List returns all registered provider IDs.

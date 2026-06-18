@@ -7,20 +7,43 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ProviderHandler handles provider/model listing requests.
+// ProviderHandler serves provider profile listing/editing and model listing.
 type ProviderHandler struct {
 	registry *provider.Registry
+	store    *ProfileStore
 }
 
-func NewProviderHandler(registry *provider.Registry) *ProviderHandler {
-	return &ProviderHandler{registry: registry}
+func NewProviderHandler(registry *provider.Registry, store *ProfileStore) *ProviderHandler {
+	return &ProviderHandler{registry: registry, store: store}
 }
 
-// ListProviders returns all registered provider IDs.
+// updateProvidersRequest is the PUT body: the full desired profile list.
+type updateProvidersRequest struct {
+	Providers []provider.ProviderProfile `json:"providers"`
+}
+
+// ListProviders returns the full provider profile list (builtin-first).
 func (h *ProviderHandler) ListProviders(c *gin.Context) {
-	ids := h.registry.List()
 	c.JSON(http.StatusOK, gin.H{
-		"providers": ids,
+		"providers": sortedProfiles(h.store.Profiles()),
+	})
+}
+
+// UpdateProviders replaces the entire profile list. The frontend sends the
+// whole desired set; the store validates, persists to the engine, and rebuilds
+// the live registry.
+func (h *ProviderHandler) UpdateProviders(c *gin.Context) {
+	var req updateProvidersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.store.Save(c.Request.Context(), req.Providers); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"providers": sortedProfiles(h.store.Profiles()),
 	})
 }
 

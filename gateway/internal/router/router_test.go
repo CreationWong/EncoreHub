@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/encorehub/gateway/internal/engine"
+	"github.com/encorehub/gateway/internal/handler"
 	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/provider/openai"
 	"github.com/encorehub/gateway/internal/router"
 	"github.com/gin-gonic/gin"
 )
@@ -18,11 +18,15 @@ func init() {
 }
 
 func newRouter() *gin.Engine {
-	registry := provider.NewRegistry(openai.New())
-	// Engine baseURL is unused in the routes we hit (health/providers).
+	registry := provider.NewRegistry()
+	// Engine baseURL is unused in the routes we hit (health/providers). The
+	// store is left unloaded, so /providers returns an empty list — fine for
+	// the routing/auth/CORS assertions here.
+	eng := engine.NewClient("http://127.0.0.1:0")
 	return router.Setup(router.Config{
-		Registry: registry,
-		Engine:   engine.NewClient("http://127.0.0.1:0"),
+		Registry:     registry,
+		Engine:       eng,
+		ProfileStore: handler.NewProfileStore(eng, registry),
 	})
 }
 
