@@ -295,3 +295,51 @@ async fn memories_list_and_search_are_empty_initially() {
     assert_eq!(v["query"], "anything");
     assert!(v["results"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn config_get_unset_returns_null_then_roundtrips() {
+    let (_dir, app) = make_app();
+
+    // Unset key → null (not 404), so the gateway can treat "no profiles yet"
+    // as "use builtin defaults".
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/config/provider_profiles")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(body_json(resp).await, Value::Null);
+
+    // PUT an array value.
+    let profiles = json!([
+        {"id": "openai", "name": "OpenAI", "protocol": "openai", "base_url": "https://api.openai.com/v1"}
+    ]);
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/config/provider_profiles",
+            profiles.clone(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // GET returns exactly what we stored.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/config/provider_profiles")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(body_json(resp).await, profiles);
+}

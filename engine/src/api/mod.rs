@@ -1,3 +1,4 @@
+mod config;
 mod conversations;
 mod knowledge;
 mod memories;
@@ -77,6 +78,8 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
         // Conversations
         .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete).patch(conversations::update))
         .route("/api/conversations", get(conversations::list).post(conversations::create))
+        // Config (key/value JSON store — e.g. provider_profiles)
+        .route("/api/config/:key", get(config::get).put(config::put))
         // Health
         .route("/health", get(health_check))
         .layer(cors)
