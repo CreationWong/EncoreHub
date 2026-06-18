@@ -1,6 +1,6 @@
 import { ChevronDown, Cpu, Key } from "lucide-react";
 import { useEffect, useState } from "react";
-import { PROVIDERS } from "../../constants/providers";
+import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export default function ProviderSwitcher() {
@@ -9,12 +9,15 @@ export default function ProviderSwitcher() {
 	const setProvider = useSettingsStore((s) => s.setProvider);
 	const setApiKey = useSettingsStore((s) => s.setApiKey);
 	const apiKeys = useSettingsStore((s) => s.apiKeys);
+	const profiles = useProviderStore((s) => s.profiles);
 
 	const [expanded, setExpanded] = useState(false);
 	const [showKeyInput, setShowKeyInput] = useState(false);
 	const [keyValue, setKeyValue] = useState("");
 
-	const selectedProvider = PROVIDERS.find((p) => p.id === provider);
+	// Only enabled providers are selectable.
+	const enabled = profiles.filter((p) => p.enabled);
+	const selectedProvider = profiles.find((p) => p.id === provider);
 	const displayName = selectedProvider?.name || "Select Provider";
 
 	useEffect(() => {
@@ -44,26 +47,26 @@ export default function ProviderSwitcher() {
 
 				{expanded && (
 					<div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-border bg-surface shadow-lg p-1 z-50">
-						{PROVIDERS.map((p) => (
+						{enabled.length === 0 && (
+							<p className="px-3 py-2 text-xs text-text-muted">
+								No providers configured
+							</p>
+						)}
+						{enabled.map((p) => (
 							<div key={p.id}>
 								<button
 									type="button"
-									disabled={p.disabled}
-									title={p.disabledReason ?? undefined}
 									className={`w-full text-left px-3 py-1.5 rounded text-xs font-medium ${
 										provider === p.id
 											? "bg-accent/10 text-accent"
 											: "text-text-secondary hover:bg-surface-hover"
-									} ${p.disabled ? "cursor-not-allowed opacity-40 hover:bg-transparent" : ""}`}
+									}`}
 									onClick={() => {
 										setProvider(p.id, p.models[0]);
 										setExpanded(false);
 									}}
 								>
 									{p.name}
-									{p.disabled && (
-										<span className="ml-1 text-[10px] uppercase">soon</span>
-									)}
 								</button>
 								{provider === p.id && (
 									<div className="ml-4 mb-1 space-y-0.5">

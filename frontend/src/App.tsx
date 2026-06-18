@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import ChatView from "./components/chat/ChatView";
 import SettingsModal from "./components/settings/SettingsModal";
 import Sidebar from "./components/sidebar/Sidebar";
+import ToastHost from "./components/ui/ToastHost";
 import { HEALTH_ENGINE, HEALTH_GATEWAY } from "./services/config";
 import { useConversationStore } from "./stores/conversationStore";
+import { useProviderStore } from "./stores/providerStore";
 import { useSettingsStore } from "./stores/settingsStore";
 
 type ServiceStatus = {
@@ -14,6 +16,7 @@ type ServiceStatus = {
 
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
+	const loadProviders = useProviderStore((s) => s.load);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
@@ -60,7 +63,10 @@ export default function App() {
 
 			if ((engineOk && gatewayOk) || attempts >= maxAttempts) {
 				setChecking(false);
-				if (gatewayOk) loadList();
+				if (gatewayOk) {
+					loadList();
+					loadProviders();
+				}
 			} else {
 				attempts++;
 				setTimeout(check, 1000);
@@ -68,7 +74,7 @@ export default function App() {
 		};
 
 		check();
-	}, [loadList]);
+	}, [loadList, loadProviders]);
 
 	// Splash screen while waiting for backend
 	if (checking) {
@@ -84,7 +90,7 @@ export default function App() {
 					<p className="text-sm text-text-muted">Starting services...</p>
 					<div className="flex items-center justify-center gap-4 text-xs">
 						<span
-							className={`flex items-center gap-1.5 ${status.engine ? "text-green-400" : "text-text-muted"}`}
+							className={`flex items-center gap-1.5 ${status.engine ? "text-success" : "text-text-muted"}`}
 						>
 							{status.engine ? (
 								<Wifi className="h-3 w-3" />
@@ -94,7 +100,7 @@ export default function App() {
 							Engine {status.engine ? "ready" : "waiting..."}
 						</span>
 						<span
-							className={`flex items-center gap-1.5 ${status.gateway ? "text-green-400" : "text-text-muted"}`}
+							className={`flex items-center gap-1.5 ${status.gateway ? "text-success" : "text-text-muted"}`}
 						>
 							{status.gateway ? (
 								<Wifi className="h-3 w-3" />
@@ -116,6 +122,7 @@ export default function App() {
 				<ChatView />
 			</main>
 			<SettingsModal />
+			<ToastHost />
 		</div>
 	);
 }

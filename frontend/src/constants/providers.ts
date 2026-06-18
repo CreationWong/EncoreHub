@@ -1,56 +1,16 @@
-export interface ProviderDef {
-	id: string;
-	name: string;
-	models: string[];
-	keyHint?: string;
-	/** Pending backend support — show in UI as greyed/locked. */
-	disabled?: boolean;
-	/** Reason shown in tooltip when disabled. */
-	disabledReason?: string;
-}
+import type { ProviderProtocol } from "../services/providers";
 
-export const PROVIDERS: ProviderDef[] = [
-	{
-		id: "openai",
-		name: "OpenAI",
-		models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1"],
-		keyHint: "sk-...",
-	},
-	{
-		id: "anthropic",
-		name: "Anthropic",
-		models: [
-			"claude-opus-4-8",
-			"claude-sonnet-4-6",
-			"claude-haiku-4-5-20251001",
-		],
-		keyHint: "sk-ant-...",
-	},
-	{
-		id: "deepseek",
-		name: "DeepSeek",
-		models: ["deepseek-chat", "deepseek-reasoner"],
-		keyHint: "sk-...",
-	},
-	{
-		id: "google",
-		name: "Google",
-		models: ["gemini-2.5-flash", "gemini-2.5-pro"],
-		keyHint: "AI...",
-		disabled: true,
-		disabledReason: "Gateway adapter not implemented yet",
-	},
-	{
-		id: "ollama",
-		name: "Ollama (Local)",
-		models: ["llama3.2", "qwen2.5", "codestral", "mistral"],
-		disabled: true,
-		disabledReason: "Gateway adapter not implemented yet",
-	},
-];
+/**
+ * Provider profiles are now dynamic — fetched from the gateway and held in
+ * `useProviderStore`. This module only retains small presentation helpers.
+ */
 
-export const ENABLED_PROVIDERS = PROVIDERS.filter((p) => !p.disabled);
-
-export function getProvider(id: string): ProviderDef | undefined {
-	return PROVIDERS.find((p) => p.id === id);
+/** Placeholder/hint for the API key input, by protocol. */
+export function keyHintFor(protocol: ProviderProtocol): string {
+	switch (protocol) {
+		case "anthropic":
+			return "sk-ant-...";
+		default:
+			return "sk-...";
+	}
 }
