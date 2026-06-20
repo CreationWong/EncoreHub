@@ -80,9 +80,11 @@ func Setup(cfg Config) *gin.Engine {
 			prov.GET("/:provider/models", providerHandler.ListModels)
 		}
 
-		// Engine resources (skills / memories / knowledge): transparent proxy.
-		// All standard CRUD verbs land on the proxy; engine enforces shape.
-		for _, res := range []string{"skills", "memories", "knowledge"} {
+		// Engine resources (skills / memories / knowledge / secrets): transparent
+		// proxy. All standard CRUD verbs land on the proxy; engine enforces shape.
+		// Secrets carry key material — they ride the same localhost trust boundary
+		// as the X-Provider-Key header the gateway already forwards.
+		for _, res := range []string{"skills", "memories", "knowledge", "secrets"} {
 			api.Any("/"+res, engineProxy.Forward)
 			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}

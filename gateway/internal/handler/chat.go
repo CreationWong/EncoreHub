@@ -75,6 +75,16 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	if apiKey == "" {
 		apiKey = c.GetHeader("X-" + req.Provider + "-Key")
 	}
+	// Fall back to a key stored in the engine (encrypted-secrets mode). When
+	// the DB is locked or no key is stored, GetSecret returns found=false and
+	// we proceed as if no key was supplied. Never log the key itself.
+	if apiKey == "" {
+		if k, found, err := h.engine.GetSecret(c.Request.Context(), req.Provider); err != nil {
+			log.Debug().Err(err).Msg("engine secret lookup failed (non-fatal)")
+		} else if found {
+			apiKey = k
+		}
+	}
 
 	log.Info().
 		Str("conv_id", convID).

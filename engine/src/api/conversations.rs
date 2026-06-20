@@ -332,10 +332,7 @@ pub async fn send_message(
 
     // 1. Store user message
     let user_msg = Message::new(&conv_id, Role::User, &req.content, None);
-    state
-        .db
-        .append_message(&user_msg)
-        .map_err(internal_error)?;
+    state.db.append_message(&user_msg).map_err(internal_error)?;
 
     // 2. Get conversation context for mock reply
     let messages = state.db.get_messages(&conv_id).map_err(internal_error)?;
@@ -374,7 +371,8 @@ pub async fn send_message(
 fn generate_mock_reply(user_input: &str, history: &[Message]) -> String {
     let input_lower = user_input.to_lowercase();
 
-    if input_lower.contains("hello") || input_lower.contains("hi") || input_lower.contains("你好") {
+    if input_lower.contains("hello") || input_lower.contains("hi") || input_lower.contains("你好")
+    {
         return format!(
             "Hello! I'm EncoreHub's assistant (currently in mock mode). \
              You have {} messages in this conversation. \
@@ -387,7 +385,8 @@ fn generate_mock_reply(user_input: &str, history: &[Message]) -> String {
         return "I'm EncoreHub, a multi-provider AI chat client. \
                 I'm currently running in mock mode — the real AI backends \
                 (OpenAI, Anthropic, Gemini, etc.) will be wired up soon via the Go gateway. \
-                Right now I can store and retrieve conversations using SQLite!".into();
+                Right now I can store and retrieve conversations using SQLite!"
+            .into();
     }
 
     if input_lower.contains("memory") || input_lower.contains("记忆") {
@@ -442,12 +441,7 @@ fn generate_title(content: &str) -> String {
 }
 
 /// After each user-assistant exchange, consolidate memories.
-fn maybe_consolidate_memory(
-    state: &SharedState,
-    conv_id: &str,
-    user_input: &str,
-    ai_reply: &str,
-) {
+fn maybe_consolidate_memory(state: &SharedState, conv_id: &str, user_input: &str, ai_reply: &str) {
     // Store conversation-scoped episodic memory
     let mem = Memory::new(
         MemoryScope::Conversation,

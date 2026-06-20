@@ -18,7 +18,9 @@ pub struct IngestRequest {
     pub file_type: String,
 }
 
-fn default_file_type() -> String { "text".into() }
+fn default_file_type() -> String {
+    "text".into()
+}
 
 #[derive(Debug, Serialize)]
 pub struct DocumentResponse {
@@ -52,7 +54,9 @@ pub struct SearchQuery {
     pub top_k: i64,
 }
 
-fn default_top_k() -> i64 { 5 }
+fn default_top_k() -> i64 {
+    5
+}
 
 /// Ingest a document (text content) — chunk and index it.
 pub async fn ingest(
@@ -72,7 +76,12 @@ pub async fn ingest(
     };
 
     state.db.insert_document(&doc).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(super::ErrorResponse { error: e.to_string() }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
     })?;
 
     for (i, chunk_text) in chunks.iter().enumerate() {
@@ -84,7 +93,12 @@ pub async fn ingest(
             token_count: (chunk_text.len() / 4) as i32,
         };
         state.db.insert_chunk(&chunk).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(super::ErrorResponse { error: e.to_string() }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
         })?;
     }
 
@@ -103,26 +117,31 @@ pub async fn list(
     State(state): State<SharedState>,
 ) -> Result<Json<Vec<DocumentResponse>>, (StatusCode, Json<super::ErrorResponse>)> {
     let docs = state.db.list_documents(100, 0).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(super::ErrorResponse { error: e.to_string() }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
     })?;
 
-    let items: Vec<DocumentResponse> = docs.into_iter().map(|d| DocumentResponse {
-        id: d.id,
-        title: d.title,
-        file_type: d.file_type,
-        chunk_count: d.chunk_count,
-        size_bytes: d.size_bytes,
-        created_at: d.created_at.to_rfc3339(),
-    }).collect();
+    let items: Vec<DocumentResponse> = docs
+        .into_iter()
+        .map(|d| DocumentResponse {
+            id: d.id,
+            title: d.title,
+            file_type: d.file_type,
+            chunk_count: d.chunk_count,
+            size_bytes: d.size_bytes,
+            created_at: d.created_at.to_rfc3339(),
+        })
+        .collect();
 
     Ok(Json(items))
 }
 
 /// Delete a document and all its chunks.
-pub async fn delete(
-    State(state): State<SharedState>,
-    Path(id): Path<String>,
-) -> StatusCode {
+pub async fn delete(State(state): State<SharedState>, Path(id): Path<String>) -> StatusCode {
     match state.db.delete_document(&id) {
         Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::NOT_FOUND,
@@ -134,19 +153,28 @@ pub async fn search(
     State(state): State<SharedState>,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<super::ErrorResponse>)> {
-    let results = state.db.search_chunks_fts(&params.q, params.top_k).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(super::ErrorResponse { error: e.to_string() }))
-    })?;
+    let results = state
+        .db
+        .search_chunks_fts(&params.q, params.top_k)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
-    let items: Vec<SearchChunkResponse> = results.into_iter().map(|(chunk, score)| {
-        SearchChunkResponse {
+    let items: Vec<SearchChunkResponse> = results
+        .into_iter()
+        .map(|(chunk, score)| SearchChunkResponse {
             id: chunk.id,
             document_id: chunk.document_id,
             content: chunk.content,
             chunk_index: chunk.chunk_index,
             score,
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(Json(SearchResponse {
         results: items,

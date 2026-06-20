@@ -5,3 +5,4 @@
 //! axum `Router` builder without spawning a process.
 
 pub mod api;
+pub mod crypto;

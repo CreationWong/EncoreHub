@@ -6,8 +6,9 @@
 mod migrations;
 
 use encorehub_core::{
-    ConfigEntry, Conversation, ConversationSummary, Document, DocumentChunk, EngineError, Memory,
-    MemoryScope, MemoryType, Message, PinnedMessage, Role, SearchCacheEntry, ToolCall,
+    ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document, DocumentChunk,
+    EngineError, Memory, MemoryScope, MemoryType, Message, PinnedMessage, Role, SearchCacheEntry,
+    SecretRow, ToolCall,
 };
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
@@ -138,7 +139,8 @@ impl Database {
                 updated_at: ts_to_dt(row.get::<_, i64>(5)?),
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn update_conversation_title(&self, id: &str, title: &str) -> Result<()> {
@@ -203,7 +205,8 @@ impl Database {
                 created_at: ts_to_dt(row.get::<_, i64>(6)?),
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn get_message(&self, id: &str) -> Result<Message> {
@@ -223,7 +226,8 @@ impl Database {
                     created_at: ts_to_dt(row.get::<_, i64>(6)?),
                 })
             },
-        ).map_err(|e| match e {
+        )
+        .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
                 resource: "message".into(),
                 id: id.into(),
@@ -262,7 +266,8 @@ impl Database {
                 arguments: row.get(3)?,
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // ===== Conversation Summary =====
@@ -347,7 +352,8 @@ impl Database {
                 pinned_at: ts_to_dt(row.get::<_, i64>(4)?),
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // ===== Memory =====
@@ -474,9 +480,11 @@ impl Database {
         all_params.push(Box::new(limit));
         all_params.push(Box::new(offset));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            all_params.iter().map(|p| p.as_ref()).collect();
         let rows = stmt.query_map(param_refs.as_slice(), memory_row_mapper)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn delete_memory(&self, id: &str) -> Result<()> {
@@ -577,7 +585,117 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT key FROM config ORDER BY key")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    // ===== Secrets / encryption =====
+    //
+    // The storage layer treats secrets as opaque: it persists and returns
+    // whatever bytes the engine's crypto layer hands it, and never interprets
+    // or logs them. Crypto lives in the engine binary, not here.
+
+    pub fn get_crypto_meta(&self) -> Result<Option<CryptoMeta>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT enabled, salt, verifier_ciphertext, verifier_nonce, updated_at
+             FROM crypto_meta WHERE id = 1",
+            [],
+            |row| {
+                Ok(CryptoMeta {
+                    enabled: row.get::<_, i64>(0)? != 0,
+                    salt: row.get(1)?,
+                    verifier_ciphertext: row.get(2)?,
+                    verifier_nonce: row.get(3)?,
+                    updated_at: ts_to_dt(row.get::<_, i64>(4)?),
+                })
+            },
+        );
+        match result {
+            Ok(m) => Ok(Some(m)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn set_crypto_meta(&self, meta: &CryptoMeta) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO crypto_meta
+             (id, enabled, salt, verifier_ciphertext, verifier_nonce, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5)",
+            params![
+                meta.enabled as i64,
+                meta.salt,
+                meta.verifier_ciphertext,
+                meta.verifier_nonce,
+                now_ms(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_crypto_meta(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM crypto_meta WHERE id = 1", [])?;
+        Ok(())
+    }
+
+    pub fn get_secret(&self, provider_id: &str) -> Result<Option<SecretRow>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT provider_id, plaintext, ciphertext, nonce, updated_at
+             FROM secrets WHERE provider_id = ?1",
+            params![provider_id],
+            secret_row_mapper,
+        );
+        match result {
+            Ok(s) => Ok(Some(s)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn list_secrets(&self) -> Result<Vec<SecretRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT provider_id, plaintext, ciphertext, nonce, updated_at
+             FROM secrets ORDER BY provider_id",
+        )?;
+        let rows = stmt.query_map([], secret_row_mapper)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn upsert_secret(&self, secret: &SecretRow) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO secrets (provider_id, plaintext, ciphertext, nonce, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                secret.provider_id,
+                secret.plaintext,
+                secret.ciphertext,
+                secret.nonce,
+                now_ms(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_secret(&self, provider_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM secrets WHERE provider_id = ?1",
+            params![provider_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_secrets(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM secrets", [])?;
+        Ok(())
     }
 
     // ===== Knowledge Base =====
@@ -588,8 +706,12 @@ impl Database {
             "INSERT INTO documents (id, title, file_type, chunk_count, size_bytes, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                doc.id, doc.title, doc.file_type, doc.chunk_count,
-                doc.size_bytes, doc.created_at.timestamp_millis(),
+                doc.id,
+                doc.title,
+                doc.file_type,
+                doc.chunk_count,
+                doc.size_bytes,
+                doc.created_at.timestamp_millis(),
             ],
         )?;
         Ok(())
@@ -600,7 +722,13 @@ impl Database {
         conn.execute(
             "INSERT INTO document_chunks (id, document_id, content, chunk_index, token_count)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![chunk.id, chunk.document_id, chunk.content, chunk.chunk_index, chunk.token_count],
+            params![
+                chunk.id,
+                chunk.document_id,
+                chunk.content,
+                chunk.chunk_index,
+                chunk.token_count
+            ],
         )?;
         conn.execute(
             "INSERT INTO chunks_fts (rowid, content) VALUES ((SELECT rowid FROM document_chunks WHERE id = ?1), ?2)",
@@ -625,7 +753,8 @@ impl Database {
                 created_at: ts_to_dt(row.get::<_, i64>(5)?),
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn delete_document(&self, id: &str) -> Result<()> {
@@ -655,17 +784,29 @@ impl Database {
                 row.get::<_, f64>(5)?,
             ))
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 }
 
 // ===== Helper =====
 
+fn secret_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<SecretRow> {
+    Ok(SecretRow {
+        provider_id: row.get(0)?,
+        plaintext: row.get(1)?,
+        ciphertext: row.get(2)?,
+        nonce: row.get(3)?,
+        updated_at: ts_to_dt(row.get::<_, i64>(4)?),
+    })
+}
+
 fn memory_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<Memory> {
     Ok(Memory {
         id: row.get(0)?,
         scope: MemoryScope::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryScope::Global),
-        memory_type: MemoryType::from_str(&row.get::<_, String>(2)?).unwrap_or(MemoryType::Semantic),
+        memory_type: MemoryType::from_str(&row.get::<_, String>(2)?)
+            .unwrap_or(MemoryType::Semantic),
         conversation_id: row.get(3)?,
         content: row.get(4)?,
         importance: row.get(5)?,

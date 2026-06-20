@@ -79,6 +79,13 @@ encorehub-core = { path = "crates/core" }
 encorehub-storage = { path = "crates/storage" }
 encorehub-skill = { path = "crates/skill" }
 
+# Secret encryption (Sprint 6): Argon2id password derivation + AES-256-GCM.
+# Master key/password never persisted — only ciphertext, salt, verifier.
+aes-gcm = "0.10"
+argon2 = "0.5"
+zeroize = { version = "1", features = ["derive"] }
+rand = "0.8"
+
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -90,6 +97,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

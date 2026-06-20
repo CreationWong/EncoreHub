@@ -20,7 +20,11 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn new(title: impl Into<String>, provider: impl Into<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        title: impl Into<String>,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
@@ -84,6 +88,7 @@ impl Role {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "user" => Some(Role::User),
@@ -106,7 +111,11 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    pub fn new(message_id: impl Into<String>, name: impl Into<String>, arguments: impl Into<String>) -> Self {
+    pub fn new(
+        message_id: impl Into<String>,
+        name: impl Into<String>,
+        arguments: impl Into<String>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             message_id: message_id.into(),
@@ -190,6 +199,7 @@ impl MemoryScope {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "conversation" => Some(MemoryScope::Conversation),
@@ -218,6 +228,7 @@ impl MemoryType {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "working" => Some(MemoryType::Working),
@@ -302,6 +313,32 @@ pub struct SkillTool {
 pub struct ConfigEntry {
     pub key: String,
     pub value_json: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+// ===== Secrets / encryption =====
+
+/// A stored provider API key. Exactly one of `plaintext` (encryption off) or
+/// the `ciphertext`/`nonce` pair (encryption on) is populated. The struct is
+/// the opaque storage shape; the engine binary owns the crypto that interprets
+/// it. Never log this — it carries key material.
+#[derive(Debug, Clone)]
+pub struct SecretRow {
+    pub provider_id: String,
+    pub plaintext: Option<String>,
+    pub ciphertext: Option<Vec<u8>>,
+    pub nonce: Option<Vec<u8>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Single-row crypto metadata: the Argon2id salt and an encrypted verifier
+/// blob used to check a candidate master password. Holds no key/password.
+#[derive(Debug, Clone)]
+pub struct CryptoMeta {
+    pub enabled: bool,
+    pub salt: Vec<u8>,
+    pub verifier_ciphertext: Vec<u8>,
+    pub verifier_nonce: Vec<u8>,
     pub updated_at: DateTime<Utc>,
 }
 

@@ -29,7 +29,10 @@ pub enum EngineError {
     InvalidArgument(String),
 
     #[error("validation error: {message}")]
-    Validation { message: String, field: Option<String> },
+    Validation {
+        message: String,
+        field: Option<String>,
+    },
 
     // === Conversation errors ===
     #[error("conversation not found: {0}")]

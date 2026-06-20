@@ -2,11 +2,13 @@ import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import ChatView from "./components/chat/ChatView";
 import SettingsModal from "./components/settings/SettingsModal";
+import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
 import ToastHost from "./components/ui/ToastHost";
 import { HEALTH_ENGINE, HEALTH_GATEWAY } from "./services/config";
 import { useConversationStore } from "./stores/conversationStore";
 import { useProviderStore } from "./stores/providerStore";
+import { useSecretsStore } from "./stores/secretsStore";
 import { useSettingsStore } from "./stores/settingsStore";
 
 type ServiceStatus = {
@@ -17,6 +19,7 @@ type ServiceStatus = {
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
 	const loadProviders = useProviderStore((s) => s.load);
+	const refreshSecrets = useSecretsStore((s) => s.refresh);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
@@ -66,6 +69,7 @@ export default function App() {
 				if (gatewayOk) {
 					loadList();
 					loadProviders();
+					refreshSecrets();
 				}
 			} else {
 				attempts++;
@@ -74,7 +78,7 @@ export default function App() {
 		};
 
 		check();
-	}, [loadList, loadProviders]);
+	}, [loadList, loadProviders, refreshSecrets]);
 
 	// Splash screen while waiting for backend
 	if (checking) {
@@ -122,6 +126,7 @@ export default function App() {
 				<ChatView />
 			</main>
 			<SettingsModal />
+			<UnlockGate />
 			<ToastHost />
 		</div>
 	);

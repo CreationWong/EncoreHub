@@ -37,9 +37,7 @@ pub struct PluginListResponse {
 }
 
 /// List all installed plugins.
-pub async fn list_plugins(
-    State(_state): State<SharedState>,
-) -> Json<PluginListResponse> {
+pub async fn list_plugins(State(_state): State<SharedState>) -> Json<PluginListResponse> {
     let mut plugins = Vec::new();
 
     // Scan ../plugins directory
@@ -91,7 +89,8 @@ pub async fn install_plugin(
         permissions: vec!["read_config".into()],
     };
 
-    let json = serde_json::to_string_pretty(&manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let json =
+        serde_json::to_string_pretty(&manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     std::fs::write(dir.join("plugin.json"), json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(PluginInfo {

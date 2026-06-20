@@ -17,7 +17,9 @@ pub struct SearchQuery {
     pub scope: Option<String>,
 }
 
-fn default_top_k() -> i64 { 5 }
+fn default_top_k() -> i64 {
+    5
+}
 
 #[derive(Debug, Serialize)]
 pub struct MemoryResponse {
@@ -56,7 +58,9 @@ pub async fn search(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse { error: e.to_string() }),
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
             )
         })?;
 
@@ -65,16 +69,19 @@ pub async fn search(
         let _ = state.db.touch_memory(&mem.id);
     }
 
-    let items: Vec<MemoryResponse> = results.into_iter().map(|m| MemoryResponse {
-        id: m.id,
-        scope: m.scope.as_str().to_string(),
-        memory_type: m.memory_type.as_str().to_string(),
-        conversation_id: m.conversation_id,
-        content: m.content,
-        importance: m.importance,
-        created_at: m.created_at.to_rfc3339(),
-        last_accessed_at: m.last_accessed_at.to_rfc3339(),
-    }).collect();
+    let items: Vec<MemoryResponse> = results
+        .into_iter()
+        .map(|m| MemoryResponse {
+            id: m.id,
+            scope: m.scope.as_str().to_string(),
+            memory_type: m.memory_type.as_str().to_string(),
+            conversation_id: m.conversation_id,
+            content: m.content,
+            importance: m.importance,
+            created_at: m.created_at.to_rfc3339(),
+            last_accessed_at: m.last_accessed_at.to_rfc3339(),
+        })
+        .collect();
 
     Ok(Json(SearchResponse {
         results: items,
@@ -92,34 +99,44 @@ pub async fn list(
 
     let memories = state
         .db
-        .list_memories(scope.as_ref(), mem_type.as_ref(), params.limit, params.offset)
+        .list_memories(
+            scope.as_ref(),
+            mem_type.as_ref(),
+            params.limit,
+            params.offset,
+        )
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse { error: e.to_string() }),
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
             )
         })?;
 
     let total = memories.len();
-    let items: Vec<MemoryResponse> = memories.into_iter().map(|m| MemoryResponse {
-        id: m.id,
-        scope: m.scope.as_str().to_string(),
-        memory_type: m.memory_type.as_str().to_string(),
-        conversation_id: m.conversation_id,
-        content: m.content,
-        importance: m.importance,
-        created_at: m.created_at.to_rfc3339(),
-        last_accessed_at: m.last_accessed_at.to_rfc3339(),
-    }).collect();
+    let items: Vec<MemoryResponse> = memories
+        .into_iter()
+        .map(|m| MemoryResponse {
+            id: m.id,
+            scope: m.scope.as_str().to_string(),
+            memory_type: m.memory_type.as_str().to_string(),
+            conversation_id: m.conversation_id,
+            content: m.content,
+            importance: m.importance,
+            created_at: m.created_at.to_rfc3339(),
+            last_accessed_at: m.last_accessed_at.to_rfc3339(),
+        })
+        .collect();
 
-    Ok(Json(ListResponse { memories: items, total }))
+    Ok(Json(ListResponse {
+        memories: items,
+        total,
+    }))
 }
 
 /// Delete a memory.
-pub async fn delete(
-    State(state): State<SharedState>,
-    Path(id): Path<String>,
-) -> StatusCode {
+pub async fn delete(State(state): State<SharedState>, Path(id): Path<String>) -> StatusCode {
     match state.db.delete_memory(&id) {
         Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::NOT_FOUND,
@@ -136,4 +153,6 @@ pub struct ListQuery {
     pub memory_type: Option<String>,
 }
 
-fn default_limit() -> i64 { 50 }
+fn default_limit() -> i64 {
+    50
+}

@@ -220,6 +220,46 @@ func (c *Client) SetConfig(ctx context.Context, key string, value interface{}) e
 	return c.doJSON(ctx, "PUT", "/api/config/"+url.PathEscape(key), value, nil)
 }
 
+// GetSecret fetches a stored (decrypted) provider API key from the engine.
+//
+// Returns (key, true, nil) when a key is available; (\"\", false, nil) when no
+// key is stored, the database is locked, or encryption requires an unlock —
+// these are non-fatal "no key here" cases the caller treats like an absent
+// header. A genuine transport/engine error is returned as err. The returned
+// key is sensitive: never log it.
+func (c *Client) GetSecret(ctx context.Context, providerID string) (string, bool, error) {
+	httpURL := c.baseURL + "/api/secrets/" + url.PathEscape(providerID)
+	req, err := http.NewRequestWithContext(ctx, "GET", httpURL, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("engine request: %w", err)
+	}
+	if id := requestIDFromCtx(ctx); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("engine http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		var out struct {
+			Key string `json:"key"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return "", false, fmt.Errorf("engine decode: %w", err)
+		}
+		return out.Key, out.Key != "", nil
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusLocked:
+		// No key stored, or DB locked / needs unlock — caller falls back.
+		return "", false, nil
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return "", false, fmt.Errorf("engine error %d: %s", resp.StatusCode, string(body))
+	}
+}
+
 // requestIDKey is used to pull a propagated X-Request-ID out of context.
 // Handlers stash the gin-context id under "request_id"; we mirror that here
 // so engine.Client picks it up automatically without touching every callsite.

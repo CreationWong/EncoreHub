@@ -50,7 +50,10 @@ impl Skill {
 /// Check if a user message matches any of this skill's triggers.
 pub fn matches_trigger(skill: &Skill, user_input: &str) -> bool {
     let lower = user_input.to_lowercase();
-    skill.triggers.iter().any(|t| lower.contains(&t.to_lowercase()))
+    skill
+        .triggers
+        .iter()
+        .any(|t| lower.contains(&t.to_lowercase()))
 }
 
 /// Find the best matching skill for a user message.

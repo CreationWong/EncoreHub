@@ -7,6 +7,7 @@ export type SettingsTab =
 	| "knowledge"
 	| "memories"
 	| "appearance"
+	| "security"
 	| "developer";
 
 interface SettingsState {

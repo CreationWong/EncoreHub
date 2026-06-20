@@ -37,9 +37,7 @@ pub struct ToggleRequest {
 ///
 /// `PoisonError` only happens if a thread holding the lock panicked, which
 /// must not take the whole engine down with it.
-fn lock_registry(
-    state: &SharedState,
-) -> Result<MutexGuard<'_, SkillRegistry>, StatusCode> {
+fn lock_registry(state: &SharedState) -> Result<MutexGuard<'_, SkillRegistry>, StatusCode> {
     state.skill_registry.lock().map_err(|err| {
         tracing::error!(?err, "skill registry lock poisoned");
         StatusCode::INTERNAL_SERVER_ERROR

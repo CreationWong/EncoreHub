@@ -126,6 +126,35 @@ const MIGRATIONS: &[&str] = &[
         content_rowid='rowid'
     );
     ",
+    // 006: Encrypted secrets + crypto metadata
+    //
+    // `secrets` holds per-provider API keys. When encryption is enabled the
+    // `ciphertext`/`nonce` columns carry an AES-256-GCM blob and `plaintext` is
+    // NULL; when encryption is off they carry the key verbatim in `plaintext`
+    // (user opted into at-rest plaintext) and ciphertext/nonce are NULL.
+    //
+    // `crypto_meta` is a single-row table (id=1) holding the Argon2id salt and
+    // an encrypted verifier used to check the master password. Absence of a row
+    // (or enabled=0) means the database is not encrypted. Never stores the
+    // master key or any password — only the salt and verifier.
+    "
+    CREATE TABLE IF NOT EXISTS secrets (
+        provider_id TEXT PRIMARY KEY,
+        plaintext TEXT,
+        ciphertext BLOB,
+        nonce BLOB,
+        updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS crypto_meta (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        salt BLOB NOT NULL,
+        verifier_ciphertext BLOB NOT NULL,
+        verifier_nonce BLOB NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -160,7 +189,9 @@ pub fn run(conn: &Connection) -> Result<()> {
             "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
             rusqlite::params![version, now],
         )
-        .map_err(|e| EngineError::Migration(format!("failed to record migration v{version}: {e}")))?;
+        .map_err(|e| {
+            EngineError::Migration(format!("failed to record migration v{version}: {e}"))
+        })?;
 
         tracing::info!("Applied migration v{}", version);
     }

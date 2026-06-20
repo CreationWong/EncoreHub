@@ -3,8 +3,10 @@ mod conversations;
 mod knowledge;
 mod memories;
 mod plugins;
+mod secrets;
 mod skills;
 
+use crate::crypto::MasterKey;
 use axum::{
     extract::State,
     routing::{delete, get, post},
@@ -21,6 +23,10 @@ use tower_http::trace::TraceLayer;
 pub struct AppState {
     pub db: Database,
     pub skill_registry: Mutex<SkillRegistry>,
+    /// Derived master key, present only while the database is unlocked. Held in
+    /// memory only — never persisted — and zeroized when cleared on lock. A
+    /// `None` here with encryption enabled means the caller must unlock first.
+    pub master_key: Mutex<Option<MasterKey>>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -50,6 +56,7 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
     let state = Arc::new(AppState {
         db,
         skill_registry: Mutex::new(skill_registry),
+        master_key: Mutex::new(None),
     });
 
     let cors = CorsLayer::new()
@@ -59,13 +66,19 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
 
     Router::new()
         // Plugins
-        .route("/api/plugins", get(plugins::list_plugins).post(plugins::install_plugin))
+        .route(
+            "/api/plugins",
+            get(plugins::list_plugins).post(plugins::install_plugin),
+        )
         // Skills
         .route("/api/skills", get(skills::list_skills))
         .route("/api/skills/match", get(skills::match_skills))
         .route("/api/skills/:id/toggle", post(skills::toggle_skill))
         // Knowledge base
-        .route("/api/knowledge", get(knowledge::list).post(knowledge::ingest))
+        .route(
+            "/api/knowledge",
+            get(knowledge::list).post(knowledge::ingest),
+        )
         .route("/api/knowledge/search", get(knowledge::search))
         .route("/api/knowledge/:id", delete(knowledge::delete))
         // Memory search
@@ -73,13 +86,40 @@ pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
         .route("/api/memories/search", get(memories::search))
         .route("/api/memories/:id", delete(memories::delete))
         // Messages
-        .route("/api/conversations/:id/messages/append", post(conversations::add_message))
-        .route("/api/conversations/:id/messages", get(conversations::get_messages).post(conversations::send_message))
+        .route(
+            "/api/conversations/:id/messages/append",
+            post(conversations::add_message),
+        )
+        .route(
+            "/api/conversations/:id/messages",
+            get(conversations::get_messages).post(conversations::send_message),
+        )
         // Conversations
-        .route("/api/conversations/:id", get(conversations::get_one).delete(conversations::delete).patch(conversations::update))
-        .route("/api/conversations", get(conversations::list).post(conversations::create))
+        .route(
+            "/api/conversations/:id",
+            get(conversations::get_one)
+                .delete(conversations::delete)
+                .patch(conversations::update),
+        )
+        .route(
+            "/api/conversations",
+            get(conversations::list).post(conversations::create),
+        )
         // Config (key/value JSON store — e.g. provider_profiles)
         .route("/api/config/:key", get(config::get).put(config::put))
+        // Secrets / encryption lifecycle
+        .route("/api/secrets/status", get(secrets::status))
+        .route("/api/secrets/enable", post(secrets::enable))
+        .route("/api/secrets/disable", post(secrets::disable))
+        .route("/api/secrets/unlock", post(secrets::unlock))
+        .route("/api/secrets/lock", post(secrets::lock))
+        .route("/api/secrets/reset-password", post(secrets::reset_password))
+        .route("/api/secrets/clear", post(secrets::clear))
+        .route("/api/secrets", get(secrets::list).put(secrets::put_key))
+        .route(
+            "/api/secrets/:provider_id",
+            get(secrets::get_key).delete(secrets::delete_key),
+        )
         // Health
         .route("/health", get(health_check))
         .layer(cors)

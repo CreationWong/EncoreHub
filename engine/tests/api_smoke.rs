@@ -16,12 +16,17 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 
 fn make_app() -> (TempDir, axum::Router) {
+    let (dir, app, _path) = make_app_with_path();
+    (dir, app)
+}
+
+fn make_app_with_path() -> (TempDir, axum::Router, std::path::PathBuf) {
     let dir = TempDir::new().expect("tempdir");
     let db_path = dir.path().join("test.db");
     let db = Database::open_and_return(&db_path).expect("open db");
     let skills = SkillRegistry::load(dir.path().join("nonexistent-skills"));
     let app = build_router(db, skills);
-    (dir, app)
+    (dir, app, db_path)
 }
 
 async fn body_json(resp: axum::http::Response<Body>) -> Value {
@@ -42,7 +47,12 @@ fn json_post(method: &str, path: &str, body: Value) -> Request<Body> {
 async fn health_returns_json_with_db_ok() {
     let (_dir, app) = make_app();
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -85,7 +95,11 @@ async fn create_then_list_then_get_then_rename_then_delete() {
     assert_eq!(resp.status(), StatusCode::OK);
     let listed = body_json(resp).await;
     assert_eq!(listed["total"], 1);
-    assert!(listed["conversations"].as_array().unwrap().iter().any(|c| c["id"] == id));
+    assert!(listed["conversations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == id));
 
     // Get
     let resp = app
@@ -239,7 +253,7 @@ async fn knowledge_ingest_list_search_delete() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let hits = body_json(resp).await;
-    assert!(hits["results"].as_array().unwrap().len() >= 1);
+    assert!(!hits["results"].as_array().unwrap().is_empty());
 
     // Delete
     let resp = app
@@ -342,4 +356,244 @@ async fn config_get_unset_returns_null_then_roundtrips() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(body_json(resp).await, profiles);
+}
+
+// ===== Secrets / encryption lifecycle =====
+
+async fn get_text(app: &axum::Router, uri: &str) -> (StatusCode, Value) {
+    let resp = app
+        .clone()
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = resp.status();
+    (status, body_json(resp).await)
+}
+
+#[tokio::test]
+async fn secrets_plaintext_mode_store_and_read() {
+    let (_dir, app) = make_app();
+
+    // Default: not encrypted.
+    let (status, v) = get_text(&app, "/api/secrets/status").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["encrypted"], false);
+    assert_eq!(v["unlocked"], false);
+
+    // Store a key in plaintext mode.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/secrets",
+            json!({"provider_id":"openai","key":"sk-plain-123"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Read it back.
+    let (status, v) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["key"], "sk-plain-123");
+}
+
+#[tokio::test]
+async fn secrets_enable_encrypts_existing_then_lock_unlock() {
+    let (_dir, app) = make_app();
+
+    // Seed a plaintext key.
+    app.clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/secrets",
+            json!({"provider_id":"openai","key":"sk-existing"}),
+        ))
+        .await
+        .unwrap();
+
+    // Enable encryption — existing key gets encrypted, session unlocked.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({"password":"correct horse","keys":{"deepseek":"sk-seeded"}}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let (_, v) = get_text(&app, "/api/secrets/status").await;
+    assert_eq!(v["encrypted"], true);
+    assert_eq!(v["unlocked"], true);
+
+    // Both keys readable while unlocked.
+    let (_, v) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(v["key"], "sk-existing");
+    let (_, v) = get_text(&app, "/api/secrets/deepseek").await;
+    assert_eq!(v["key"], "sk-seeded");
+
+    // Lock → reads fail with 423 LOCKED.
+    let resp = app
+        .clone()
+        .oneshot(json_post("POST", "/api/secrets/lock", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let (status, _) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(status, StatusCode::LOCKED);
+
+    // Wrong password rejected.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password":"wrong"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Correct password unlocks.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password":"correct horse"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let (status, v) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["key"], "sk-existing");
+}
+
+#[tokio::test]
+async fn secrets_reset_password_old_fails_new_works() {
+    let (_dir, app) = make_app();
+
+    app.clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({"password":"old-pw","keys":{"openai":"sk-abc"}}),
+        ))
+        .await
+        .unwrap();
+
+    // Reset password.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/reset-password",
+            json!({"old_password":"old-pw","new_password":"new-pw"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Lock, then old password fails, new succeeds.
+    app.clone()
+        .oneshot(json_post("POST", "/api/secrets/lock", json!({})))
+        .await
+        .unwrap();
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password":"old-pw"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password":"new-pw"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let (_, v) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(v["key"], "sk-abc");
+}
+
+#[tokio::test]
+async fn secrets_disable_returns_to_plaintext() {
+    let (_dir, app) = make_app();
+
+    app.clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({"password":"pw","keys":{"openai":"sk-xyz"}}),
+        ))
+        .await
+        .unwrap();
+
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/disable",
+            json!({"password":"pw"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Now plaintext mode; key still readable without unlock.
+    let (_, v) = get_text(&app, "/api/secrets/status").await;
+    assert_eq!(v["encrypted"], false);
+    let (status, v) = get_text(&app, "/api/secrets/openai").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["key"], "sk-xyz");
+}
+
+#[tokio::test]
+async fn secrets_encrypted_db_has_no_plaintext_key_on_disk() {
+    // Acceptance check (4.8): with encryption on, the raw SQLite file must not
+    // contain the plaintext API key anywhere. This is the programmatic stand-in
+    // for inspecting the DB with the `sqlite3` CLI.
+    let (_dir, app, db_path) = make_app_with_path();
+
+    const SECRET: &str = "sk-super-secret-DO-NOT-LEAK-9c1f";
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({"password":"pw-1234","keys":{"openai": SECRET}}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Checkpoint the WAL so the encrypted row is flushed into the main db file,
+    // then scan the raw bytes of every db file for the plaintext secret.
+    let _ = get_text(&app, "/api/secrets/status").await;
+    drop(app); // release the connection so the OS flushes
+
+    let mut found_in_any = false;
+    for suffix in ["", "-wal", "-shm"] {
+        let p = format!("{}{}", db_path.display(), suffix);
+        if let Ok(bytes) = std::fs::read(&p) {
+            if bytes.windows(SECRET.len()).any(|w| w == SECRET.as_bytes()) {
+                found_in_any = true;
+            }
+        }
+    }
+    assert!(
+        !found_in_any,
+        "plaintext API key must not appear anywhere in the on-disk database"
+    );
 }

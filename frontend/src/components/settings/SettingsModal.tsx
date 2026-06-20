@@ -3,6 +3,7 @@ import {
 	Bot,
 	Database,
 	Palette,
+	ShieldCheck,
 	Sparkles,
 	Terminal,
 	X,
@@ -14,6 +15,7 @@ import DeveloperPanel from "./DeveloperPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ProvidersPanel from "./ProvidersPanel";
+import SecurityPanel from "./SecurityPanel";
 import SkillsPanel from "./SkillsPanel";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Bot }[] = [
@@ -21,6 +23,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Bot }[] = [
 	{ id: "skills", label: "Skills", icon: Sparkles },
 	{ id: "knowledge", label: "Knowledge", icon: Database },
 	{ id: "memories", label: "Memories", icon: BookOpen },
+	{ id: "security", label: "Security", icon: ShieldCheck },
 	{ id: "appearance", label: "Appearance", icon: Palette },
 ];
 
@@ -109,6 +112,7 @@ export default function SettingsModal() {
 						{tab === "skills" && <SkillsPanel />}
 						{tab === "knowledge" && <KnowledgePanel />}
 						{tab === "memories" && <MemoryPanel />}
+						{tab === "security" && <SecurityPanel />}
 						{tab === "appearance" && <AppearancePanel />}
 						{tab === "developer" && <DeveloperPanel />}
 					</div>

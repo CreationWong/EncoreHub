@@ -1,8 +1,10 @@
-import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { keyHintFor } from "../../constants/providers";
 import type { ProviderProfile } from "../../services/providers";
+import { secretsApi } from "../../services/secrets";
 import { useProviderStore } from "../../stores/providerStore";
+import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import ProviderFormModal from "./ProviderFormModal";
@@ -20,12 +22,28 @@ export default function ProvidersPanel() {
 	const loading = useProviderStore((s) => s.loading);
 	const removeProfile = useProviderStore((s) => s.remove);
 
+	const encrypted = useSecretsStore((s) => s.encrypted);
+	const unlocked = useSecretsStore((s) => s.unlocked);
+
 	const [reveal, setReveal] = useState<Record<string, boolean>>({});
 	const [editing, setEditing] = useState<ProviderProfile | null>(null);
 	const [creating, setCreating] = useState(false);
 
 	const enabled = profiles.filter((p) => p.enabled);
 	const activeProfile = profiles.find((p) => p.id === provider);
+
+	// When encryption is on and unlocked, keys can be persisted (encrypted) to
+	// the engine vault rather than kept only in session memory.
+	const vaultActive = encrypted && unlocked;
+
+	const saveToVault = async (providerId: string, key: string) => {
+		try {
+			await secretsApi.putKey(providerId, key);
+			toast.success("Key saved to encrypted vault");
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to save key");
+		}
+	};
 
 	const handleDelete = async (p: ProviderProfile) => {
 		if (!confirm(`Delete provider "${p.name}"? This cannot be undone.`)) return;
@@ -173,13 +191,19 @@ export default function ProvidersPanel() {
 				<h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
 					API keys
 				</h3>
-				<p className="mb-3 text-xs text-text-muted">
-					Stored in memory by default. Set{" "}
-					<code className="rounded bg-surface-alt px-1">
-						localStorage.encorehub-persist-keys = "1"
-					</code>{" "}
-					in DevTools to persist (desktop dev only).
-				</p>
+				{vaultActive ? (
+					<p className="mb-3 flex items-start gap-1.5 text-xs text-text-muted">
+						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+						Encryption is on. Use the save button to store a key in the
+						encrypted vault — it persists across restarts and never leaves the
+						local machine in plaintext.
+					</p>
+				) : (
+					<p className="mb-3 text-xs text-text-muted">
+						Stored in memory by default. Enable encryption in the Security tab
+						to persist keys safely at rest.
+					</p>
+				)}
 				<div className="space-y-3">
 					{enabled.map((p) => {
 						const value = apiKeys[p.id] ?? "";
@@ -216,6 +240,17 @@ export default function ProvidersPanel() {
 											<Eye className="h-3.5 w-3.5" />
 										)}
 									</button>
+									{vaultActive && value && (
+										<button
+											type="button"
+											onClick={() => saveToVault(p.id, value)}
+											aria-label="Save API key to encrypted vault"
+											className="rounded-lg border border-border px-2 text-text-muted hover:bg-success-bg hover:text-success"
+											title="Save to encrypted vault"
+										>
+											<Save className="h-3.5 w-3.5" />
+										</button>
+									)}
 									{value && (
 										<button
 											type="button"
