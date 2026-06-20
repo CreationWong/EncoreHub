@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/encorehub/gateway/internal/provider"
+	"github.com/encorehub/gateway/internal/provider/profiles"
 )
 
 func validProfile() provider.ProviderProfile {
@@ -61,6 +62,27 @@ func TestValidateProfiles_AllowsEmptyBaseURLForBuiltinOpenAI(t *testing.T) {
 	p.Builtin = true
 	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
 		t.Fatalf("builtin openai may omit base_url, got %v", err)
+	}
+}
+
+func TestValidateProfiles_AllowsEmptyBaseURLForBuiltinAnthropic(t *testing.T) {
+	// Regression: the Anthropic builtin ships with an empty base_url (its
+	// adapter falls back to api.anthropic.com). Saving it must not be rejected.
+	p := validProfile()
+	p.ID = "anthropic"
+	p.Protocol = provider.ProtocolAnthropic
+	p.BaseURL = ""
+	p.Builtin = true
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("builtin anthropic may omit base_url, got %v", err)
+	}
+}
+
+func TestValidateProfiles_ShippedBuiltinsAreValid(t *testing.T) {
+	// The default provider set must always pass validation — otherwise saving
+	// any edit (which re-validates the whole list) fails on the builtins.
+	if err := validateProfiles(profiles.Builtins()); err != nil {
+		t.Fatalf("shipped builtins must validate, got %v", err)
 	}
 }
 

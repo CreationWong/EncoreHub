@@ -142,9 +142,10 @@ func validateProfiles(list []provider.ProviderProfile) error {
 		default:
 			return fmt.Errorf("provider %q: unknown protocol %q", id, p.Protocol)
 		}
-		// OpenAI builtin uses the SDK default URL (empty); everyone else needs
-		// an explicit endpoint.
-		if strings.TrimSpace(p.BaseURL) == "" && !(p.Protocol == provider.ProtocolOpenAI && p.Builtin) {
+		// Builtins (openai/anthropic) may leave base_url empty — their adapters
+		// fall back to the provider's default endpoint. Custom providers must
+		// give an explicit endpoint, since there's no default to fall back to.
+		if strings.TrimSpace(p.BaseURL) == "" && !p.Builtin {
 			return fmt.Errorf("provider %q: base_url must not be empty", id)
 		}
 		if len(p.Models) == 0 {
