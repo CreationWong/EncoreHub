@@ -8,7 +8,7 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
-use encorehub_engine::api::build_router;
+use encorehub_engine::api::build_router_with;
 use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
 use serde_json::{json, Value};
@@ -25,7 +25,7 @@ fn make_app_with_path() -> (TempDir, axum::Router, std::path::PathBuf) {
     let db_path = dir.path().join("test.db");
     let db = Database::open_and_return(&db_path).expect("open db");
     let skills = SkillRegistry::load(dir.path().join("nonexistent-skills"));
-    let app = build_router(db, skills);
+    let app = build_router_with(db, skills, None);
     (dir, app, db_path)
 }
 
@@ -557,6 +557,30 @@ async fn secrets_disable_returns_to_plaintext() {
     let (status, v) = get_text(&app, "/api/secrets/openai").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["key"], "sk-xyz");
+}
+
+#[tokio::test]
+async fn config_log_level_rejects_non_string() {
+    let (_dir, app) = make_app();
+    // A non-string value for log_level must be rejected (it's a level name).
+    let resp = app
+        .clone()
+        .oneshot(json_post("PUT", "/api/config/log_level", json!(123)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // A valid string level persists (log_control is None in tests, so no apply).
+    let resp = app
+        .clone()
+        .oneshot(json_post("PUT", "/api/config/log_level", json!("debug")))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let (status, v) = get_text(&app, "/api/config/log_level").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v, json!("debug"));
 }
 
 #[tokio::test]

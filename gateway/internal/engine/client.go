@@ -228,6 +228,9 @@ func (c *Client) SetConfig(ctx context.Context, key string, value interface{}) e
 // header. A genuine transport/engine error is returned as err. The returned
 // key is sensitive: never log it.
 func (c *Client) GetSecret(ctx context.Context, providerID string) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	httpURL := c.baseURL + "/api/secrets/" + url.PathEscape(providerID)
 	req, err := http.NewRequestWithContext(ctx, "GET", httpURL, nil)
 	if err != nil {
@@ -287,6 +290,9 @@ func requestIDFromCtx(ctx context.Context) string {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	url := c.baseURL + path
 
 	var bodyReader io.Reader

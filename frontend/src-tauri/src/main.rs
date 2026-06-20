@@ -114,12 +114,20 @@ fn clear_logs(state: State<ServiceState>) {
 }
 
 fn main() {
+    // Resolve the log directory next to the executable (e.g.
+    // %LOCALAPPDATA%\EncoreHub\log), alongside the engine's `data/`. Computed
+    // up front so the shared LogBuffer can mirror lines to disk from the start.
+    let log_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.join("log")))
+        .unwrap_or_else(|| std::path::PathBuf::from("log"));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ServiceState {
             engine: Mutex::new(None),
             gateway: Mutex::new(None),
-            logs: Arc::new(LogBuffer::new()),
+            logs: Arc::new(LogBuffer::with_log_dir(log_dir)),
         })
         .invoke_handler(tauri::generate_handler![
             check_engine_health,

@@ -78,11 +78,34 @@ export default function DeveloperPanel() {
 	const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
 	const [query, setQuery] = useState("");
 	const [follow, setFollow] = useState(true);
+	const [logLevel, setLogLevelState] = useState<LogLevel>("info");
 
 	const cursor = useRef(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const tauri = inTauri();
+
+	// Load the current runtime log level once on mount.
+	useEffect(() => {
+		devtools
+			.getLogLevel()
+			.then(setLogLevelState)
+			.catch(() => {
+				/* gateway not ready; keep default */
+			});
+	}, []);
+
+	const changeLogLevel = useCallback(async (level: LogLevel) => {
+		setLogLevelState(level);
+		try {
+			await devtools.setLogLevel(level);
+			toast.success(`Log level set to ${level}`);
+		} catch (err) {
+			toast.error(
+				err instanceof Error ? err.message : "Failed to set log level",
+			);
+		}
+	}, []);
 
 	// Poll status + incremental logs. The cursor (last seen seq) lets us pull
 	// only new lines each tick instead of the whole buffer.
@@ -175,6 +198,28 @@ export default function DeveloperPanel() {
 				{statuses.map((s) => (
 					<StatusCard key={s.name} svc={s} />
 				))}
+			</div>
+
+			{/* Runtime log level (applies to engine + gateway immediately) */}
+			<div className="flex items-center gap-2">
+				<span className="text-xs font-medium text-text-secondary">
+					Log level
+				</span>
+				<select
+					value={logLevel}
+					onChange={(e) => changeLogLevel(e.target.value as LogLevel)}
+					aria-label="Set runtime log level"
+					className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
+				>
+					{LEVELS.map((l) => (
+						<option key={l} value={l}>
+							{l}
+						</option>
+					))}
+				</select>
+				<span className="text-[11px] text-text-muted">
+					applies to engine + gateway
+				</span>
 			</div>
 
 			{/* Log toolbar */}

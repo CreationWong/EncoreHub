@@ -46,6 +46,7 @@ func Setup(cfg Config) *gin.Engine {
 	searchHandler := handler.NewSearchHandler()
 	engineProxy := handler.NewEngineProxy(cfg.Engine)
 	healthHandler := handler.NewHealthHandler(cfg.Engine)
+	logLevelHandler := handler.NewLogLevelHandler(cfg.Engine)
 
 	// Health is unauthenticated to support container probes.
 	r.GET("/api/v1/health", healthHandler.Get)
@@ -72,6 +73,10 @@ func Setup(cfg Config) *gin.Engine {
 		// Search
 		api.POST("/search", searchHandler.Search)
 
+		// Runtime log-level control (gateway + engine).
+		api.GET("/log-level", logLevelHandler.Get)
+		api.POST("/log-level", logLevelHandler.Set)
+
 		// Providers
 		prov := api.Group("/providers")
 		{
@@ -97,8 +102,14 @@ func Setup(cfg Config) *gin.Engine {
 // (comma-separated) for additional dev hosts.
 var allowedOrigins = func() map[string]struct{} {
 	defaults := []string{
+		// Tauri webview origins. macOS/Linux use the custom `tauri://` scheme;
+		// Windows WebView2 serves the app from `http://tauri.localhost` (and
+		// historically `https://`), so all three must be allowed or the packaged
+		// app's fetch() is blocked by CORS ("Failed to fetch").
 		"tauri://localhost",
 		"https://tauri.localhost",
+		"http://tauri.localhost",
+		// Dev server (Vite).
 		"http://localhost:1420",
 		"http://127.0.0.1:1420",
 	}

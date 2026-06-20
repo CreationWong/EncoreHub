@@ -5,7 +5,7 @@ import SettingsModal from "./components/settings/SettingsModal";
 import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
 import ToastHost from "./components/ui/ToastHost";
-import { HEALTH_ENGINE, HEALTH_GATEWAY } from "./services/config";
+import { HEALTH_GATEWAY } from "./services/config";
 import { useConversationStore } from "./stores/conversationStore";
 import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
@@ -48,23 +48,28 @@ export default function App() {
 			let engineOk = false;
 			let gatewayOk = false;
 
-			try {
-				const res = await fetch(HEALTH_ENGINE);
-				engineOk = res.ok;
-			} catch {
-				/* not ready */
-			}
-
+			// The gateway is the single entry point (frontend → gateway → engine).
+			// Its /health payload reports engine readiness via `engine.ok`, so we
+			// derive both from one request rather than reaching into the engine
+			// port directly — a direct fetch to :3000 from the packaged webview is
+			// unreliable, and gating the splash on it can hang startup forever.
 			try {
 				const res = await fetch(HEALTH_GATEWAY);
 				gatewayOk = res.ok;
+				if (res.ok) {
+					const body = await res.json().catch(() => null);
+					engineOk = body?.engine?.ok === true;
+				}
 			} catch {
 				/* not ready */
 			}
 
 			setStatus({ engine: engineOk, gateway: gatewayOk });
 
-			if ((engineOk && gatewayOk) || attempts >= maxAttempts) {
+			// Proceed once the gateway is up (engine may still be warming up).
+			// Don't block the UI on engine readiness — features that need it will
+			// surface their own errors, and the developer panel shows live status.
+			if (gatewayOk || attempts >= maxAttempts) {
 				setChecking(false);
 				if (gatewayOk) {
 					loadList();

@@ -7,6 +7,7 @@ mod secrets;
 mod skills;
 
 use crate::crypto::MasterKey;
+use crate::logging::LogControl;
 use axum::{
     extract::State,
     routing::{delete, get, post},
@@ -27,6 +28,9 @@ pub struct AppState {
     /// memory only — never persisted — and zeroized when cleared on lock. A
     /// `None` here with encryption enabled means the caller must unlock first.
     pub master_key: Mutex<Option<MasterKey>>,
+    /// Runtime control over the tracing subscriber's level filter. `None` in
+    /// contexts that don't install a subscriber (e.g. integration tests).
+    pub log_control: Option<LogControl>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -52,11 +56,26 @@ struct HealthResponse {
     database: DatabaseStatus,
 }
 
-pub fn build_router(db: Database, skill_registry: SkillRegistry) -> Router {
+pub fn build_router(
+    db: Database,
+    skill_registry: SkillRegistry,
+    log_control: LogControl,
+) -> Router {
+    build_router_with(db, skill_registry, Some(log_control))
+}
+
+/// Build the router with an optional [`LogControl`]. Integration tests pass
+/// `None` (they don't install a tracing subscriber); the binary passes `Some`.
+pub fn build_router_with(
+    db: Database,
+    skill_registry: SkillRegistry,
+    log_control: Option<LogControl>,
+) -> Router {
     let state = Arc::new(AppState {
         db,
         skill_registry: Mutex::new(skill_registry),
         master_key: Mutex::new(None),
+        log_control,
     });
 
     let cors = CorsLayer::new()

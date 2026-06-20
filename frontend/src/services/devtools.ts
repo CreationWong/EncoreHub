@@ -4,6 +4,7 @@
 // don't exist — callers get empty data instead of a thrown "not in Tauri".
 
 import { invoke } from "@tauri-apps/api/core";
+import { apiFetch } from "./api";
 
 export type LogSource = "engine" | "gateway" | "desktop";
 export type LogLevel = "error" | "warn" | "info" | "debug";
@@ -43,5 +44,26 @@ export const devtools = {
 	async clear(): Promise<void> {
 		if (!inTauri()) return;
 		await invoke("clear_logs");
+	},
+
+	/**
+	 * Read the current persisted log level via the gateway (which reads it from
+	 * the engine's config). Works in or out of Tauri since it's an HTTP call.
+	 */
+	async getLogLevel(): Promise<LogLevel> {
+		const res = await apiFetch<{ level: LogLevel }>("/log-level");
+		return res.level;
+	},
+
+	/**
+	 * Set the runtime log level for both gateway and engine. The gateway applies
+	 * its own level immediately and persists to the engine's config, which the
+	 * engine applies via its reload layer.
+	 */
+	async setLogLevel(level: LogLevel): Promise<void> {
+		await apiFetch<{ level: LogLevel }>("/log-level", {
+			method: "POST",
+			body: JSON.stringify({ level }),
+		});
 	},
 };

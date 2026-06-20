@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const status = vi.fn();
 const logs = vi.fn();
 const clear = vi.fn();
+const getLogLevel = vi.fn();
+const setLogLevel = vi.fn();
 const inTauri = vi.fn();
 
 vi.mock("../../services/devtools", () => ({
@@ -18,6 +20,8 @@ vi.mock("../../services/devtools", () => ({
 		status: () => status(),
 		logs: (after: number) => logs(after),
 		clear: () => clear(),
+		getLogLevel: () => getLogLevel(),
+		setLogLevel: (level: string) => setLogLevel(level),
 	},
 }));
 
@@ -40,6 +44,8 @@ beforeEach(() => {
 	status.mockReset().mockResolvedValue(statusFixture);
 	logs.mockReset().mockResolvedValue(logFixture);
 	clear.mockReset().mockResolvedValue(undefined);
+	getLogLevel.mockReset().mockResolvedValue("info");
+	setLogLevel.mockReset().mockResolvedValue(undefined);
 	useToastStore.setState({ toasts: [] });
 });
 
@@ -112,5 +118,15 @@ describe("DeveloperPanel", () => {
 		await waitFor(() =>
 			expect(screen.queryByText("upstream timeout")).toBeNull(),
 		);
+	});
+
+	it("loads and changes the runtime log level", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(getLogLevel).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText("Set runtime log level"), {
+			target: { value: "debug" },
+		});
+		await waitFor(() => expect(setLogLevel).toHaveBeenCalledWith("debug"));
 	});
 });

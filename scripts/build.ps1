@@ -94,19 +94,27 @@ if ($Tauri) {
     Write-Step "Preparing external binaries for Tauri"
     New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
 
-    if (Test-Path $engineSrc) {
-        Copy-Item -Force $engineSrc "$binaryDir\encorehub-engine.exe"
-        Write-Ok "copied encorehub-engine.exe"
-    } else {
-        Write-Host "  ⚠ engine binary not found (skip --skip-engine?), continuing" -ForegroundColor Yellow
+    # Tauri's externalBin resolves each entry to a target-triple-suffixed name
+    # at bundle time (e.g. encorehub-engine-x86_64-pc-windows-msvc.exe) and does
+    # NOT strip the triple. We must place the binary under that exact name, or
+    # Tauri bundles a stale copy. We write both the plain and triple-suffixed
+    # names so a `tauri dev` (plain) and `tauri build` (triple) both pick up the
+    # fresh binary.
+    $triple = (rustc -vV | Select-String '^host:\s*(.+)$').Matches.Groups[1].Value.Trim()
+    Write-Ok "host target triple: $triple"
+
+    function Copy-Sidecar($src, $name) {
+        if (Test-Path $src) {
+            Copy-Item -Force $src "$binaryDir\$name.exe"
+            Copy-Item -Force $src "$binaryDir\$name-$triple.exe"
+            Write-Ok "copied $name.exe (+ $name-$triple.exe)"
+        } else {
+            Write-Host "  ⚠ $name binary not found at $src, continuing" -ForegroundColor Yellow
+        }
     }
 
-    if (Test-Path $gatewaySrc) {
-        Copy-Item -Force $gatewaySrc "$binaryDir\gateway.exe"
-        Write-Ok "copied gateway.exe"
-    } else {
-        Write-Host "  ⚠ gateway binary not found (skip --skip-gateway?), continuing" -ForegroundColor Yellow
-    }
+    Copy-Sidecar $engineSrc  "encorehub-engine"
+    Copy-Sidecar $gatewaySrc "gateway"
 
     # ---------- Tauri bundle ----------
     Write-Step "Building Tauri desktop installer"

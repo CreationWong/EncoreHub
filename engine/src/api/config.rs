@@ -32,11 +32,34 @@ pub async fn get(
 }
 
 /// PUT /api/config/:key — store the request body verbatim as the value.
+///
+/// Special-cases `log_level`: after persisting, applies the new level to the
+/// running tracing subscriber so it takes effect immediately (no restart).
 pub async fn put(
     State(state): State<SharedState>,
     Path(key): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<StatusCode, (StatusCode, Json<super::ErrorResponse>)> {
+    if key == "log_level" {
+        // Validate + apply before persisting so a bad value is rejected.
+        if let Some(level) = body.as_str() {
+            if let Some(ctrl) = state.log_control.as_ref() {
+                ctrl.set(level).map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(super::ErrorResponse { error: e }),
+                    )
+                })?;
+            }
+        } else {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(super::ErrorResponse {
+                    error: "log_level must be a JSON string".into(),
+                }),
+            ));
+        }
+    }
     let value_json = serde_json::to_string(&body).map_err(internal)?;
     state.db.set_config(&key, &value_json).map_err(internal)?;
     Ok(StatusCode::NO_CONTENT)

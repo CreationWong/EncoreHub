@@ -53,13 +53,30 @@ func main() {
 	// Initialize engine client
 	engineClient := engine.NewClient(engineURL)
 
-	// Health check against engine
-	if err := engineClient.Health(nil); err != nil {
-		log.Warn().Err(err).Str("engine_url", engineURL).
-			Msg("engine not reachable — conversation features will fail")
-	} else {
-		log.Info().Str("engine_url", engineURL).Msg("engine connected")
+	// Health check against engine. The engine and gateway are spawned together
+	// by the desktop app, so the engine may still be booting — retry briefly
+	// before warning. A non-nil context is required (http.NewRequestWithContext
+	// rejects a nil context outright).
+	engineReady := false
+	for attempt := 0; attempt < 10; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		err := engineClient.Health(ctx)
+		cancel()
+		if err == nil {
+			engineReady = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
+	if engineReady {
+		log.Info().Str("engine_url", engineURL).Msg("engine connected")
+	} else {
+		log.Warn().Str("engine_url", engineURL).
+			Msg("engine not reachable after retries — conversation features may fail until it starts")
+	}
+
+	// Apply the persisted log level (from the engine's config) to the gateway.
+	handler.ApplyInitialLevel(engineClient)
 
 	// Load provider profiles into the registry. On engine failure this falls
 	// back to builtin defaults so chat still works against the default set.

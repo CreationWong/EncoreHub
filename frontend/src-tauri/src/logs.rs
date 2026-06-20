@@ -2,14 +2,24 @@
 //! developer panel. Lines are tagged with their source and a best-effort level,
 //! and secrets are redacted before a line ever enters the buffer — so neither
 //! the buffer nor anything the frontend pulls can contain an API key.
+//!
+//! Lines are also mirrored to a daily file under the install dir's `log/` so
+//! issues can be diagnosed after the app closes. Only the redacted message is
+//! written; raw key material never reaches disk.
 
 use std::collections::VecDeque;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
 
 /// Max lines kept in memory. Older lines are dropped as new ones arrive.
 const MAX_LINES: usize = 2000;
+
+/// How many days of log files to keep; older files are pruned at startup.
+const LOG_RETENTION_DAYS: i64 = 7;
 
 /// Where a log line came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -54,11 +64,105 @@ pub struct LogEntry {
 /// Thread-safe ring buffer of log entries.
 pub struct LogBuffer {
     inner: Mutex<Inner>,
+    /// Optional file mirror. `None` when no log dir was configured (e.g. tests).
+    file: Option<Mutex<FileSink>>,
 }
 
 struct Inner {
     entries: VecDeque<LogEntry>,
     next_seq: u64,
+}
+
+/// Appends redacted log lines to a per-day file under `dir`. Rotates by date:
+/// when the day changes, it opens a new `encorehub-YYYY-MM-DD.log`.
+struct FileSink {
+    dir: PathBuf,
+    current_day: String,
+    file: Option<File>,
+}
+
+impl FileSink {
+    fn new(dir: PathBuf) -> FileSink {
+        FileSink {
+            dir,
+            current_day: String::new(),
+            file: None,
+        }
+    }
+
+    /// Write one already-redacted line, prefixed with a local timestamp and the
+    /// source/level. Best-effort: any IO error is dropped (logging must never
+    /// crash the app).
+    fn write_line(&mut self, source: Source, level: Level, message: &str) {
+        let now = chrono::Local::now();
+        let day = now.format("%Y-%m-%d").to_string();
+        if self.file.is_none() || day != self.current_day {
+            let path = self.dir.join(format!("encorehub-{day}.log"));
+            match OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(f) => {
+                    self.file = Some(f);
+                    self.current_day = day;
+                }
+                Err(_) => {
+                    self.file = None;
+                    return;
+                }
+            }
+        }
+        if let Some(f) = self.file.as_mut() {
+            let ts = now.format("%H:%M:%S%.3f");
+            let clean = strip_ansi(message);
+            let _ = writeln!(f, "{ts} [{:?}/{:?}] {clean}", source, level);
+        }
+    }
+}
+
+/// Strip ANSI SGR escape sequences (color codes) so the on-disk log is plain
+/// text. Sidecars emit colorized output; the file should be editor-friendly.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // ESC — skip an optional '[' then everything up to the final byte
+            // of a CSI sequence (a letter in @-~).
+            if chars.peek() == Some(&'[') {
+                chars.next();
+            }
+            for cc in chars.by_ref() {
+                if cc.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Remove `encorehub-*.log` files older than the retention window. Best-effort.
+fn prune_old_logs(dir: &PathBuf) {
+    let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(LOG_RETENTION_DAYS);
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // Parse the date out of `encorehub-YYYY-MM-DD.log`.
+        let Some(rest) = name.strip_prefix("encorehub-") else {
+            continue;
+        };
+        let Some(date_str) = rest.strip_suffix(".log") else {
+            continue;
+        };
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            if date < cutoff {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 impl LogBuffer {
@@ -68,6 +172,30 @@ impl LogBuffer {
                 entries: VecDeque::with_capacity(MAX_LINES),
                 next_seq: 1,
             }),
+            file: None,
+        }
+    }
+
+    /// Like `new`, but also mirrors lines to a daily file under `log_dir`.
+    /// Creates the directory if needed and prunes logs older than the retention
+    /// window. Falls back to memory-only if the directory can't be created.
+    pub fn with_log_dir(log_dir: PathBuf) -> LogBuffer {
+        let file = match fs::create_dir_all(&log_dir) {
+            Ok(()) => {
+                prune_old_logs(&log_dir);
+                Some(Mutex::new(FileSink::new(log_dir)))
+            }
+            Err(e) => {
+                eprintln!("log dir unavailable, file logging disabled: {e}");
+                None
+            }
+        };
+        LogBuffer {
+            inner: Mutex::new(Inner {
+                entries: VecDeque::with_capacity(MAX_LINES),
+                next_seq: 1,
+            }),
+            file,
         }
     }
 
@@ -76,6 +204,12 @@ impl LogBuffer {
     pub fn push(&self, source: Source, stream: &str, raw: &str) {
         let level = detect_level(raw, stream);
         let message = redact(raw);
+        // Mirror to the daily file (already redacted — no key material on disk).
+        if let Some(file) = self.file.as_ref() {
+            if let Ok(mut sink) = file.lock() {
+                sink.write_line(source, level, &message);
+            }
+        }
         let mut inner = self.inner.lock().unwrap();
         let seq = inner.next_seq;
         inner.next_seq += 1;
@@ -334,8 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn level_detection() {
-        assert_eq!(detect_level("ERROR boom", "out"), Level::Error);
+    fn level_detection() {        assert_eq!(detect_level("ERROR boom", "out"), Level::Error);
         assert_eq!(detect_level("thread panicked at ...", "out"), Level::Error);
         assert_eq!(detect_level("[2024] WARN slow", "out"), Level::Warn);
         assert_eq!(detect_level("DEBUG x", "out"), Level::Debug);
@@ -374,5 +507,13 @@ mod tests {
         // "key" inside "keyboard" must not trigger masking
         let r2 = redact("keyboard shortcut registered");
         assert_eq!(r2, "keyboard shortcut registered");
+    }
+
+    #[test]
+    fn strip_ansi_removes_color_codes() {
+        let colored = "\u{1b}[32m INFO\u{1b}[0m starting up";
+        assert_eq!(strip_ansi(colored), " INFO starting up");
+        // plain text is unchanged
+        assert_eq!(strip_ansi("no codes here"), "no codes here");
     }
 }
