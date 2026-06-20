@@ -2,7 +2,7 @@
 
 跨平台 AI 聊天客户端 — 一个客户端聚合多家供应商，附带知识库、记忆、Skill、Plugin、MCP 能力。
 
-> 状态：早期开发。骨架完整、核心功能可用，但 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。详见
+> 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、模板化供应商、密钥加密、开发者模式），但 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。详见
 > [`docs/IMPROVEMENT_REPORT.md`](docs/IMPROVEMENT_REPORT.md) 中按 P0/P1/P2 标注的差距清单。
 
 ## 架构速览
@@ -16,9 +16,9 @@ frontend (React + Tauri)  ──HTTP/SSE──>  gateway (Go) ──HTTP──> 
 
 | 模块 | 语言 | 角色 |
 |------|------|------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式渲染、设置/Skill/Memory/Knowledge 面板、Slash 命令 |
-| `gateway/` | Go 1.25 | HTTP/SSE 入口，多 provider 适配，认证/限流/CORS，引擎反向代理 |
-| `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill 存储与 API；监听 `127.0.0.1:3000` |
+| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式渲染、设置/Skill/Memory/Knowledge/Security/Developer 面板、Slash 命令；Tauri 层拉起并监管 engine/gateway sidecar，日志落盘 |
+| `gateway/` | Go 1.25 | HTTP/SSE 入口，模板化多 provider 适配，认证/限流/CORS，引擎反向代理 |
+| `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill/密钥 存储与 API；AES-256-GCM 密钥加密；监听 `127.0.0.1:3000` |
 | `data-services/` | Python 3.12 (FastAPI) | RAG/embedding/文档解析（**目前为骨架，未接通**） |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
@@ -65,16 +65,21 @@ cd frontend && pnpm install && pnpm dev
 | Endpoint | 用途 |
 |----------|------|
 | `GET /api/v1/health` | gateway + engine 反向探活；返回 `{status, service, engine: {url, ok, latency_ms}}`。**永远 200**——即使 engine 不可达也是 200，靠 `engine.ok` 区分 readiness |
+| `GET/POST /api/v1/log-level` | 读取/设置运行时日志等级（`error\|warn\|info\|debug`）。POST 立即应用到 gateway(zerolog)与 engine(tracing reload),并持久化到引擎 config,重启保留 |
 | `GET /metrics` | Prometheus 指标（公开，无 auth）。包含 `encorehub_gateway_requests_total{method,route,status}`、`encorehub_gateway_request_duration_seconds` 直方图、`encorehub_gateway_in_flight_requests` |
 
 每个请求 gateway 会注入 `X-Request-ID`（如客户端已带则透传），并 reflect 到响应头；引擎下游调用同样透传，方便跨服务串联日志。
 
+**日志落盘**：桌面打包版下,Tauri 把 engine/gateway/desktop 三方日志(脱敏后)镜像写到安装目录的 `log/encorehub-YYYY-MM-DD.log`,按天切分、保留 7 天。开发者面板里可实时查看、过滤、导出。密钥/口令在落盘与展示前均脱敏。
+
 ## 关键功能
 
-- **多 provider**：OpenAI / Anthropic / DeepSeek（gateway 层内置）
+- **多 provider（模板化）**：内置 OpenAI / Anthropic / DeepSeek，并支持新增/编辑/删除自定义供应商、改端节点(base_url)、编辑模型列表。档案持久化在引擎,网关运行时热加载
 - **流式 SSE**：可中断（前端 InputBox 的 Stop 按钮 / Esc）
 - **Slash 命令**：在输入框打 `/` 出补全 — `/new /clear /stop /model /settings /skills /knowledge /memory /help`
-- **设置面板**（`Ctrl/Cmd + ,`）：Providers / Skills / Knowledge / Memories / Appearance
+- **设置面板**（`Ctrl/Cmd + ,`）：Providers / Skills / Knowledge / Memories / Security / Appearance（开启开发者模式后多一个 Developer 标签）
+- **密钥加密(可选)**：Security 标签设主密码后,API key 以 AES-256-GCM 加密落库(Argon2id 派生主密钥)。开启后每次打开需解锁;主密钥仅驻内存。保护**静态磁盘泄露**,不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
+- **开发者模式**：Appearance 里开启后,Developer 标签可看 engine/gateway/desktop 三方存活状态、实时日志(按来源/级别过滤、搜索、导出),并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
 - **DuckDuckGo 网搜**：请求体加 `"search": true`
 
@@ -88,13 +93,16 @@ cd frontend && pnpm install && pnpm dev
 │   ├── src/stores/       zustand
 │   └── src/commands/     slash 命令注册表
 ├── gateway/internal/
-│   ├── handler/          chat / conversation / engine_proxy / search
-│   ├── provider/         openai / anthropic / deepseek 适配
+│   ├── handler/          chat / conversation / engine_proxy / search / loglevel / 供应商档案
+│   ├── provider/         openaicompat(模板) / anthropic 适配 + 运行时 registry
 │   ├── router/           CORS / auth / rate-limit
 │   └── engine/           Rust 引擎 HTTP 客户端
 ├── engine/
-│   ├── src/api/          axum routes (conversations / memories / knowledge / skills)
+│   ├── src/api/          axum routes (conversations / memories / knowledge / skills / config / secrets)
+│   ├── src/crypto.rs     AES-256-GCM + Argon2id 密钥加密
+│   ├── src/logging.rs    运行时日志等级 reload
 │   └── crates/           core / storage / skill
+├── frontend/src-tauri/   Tauri 桌面壳:拉起 sidecar、日志落盘、打包配置
 ├── data-services/        Python（骨架）
 ├── docs/
 │   ├── IMPROVEMENT_REPORT.md   审计 + P0/P1/P2 差距
@@ -115,11 +123,21 @@ cd data-services && uv sync && uv run ruff check src/ && uv run pytest
 
 CI 配置见 `.github/workflows/ci.yml`，4 个语言并行 job。
 
+## 桌面打包（Windows）
+
+```powershell
+# 一键构建三端 + 生成安装包(.msi + NSIS .exe)
+.\scripts\build.ps1 -Tauri
+```
+
+产物在 `frontend/src-tauri/target/release/bundle/`(`msi/` 与 `nsis/`)。脚本会把 engine/gateway 二进制按 Tauri `externalBin` 需要的 target-triple 名拷进 `binaries/`,避免打进过期副本。安装后软件自带 engine/gateway sidecar,无需单独启动;日志写到安装目录 `log/`。
+
 ## 安全说明
 
-- 默认 CORS 只放 Tauri / `localhost:1420`；扩展请用 `ENCOREHUB_CORS_ORIGINS`。
+- 默认 CORS 只放 Tauri webview（`tauri://localhost`、`http(s)://tauri.localhost`）与 `localhost:1420`；扩展请用 `ENCOREHUB_CORS_ORIGINS`。
 - `ENCOREHUB_AUTH_TOKEN` 不设时 gateway 不强制 auth（适合本机 sidecar），任何网络暴露的部署 **必须** 设。
-- 前端 API key 默认 **会话内存** 存放，不入 localStorage；若开发想持久化在 DevTools 里 `localStorage.setItem("encorehub-persist-keys", "1")`。生产应接 Tauri stronghold/keyring。
+- **API key 存储**：默认仅会话内存,不入 localStorage。在 Security 标签开启加密后,key 以 AES-256-GCM 加密落引擎库(Argon2id 派生主密钥、随机 salt、verifier 校验口令),主密钥仅驻内存、关闭即清。此方案保护**静态磁盘泄露**,不防运行中已解锁会话或渲染层 XSS。忘记主密码不可恢复(只能清空重填)。
+- 密钥/口令全程作为不透明字符串处理,不进日志/落盘(日志写盘前统一脱敏)。
 
 ## 许可证
 
