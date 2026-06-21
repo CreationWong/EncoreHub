@@ -64,6 +64,8 @@ pub struct MessageResponse {
     pub id: String,
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub reasoning: String,
     pub parent_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
     pub created_at: String,
@@ -74,6 +76,8 @@ pub struct ToolCallResponse {
     pub id: String,
     pub name: String,
     pub arguments: String,
+    pub result: String,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +180,8 @@ pub async fn get_one(
                     id: tc.id,
                     name: tc.name,
                     arguments: tc.arguments,
+                    result: tc.result,
+                    status: tc.status,
                 })
                 .collect();
 
@@ -183,6 +189,7 @@ pub async fn get_one(
                 id: m.id,
                 role: m.role.as_str().to_string(),
                 content: m.content,
+                reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
                 created_at: m.created_at.to_rfc3339(),
@@ -263,6 +270,8 @@ pub async fn get_messages(
                     id: tc.id,
                     name: tc.name,
                     arguments: tc.arguments,
+                    result: tc.result,
+                    status: tc.status,
                 })
                 .collect();
 
@@ -270,6 +279,7 @@ pub async fn get_messages(
                 id: m.id,
                 role: m.role.as_str().to_string(),
                 content: m.content,
+                reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
                 created_at: m.created_at.to_rfc3339(),
@@ -286,6 +296,21 @@ pub struct AddMessageRequest {
     pub role: String,
     #[serde(default)]
     pub parent_id: Option<String>,
+    #[serde(default)]
+    pub reasoning: String,
+    #[serde(default)]
+    pub tool_calls: Vec<AddToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddToolCall {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+    #[serde(default)]
+    pub result: String,
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// Store a message without generating a reply.
@@ -297,10 +322,26 @@ pub async fn add_message(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
     let _conv = state.db.get_conversation(&conv_id).map_err(not_found)?;
     let role = Role::from_str(&req.role).unwrap_or(Role::User);
-    let msg = Message::new(&conv_id, role, &req.content, req.parent_id);
+    let msg =
+        Message::new(&conv_id, role, &req.content, req.parent_id).with_reasoning(&req.reasoning);
     state.db.append_message(&msg).map_err(internal_error)?;
 
-    Ok(Json(build_msg_response(&msg, &[])))
+    // Persist any tool calls the gateway parsed from the provider stream.
+    let mut stored_calls = Vec::with_capacity(req.tool_calls.len());
+    for tc in &req.tool_calls {
+        let mut call = ToolCall::new(&msg.id, &tc.name, &tc.arguments);
+        call.result = tc.result.clone();
+        if let Some(status) = &tc.status {
+            call.status = status.clone();
+        }
+        if let Err(e) = state.db.insert_tool_call(&call) {
+            tracing::warn!("failed to store tool call: {}", e);
+        } else {
+            stored_calls.push(call);
+        }
+    }
+
+    Ok(Json(build_msg_response(&msg, &stored_calls)))
 }
 
 /// Send a message and get a mock AI reply.
@@ -478,6 +519,7 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
         id: msg.id.clone(),
         role: msg.role.as_str().to_string(),
         content: msg.content.clone(),
+        reasoning: msg.reasoning.clone(),
         parent_id: msg.parent_id.clone(),
         tool_calls: tool_calls
             .iter()
@@ -485,6 +527,8 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
                 id: tc.id.clone(),
                 name: tc.name.clone(),
                 arguments: tc.arguments.clone(),
+                result: tc.result.clone(),
+                status: tc.status.clone(),
             })
             .collect(),
         created_at: msg.created_at.to_rfc3339(),

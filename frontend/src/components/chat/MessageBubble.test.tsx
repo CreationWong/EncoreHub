@@ -67,6 +67,70 @@ describe("MessageBubble: system", () => {
 	});
 });
 
+describe("MessageBubble: reasoning", () => {
+	it("renders a collapsed reasoning toggle that expands on click", () => {
+		render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "the answer",
+					reasoning: "first I considered X then Y",
+				})}
+			/>,
+		);
+		// Collapsed: toggle label shows, but reasoning text is hidden.
+		const toggle = screen.getByText("Thought process");
+		expect(screen.queryByText(/first I considered X/)).toBeNull();
+		fireEvent.click(toggle);
+		expect(screen.getByText(/first I considered X/)).not.toBeNull();
+	});
+
+	it("auto-expands reasoning while streaming with no content yet", () => {
+		render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "",
+					reasoning: "thinking out loud",
+				})}
+				isStreaming
+			/>,
+		);
+		// No click needed — streaming pre-content shows the reasoning live.
+		expect(screen.getByText("thinking out loud")).not.toBeNull();
+		expect(screen.getByText("Thinking…")).not.toBeNull();
+	});
+});
+
+describe("MessageBubble: tool calls", () => {
+	it("renders a tool-call card with name and status, expandable to args", () => {
+		render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "done",
+					tool_calls: [
+						{
+							id: "t1",
+							name: "get_weather",
+							arguments: '{"city":"NYC"}',
+							status: "success",
+							result: "72F",
+						},
+					],
+				})}
+			/>,
+		);
+		expect(screen.getByText("get_weather")).not.toBeNull();
+		expect(screen.getByText("success")).not.toBeNull();
+		// Args/result hidden until expanded.
+		expect(screen.queryByText(/"city":"NYC"/)).toBeNull();
+		fireEvent.click(screen.getByText("get_weather"));
+		expect(screen.getByText(/"city":"NYC"/)).not.toBeNull();
+		expect(screen.getByText("72F")).not.toBeNull();
+	});
+});
+
 describe("MessageBubble: copy button", () => {
 	it("clicking the assistant copy button writes the message to clipboard", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);

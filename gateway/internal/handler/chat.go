@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -139,10 +140,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		chatReq = buildChatRequest(convDetail, req, systemExtra)
 	} else {
 		chatReq = &provider.ChatRequest{
-			Model:       req.Model,
-			Stream:      req.Stream,
-			Temperature: req.Temperature,
-			MaxTokens:   4096,
+			Model:        req.Model,
+			Stream:       req.Stream,
+			Temperature:  req.Temperature,
+			MaxTokens:    4096,
 			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Use provided context." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
@@ -193,7 +194,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Store assistant reply in engine
-	h.storeAssistantMessage(convID, userMsgID, chatResp.Content)
+	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil)
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
@@ -224,35 +225,54 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	c.Status(http.StatusOK)
 
 	var fullContent string
+	var fullReasoning string
+	agg := newToolCallAggregator()
 	flusher, _ := c.Writer.(http.Flusher)
 
+	writeFrame := func(event string, payload any) {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
 	for ev := range events {
-		if ev.Error != nil {
+		switch {
+		case ev.Error != nil:
 			log.Error().Err(ev.Error).Msg("stream error")
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", ev.Error.Error())
 			if flusher != nil {
 				flusher.Flush()
 			}
 			return
-		}
-		if ev.Delta != nil {
-			fullContent += ev.Delta.Content
-			fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", ev.Delta.Content)
-			if flusher != nil {
-				flusher.Flush()
+		case ev.Reasoning != nil:
+			fullReasoning += ev.Reasoning.Content
+			writeFrame("reasoning", map[string]string{"content": ev.Reasoning.Content})
+		case ev.ToolCall != nil:
+			agg.add(ev.ToolCall)
+			writeFrame("tool_call", ev.ToolCall)
+		case ev.ToolResult != nil:
+			agg.setResult(ev.ToolResult)
+			writeFrame("tool_result", ev.ToolResult)
+		case ev.Delta != nil:
+			if ev.Delta.Content != "" {
+				fullContent += ev.Delta.Content
+				writeFrame("delta", map[string]string{"content": ev.Delta.Content})
 			}
-		}
-		if ev.Usage != nil {
-			fmt.Fprintf(c.Writer, "event: usage\ndata: {\"input_tokens\":%d,\"output_tokens\":%d}\n\n",
-				ev.Usage.InputTokens, ev.Usage.OutputTokens)
-			if flusher != nil {
-				flusher.Flush()
-			}
+		case ev.Usage != nil:
+			writeFrame("usage", map[string]int{
+				"input_tokens":  ev.Usage.InputTokens,
+				"output_tokens": ev.Usage.OutputTokens,
+			})
 		}
 	}
 
-	// Store assistant reply
-	go h.storeAssistantMessage(convID, userMsgID, fullContent)
+	// Store assistant reply with reasoning + tool calls.
+	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, agg.toInputs())
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -260,11 +280,57 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 }
 
+// toolCallAggregator reassembles streamed tool-call fragments (which arrive
+// keyed by index, with arguments split across chunks) into whole calls.
+type toolCallAggregator struct {
+	order []int
+	calls map[int]*engine.ToolCallInput
+}
+
+func newToolCallAggregator() *toolCallAggregator {
+	return &toolCallAggregator{calls: make(map[int]*engine.ToolCallInput)}
+}
+
+func (a *toolCallAggregator) add(ev *provider.ToolCallEvent) {
+	tc, ok := a.calls[ev.Index]
+	if !ok {
+		tc = &engine.ToolCallInput{Status: "pending"}
+		a.calls[ev.Index] = tc
+		a.order = append(a.order, ev.Index)
+	}
+	if ev.Name != "" {
+		tc.Name = ev.Name
+	}
+	tc.Arguments += ev.Arguments
+}
+
+func (a *toolCallAggregator) setResult(ev *provider.ToolResultEvent) {
+	for _, tc := range a.calls {
+		if tc.Status == "pending" {
+			tc.Result = ev.Result
+			tc.Status = ev.Status
+			return
+		}
+	}
+}
+
+func (a *toolCallAggregator) toInputs() []engine.ToolCallInput {
+	out := make([]engine.ToolCallInput, 0, len(a.order))
+	for _, idx := range a.order {
+		tc := a.calls[idx]
+		if tc.Name == "" {
+			continue
+		}
+		out = append(out, *tc)
+	}
+	return out
+}
+
 // ===== Mock mode =====
 
 func (h *ChatHandler) mockReply(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
 	reply := generateMockReply(req.Content)
-	h.storeAssistantMessage(convID, userMsgID, reply)
+	h.storeAssistantMessage(convID, userMsgID, reply, "", nil)
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
 		Reply:          reply,
@@ -284,7 +350,8 @@ func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string
 
 	// Stream the mock reply character by character (simulated typing)
 	for i, ch := range reply {
-		fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", string(ch))
+		data, _ := json.Marshal(map[string]string{"content": string(ch)})
+		fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", data)
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -295,7 +362,7 @@ func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string
 	}
 
 	// Store assistant reply
-	go h.storeAssistantMessage(convID, userMsgID, reply)
+	go h.storeAssistantMessage(convID, userMsgID, reply, "", nil)
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -314,8 +381,14 @@ func (h *ChatHandler) storeUserMessage(convID, content string) string {
 	return msg.ID
 }
 
-func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content string) {
-	_, err := h.engine.AppendMessage(context.Background(), convID, content, "assistant", userMsgID)
+func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasoning string, toolCalls []engine.ToolCallInput) {
+	_, err := h.engine.AppendMessageFull(context.Background(), convID, engine.AppendMessageRequest{
+		Content:   content,
+		Role:      "assistant",
+		ParentID:  userMsgID,
+		Reasoning: reasoning,
+		ToolCalls: toolCalls,
+	})
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to store assistant message via engine")
 	}

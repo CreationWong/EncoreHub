@@ -11,8 +11,30 @@ interface ChatResponse {
 	model: string;
 }
 
+/** A tool call streamed from the gateway, identified by its fragment index. */
+export interface StreamToolCall {
+	index: number;
+	id?: string;
+	name: string;
+	arguments: string;
+	result?: string;
+	status?: "pending" | "success" | "error";
+}
+
 export interface StreamCallbacks {
 	onDelta: (content: string) => void;
+	onReasoning?: (content: string) => void;
+	onToolCall?: (call: {
+		index: number;
+		id?: string;
+		name?: string;
+		arguments?: string;
+	}) => void;
+	onToolResult?: (result: {
+		id: string;
+		result: string;
+		status: string;
+	}) => void;
 	onUsage?: (input: number, output: number) => void;
 	onDone: (fullContent: string) => void;
 	onError: (error: string) => void;
@@ -114,8 +136,8 @@ export const chatApi = {
 
 				switch (ev.event) {
 					case "delta": {
-						// Gateway emits raw text after `data: `; tolerate JSON wrappers
-						// ({content:"..."} / {text:"..."}) for forward compat.
+						// Gateway emits {content:"..."}; tolerate legacy raw text
+						// and {text:"..."} wrappers for forward/backward compat.
 						let delta = ev.data;
 						if (delta.startsWith("{")) {
 							try {
@@ -128,6 +150,42 @@ export const chatApi = {
 						if (delta) {
 							fullContent += delta;
 							callbacks.onDelta(delta);
+						}
+						break;
+					}
+					case "reasoning": {
+						try {
+							const j = JSON.parse(ev.data);
+							if (j.content) callbacks.onReasoning?.(j.content);
+						} catch {
+							/* ignore malformed reasoning frame */
+						}
+						break;
+					}
+					case "tool_call": {
+						try {
+							const j = JSON.parse(ev.data);
+							callbacks.onToolCall?.({
+								index: j.index ?? 0,
+								id: j.id,
+								name: j.name,
+								arguments: j.arguments,
+							});
+						} catch {
+							/* ignore malformed tool_call frame */
+						}
+						break;
+					}
+					case "tool_result": {
+						try {
+							const j = JSON.parse(ev.data);
+							callbacks.onToolResult?.({
+								id: j.id ?? "",
+								result: j.result ?? "",
+								status: j.status ?? "success",
+							});
+						} catch {
+							/* ignore malformed tool_result frame */
 						}
 						break;
 					}

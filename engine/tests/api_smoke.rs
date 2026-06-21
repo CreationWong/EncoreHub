@@ -621,3 +621,59 @@ async fn secrets_encrypted_db_has_no_plaintext_key_on_disk() {
         "plaintext API key must not appear anywhere in the on-disk database"
     );
 }
+
+#[tokio::test]
+async fn append_message_persists_reasoning_and_tool_calls() {
+    let (_dir, app) = make_app();
+
+    // Create a conversation.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"reason","provider":"deepseek","model":"deepseek-reasoner"}),
+        ))
+        .await
+        .unwrap();
+    let id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+    // Append an assistant message carrying reasoning + a tool call.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/messages/append"),
+            json!({
+                "content": "The answer is 4.",
+                "role": "assistant",
+                "reasoning": "2 plus 2 is 4.",
+                "tool_calls": [
+                    {"name": "calculator", "arguments": "{\"a\":2,\"b\":2}", "result": "4", "status": "success"}
+                ]
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let appended = body_json(resp).await;
+    assert_eq!(appended["reasoning"], "2 plus 2 is 4.");
+    assert_eq!(appended["tool_calls"][0]["name"], "calculator");
+    assert_eq!(appended["tool_calls"][0]["status"], "success");
+
+    // Re-read via GET to confirm it round-trips from storage.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let detail = body_json(resp).await;
+    let msg = &detail["messages"][0];
+    assert_eq!(msg["reasoning"], "2 plus 2 is 4.");
+    assert_eq!(msg["tool_calls"][0]["result"], "4");
+    assert_eq!(msg["tool_calls"][0]["arguments"], "{\"a\":2,\"b\":2}");
+}

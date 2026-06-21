@@ -155,6 +155,21 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     ",
+    // 007: Reasoning chain + tool-call execution state
+    //
+    // `messages.reasoning` stores the model's chain-of-thought (DeepSeek
+    // `reasoning_content` / Anthropic `thinking`) separately from the visible
+    // answer in `content`. NULL/empty when the model emits no reasoning.
+    //
+    // `tool_calls` gains `result` (tool output once executed) and `status`
+    // (pending | success | error). EncoreHub does not yet execute tools, so
+    // these default to an empty result and 'pending'; the columns let the
+    // gateway persist call args now and a future executor fill results later.
+    "
+    ALTER TABLE messages ADD COLUMN reasoning TEXT NOT NULL DEFAULT '';
+    ALTER TABLE tool_calls ADD COLUMN result TEXT NOT NULL DEFAULT '';
+    ALTER TABLE tool_calls ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {

@@ -10,18 +10,18 @@ import (
 
 // Message represents a single chat message in unified format.
 type Message struct {
-	Role    string `json:"role"`    // "user", "assistant", "system", "tool"
+	Role    string `json:"role"` // "user", "assistant", "system", "tool"
 	Content string `json:"content"`
 }
 
 // ChatRequest is the unified request format sent to AI providers.
 type ChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature float32   `json:"temperature,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
+	Model        string    `json:"model"`
+	Messages     []Message `json:"messages"`
+	Stream       bool      `json:"stream"`
+	MaxTokens    int       `json:"max_tokens,omitempty"`
+	Temperature  float32   `json:"temperature,omitempty"`
+	SystemPrompt string    `json:"system_prompt,omitempty"`
 }
 
 // ChatResponse is the unified (non-streaming) response.
@@ -37,6 +37,32 @@ type ChatResponse struct {
 type DeltaEvent struct {
 	Content      string `json:"content"`
 	FinishReason string `json:"finish_reason,omitempty"`
+}
+
+// ReasoningEvent carries a chunk of the model's chain-of-thought (DeepSeek
+// `reasoning_content` / Anthropic `thinking`), streamed separately from the
+// visible answer.
+type ReasoningEvent struct {
+	Content string `json:"content"`
+}
+
+// ToolCallEvent announces a tool invocation the model requested. During
+// streaming the arguments may arrive incrementally; the gateway aggregates
+// fragments by Index before persisting.
+type ToolCallEvent struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+// ToolResultEvent carries the output of an executed tool call. EncoreHub does
+// not execute tools yet, so this is currently emitted only by adapters that
+// receive tool results inline; reserved for the future tool executor.
+type ToolResultEvent struct {
+	ID     string `json:"id"`
+	Result string `json:"result"`
+	Status string `json:"status"` // "success" | "error"
 }
 
 // UsageEvent is emitted at the end of a stream.
@@ -71,9 +97,13 @@ type Adapter interface {
 	ValidateKey(ctx context.Context, apiKey string) error
 }
 
-// StreamEvent wraps a streaming event — either a content delta, usage info, or error.
+// StreamEvent wraps a streaming event — a content delta, reasoning chunk, tool
+// call, tool result, usage info, or error. Exactly one field is non-nil.
 type StreamEvent struct {
-	Delta *DeltaEvent
-	Usage *UsageEvent
-	Error error
+	Delta      *DeltaEvent
+	Reasoning  *ReasoningEvent
+	ToolCall   *ToolCallEvent
+	ToolResult *ToolResultEvent
+	Usage      *UsageEvent
+	Error      error
 }

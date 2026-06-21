@@ -95,17 +95,27 @@ type anthropicResp struct {
 
 // SSE event types
 type sseEvent struct {
-	Type    string          `json:"type"`
-	Delta   *sseTextDelta   `json:"delta,omitempty"`
-	Usage   *anthropicUsage `json:"usage,omitempty"`
-	Message *struct {
+	Type         string           `json:"type"`
+	Index        int              `json:"index,omitempty"`
+	Delta        *sseTextDelta    `json:"delta,omitempty"`
+	ContentBlock *sseContentBlock `json:"content_block,omitempty"`
+	Usage        *anthropicUsage  `json:"usage,omitempty"`
+	Message      *struct {
 		StopReason string `json:"stop_reason"`
 	} `json:"message,omitempty"`
 }
 
 type sseTextDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type        string `json:"type"`
+	Text        string `json:"text"`         // text_delta
+	Thinking    string `json:"thinking"`     // thinking_delta
+	PartialJSON string `json:"partial_json"` // input_json_delta (tool args)
+}
+
+type sseContentBlock struct {
+	Type string `json:"type"` // "text" | "thinking" | "tool_use"
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey string) (*provider.ChatResponse, error) {
@@ -187,10 +197,37 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 	}
 
 	switch ev.Type {
+	case "content_block_start":
+		// A tool_use block announces the tool id + name; its arguments stream
+		// in later as input_json_delta on the same index.
+		if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" {
+			return []provider.StreamEvent{{
+				ToolCall: &provider.ToolCallEvent{
+					Index: ev.Index,
+					ID:    ev.ContentBlock.ID,
+					Name:  ev.ContentBlock.Name,
+				},
+			}}
+		}
 	case "content_block_delta":
-		if ev.Delta != nil && ev.Delta.Type == "text_delta" {
+		if ev.Delta == nil {
+			return nil
+		}
+		switch ev.Delta.Type {
+		case "text_delta":
 			return []provider.StreamEvent{{
 				Delta: &provider.DeltaEvent{Content: ev.Delta.Text},
+			}}
+		case "thinking_delta":
+			return []provider.StreamEvent{{
+				Reasoning: &provider.ReasoningEvent{Content: ev.Delta.Thinking},
+			}}
+		case "input_json_delta":
+			return []provider.StreamEvent{{
+				ToolCall: &provider.ToolCallEvent{
+					Index:     ev.Index,
+					Arguments: ev.Delta.PartialJSON,
+				},
 			}}
 		}
 	case "message_delta":

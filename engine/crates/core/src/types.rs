@@ -45,6 +45,10 @@ pub struct Message {
     pub conversation_id: String,
     pub role: Role,
     pub content: String,
+    /// Model chain-of-thought (DeepSeek `reasoning_content` / Anthropic
+    /// `thinking`), kept separate from the visible answer. Empty when none.
+    #[serde(default)]
+    pub reasoning: String,
     pub parent_id: Option<String>,
     pub token_count: i32,
     pub created_at: DateTime<Utc>,
@@ -62,10 +66,17 @@ impl Message {
             conversation_id: conversation_id.into(),
             role,
             content: content.into(),
+            reasoning: String::new(),
             parent_id,
             token_count: 0,
             created_at: Utc::now(),
         }
+    }
+
+    /// Attach reasoning (chain-of-thought) to a message, builder-style.
+    pub fn with_reasoning(mut self, reasoning: impl Into<String>) -> Self {
+        self.reasoning = reasoning.into();
+        self
     }
 }
 
@@ -108,6 +119,16 @@ pub struct ToolCall {
     pub message_id: String,
     pub name: String,
     pub arguments: String, // JSON string
+    /// Tool output once executed. Empty while pending.
+    #[serde(default)]
+    pub result: String,
+    /// Execution state: "pending" | "success" | "error".
+    #[serde(default = "default_tool_status")]
+    pub status: String,
+}
+
+fn default_tool_status() -> String {
+    "pending".into()
 }
 
 impl ToolCall {
@@ -121,6 +142,8 @@ impl ToolCall {
             message_id: message_id.into(),
             name: name.into(),
             arguments: arguments.into(),
+            result: String::new(),
+            status: default_tool_status(),
         }
     }
 }

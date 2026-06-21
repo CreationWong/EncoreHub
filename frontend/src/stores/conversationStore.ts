@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import { chatApi } from "../services/chat";
+import { type StreamToolCall, chatApi } from "../services/chat";
 import type {
 	Conversation,
 	ConversationDetail,
 	Message,
+	ToolCall,
 } from "../services/conversation";
 import * as convApi from "../services/conversation";
 import { useSettingsStore } from "./settingsStore";
@@ -16,6 +17,8 @@ interface ConversationState {
 	loading: boolean;
 	streaming: boolean;
 	streamingContent: string;
+	streamingReasoning: string;
+	streamingToolCalls: StreamToolCall[];
 	error: string | null;
 	abortController: AbortController | null;
 	pendingDraft: string | null;
@@ -40,6 +43,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	loading: false,
 	streaming: false,
 	streamingContent: "",
+	streamingReasoning: "",
+	streamingToolCalls: [],
 	error: null,
 	abortController: null,
 	pendingDraft: null,
@@ -59,6 +64,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			loading: true,
 			streaming: false,
 			streamingContent: "",
+			streamingReasoning: "",
+			streamingToolCalls: [],
 			error: null,
 		});
 		try {
@@ -162,11 +169,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			messages: [...messages, userMsg],
 			streaming: true,
 			streamingContent: "",
+			streamingReasoning: "",
+			streamingToolCalls: [],
 			error: null,
 			abortController: controller,
 		});
 
 		const finalize = (final: string) => {
+			const { streamingReasoning, streamingToolCalls } = get();
+			const toolCalls: ToolCall[] = streamingToolCalls
+				.filter((tc) => tc.name)
+				.map((tc) => ({
+					id: tc.id ?? `tc-${tc.index}`,
+					name: tc.name,
+					arguments: tc.arguments,
+					result: tc.result,
+					status: tc.status ?? "pending",
+				}));
 			set((s) => ({
 				messages: [
 					...s.messages.filter((m) => m.id !== userMsg.id),
@@ -175,13 +194,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						id: `asst-${Date.now()}`,
 						role: "assistant",
 						content: final,
+						reasoning: streamingReasoning || undefined,
 						parent_id: userMsg.id,
-						tool_calls: [],
+						tool_calls: toolCalls,
 						created_at: new Date().toISOString(),
 					},
 				],
 				streaming: false,
 				streamingContent: "",
+				streamingReasoning: "",
+				streamingToolCalls: [],
 				abortController: null,
 			}));
 			get().loadList();
@@ -195,6 +217,42 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				onDelta(delta) {
 					set((s) => ({ streamingContent: s.streamingContent + delta }));
 				},
+				onReasoning(chunk) {
+					set((s) => ({ streamingReasoning: s.streamingReasoning + chunk }));
+				},
+				onToolCall(call) {
+					set((s) => {
+						const calls = [...s.streamingToolCalls];
+						const existing = calls.find((c) => c.index === call.index);
+						if (existing) {
+							if (call.id) existing.id = call.id;
+							if (call.name) existing.name = call.name;
+							if (call.arguments) existing.arguments += call.arguments;
+						} else {
+							calls.push({
+								index: call.index,
+								id: call.id,
+								name: call.name ?? "",
+								arguments: call.arguments ?? "",
+								status: "pending",
+							});
+						}
+						return { streamingToolCalls: calls };
+					});
+				},
+				onToolResult(res) {
+					set((s) => ({
+						streamingToolCalls: s.streamingToolCalls.map((c) =>
+							c.id === res.id || (!c.id && c.status === "pending")
+								? {
+										...c,
+										result: res.result,
+										status: res.status as StreamToolCall["status"],
+									}
+								: c,
+						),
+					}));
+				},
 				onDone(fullContent) {
 					finalize(fullContent || "(empty response)");
 				},
@@ -204,6 +262,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						messages: s.messages.filter((m) => m.id !== userMsg.id),
 						streaming: false,
 						streamingContent: "",
+						streamingReasoning: "",
+						streamingToolCalls: [],
 						error: errorMsg,
 						abortController: null,
 					}));
@@ -223,6 +283,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					messages: get().messages.filter((m) => m.id !== userMsg.id),
 					streaming: false,
 					streamingContent: "",
+					streamingReasoning: "",
+					streamingToolCalls: [],
 					abortController: null,
 				});
 		}

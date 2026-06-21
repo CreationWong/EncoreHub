@@ -13,13 +13,13 @@
 - [x] **阶段 2**：开发者模式（S9）
 - [x] **阶段 3**：供应商模板化（S5）
 - [x] **阶段 4**：密钥口令加密（S6）
-- [ ] **阶段 5**：思考链 + 工具调用链（S7）
+- [x] **阶段 5**：思考链 + 工具调用链（S7）
 - [ ] **阶段 6**：对话智能层（S1）
 - [ ] **阶段 7**：data-services 唤醒（S2）
 - [ ] **阶段 8**：向量检索打通（S3）
 - [ ] **阶段 9**：契约与文档对齐（S4）
 
-> 当前进度指针：**阶段 5**（思考链 + 工具调用链）。注:阶段 1 的 1.3 为手动桌面验证项,待本地 `pnpm tauri dev` 确认无终端弹窗后再勾选总览阶段 1;阶段 3 的 3.9 为手动联调项(需起全栈 + 真实 key),代码路径已就位,待本地实测新增自定义供应商聊天后确认。
+> 当前进度指针：**阶段 6**（对话智能层）。注:阶段 1 的 1.3 为手动桌面验证项,待本地 `pnpm tauri dev` 确认无终端弹窗后再勾选总览阶段 1;阶段 3 的 3.9 为手动联调项(需起全栈 + 真实 key),代码路径已就位,待本地实测新增自定义供应商聊天后确认;阶段 5 的 5.9 为手动联调项(需起全栈 + 真实 DeepSeek reasoner / Anthropic thinking key),代码路径与单测已就位,待本地实测推理可见可折叠与工具链可视化后确认。
 
 ---
 
@@ -108,16 +108,16 @@
 
 > 目标:前端展示推理过程与工具调用。⚠️ SSE 协议破坏性变更,前后端同步。Gateway + 前端 + Engine。
 
-- [ ] 5.1 网关:`StreamEvent` 加 `Reasoning`/`ToolCall`/`ToolResult` 变体
-- [ ] 5.2 网关:SSE `delta` payload 改结构化 JSON(前端 `default:忽略` 同步改)
-- [ ] 5.3 网关:适配器解析 OpenAI/DeepSeek `reasoning_content`+`tool_calls`、Anthropic `thinking`+`tool_use`
-- [ ] 5.4 前端:`Message` 加 `reasoning?`;`ToolCall` 扩展 `result`/`status`;store 加流式累积字段
-- [ ] 5.5 前端:`chat.ts` 处理新事件 → `onReasoning`/`onToolCall`/`onToolResult`
-- [ ] 5.6 前端:MessageBubble 加默认折叠「思考过程」块(muted、左竖线)
-- [ ] 5.7 前端:工具调用卡片(名/参数/结果/状态),`tool` 角色补渲染
-- [ ] 5.8 存储:reasoning 与 tool_calls 持久化(tool_calls 表已存在)
+- [x] 5.1 网关:`StreamEvent` 加 `Reasoning`/`ToolCall`/`ToolResult` 变体
+- [x] 5.2 网关:SSE `delta` payload 改结构化 JSON(前端 `default:忽略` 同步改)
+- [x] 5.3 网关:适配器解析 OpenAI/DeepSeek `reasoning_content`+`tool_calls`、Anthropic `thinking`+`tool_use`
+- [x] 5.4 前端:`Message` 加 `reasoning?`;`ToolCall` 扩展 `result`/`status`;store 加流式累积字段
+- [x] 5.5 前端:`chat.ts` 处理新事件 → `onReasoning`/`onToolCall`/`onToolResult`
+- [x] 5.6 前端:MessageBubble 加默认折叠「思考过程」块(muted、左竖线)
+- [x] 5.7 前端:工具调用卡片(名/参数/结果/状态),`tool` 角色补渲染
+- [x] 5.8 存储:reasoning 与 tool_calls 持久化(tool_calls 表已存在)
 - [ ] 5.9 验收:DeepSeek reasoner/Anthropic thinking 推理可见可折叠;工具链可视化;无推理时不显空块
-- [ ] **阶段 5 完成**:三端 lint/test 通过 → 勾选总览阶段 5
+- [x] **阶段 5 完成**:三端 lint/test 通过 → 勾选总览阶段 5
 
 ---
 

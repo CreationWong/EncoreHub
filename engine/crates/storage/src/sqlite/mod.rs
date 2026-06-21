@@ -169,13 +169,14 @@ impl Database {
     pub fn append_message(&self, msg: &Message) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, parent_id, token_count, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO messages (id, conversation_id, role, content, reasoning, parent_id, token_count, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 msg.id,
                 msg.conversation_id,
                 msg.role.as_str(),
                 msg.content,
+                msg.reasoning,
                 msg.parent_id,
                 msg.token_count,
                 msg.created_at.timestamp_millis(),
@@ -191,7 +192,7 @@ impl Database {
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, role, content, parent_id, token_count, created_at
+            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count, created_at
              FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], |row| {
@@ -200,9 +201,10 @@ impl Database {
                 conversation_id: row.get(1)?,
                 role: Role::from_str(&row.get::<_, String>(2)?).unwrap_or(Role::User),
                 content: row.get(3)?,
-                parent_id: row.get(4)?,
-                token_count: row.get(5)?,
-                created_at: ts_to_dt(row.get::<_, i64>(6)?),
+                reasoning: row.get(4)?,
+                parent_id: row.get(5)?,
+                token_count: row.get(6)?,
+                created_at: ts_to_dt(row.get::<_, i64>(7)?),
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -212,7 +214,7 @@ impl Database {
     pub fn get_message(&self, id: &str) -> Result<Message> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, conversation_id, role, content, parent_id, token_count, created_at
+            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count, created_at
              FROM messages WHERE id = ?1",
             params![id],
             |row| {
@@ -221,9 +223,10 @@ impl Database {
                     conversation_id: row.get(1)?,
                     role: Role::from_str(&row.get::<_, String>(2)?).unwrap_or(Role::User),
                     content: row.get(3)?,
-                    parent_id: row.get(4)?,
-                    token_count: row.get(5)?,
-                    created_at: ts_to_dt(row.get::<_, i64>(6)?),
+                    reasoning: row.get(4)?,
+                    parent_id: row.get(5)?,
+                    token_count: row.get(6)?,
+                    created_at: ts_to_dt(row.get::<_, i64>(7)?),
                 })
             },
         )
@@ -247,8 +250,8 @@ impl Database {
     pub fn insert_tool_call(&self, tc: &ToolCall) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tool_calls (id, message_id, name, arguments) VALUES (?1, ?2, ?3, ?4)",
-            params![tc.id, tc.message_id, tc.name, tc.arguments],
+            "INSERT INTO tool_calls (id, message_id, name, arguments, result, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![tc.id, tc.message_id, tc.name, tc.arguments, tc.result, tc.status],
         )?;
         Ok(())
     }
@@ -256,7 +259,7 @@ impl Database {
     pub fn get_tool_calls(&self, message_id: &str) -> Result<Vec<ToolCall>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, message_id, name, arguments FROM tool_calls WHERE message_id = ?1",
+            "SELECT id, message_id, name, arguments, result, status FROM tool_calls WHERE message_id = ?1",
         )?;
         let rows = stmt.query_map(params![message_id], |row| {
             Ok(ToolCall {
@@ -264,6 +267,8 @@ impl Database {
                 message_id: row.get(1)?,
                 name: row.get(2)?,
                 arguments: row.get(3)?,
+                result: row.get(4)?,
+                status: row.get(5)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

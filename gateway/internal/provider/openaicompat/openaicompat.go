@@ -101,11 +101,35 @@ func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, api
 			}
 			if len(chunk.Choices) > 0 {
 				delta := chunk.Choices[0].Delta
-				events <- provider.StreamEvent{
-					Delta: &provider.DeltaEvent{
-						Content:      delta.Content,
-						FinishReason: string(chunk.Choices[0].FinishReason),
-					},
+				// Reasoning chain (deepseek-reasoner and compatible endpoints).
+				if delta.ReasoningContent != "" {
+					events <- provider.StreamEvent{
+						Reasoning: &provider.ReasoningEvent{Content: delta.ReasoningContent},
+					}
+				}
+				// Tool calls arrive as fragments; forward each with its index so
+				// the gateway can aggregate arguments across chunks.
+				for _, tc := range delta.ToolCalls {
+					idx := 0
+					if tc.Index != nil {
+						idx = *tc.Index
+					}
+					events <- provider.StreamEvent{
+						ToolCall: &provider.ToolCallEvent{
+							Index:     idx,
+							ID:        tc.ID,
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					}
+				}
+				if delta.Content != "" || chunk.Choices[0].FinishReason != "" {
+					events <- provider.StreamEvent{
+						Delta: &provider.DeltaEvent{
+							Content:      delta.Content,
+							FinishReason: string(chunk.Choices[0].FinishReason),
+						},
+					}
 				}
 			}
 			if chunk.Usage != nil {

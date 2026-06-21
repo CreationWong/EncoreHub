@@ -7,6 +7,37 @@ import (
 	"github.com/encorehub/gateway/internal/provider"
 )
 
+func TestDecodeStreamLine_ThinkingDelta(t *testing.T) {
+	line := `data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me think"}}`
+	out := decodeStreamLine(line)
+	if len(out) != 1 || out[0].Reasoning == nil {
+		t.Fatalf("expected reasoning event, got %#v", out)
+	}
+	if out[0].Reasoning.Content != "let me think" {
+		t.Fatalf("reasoning = %q", out[0].Reasoning.Content)
+	}
+}
+
+func TestDecodeStreamLine_ToolUseStartAndArgs(t *testing.T) {
+	start := `data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_1","name":"get_weather"}}`
+	out := decodeStreamLine(start)
+	if len(out) != 1 || out[0].ToolCall == nil {
+		t.Fatalf("expected tool_call event, got %#v", out)
+	}
+	if out[0].ToolCall.ID != "tu_1" || out[0].ToolCall.Name != "get_weather" || out[0].ToolCall.Index != 1 {
+		t.Fatalf("tool_call = %#v", out[0].ToolCall)
+	}
+
+	args := `data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\""}}`
+	out = decodeStreamLine(args)
+	if len(out) != 1 || out[0].ToolCall == nil {
+		t.Fatalf("expected tool_call args event, got %#v", out)
+	}
+	if out[0].ToolCall.Arguments != `{"city"` || out[0].ToolCall.Index != 1 {
+		t.Fatalf("tool_call args = %#v", out[0].ToolCall)
+	}
+}
+
 func TestDecodeStreamLine_TextDelta(t *testing.T) {
 	line := `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}`
 	out := decodeStreamLine(line)

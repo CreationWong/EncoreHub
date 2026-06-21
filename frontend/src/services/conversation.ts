@@ -14,6 +14,8 @@ export interface Message {
 	id: string;
 	role: "user" | "assistant" | "system" | "tool";
 	content: string;
+	/** Model chain-of-thought, shown in a collapsible block. Empty when none. */
+	reasoning?: string;
 	parent_id: string | null;
 	tool_calls: ToolCall[];
 	created_at: string;
@@ -23,6 +25,10 @@ export interface ToolCall {
 	id: string;
 	name: string;
 	arguments: string;
+	/** Tool output once executed. Empty while pending. */
+	result?: string;
+	/** Execution state. */
+	status?: "pending" | "success" | "error";
 }
 
 export interface ConversationDetail extends Conversation {

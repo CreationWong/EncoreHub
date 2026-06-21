@@ -156,6 +156,40 @@ describe("sendMessage", () => {
 		expect(roles).toEqual(["user", "assistant"]);
 		expect(s.messages[1].content).toBe("partial rest");
 	});
+
+	it("accumulates reasoning and indexed tool-call fragments into the final message", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onReasoning?.("step 1 ");
+				cb.onReasoning?.("step 2");
+				cb.onToolCall?.({ index: 0, id: "t0", name: "search" });
+				cb.onToolCall?.({ index: 0, arguments: '{"q":' });
+				cb.onToolCall?.({ index: 0, arguments: '"cats"}' });
+				cb.onToolResult?.({ id: "t0", result: "found", status: "success" });
+				cb.onDone("here you go");
+			},
+		);
+
+		useConversationStore.setState({ activeId: "c1" });
+		await useConversationStore.getState().sendMessage("hi");
+
+		const s = useConversationStore.getState();
+		const asst = s.messages[1];
+		expect(asst.reasoning).toBe("step 1 step 2");
+		expect(asst.tool_calls).toHaveLength(1);
+		expect(asst.tool_calls[0].name).toBe("search");
+		expect(asst.tool_calls[0].arguments).toBe('{"q":"cats"}');
+		expect(asst.tool_calls[0].result).toBe("found");
+		expect(asst.tool_calls[0].status).toBe("success");
+		// Streaming scratch state is cleared after finalize.
+		expect(s.streamingReasoning).toBe("");
+		expect(s.streamingToolCalls).toEqual([]);
+	});
 });
 
 describe("stopStreaming", () => {

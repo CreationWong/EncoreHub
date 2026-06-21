@@ -50,6 +50,15 @@ type Message struct {
 	CreatedAt string  `json:"created_at"`
 }
 
+// ToolCallInput is a tool call the gateway parsed from a provider stream,
+// passed to the engine for persistence alongside an assistant message.
+type ToolCallInput struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+	Result    string `json:"result,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
 // SendMessageResponse is the response from sending a message to the engine.
 type SendMessageResponse struct {
 	UserMessage      Message `json:"user_message"`
@@ -136,17 +145,23 @@ func (c *Client) BaseURL() string {
 
 // AppendMessage stores a single message in the engine without auto-reply.
 type AppendMessageRequest struct {
-	Content  string `json:"content"`
-	Role     string `json:"role"`
-	ParentID string `json:"parent_id,omitempty"`
+	Content   string          `json:"content"`
+	Role      string          `json:"role"`
+	ParentID  string          `json:"parent_id,omitempty"`
+	Reasoning string          `json:"reasoning,omitempty"`
+	ToolCalls []ToolCallInput `json:"tool_calls,omitempty"`
 }
 
 func (c *Client) AppendMessage(ctx context.Context, convID, content, role, parentID string) (*Message, error) {
-	body := AppendMessageRequest{
+	return c.AppendMessageFull(ctx, convID, AppendMessageRequest{
 		Content:  content,
 		Role:     role,
 		ParentID: parentID,
-	}
+	})
+}
+
+// AppendMessageFull stores a message with optional reasoning and tool calls.
+func (c *Client) AppendMessageFull(ctx context.Context, convID string, body AppendMessageRequest) (*Message, error) {
 	var msg Message
 	if err := c.doJSON(ctx, "POST", "/api/conversations/"+convID+"/messages/append", body, &msg); err != nil {
 		return nil, err
