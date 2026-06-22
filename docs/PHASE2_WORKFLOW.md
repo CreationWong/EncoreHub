@@ -18,6 +18,7 @@
 - [ ] **阶段 7**：data-services 唤醒（S2）
 - [ ] **阶段 8**：向量检索打通（S3）
 - [ ] **阶段 9**：契约与文档对齐（S4）
+- [ ] **阶段 10**：Engine 进程内化（S10）
 
 > 当前进度指针：**阶段 6**（对话智能层）。注:阶段 1 的 1.3 为手动桌面验证项,待本地 `pnpm tauri dev` 确认无终端弹窗后再勾选总览阶段 1;阶段 3 的 3.9 为手动联调项(需起全栈 + 真实 key),代码路径已就位,待本地实测新增自定义供应商聊天后确认;阶段 5 的 5.9 为手动联调项(需起全栈 + 真实 DeepSeek reasoner / Anthropic thinking key),代码路径与单测已就位,待本地实测推理可见可折叠与工具链可视化后确认。
 
@@ -175,9 +176,43 @@
 
 ---
 
+## 阶段 10 · Engine 进程内化（S10）
+
+> 目标:Engine 嵌入 Tauri 进程内启动 axum(保留 `:3000`),同时保留独立 binary 给无头模式。Cargo feature flag 控制编译目标。Gateway 零改动。详细设计见 [ENGINE_TAURI_MERGE_PLAN.md](./ENGINE_TAURI_MERGE_PLAN.md)。
+
+### 10.0 前置验收
+
+- [ ] 10.0 确认 `engine/src/lib.rs` 已导出 `api`/`crypto`/`logging`;`build_router` 为纯函数;三端 lint/test 全绿
+
+### 10.1-10.3 Engine 侧
+
+- [ ] 10.1 Engine Cargo.toml:加 `[features]` + `standalone`,两个 `[[bin]]` 加 `required-features = ["standalone"]`
+- [ ] 10.2 Engine `main.rs` + `mcp_server.rs`:加 `#[cfg(feature = "standalone")]` 门控
+- [ ] 10.3 Engine `lib.rs`:导出 `pub async fn serve(…)` 进程内 axum 启动函数
+- [ ] **验收**:`cargo build` 只产 lib、`cargo build --features standalone` 产出两个 binary;`cargo test` 全绿
+
+### 10.4-10.5 Tauri 侧
+
+- [ ] 10.4 Tauri `Cargo.toml`:加 `encorehub-engine = { path = "../../engine", default-features = false }`
+- [ ] 10.5 Tauri `main.rs`:去掉外部 spawn engine exe,改为进程内 `tokio::spawn(encorehub_engine::serve(…))`;日志 subscriber layer 替代管道 drain
+- [ ] **验收**:`pnpm tauri dev` 启动正常,Engine `:3000/health` 返回 200;开发者面板显示 Engine 存活
+
+### 10.6-10.7 打包 & 无头
+
+- [ ] 10.6 `tauri.conf.json`:externalBin 移出 engine;构建/CI 脚本加 `--features standalone`
+- [ ] 10.7 无头独立 binary 验证:`cargo build --features standalone --bin encorehub-engine` 产出可独立运行 binary;`make dev` 三终端流程仍可用
+- [ ] **验收**:`pnpm tauri build` 成功且安装包不含 engine exe;独立 binary 可单独启动
+
+### 10.8 收尾
+
+- [ ] 10.8 全栈冒烟:真实聊天消息确认全链路(engine→gateway→provider)正常;更新 CLAUDE.md 编译命令与架构描述
+- [ ] **阶段 10 完成**:三端 lint/test 全绿(CI 通过) → 勾选总览阶段 10
+
+---
+
 ## 完成标准
 
-全部 10 个阶段勾选完毕,且:
+全部 11 个阶段勾选完毕,且:
 - 各组件 lint + test 全绿,CI 通过
 - 安全自查(阶段 4)无密钥/密码泄漏
 - 文档与代码一致(阶段 9)
