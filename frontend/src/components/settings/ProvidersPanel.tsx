@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Lock, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Plus, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { keyHintFor } from "../../constants/providers";
 import type { ProviderProfile } from "../../services/providers";
@@ -10,264 +10,416 @@ import { toast } from "../../stores/toastStore";
 import ProviderFormModal from "./ProviderFormModal";
 
 export default function ProvidersPanel() {
-	const provider = useSettingsStore((s) => s.provider);
-	const model = useSettingsStore((s) => s.model);
 	const apiKeys = useSettingsStore((s) => s.apiKeys);
-	const setProvider = useSettingsStore((s) => s.setProvider);
-	const setModel = useSettingsStore((s) => s.setModel);
 	const setApiKey = useSettingsStore((s) => s.setApiKey);
 	const clearApiKey = useSettingsStore((s) => s.clearApiKey);
 
 	const profiles = useProviderStore((s) => s.profiles);
 	const loading = useProviderStore((s) => s.loading);
+	const upsert = useProviderStore((s) => s.upsert);
 	const removeProfile = useProviderStore((s) => s.remove);
 
 	const encrypted = useSecretsStore((s) => s.encrypted);
 	const unlocked = useSecretsStore((s) => s.unlocked);
 
-	const [reveal, setReveal] = useState<Record<string, boolean>>({});
-	const [editing, setEditing] = useState<ProviderProfile | null>(null);
+	// Local drafts: providers created via the Add dialog but not yet persisted
+	// (they lack a base_url/models, which the gateway requires). They live here
+	// until their first successful save.
+	const [drafts, setDrafts] = useState<ProviderProfile[]>([]);
+	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
 
-	const enabled = profiles.filter((p) => p.enabled);
-	const activeProfile = profiles.find((p) => p.id === provider);
+	// The list shown in the left column: persisted profiles plus pending drafts.
+	const list = [
+		...profiles,
+		...drafts.filter((d) => !profiles.some((p) => p.id === d.id)),
+	];
+	const selected = list.find((p) => p.id === selectedId) ?? null;
+	const isDraft =
+		selected !== null && !profiles.some((p) => p.id === selected.id);
 
-	// When encryption is on and unlocked, keys can be persisted (encrypted) to
-	// the engine vault rather than kept only in session memory.
 	const vaultActive = encrypted && unlocked;
 
-	const saveToVault = async (providerId: string, key: string) => {
-		try {
-			await secretsApi.putKey(providerId, key);
-			toast.success("Key saved to encrypted vault");
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : "Failed to save key");
-		}
+	const handleCreated = (draft: ProviderProfile) => {
+		setDrafts((d) => [...d, draft]);
+		setSelectedId(draft.id);
+		setCreating(false);
 	};
 
 	const handleDelete = async (p: ProviderProfile) => {
+		// Drafts only exist locally — drop without touching the gateway.
+		if (!profiles.some((pp) => pp.id === p.id)) {
+			setDrafts((d) => d.filter((x) => x.id !== p.id));
+			if (selectedId === p.id) setSelectedId(null);
+			return;
+		}
 		if (!confirm(`Delete provider "${p.name}"? This cannot be undone.`)) return;
 		try {
 			await removeProfile(p.id);
+			if (selectedId === p.id) setSelectedId(null);
 			toast.success(`Removed ${p.name}`);
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : "Failed to delete provider");
 		}
 	};
 
+	const handleSaved = (saved: ProviderProfile) => {
+		// Once persisted, the draft is gone — it now lives in the store.
+		setDrafts((d) => d.filter((x) => x.id !== saved.id));
+	};
+
 	return (
-		<div className="space-y-6">
-			{(creating || editing) && (
+		<div className="flex h-full min-h-0 gap-4">
+			{creating && (
 				<ProviderFormModal
-					initial={editing}
-					onClose={() => {
-						setCreating(false);
-						setEditing(null);
-					}}
+					onCreated={handleCreated}
+					onClose={() => setCreating(false)}
 				/>
 			)}
 
-			<section>
-				<h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-					Active provider
-				</h3>
-				{loading && profiles.length === 0 ? (
-					<p className="text-xs text-text-muted">Loading providers…</p>
-				) : (
-					<div className="flex flex-wrap gap-2">
-						{enabled.map((p) => (
-							<button
-								key={p.id}
-								type="button"
-								onClick={() => setProvider(p.id, p.models[0])}
-								className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-									provider === p.id
-										? "border-accent bg-accent/10 text-accent"
-										: "border-border text-text-secondary hover:bg-surface-hover"
-								}`}
-							>
-								{p.name}
-							</button>
-						))}
-						{enabled.length === 0 && (
-							<p className="text-xs text-text-muted">
-								No enabled providers. Add one below.
-							</p>
-						)}
-					</div>
-				)}
-				{provider && activeProfile && (
-					<div className="mt-3">
-						<label
-							className="block text-xs text-text-muted"
-							htmlFor="model-select"
-						>
-							Model
-						</label>
-						<select
-							id="model-select"
-							value={model}
-							onChange={(e) => setModel(e.target.value)}
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/50"
-						>
-							{activeProfile.models.map((m) => (
-								<option key={m} value={m}>
-									{m}
-								</option>
-							))}
-						</select>
-					</div>
-				)}
-			</section>
-
-			<section>
+			{/* Left: provider list + add */}
+			<div className="flex w-56 shrink-0 flex-col">
 				<div className="mb-2 flex items-center justify-between">
 					<h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-						Manage providers
+						Providers
 					</h3>
 					<button
 						type="button"
 						onClick={() => setCreating(true)}
+						aria-label="Add provider"
+						title="Add provider"
 						className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 					>
 						<Plus className="h-3.5 w-3.5" />
-						Add provider
+						Add
 					</button>
 				</div>
-				<div className="space-y-2">
-					{profiles.map((p) => (
-						<div
-							key={p.id}
-							className="flex items-center justify-between rounded-lg border border-border bg-surface-alt px-3 py-2"
-						>
-							<div className="min-w-0">
-								<div className="flex items-center gap-2">
-									<span className="text-sm text-text-primary">{p.name}</span>
-									{p.builtin && (
-										<span className="rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
-											builtin
-										</span>
-									)}
-									{!p.enabled && (
-										<span className="rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
-											disabled
-										</span>
-									)}
-								</div>
-								<p className="truncate text-xs text-text-muted">
-									{p.protocol} · {p.models.length} model
-									{p.models.length === 1 ? "" : "s"}
-									{p.base_url ? ` · ${p.base_url}` : ""}
-								</p>
-							</div>
-							<div className="flex shrink-0 gap-1">
+				<div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+					{loading && list.length === 0 ? (
+						<p className="px-2 text-xs text-text-muted">Loading…</p>
+					) : list.length === 0 ? (
+						<p className="px-2 text-xs text-text-muted">
+							No providers. Add one to get started.
+						</p>
+					) : (
+						list.map((p) => {
+							const draft = !profiles.some((pp) => pp.id === p.id);
+							return (
 								<button
+									key={p.id}
 									type="button"
-									onClick={() => setEditing(p)}
-									aria-label={`Edit ${p.name}`}
-									className="rounded-lg border border-border px-2 py-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+									onClick={() => setSelectedId(p.id)}
+									className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+										selectedId === p.id
+											? "border-accent bg-accent/10"
+											: "border-transparent hover:bg-surface-hover"
+									}`}
 								>
-									<Pencil className="h-3.5 w-3.5" />
+									<div className="flex items-center gap-1.5">
+										<span className="truncate text-sm text-text-primary">
+											{p.name}
+										</span>
+										{p.builtin && (
+											<span className="rounded bg-surface px-1 py-0.5 text-[9px] uppercase text-text-muted">
+												builtin
+											</span>
+										)}
+										{draft && (
+											<span className="rounded bg-warning-bg px-1 py-0.5 text-[9px] uppercase text-warning">
+												draft
+											</span>
+										)}
+										{!draft && !p.enabled && (
+											<span className="rounded bg-surface px-1 py-0.5 text-[9px] uppercase text-text-muted">
+												off
+											</span>
+										)}
+									</div>
+									<p className="truncate text-[11px] text-text-muted">
+										{p.protocol} · {p.models.length} model
+										{p.models.length === 1 ? "" : "s"}
+									</p>
 								</button>
-								<button
-									type="button"
-									disabled={p.builtin}
-									onClick={() => handleDelete(p)}
-									aria-label={`Delete ${p.name}`}
-									title={
-										p.builtin ? "Builtin providers cannot be deleted" : "Delete"
-									}
-									className="rounded-lg border border-border px-2 py-1 text-text-muted hover:bg-danger-bg hover:text-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</button>
-							</div>
-						</div>
-					))}
+							);
+						})
+					)}
 				</div>
-			</section>
+			</div>
 
-			<section>
-				<h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-					API keys
-				</h3>
-				{vaultActive ? (
-					<p className="mb-3 flex items-start gap-1.5 text-xs text-text-muted">
-						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-						Encryption is on. Use the save button to store a key in the
-						encrypted vault — it persists across restarts and never leaves the
-						local machine in plaintext.
-					</p>
+			{/* Right: detail / config */}
+			<div className="min-w-0 flex-1 border-l border-border pl-4">
+				{selected ? (
+					<ProviderDetail
+						key={selected.id}
+						profile={selected}
+						isDraft={isDraft}
+						apiKey={apiKeys[selected.id] ?? ""}
+						vaultActive={vaultActive}
+						onSetKey={(v) => setApiKey(selected.id, v)}
+						onClearKey={() => clearApiKey(selected.id)}
+						onSave={async (next) => {
+							await upsert(next);
+							handleSaved(next);
+						}}
+						onDelete={() => handleDelete(selected)}
+					/>
 				) : (
-					<p className="mb-3 text-xs text-text-muted">
-						Stored in memory by default. Enable encryption in the Security tab
-						to persist keys safely at rest.
+					<div className="flex h-full items-center justify-center text-sm text-text-muted">
+						Select a provider to configure it, or add a new one.
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
+interface DetailProps {
+	profile: ProviderProfile;
+	isDraft: boolean;
+	apiKey: string;
+	vaultActive: boolean;
+	onSetKey: (value: string) => void;
+	onClearKey: () => void;
+	onSave: (next: ProviderProfile) => Promise<void>;
+	onDelete: () => void;
+}
+
+/** Config form for one provider: endpoint, API key, and model list. */
+function ProviderDetail({
+	profile,
+	isDraft,
+	apiKey,
+	vaultActive,
+	onSetKey,
+	onClearKey,
+	onSave,
+	onDelete,
+}: DetailProps) {
+	const [baseUrl, setBaseUrl] = useState(profile.base_url);
+	const [modelsText, setModelsText] = useState(profile.models.join("\n"));
+	const [enabled, setEnabled] = useState(profile.enabled);
+	const [reveal, setReveal] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	// Builtins fall back to the SDK default endpoint, so an empty base_url is fine.
+	const allowEmptyBase = profile.protocol === "openai" && profile.builtin;
+
+	const handleSave = async () => {
+		const models = modelsText
+			.split(/[\n,]/)
+			.map((m) => m.trim())
+			.filter(Boolean);
+		if (!baseUrl.trim() && !allowEmptyBase) {
+			setError("API endpoint is required");
+			return;
+		}
+		if (models.length === 0) {
+			setError("At least one model is required");
+			return;
+		}
+
+		setSaving(true);
+		setError(null);
+		try {
+			await onSave({
+				...profile,
+				base_url: baseUrl.trim(),
+				models,
+				enabled,
+			});
+			toast.success(`Saved ${profile.name}`);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : "Failed to save provider");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const saveKeyToVault = async () => {
+		try {
+			await secretsApi.putKey(profile.id, apiKey);
+			toast.success("Key saved to encrypted vault");
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to save key");
+		}
+	};
+
+	return (
+		<div className="flex h-full min-h-0 flex-col">
+			<div className="mb-4 flex items-center justify-between">
+				<div className="min-w-0">
+					<div className="flex items-center gap-2">
+						<h3 className="truncate text-sm font-semibold text-text-primary">
+							{profile.name}
+						</h3>
+						{profile.builtin && (
+							<span className="rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
+								builtin
+							</span>
+						)}
+					</div>
+					<p className="text-xs text-text-muted">
+						{profile.protocol === "anthropic"
+							? "Anthropic"
+							: "OpenAI-compatible"}{" "}
+						· id: {profile.id}
+					</p>
+				</div>
+				<button
+					type="button"
+					disabled={profile.builtin}
+					onClick={onDelete}
+					aria-label={`Delete ${profile.name}`}
+					title={
+						profile.builtin ? "Builtin providers cannot be deleted" : "Delete"
+					}
+					className="rounded-lg border border-border px-2 py-1 text-text-muted hover:bg-danger-bg hover:text-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted"
+				>
+					<Trash2 className="h-3.5 w-3.5" />
+				</button>
+			</div>
+
+			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+				<div>
+					<label
+						htmlFor="detail-baseurl"
+						className="text-xs font-medium text-text-secondary"
+					>
+						API endpoint
+					</label>
+					<input
+						id="detail-baseurl"
+						value={baseUrl}
+						onChange={(e) => setBaseUrl(e.target.value)}
+						placeholder={
+							profile.protocol === "anthropic"
+								? "https://api.anthropic.com/v1"
+								: "https://api.openai.com/v1"
+						}
+						className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+					/>
+					{allowEmptyBase && (
+						<p className="mt-1 text-[11px] text-text-muted">
+							Leave blank to use the builtin default endpoint.
+						</p>
+					)}
+				</div>
+
+				<div>
+					<label
+						htmlFor="detail-key"
+						className="text-xs font-medium text-text-secondary"
+					>
+						API key
+					</label>
+					{vaultActive ? (
+						<p className="mt-0.5 mb-1 flex items-start gap-1.5 text-[11px] text-text-muted">
+							<Lock className="mt-0.5 h-3 w-3 shrink-0 text-success" />
+							Encryption is on — use save to persist this key in the encrypted
+							vault.
+						</p>
+					) : (
+						<p className="mt-0.5 mb-1 text-[11px] text-text-muted">
+							Stored in session memory. Enable encryption in the Security tab to
+							persist it.
+						</p>
+					)}
+					<div className="flex gap-2">
+						<input
+							id="detail-key"
+							type={reveal ? "text" : "password"}
+							value={apiKey}
+							onChange={(e) => onSetKey(e.target.value)}
+							placeholder={keyHintFor(profile.protocol)}
+							className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+						/>
+						<button
+							type="button"
+							onClick={() => setReveal((v) => !v)}
+							className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+							aria-label={reveal ? "Hide API key" : "Show API key"}
+							title={reveal ? "Hide" : "Show"}
+						>
+							{reveal ? (
+								<EyeOff className="h-3.5 w-3.5" />
+							) : (
+								<Eye className="h-3.5 w-3.5" />
+							)}
+						</button>
+						{vaultActive && apiKey && (
+							<button
+								type="button"
+								onClick={saveKeyToVault}
+								aria-label="Save API key to encrypted vault"
+								className="rounded-lg border border-border px-2 text-text-muted hover:bg-success-bg hover:text-success"
+								title="Save to encrypted vault"
+							>
+								<Save className="h-3.5 w-3.5" />
+							</button>
+						)}
+						{apiKey && (
+							<button
+								type="button"
+								onClick={onClearKey}
+								aria-label="Clear API key"
+								className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
+								title="Clear"
+							>
+								<Trash2 className="h-3.5 w-3.5" />
+							</button>
+						)}
+					</div>
+				</div>
+
+				<div>
+					<label
+						htmlFor="detail-models"
+						className="text-xs font-medium text-text-secondary"
+					>
+						Models
+					</label>
+					<textarea
+						id="detail-models"
+						value={modelsText}
+						onChange={(e) => setModelsText(e.target.value)}
+						rows={6}
+						placeholder={"gpt-4o\ngpt-4o-mini"}
+						className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+					/>
+					<p className="mt-1 text-[11px] text-text-muted">
+						One per line (or comma-separated).
+					</p>
+				</div>
+
+				<label className="flex items-center gap-2 text-xs text-text-secondary">
+					<input
+						type="checkbox"
+						checked={enabled}
+						onChange={(e) => setEnabled(e.target.checked)}
+						className="rounded border-border"
+					/>
+					Enabled (selectable for chat)
+				</label>
+
+				{error && (
+					<p className="rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">
+						{error}
 					</p>
 				)}
-				<div className="space-y-3">
-					{enabled.map((p) => {
-						const value = apiKeys[p.id] ?? "";
-						const isShown = reveal[p.id];
-						return (
-							<div key={p.id} className="space-y-1">
-								<label
-									htmlFor={`key-${p.id}`}
-									className="text-xs font-medium text-text-secondary"
-								>
-									{p.name}
-								</label>
-								<div className="flex gap-2">
-									<input
-										id={`key-${p.id}`}
-										type={isShown ? "text" : "password"}
-										value={value}
-										onChange={(e) => setApiKey(p.id, e.target.value)}
-										placeholder={keyHintFor(p.protocol)}
-										className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-									/>
-									<button
-										type="button"
-										onClick={() =>
-											setReveal((s) => ({ ...s, [p.id]: !s[p.id] }))
-										}
-										className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-										aria-label={isShown ? "Hide API key" : "Show API key"}
-										title={isShown ? "Hide" : "Show"}
-									>
-										{isShown ? (
-											<EyeOff className="h-3.5 w-3.5" />
-										) : (
-											<Eye className="h-3.5 w-3.5" />
-										)}
-									</button>
-									{vaultActive && value && (
-										<button
-											type="button"
-											onClick={() => saveToVault(p.id, value)}
-											aria-label="Save API key to encrypted vault"
-											className="rounded-lg border border-border px-2 text-text-muted hover:bg-success-bg hover:text-success"
-											title="Save to encrypted vault"
-										>
-											<Save className="h-3.5 w-3.5" />
-										</button>
-									)}
-									{value && (
-										<button
-											type="button"
-											onClick={() => clearApiKey(p.id)}
-											aria-label="Clear API key"
-											className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
-											title="Clear"
-										>
-											<Trash2 className="h-3.5 w-3.5" />
-										</button>
-									)}
-								</div>
-							</div>
-						);
-					})}
-				</div>
-			</section>
+			</div>
+
+			<div className="mt-4 flex justify-end border-t border-border pt-4">
+				<button
+					type="button"
+					onClick={handleSave}
+					disabled={saving}
+					className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-60"
+				>
+					<Save className="h-3.5 w-3.5" />
+					{saving ? "Saving…" : isDraft ? "Create provider" : "Save changes"}
+				</button>
+			</div>
 		</div>
 	);
 }

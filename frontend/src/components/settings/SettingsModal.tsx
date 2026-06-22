@@ -64,7 +64,7 @@ export default function SettingsModal() {
 		>
 			<dialog
 				open
-				className="flex h-[640px] max-h-full w-full max-w-3xl overflow-hidden rounded-2xl border border-border bg-surface text-text-primary shadow-2xl"
+				className="flex h-[720px] max-h-full w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface text-text-primary shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 				aria-modal="true"

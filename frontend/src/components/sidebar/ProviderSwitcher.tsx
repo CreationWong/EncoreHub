@@ -1,5 +1,5 @@
-import { ChevronDown, Cpu, Key } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, Cpu } from "lucide-react";
+import { useState } from "react";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -7,28 +7,17 @@ export default function ProviderSwitcher() {
 	const provider = useSettingsStore((s) => s.provider);
 	const model = useSettingsStore((s) => s.model);
 	const setProvider = useSettingsStore((s) => s.setProvider);
-	const setApiKey = useSettingsStore((s) => s.setApiKey);
-	const apiKeys = useSettingsStore((s) => s.apiKeys);
 	const profiles = useProviderStore((s) => s.profiles);
 
 	const [expanded, setExpanded] = useState(false);
-	const [showKeyInput, setShowKeyInput] = useState(false);
-	const [keyValue, setKeyValue] = useState("");
 
 	// Only enabled providers are selectable.
 	const enabled = profiles.filter((p) => p.enabled);
 	const selectedProvider = profiles.find((p) => p.id === provider);
 	const displayName = selectedProvider?.name || "Select Provider";
 
-	useEffect(() => {
-		if (provider) {
-			setKeyValue(apiKeys[provider] || "");
-		}
-	}, [provider, apiKeys]);
-
 	return (
-		<div className="border-t border-border p-3 space-y-2">
-			{/* Provider selector */}
+		<div className="border-t border-border p-3">
 			<div className="relative">
 				<button
 					type="button"
@@ -89,39 +78,6 @@ export default function ProviderSwitcher() {
 							</div>
 						))}
 					</div>
-				)}
-			</div>
-
-			{/* API Key input */}
-			<div>
-				<button
-					type="button"
-					onClick={() => setShowKeyInput(!showKeyInput)}
-					className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary transition-colors"
-				>
-					<Key className="h-3 w-3" />
-					<span>{apiKeys[provider] ? "Key set ✓" : "Set API Key"}</span>
-				</button>
-				{showKeyInput && (
-					<input
-						type="password"
-						value={keyValue}
-						onChange={(e) => setKeyValue(e.target.value)}
-						onBlur={() => {
-							if (provider) setApiKey(provider, keyValue);
-							setShowKeyInput(false);
-						}}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && provider) {
-								setApiKey(provider, keyValue);
-								setShowKeyInput(false);
-							}
-						}}
-						placeholder={`${provider || "provider"} API key...`}
-						className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-						// biome-ignore lint/a11y/noAutofocus: opt-in for keyboard-only flow when popover opens
-						autoFocus
-					/>
 				)}
 			</div>
 		</div>

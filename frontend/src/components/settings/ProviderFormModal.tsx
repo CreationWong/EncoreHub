@@ -5,11 +5,10 @@ import type {
 	ProviderProtocol,
 } from "../../services/providers";
 import { useProviderStore } from "../../stores/providerStore";
-import { toast } from "../../stores/toastStore";
 
 interface Props {
-	/** Profile being edited, or null when creating a new one. */
-	initial: ProviderProfile | null;
+	/** Called with the freshly-created draft profile (not yet persisted). */
+	onCreated: (draft: ProviderProfile) => void;
 	onClose: () => void;
 }
 
@@ -18,8 +17,8 @@ const PROTOCOLS: { value: ProviderProtocol; label: string }[] = [
 	{ value: "anthropic", label: "Anthropic" },
 ];
 
-// Slugify a display name into a stable id (lowercase, dashes). Only used when
-// creating; existing ids are immutable so chat history keeps resolving.
+// Slugify a display name into a stable id (lowercase, dashes). ids are immutable
+// once created so chat history keeps resolving.
 function slugify(name: string): string {
 	return name
 		.trim()
@@ -28,75 +27,46 @@ function slugify(name: string): string {
 		.replace(/^-+|-+$/g, "");
 }
 
-export default function ProviderFormModal({ initial, onClose }: Props) {
-	const isEdit = initial !== null;
+/**
+ * Minimal "Add provider" dialog: only the display name and the API format
+ * (protocol). Endpoint, key, and models are configured afterwards in the
+ * detail panel, so this stays focused on the one irreversible choice (id +
+ * protocol).
+ */
+export default function ProviderFormModal({ onCreated, onClose }: Props) {
 	const profiles = useProviderStore((s) => s.profiles);
-	const upsert = useProviderStore((s) => s.upsert);
 
-	const [name, setName] = useState(initial?.name ?? "");
-	const [protocol, setProtocol] = useState<ProviderProtocol>(
-		initial?.protocol ?? "openai",
-	);
-	const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "");
-	const [modelsText, setModelsText] = useState(
-		(initial?.models ?? []).join("\n"),
-	);
-	const [enabled, setEnabled] = useState(initial?.enabled ?? true);
-	const [saving, setSaving] = useState(false);
+	const [name, setName] = useState("");
+	const [protocol, setProtocol] = useState<ProviderProtocol>("openai");
 	const [error, setError] = useState<string | null>(null);
 
-	const handleSubmit = async () => {
+	const handleSubmit = () => {
 		const trimmedName = name.trim();
-		const models = modelsText
-			.split(/[\n,]/)
-			.map((m) => m.trim())
-			.filter(Boolean);
-
-		// Mirror the gateway's validation client-side for instant feedback.
 		if (!trimmedName) {
 			setError("Name is required");
 			return;
 		}
-		const id = isEdit ? initial.id : slugify(trimmedName);
+		const id = slugify(trimmedName);
 		if (!id) {
 			setError("Name must contain at least one letter or number");
 			return;
 		}
-		if (!isEdit && profiles.some((p) => p.id === id)) {
+		if (profiles.some((p) => p.id === id)) {
 			setError(`A provider with id "${id}" already exists`);
 			return;
 		}
-		// OpenAI builtin is the only profile allowed an empty base URL.
-		const allowEmptyBase = protocol === "openai" && (initial?.builtin ?? false);
-		if (!baseUrl.trim() && !allowEmptyBase) {
-			setError("Base URL is required");
-			return;
-		}
-		if (models.length === 0) {
-			setError("At least one model is required");
-			return;
-		}
 
-		const profile: ProviderProfile = {
+		// A draft with empty base_url/models — the detail panel fills those in
+		// before the first save. enabled defaults off until it's configured.
+		onCreated({
 			id,
 			name: trimmedName,
 			protocol,
-			base_url: baseUrl.trim(),
-			models,
-			enabled,
-			builtin: initial?.builtin ?? false,
-		};
-
-		setSaving(true);
-		setError(null);
-		try {
-			await upsert(profile);
-			toast.success(isEdit ? `Updated ${trimmedName}` : `Added ${trimmedName}`);
-			onClose();
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed to save provider");
-			setSaving(false);
-		}
+			base_url: "",
+			models: [],
+			enabled: false,
+			builtin: false,
+		});
 	};
 
 	return (
@@ -116,9 +86,7 @@ export default function ProviderFormModal({ initial, onClose }: Props) {
 				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<div className="mb-4 flex items-center justify-between">
-					<h3 className="text-sm font-semibold">
-						{isEdit ? `Edit ${initial.name}` : "Add provider"}
-					</h3>
+					<h3 className="text-sm font-semibold">Add provider</h3>
 					<button
 						type="button"
 						onClick={onClose}
@@ -141,10 +109,15 @@ export default function ProviderFormModal({ initial, onClose }: Props) {
 							id="prov-name"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleSubmit();
+							}}
 							placeholder="My Provider"
+							// biome-ignore lint/a11y/noAutofocus: single-field dialog, keyboard-first
+							autoFocus
 							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
 						/>
-						{!isEdit && name.trim() && (
+						{name.trim() && (
 							<p className="mt-1 text-[11px] text-text-muted">
 								id: {slugify(name) || "—"}
 							</p>
@@ -156,14 +129,13 @@ export default function ProviderFormModal({ initial, onClose }: Props) {
 							htmlFor="prov-protocol"
 							className="text-xs font-medium text-text-secondary"
 						>
-							Protocol
+							API format
 						</label>
 						<select
 							id="prov-protocol"
 							value={protocol}
 							onChange={(e) => setProtocol(e.target.value as ProviderProtocol)}
-							disabled={initial?.builtin}
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-60"
+							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
 						>
 							{PROTOCOLS.map((p) => (
 								<option key={p.value} value={p.value}>
@@ -171,60 +143,11 @@ export default function ProviderFormModal({ initial, onClose }: Props) {
 								</option>
 							))}
 						</select>
-					</div>
-
-					<div>
-						<label
-							htmlFor="prov-baseurl"
-							className="text-xs font-medium text-text-secondary"
-						>
-							Base URL
-						</label>
-						<input
-							id="prov-baseurl"
-							value={baseUrl}
-							onChange={(e) => setBaseUrl(e.target.value)}
-							placeholder={
-								protocol === "anthropic"
-									? "https://api.anthropic.com/v1"
-									: "https://api.openai.com/v1"
-							}
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
-						/>
 						<p className="mt-1 text-[11px] text-text-muted">
-							Leave blank only for the builtin OpenAI endpoint.
+							The wire protocol used to talk to this provider. Most custom
+							endpoints are OpenAI-compatible.
 						</p>
 					</div>
-
-					<div>
-						<label
-							htmlFor="prov-models"
-							className="text-xs font-medium text-text-secondary"
-						>
-							Models
-						</label>
-						<textarea
-							id="prov-models"
-							value={modelsText}
-							onChange={(e) => setModelsText(e.target.value)}
-							rows={4}
-							placeholder={"gpt-4o\ngpt-4o-mini"}
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
-						/>
-						<p className="mt-1 text-[11px] text-text-muted">
-							One per line (or comma-separated).
-						</p>
-					</div>
-
-					<label className="flex items-center gap-2 text-xs text-text-secondary">
-						<input
-							type="checkbox"
-							checked={enabled}
-							onChange={(e) => setEnabled(e.target.checked)}
-							className="rounded border-border"
-						/>
-						Enabled (selectable for chat)
-					</label>
 
 					{error && (
 						<p className="rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">
@@ -244,10 +167,9 @@ export default function ProviderFormModal({ initial, onClose }: Props) {
 					<button
 						type="button"
 						onClick={handleSubmit}
-						disabled={saving}
-						className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-60"
+						className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90"
 					>
-						{saving ? "Saving…" : isEdit ? "Save changes" : "Add provider"}
+						Create
 					</button>
 				</div>
 			</dialog>
