@@ -1,5 +1,10 @@
 import { Moon, PanelLeft, Settings, Sun } from "lucide-react";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	SIDEBAR_MAX_WIDTH,
+	SIDEBAR_MIN_WIDTH,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import ConversationList from "./ConversationList";
 import ProviderSwitcher from "./ProviderSwitcher";
 
@@ -9,12 +14,70 @@ function nextTheme(current: string): "dark" | "light" {
 	return current === "dark" ? "light" : "dark";
 }
 
+/**
+ * Drag handle on the sidebar's right edge. Tracks pointer movement to resize
+ * the panel live; the store clamps + persists the final width. While dragging
+ * we set a body cursor + disable text selection so the drag feels solid.
+ */
+function ResizeHandle({
+	onResize,
+}: {
+	onResize: (width: number) => void;
+}) {
+	const [dragging, setDragging] = useState(false);
+
+	useEffect(() => {
+		if (!dragging) return;
+		const onMove = (e: PointerEvent) => onResize(e.clientX);
+		const onUp = () => setDragging(false);
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onUp);
+		const prevCursor = document.body.style.cursor;
+		const prevSelect = document.body.style.userSelect;
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+		return () => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onUp);
+			document.body.style.cursor = prevCursor;
+			document.body.style.userSelect = prevSelect;
+		};
+	}, [dragging, onResize]);
+
+	return (
+		<button
+			type="button"
+			aria-label="Resize sidebar"
+			onPointerDown={(e) => {
+				e.preventDefault();
+				setDragging(true);
+			}}
+			className={`absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 transition-colors hover:bg-accent/30 ${
+				dragging ? "bg-accent/40" : ""
+			}`}
+		/>
+	);
+}
+
 export default function Sidebar() {
 	const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
 	const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
+	const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
+	const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const theme = useSettingsStore((s) => s.theme);
 	const setTheme = useSettingsStore((s) => s.setTheme);
+
+	// The sidebar's left edge sits at the window's left edge, so pointer clientX
+	// is the desired width directly.
+	const asideRef = useRef<HTMLElement>(null);
+	const handleResize = useCallback(
+		(clientX: number) => {
+			const left = asideRef.current?.getBoundingClientRect().left ?? 0;
+			setSidebarWidth(clientX - left);
+		},
+		[setSidebarWidth],
+	);
 
 	const isDark =
 		theme === "dark" ||
@@ -60,7 +123,15 @@ export default function Sidebar() {
 	}
 
 	return (
-		<aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface-alt">
+		<aside
+			ref={asideRef}
+			style={{
+				width: sidebarWidth,
+				minWidth: SIDEBAR_MIN_WIDTH,
+				maxWidth: SIDEBAR_MAX_WIDTH,
+			}}
+			className="relative flex shrink-0 flex-col border-r border-border bg-surface-alt"
+		>
 			<ConversationList />
 			<ProviderSwitcher />
 			<div className="flex items-stretch border-t border-border">
@@ -86,6 +157,7 @@ export default function Sidebar() {
 					<ThemeIcon className="h-3.5 w-3.5" />
 				</button>
 			</div>
+			<ResizeHandle onResize={handleResize} />
 		</aside>
 	);
 }

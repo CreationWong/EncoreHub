@@ -16,6 +16,7 @@ interface SettingsState {
 	model: string;
 	apiKeys: Record<string, string>;
 	sidebarOpen: boolean;
+	sidebarWidth: number;
 	settingsOpen: boolean;
 	settingsTab: SettingsTab;
 	devMode: boolean;
@@ -26,6 +27,7 @@ interface SettingsState {
 	setApiKey: (provider: string, key: string) => void;
 	clearApiKey: (provider: string) => void;
 	toggleSidebar: () => void;
+	setSidebarWidth: (width: number) => void;
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
 	setDevMode: (on: boolean) => void;
@@ -46,6 +48,25 @@ function applyTheme(theme: Theme) {
 }
 
 const KEY_STORAGE = "encorehub-api-keys";
+
+// Sidebar width is drag-resizable and persisted. Clamp to a sane range so a
+// stray drag can't make it unusably narrow or eat the whole window.
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_DEFAULT_WIDTH = 256; // matches the old fixed w-64
+
+function clampSidebarWidth(w: number): number {
+	if (Number.isNaN(w)) return SIDEBAR_DEFAULT_WIDTH;
+	return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, w));
+}
+
+function loadSidebarWidth(): number {
+	if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+	const raw = localStorage.getItem("encorehub-sidebar-width");
+	return raw
+		? clampSidebarWidth(Number.parseInt(raw, 10))
+		: SIDEBAR_DEFAULT_WIDTH;
+}
 
 // API keys are intentionally session-only by default. localStorage is exposed
 // to any XSS in our renderer; for true persistence we should integrate
@@ -94,6 +115,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			: "",
 	apiKeys: loadKeys(),
 	sidebarOpen: true,
+	sidebarWidth: loadSidebarWidth(),
 	settingsOpen: false,
 	settingsTab: "providers",
 	devMode:
@@ -149,6 +171,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	},
 
 	toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+	setSidebarWidth: (width: number) => {
+		const clamped = clampSidebarWidth(width);
+		set({ sidebarWidth: clamped });
+		try {
+			localStorage.setItem("encorehub-sidebar-width", String(clamped));
+		} catch {
+			/* ignore */
+		}
+	},
 	openSettings: (tab?: SettingsTab) =>
 		set({ settingsOpen: true, settingsTab: tab ?? get().settingsTab }),
 	closeSettings: () => set({ settingsOpen: false }),
