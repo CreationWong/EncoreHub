@@ -1,6 +1,6 @@
 # Engine Tauri 进程内化 — 实施计划
 
-> 状态：**待实施**
+> 状态：**已实施（代码完成，待桌面手动验收）** — 提交 `feat(desktop): run engine in-process in Tauri (stage 10)`
 > 关联：PHASE2_WORKFLOW.md 阶段 10
 > 设计依据：可行性分析确认"方案 A（保留 axum HTTP + 独立 binary 编译目标，仅嵌入 Tauri 进程启动）"风险最低、收益明确。
 
@@ -209,3 +209,20 @@ standalone = []
 ---
 
 > **给接手 Agent 的提示**：这是一个"编译时选择库/二进制"的纯工程化任务。先做 10.0 的验收确认，再做 10.1-10.3（引擎侧 feature），然后 10.4-10.5（Tauri 侧接入），最后 10.6-10.7（打包 & CI）。每个 .x 任务独立可验证，按序执行不要跳。
+
+---
+
+## 实施记录（落地后补充）
+
+实际改动与计划一致，记录几处与"改动文件清单"略有出入的实现细节：
+
+- **`engine/src/lib.rs`**：除 `serve()` 外，额外 `pub use encorehub_storage::Database` 和 `pub use encorehub_skill::SkillRegistry`，让 Tauri 侧无需直接依赖 storage/skill 两个内部 crate 即可命名 `serve()` 的参数。`serve()` 签名为 `serve(db, skill_registry, log_control: Option<LogControl>, bind_addr: String)`，复用已有的 `api::build_router_with`。
+- **`engine/src/main.rs`**：除 feature gate 外，`main()` 末尾改为调用 `encorehub_engine::serve(...)`（去掉重复的 `build_router` + `axum::serve`），避免两处维护。
+- **新增 `frontend/src-tauri/src/log_layer.rs`**（计划未单列）：进程内 engine 没有 stdout/stderr 管道可 drain，改为一个 `tracing_subscriber::Layer`（`LogBufferLayer`），把 engine 的 tracing 事件按真实 level 注入开发者面板 `LogBuffer`。配套在 `logs.rs` 加 `LogBuffer::push_event(source, level, msg)`（已知 level 不再从文本猜），并把原 `push` 重构为共用 `append`。
+- **`frontend/src-tauri/src/main.rs`**：在 `main()` 里安装带 `reload` 层的全局 tracing subscriber（`fmt` 终端层 + `LogBufferLayer`），并构造 `LogControl` 支持运行时 `/api/config/log_level` 切换——与 standalone binary 行为对齐。`setup()` 中新增 `start_engine()`：解析 DB / skills 路径 → `Database::open_and_return` → 应用 DB 持久化的 log_level → `SkillRegistry::load` → `tauri::async_runtime::spawn(serve(...))`。`ServiceState` 去掉 engine 子进程句柄，改为 `engine_started: Instant`；`get_service_status` 把 engine 报告为与桌面同 PID 的常驻任务；窗口销毁时只 kill gateway 子进程（engine 随进程退出，WAL 模式下安全）。
+- **路径解析**（对应风险表"SkillRegistry 路径硬编码"）：DB 用 `ENGINE_DB` 环境变量，否则 `exe_dir/data/encorehub.db`；skills 用 `ENCOREHUB_SKILLS_DIR`，否则 Tauri `resource_dir()/skills`，再退回 `exe_dir/skills`——均不依赖 CWD。
+- **CI**：engine job 用 `cargo clippy --all-targets --features standalone`，并分别跑 `cargo test` 与 `cargo test --features standalone`（库 + 二进制两种模式）。
+
+**自动化验证全绿**：engine 双模式 build/test/clippy/fmt、tauri `cargo check`/clippy/test/fmt、gateway `go test ./...`、frontend `vitest run`（105 通过）。
+
+**待手动验收**（需桌面环境，代码路径已就位）：`pnpm tauri dev` 下 `/health` 返回 200 + 开发者面板显示 engine 存活；`pnpm tauri build` 安装包不含 engine exe；真实聊天消息走通 engine→gateway→provider 全链路。
