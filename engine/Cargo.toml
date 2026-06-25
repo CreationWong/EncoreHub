@@ -66,13 +66,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# `standalone` compiles the binary entrypoints (encorehub-engine + encorehub-mcp).
+# With it off, this crate is library-only — consumed in-process by the Tauri
+# desktop app, which starts axum on its own tokio runtime. The feature adds no
+# extra dependencies; axum/tokio are workspace deps used in both modes.
+standalone = []
+
+# `[[bin]]` targets can't be `#[cfg]`-gated directly, so we gate them with
+# `required-features`: a plain `cargo build` (no feature) skips them and produces
+# only the library; `--features standalone` builds both binaries.
 [[bin]]
 name = "encorehub-engine"
 path = "src/main.rs"
+required-features = ["standalone"]
 
 [[bin]]
 name = "encorehub-mcp"
 path = "src/mcp_server.rs"
+required-features = ["standalone"]
 
 [dependencies]
 encorehub-core = { path = "crates/core" }

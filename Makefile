@@ -31,8 +31,8 @@ dev-frontend: ## Start frontend dev server
 dev-gateway: ## Start Go gateway
 	cd gateway && go run ./cmd/gateway
 
-dev-engine: ## Start Rust engine
-	cd engine && cargo run
+dev-engine: ## Start Rust engine (standalone binary; the desktop app runs it in-process)
+	cd engine && cargo run --features standalone --bin encorehub-engine
 
 dev-data: ## Start Python data services
 	cd data-services && uv run uvicorn src.main:app --reload
@@ -46,8 +46,8 @@ build-frontend:
 build-gateway:
 	cd gateway && go build -o bin/gateway ./cmd/gateway
 
-build-engine:
-	cd engine && cargo build --release
+build-engine: ## Build the standalone engine binaries (headless / sidecar use)
+	cd engine && cargo build --release --features standalone
 
 # ===== Test =====
 test: test-engine test-gateway test-data test-frontend ## Run all tests
@@ -58,8 +58,8 @@ test-frontend:
 test-gateway:
 	cd gateway && go test ./...
 
-test-engine:
-	cd engine && cargo test
+test-engine: ## Test the engine in both library and standalone modes
+	cd engine && cargo test && cargo test --features standalone
 
 test-data:
 	cd data-services && uv run pytest

@@ -1,6 +1,10 @@
-//! EncoreHub Core Engine
+//! EncoreHub Core Engine — standalone binary entrypoint.
+//!
+//! Only compiled with the `standalone` feature (see `Cargo.toml`); the same
+//! axum service is started in-process by the Tauri desktop app via
+//! [`encorehub_engine::serve`].
+#![cfg(feature = "standalone")]
 
-use encorehub_engine::api;
 use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
@@ -51,13 +55,8 @@ async fn main() -> anyhow::Result<()> {
     let skill_registry = SkillRegistry::load("../skills");
     tracing::info!("Skills loaded: {} total", skill_registry.list().len());
 
-    // HTTP server
-    let app = api::build_router(db, skill_registry, log_control);
+    // HTTP server — delegate to the shared in-process entrypoint.
     let bind_addr = std::env::var("ENGINE_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     tracing::info!("Listening on http://{}", bind_addr);
-
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app).await?;
-
-    Ok(())
+    encorehub_engine::serve(db, skill_registry, Some(log_control), bind_addr).await
 }

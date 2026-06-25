@@ -6,6 +6,9 @@
 //! Usage: encorehub-mcp
 //!   Reads JSON-RPC requests from stdin, writes responses to stdout.
 //!   Logs go to stderr.
+//!
+//! Only compiled with the `standalone` feature (see `Cargo.toml`).
+#![cfg(feature = "standalone")]
 
 use encorehub_storage::Database;
 use serde::{Deserialize, Serialize};

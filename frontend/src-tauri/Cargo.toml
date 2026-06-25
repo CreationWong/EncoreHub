@@ -10,6 +10,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = "2"
 chrono = "0.4"
+# Engine runs in-process (no external sidecar exe). `default-features = false`
+# keeps the `standalone` feature off so the engine's binary entrypoints aren't
+# pulled in — we only use its library `serve()` API.
+encorehub-engine = { path = "../../engine", default-features = false }
+# Bridge the in-process engine's tracing events into the developer-panel log
+# buffer (replacing the old stdout/stderr pipe drain).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

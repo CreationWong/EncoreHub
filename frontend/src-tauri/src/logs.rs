@@ -202,7 +202,18 @@ impl LogBuffer {
     /// Tag, redact, and append a raw line. The stream ("out"/"err") nudges the
     /// level when the text itself carries no hint.
     pub fn push(&self, source: Source, stream: &str, raw: &str) {
-        let level = detect_level(raw, stream);
+        self.append(source, detect_level(raw, stream), raw);
+    }
+
+    /// Append a line whose level is already known (e.g. forwarded from the
+    /// in-process engine's tracing subscriber, where the real level is exact and
+    /// shouldn't be re-guessed from the text).
+    pub fn push_event(&self, source: Source, level: Level, raw: &str) {
+        self.append(source, level, raw);
+    }
+
+    /// Redact, mirror to disk, and append one entry at the given level.
+    fn append(&self, source: Source, level: Level, raw: &str) {
         let message = redact(raw);
         // Mirror to the daily file (already redacted — no key material on disk).
         if let Some(file) = self.file.as_ref() {
@@ -468,7 +479,8 @@ mod tests {
     }
 
     #[test]
-    fn level_detection() {        assert_eq!(detect_level("ERROR boom", "out"), Level::Error);
+    fn level_detection() {
+        assert_eq!(detect_level("ERROR boom", "out"), Level::Error);
         assert_eq!(detect_level("thread panicked at ...", "out"), Level::Error);
         assert_eq!(detect_level("[2024] WARN slow", "out"), Level::Warn);
         assert_eq!(detect_level("DEBUG x", "out"), Level::Debug);

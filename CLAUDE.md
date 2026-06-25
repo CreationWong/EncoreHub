@@ -14,6 +14,13 @@ frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust)
                                             /DeepSeek)          pending)
 ```
 
+In the **desktop app** the engine is not a separate process: the Tauri shell
+depends on the `encorehub-engine` crate and starts its axum service in-process
+on Tauri's tokio runtime (still listening on `127.0.0.1:3000`, so the gateway is
+unchanged). The engine also still builds as a **standalone binary** (gated by
+the `standalone` Cargo feature) for headless deployment, pure-web dev, and CI.
+See `docs/ENGINE_TAURI_MERGE_PLAN.md`.
+
 ## Conventions
 
 - Commit messages: English, format `type(scope): description` (e.g. `fix(engine): handle empty conversation list`)
@@ -48,10 +55,10 @@ Node 22+ / pnpm 9 / Go 1.25 / Rust stable / Python 3.12 (for data-services only)
 
 ```bash
 # Start everything (use three terminals for real dev)
-cd engine   && cargo run --bin encorehub-engine    # listens :3000
+cd engine   && cargo run --features standalone --bin encorehub-engine  # listens :3000
 cd gateway  && go run ./cmd/gateway                # listens :8080
 cd frontend && pnpm dev                            # Vite :1420
-# or Tauri desktop: cd frontend && pnpm tauri dev
+# or Tauri desktop: cd frontend && pnpm tauri dev  (engine runs in-process, no standalone needed)
 ```
 
 Makefile shortcuts (from root):
@@ -85,13 +92,20 @@ make lint          # lint all
 | `golangci-lint run ./...` | Lint |
 
 **Engine** (`cd engine`):
+
+The engine compiles in two modes via the `standalone` Cargo feature. Without it
+the crate is library-only (consumed in-process by the Tauri desktop app); with
+it the `encorehub-engine` and `encorehub-mcp` binaries are built. Run/build
+commands that need an actual executable must pass `--features standalone`.
+
 | Command | What |
 |---------|------|
-| `cargo run --bin encorehub-engine` | Run engine |
-| `cargo test` | Run all tests |
-| `cargo clippy -- -D warnings` | Lint |
+| `cargo run --features standalone --bin encorehub-engine` | Run engine standalone |
+| `cargo test` | Run all tests (library mode) |
+| `cargo test --features standalone` | Run all tests with the binaries compiled |
+| `cargo clippy --all-targets --features standalone -- -D warnings` | Lint |
 | `cargo fmt --check` | Format check |
-| `cargo build --release` | Release build |
+| `cargo build --release --features standalone` | Release build (produces both binaries) |
 
 ### Run a single test
 
@@ -101,11 +115,13 @@ cd gateway  && go test ./internal/handler -run TestName
 cd engine   && cargo test test_name
 ```
 
+> The engine's integration tests build in library mode; pass `--features standalone` only when a test exercises the binary entrypoints.
+
 ## Tauri Desktop Packaging
 
 The Tauri v2 config is at `frontend/src-tauri/tauri.conf.json`. Key points when building the installer:
 
-- **External binaries**: `tauri.conf.json` → `bundle.externalBin` references `binaries/encorehub-engine` and `binaries/gateway`. Tauri auto-appends `.exe` on Windows but does **not** append the Rust target triple. If the build produces `encorehub-engine-x86_64-pc-windows-msvc.exe`, you must copy it to `encorehub-engine.exe` (and similarly for `gateway`) before running `pnpm tauri build`.
+- **External binaries**: `tauri.conf.json` → `bundle.externalBin` references only `binaries/gateway` (the engine now runs in-process, so it is no longer a sidecar). Tauri auto-appends `.exe` on Windows but does **not** append the Rust target triple. If the build produces `gateway-x86_64-pc-windows-msvc.exe`, you must copy it to `gateway.exe` before running `pnpm tauri build`.
 - Build output: MSI at `src-tauri/target/release/bundle/msi/`, NSIS exe at `bundle/nsis/`.
 - The Tauri binary itself is at `src-tauri/target/release/encorehub-desktop.exe`.
 
@@ -145,7 +161,7 @@ The engine is a Cargo workspace with three crates:
 - `crates/storage` — `Database` abstraction (SQLite via rusqlite with bundled libsqlite3; `lancedb/` and `blob/` modules are placeholders)
 - `crates/skill` — `SkillRegistry` that loads Markdown skills from a directory, with YAML frontmatter parsing
 
-The main binary (`src/main.rs`) wires: open SQLite → load skills → build axum router → serve. The router is defined in `src/api/mod.rs` and each resource group (conversations, knowledge, memories, skills, plugins) is a submodule.
+The main binary (`src/main.rs`) wires: open SQLite → load skills → install a reloadable tracing subscriber → call `encorehub_engine::serve(...)`. `serve()` (in `src/lib.rs`) builds the axum router and runs it; it is shared by the standalone binary and the Tauri desktop app (which calls it from `tokio::spawn` on its own runtime). `main.rs` and `mcp_server.rs` are gated behind `#![cfg(feature = "standalone")]` so the library build skips them. The router is defined in `src/api/mod.rs` and each resource group (conversations, knowledge, memories, skills, plugins) is a submodule.
 
 ### Skills Directory
 

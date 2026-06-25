@@ -60,9 +60,13 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
+      # Lint/test both the library build (consumed in-process by Tauri) and the
+      # standalone binaries (headless / sidecar). `--all-targets` with the
+      # feature also exercises the bin entrypoints.
+      - run: cargo clippy --all-targets --features standalone -- -D warnings
       - run: cargo test
-      - run: cargo build --release
+      - run: cargo test --features standalone
+      - run: cargo build --release --features standalone
 
   # ===== Data Services (Python) =====
   data-services:

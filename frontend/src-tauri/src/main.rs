@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod log_layer;
 mod logs;
 
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -10,7 +12,11 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{Manager, State};
+use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
+use encorehub_engine::logging::{normalize_level, LogControl};
+use encorehub_engine::{Database, SkillRegistry};
+use log_layer::LogBufferLayer;
 use logs::{LogBuffer, LogEntry, Source};
 
 #[cfg(target_os = "windows")]
@@ -29,7 +35,9 @@ struct ServiceHandle {
 }
 
 struct ServiceState {
-    engine: Mutex<Option<ServiceHandle>>,
+    /// The engine now runs in-process (an axum task on Tauri's tokio runtime),
+    /// so there is no child handle — just the start time for the uptime readout.
+    engine_started: Instant,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
 }
@@ -74,7 +82,15 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
             uptime_secs: 0,
             port: 0,
         },
-        status_of(&state.engine, "engine", 3000),
+        // Engine runs in-process: it shares the desktop PID and lives for as
+        // long as the app does, so report it as running with its own uptime.
+        ServiceStatus {
+            name: "engine".into(),
+            pid: Some(std::process::id()),
+            running: true,
+            uptime_secs: state.engine_started.elapsed().as_secs(),
+            port: 3000,
+        },
         status_of(&state.gateway, "gateway", 8080),
     ]
 }
@@ -114,20 +130,48 @@ fn clear_logs(state: State<ServiceState>) {
 }
 
 fn main() {
-    // Resolve the log directory next to the executable (e.g.
-    // %LOCALAPPDATA%\EncoreHub\log), alongside the engine's `data/`. Computed
-    // up front so the shared LogBuffer can mirror lines to disk from the start.
-    let log_dir = std::env::current_exe()
+    // Resolve the directory containing the executable. The engine's data dir,
+    // skills, and the log mirror all live alongside it (e.g.
+    // %LOCALAPPDATA%\EncoreHub\). Computed up front so the shared LogBuffer can
+    // mirror lines to disk from the start.
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|p| p.join("log")))
-        .unwrap_or_else(|| std::path::PathBuf::from("log"));
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let logs = Arc::new(LogBuffer::with_log_dir(exe_dir.join("log")));
+
+    // Install a global tracing subscriber so the in-process engine's events flow
+    // into the developer-panel buffer (and the terminal, for `pnpm tauri dev`).
+    // A reload layer lets `/api/config/log_level` switch levels at runtime, the
+    // same as the standalone binary. The initial level comes from RUST_LOG; the
+    // value persisted in the DB is applied once the DB is opened in `setup`.
+    let initial_filter =
+        EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
+    let (filter_layer, reload_handle) = reload::Layer::new(initial_filter);
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt::layer().with_target(false))
+        .with(LogBufferLayer::new(logs.clone()))
+        .init();
+
+    let log_control = LogControl::new(move |level| {
+        let directive =
+            normalize_level(level).ok_or_else(|| format!("invalid log level: {level}"))?;
+        reload_handle
+            .reload(EnvFilter::new(directive))
+            .map_err(|e| e.to_string())
+    });
+
+    // `setup` consumes these once; an Option lets us `take()` inside the FnMut.
+    let mut startup = Some((exe_dir.clone(), log_control));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ServiceState {
-            engine: Mutex::new(None),
+            engine_started: Instant::now(),
             gateway: Mutex::new(None),
-            logs: Arc::new(LogBuffer::with_log_dir(log_dir)),
+            logs: logs.clone(),
         })
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
@@ -136,31 +180,21 @@ fn main() {
             get_logs,
             clear_logs,
         ])
-        .setup(|app| {
-            // Get the directory containing the main executable
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| {
-                    app.path().resource_dir()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                });
-
-            eprintln!("EncoreHub starting, resource dir: {:?}", exe_dir);
+        .setup(move |app| {
+            let (exe_dir, log_control) = startup.take().expect("setup runs once");
+            eprintln!("EncoreHub starting, exe dir: {:?}", exe_dir);
 
             let logs = app.state::<ServiceState>().logs.clone();
 
-            // ---- Spawn engine ----
-            if let Some(handle) = spawn_service(&exe_dir, "encorehub-engine", &logs) {
-                app.state::<ServiceState>()
-                    .engine.lock().unwrap()
-                    .replace(handle);
-            }
+            // ---- Start engine in-process ----
+            start_engine(app, &exe_dir, log_control);
 
-            // ---- Spawn gateway ----
+            // ---- Spawn gateway (still a sidecar) ----
             if let Some(handle) = spawn_service(&exe_dir, "gateway", &logs) {
                 app.state::<ServiceState>()
-                    .gateway.lock().unwrap()
+                    .gateway
+                    .lock()
+                    .unwrap()
                     .replace(handle);
             }
 
@@ -168,18 +202,17 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                let engine = {
-                    window.state::<ServiceState>()
-                        .engine.lock().unwrap().take()
-                };
+                // The engine task dies with the process (SQLite is in WAL mode,
+                // so an abrupt stop is safe); only the gateway child needs an
+                // explicit kill.
                 let gateway = {
-                    window.state::<ServiceState>()
-                        .gateway.lock().unwrap().take()
+                    window
+                        .state::<ServiceState>()
+                        .gateway
+                        .lock()
+                        .unwrap()
+                        .take()
                 };
-                if let Some(mut h) = engine {
-                    let _ = h.child.kill();
-                    let _ = h.child.wait();
-                }
                 if let Some(mut h) = gateway {
                     let _ = h.child.kill();
                     let _ = h.child.wait();
@@ -190,10 +223,60 @@ fn main() {
         .expect("error while running EncoreHub");
 }
 
+/// Open the engine's database + skills and start its axum service on Tauri's
+/// tokio runtime. Replaces the old `spawn_service(.., "encorehub-engine", ..)`
+/// path — the engine is now a library task in this process, not a sidecar exe.
+fn start_engine(app: &tauri::App, exe_dir: &std::path::Path, log_control: LogControl) {
+    // Data and skills resolve relative to the executable (overridable by env so
+    // `make dev` / headless layouts can point elsewhere). Tauri's CWD differs
+    // from the old standalone binary's, so nothing here may be CWD-relative.
+    let db_path = std::env::var("ENGINE_DB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| exe_dir.join("data").join("encorehub.db"));
+    let skills_dir = std::env::var("ENCOREHUB_SKILLS_DIR")
+        .map(PathBuf::from)
+        .or_else(|_| app.path().resource_dir().map(|d| d.join("skills")))
+        .unwrap_or_else(|_| exe_dir.join("skills"));
+
+    let db = match Database::open_and_return(&db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            // No DB means no engine; surface it loudly but don't crash the UI.
+            tracing::error!("failed to open engine database at {db_path:?}: {e}");
+            return;
+        }
+    };
+
+    // Apply the level persisted in the DB (RUST_LOG already set the default).
+    if let Ok(Some(entry)) = db.get_config("log_level") {
+        if let Ok(level) = serde_json::from_str::<String>(&entry.value_json) {
+            let _ = log_control.set(&level);
+        }
+    }
+
+    let skill_registry = SkillRegistry::load(&skills_dir);
+    tracing::info!("Skills loaded: {} total", skill_registry.list().len());
+
+    let bind_addr = std::env::var("ENGINE_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    tracing::info!("Engine starting in-process on http://{bind_addr}");
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            encorehub_engine::serve(db, skill_registry, Some(log_control), bind_addr).await
+        {
+            tracing::error!("engine serve exited: {e}");
+        }
+    });
+}
+
 /// Spawn a bundled sidecar service, suppressing the console window on Windows
 /// and draining its stdout/stderr into the shared log buffer so the pipes can
 /// never fill up and deadlock the child. Returns the handle on success.
-fn spawn_service(dir: &std::path::Path, name: &str, logs: &Arc<LogBuffer>) -> Option<ServiceHandle> {
+fn spawn_service(
+    dir: &std::path::Path,
+    name: &str,
+    logs: &Arc<LogBuffer>,
+) -> Option<ServiceHandle> {
     let path = match find_binary(dir, name) {
         Some(p) => p,
         None => {
@@ -259,13 +342,20 @@ fn find_binary(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> 
         dir.join(format!("{name}.exe")),
         dir.join("binaries").join(format!("{name}.exe")),
         dir.join(format!("{name}-x86_64-pc-windows-msvc.exe")),
-        dir.join("binaries").join(format!("{name}-x86_64-pc-windows-msvc.exe")),
+        dir.join("binaries")
+            .join(format!("{name}-x86_64-pc-windows-msvc.exe")),
     ];
     for c in &candidates {
         if c.exists() {
             return Some(c.clone());
         }
     }
-    eprintln!("Tried paths: {:?}", candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>());
+    eprintln!(
+        "Tried paths: {:?}",
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+    );
     None
 }
