@@ -51,13 +51,34 @@ func (a *Adapter) client(apiKey string) *goopenai.Client {
 	return goopenai.NewClientWithConfig(a.config(apiKey))
 }
 
+// buildRequest translates the unified ChatRequest into the provider-specific
+// go-openai request, mapping every field the SDK supports.
+func (a *Adapter) buildRequest(req *provider.ChatRequest) goopenai.ChatCompletionRequest {
+	cr := goopenai.ChatCompletionRequest{
+		Model:               req.Model,
+		Messages:            toMessages(req),
+		MaxTokens:           req.MaxTokens,
+		MaxCompletionTokens: req.MaxCompletionTokens,
+		Temperature:         req.Temperature,
+		TopP:                req.TopP,
+		FrequencyPenalty:    req.FrequencyPenalty,
+		PresencePenalty:     req.PresencePenalty,
+		Stop:                req.Stop,
+		Seed:                req.Seed,
+	}
+	if req.JSONMode {
+		cr.ResponseFormat = &goopenai.ChatCompletionResponseFormat{
+			Type: goopenai.ChatCompletionResponseFormatTypeJSONObject,
+		}
+	}
+	if req.ReasoningEffort != "" {
+		cr.ReasoningEffort = req.ReasoningEffort
+	}
+	return cr
+}
+
 func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey string) (*provider.ChatResponse, error) {
-	resp, err := a.client(apiKey).CreateChatCompletion(ctx, goopenai.ChatCompletionRequest{
-		Model:       req.Model,
-		Messages:    toMessages(req),
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	})
+	resp, err := a.client(apiKey).CreateChatCompletion(ctx, a.buildRequest(req))
 	if err != nil {
 		return nil, fmt.Errorf("%s chat: %w", a.id, err)
 	}
@@ -74,13 +95,9 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 }
 
 func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, apiKey string) (<-chan provider.StreamEvent, error) {
-	stream, err := a.client(apiKey).CreateChatCompletionStream(ctx, goopenai.ChatCompletionRequest{
-		Model:       req.Model,
-		Messages:    toMessages(req),
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Stream:      true,
-	})
+	cr := a.buildRequest(req)
+	cr.Stream = true
+	stream, err := a.client(apiKey).CreateChatCompletionStream(ctx, cr)
 	if err != nil {
 		return nil, fmt.Errorf("%s stream: %w", a.id, err)
 	}

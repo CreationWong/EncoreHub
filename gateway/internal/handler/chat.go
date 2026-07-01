@@ -33,13 +33,22 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content        string  `json:"content" binding:"required"`
-	Provider       string  `json:"provider"`
-	Model          string  `json:"model"`
-	Stream         bool    `json:"stream"`
-	Search         bool    `json:"search"`
-	SearchProvider string  `json:"search_provider"` // "duckduckgo" | "bing" | "google"
-	Temperature    float32 `json:"temperature"`
+	Content            string   `json:"content" binding:"required"`
+	Provider           string   `json:"provider"`
+	Model              string   `json:"model"`
+	Stream             bool     `json:"stream"`
+	Search             bool     `json:"search"`
+	SearchProvider     string   `json:"search_provider"` // "duckduckgo" | "bing" | "google"
+	Temperature        float32  `json:"temperature"`
+	TopP               float32  `json:"top_p"`
+	MaxTokens          int      `json:"max_tokens"`
+	MaxCompletionTokens int     `json:"max_completion_tokens"`
+	FrequencyPenalty   float32  `json:"frequency_penalty"`
+	PresencePenalty    float32  `json:"presence_penalty"`
+	Stop               []string `json:"stop"`
+	Seed               *int     `json:"seed"`
+	JSONMode           bool     `json:"json_mode"`
+	ReasoningEffort    string   `json:"reasoning_effort"`
 }
 
 type ChatResponse struct {
@@ -167,17 +176,29 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
 		chatReq = buildChatRequest(convDetail, req, systemExtra)
 	} else {
-		chatReq = &provider.ChatRequest{
-			Model:        req.Model,
-			Stream:       req.Stream,
-			Temperature:  req.Temperature,
-			MaxTokens:    4096,
+		cr := &provider.ChatRequest{
+			Model:               req.Model,
+			Stream:              req.Stream,
+			Temperature:         req.Temperature,
+			TopP:                req.TopP,
+			MaxTokens:           req.MaxTokens,
+			MaxCompletionTokens: req.MaxCompletionTokens,
+			FrequencyPenalty:    req.FrequencyPenalty,
+			PresencePenalty:     req.PresencePenalty,
+			Stop:                req.Stop,
+			Seed:                req.Seed,
+			JSONMode:            req.JSONMode,
+			ReasoningEffort:     req.ReasoningEffort,
 			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
 			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
 			},
 		}
+		if cr.MaxTokens == 0 {
+			cr.MaxTokens = 4096
+		}
+		chatReq = cr
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
@@ -428,10 +449,21 @@ func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasonin
 
 func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
-		Model:       req.Model,
-		Stream:      req.Stream,
-		Temperature: req.Temperature,
-		MaxTokens:   4096,
+		Model:               req.Model,
+		Stream:              req.Stream,
+		Temperature:         req.Temperature,
+		TopP:                req.TopP,
+		MaxTokens:           req.MaxTokens,
+		MaxCompletionTokens: req.MaxCompletionTokens,
+		FrequencyPenalty:    req.FrequencyPenalty,
+		PresencePenalty:     req.PresencePenalty,
+		Stop:                req.Stop,
+		Seed:                req.Seed,
+		JSONMode:            req.JSONMode,
+		ReasoningEffort:     req.ReasoningEffort,
+	}
+	if cr.MaxTokens == 0 {
+		cr.MaxTokens = 4096
 	}
 	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
 			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra

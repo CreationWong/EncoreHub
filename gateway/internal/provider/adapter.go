@@ -16,12 +16,28 @@ type Message struct {
 
 // ChatRequest is the unified request format sent to AI providers.
 type ChatRequest struct {
-	Model        string    `json:"model"`
-	Messages     []Message `json:"messages"`
-	Stream       bool      `json:"stream"`
-	MaxTokens    int       `json:"max_tokens,omitempty"`
-	Temperature  float32   `json:"temperature,omitempty"`
-	SystemPrompt string    `json:"system_prompt,omitempty"`
+	Model               string    `json:"model"`
+	Messages            []Message `json:"messages"`
+	Stream              bool      `json:"stream"`
+	MaxTokens           int       `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int       `json:"max_completion_tokens,omitempty"`
+	Temperature         float32   `json:"temperature,omitempty"`
+	TopP                float32   `json:"top_p,omitempty"`
+	FrequencyPenalty    float32   `json:"frequency_penalty,omitempty"`
+	PresencePenalty     float32   `json:"presence_penalty,omitempty"`
+	Stop                []string  `json:"stop,omitempty"`
+	Seed                *int      `json:"seed,omitempty"`
+	SystemPrompt        string    `json:"system_prompt,omitempty"`
+	// JSONMode enables OpenAI's JSON mode (response_format: {"type": "json_object"}).
+	// The system prompt should instruct the model to produce JSON.
+	JSONMode bool `json:"json_mode,omitempty"`
+	// ReasoningEffort for o-series / reasoning models ("low", "medium", "high").
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// TopK for Claude-compatible nucleus sampling (Claude-specific).
+	TopK int `json:"top_k,omitempty"`
+	// ThinkingBudget enables Claude's extended thinking. Set to >=1024 to enable;
+	// the tokens consumed count against MaxTokens. Ignored by non-Claude adapters.
+	ThinkingBudget int `json:"thinking_budget,omitempty"`
 }
 
 // ChatResponse is the unified (non-streaming) response.

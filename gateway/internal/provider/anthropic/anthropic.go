@@ -63,13 +63,22 @@ type anthropicMessage struct {
 	Content string `json:"content"`
 }
 
+type anthropicThinking struct {
+	Type         string `json:"type"` // "enabled", "disabled", "adaptive"
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
 type anthropicReq struct {
-	Model       string             `json:"model"`
-	Messages    []anthropicMessage `json:"messages"`
-	System      string             `json:"system,omitempty"`
-	MaxTokens   int                `json:"max_tokens"`
-	Temperature float32            `json:"temperature,omitempty"`
-	Stream      bool               `json:"stream"`
+	Model         string             `json:"model"`
+	Messages      []anthropicMessage `json:"messages"`
+	System        string             `json:"system,omitempty"`
+	MaxTokens     int                `json:"max_tokens"`
+	Temperature   float32            `json:"temperature,omitempty"`
+	TopP          float32            `json:"top_p,omitempty"`
+	TopK          int                `json:"top_k,omitempty"`
+	StopSequences []string           `json:"stop_sequences,omitempty"`
+	Stream        bool               `json:"stream"`
+	Thinking      *anthropicThinking `json:"thinking,omitempty"`
 }
 
 type anthropicContent struct {
@@ -83,11 +92,14 @@ type anthropicUsage struct {
 }
 
 type anthropicResp struct {
-	Content    []anthropicContent `json:"content"`
-	StopReason string             `json:"stop_reason"`
-	Usage      anthropicUsage     `json:"usage"`
-	Model      string             `json:"model"`
-	Error      *struct {
+	ID           string             `json:"id"`
+	Content      []anthropicContent `json:"content"`
+	StopReason   string             `json:"stop_reason"`
+	StopSequence string             `json:"stop_sequence"`
+	Usage        anthropicUsage     `json:"usage"`
+	Model        string             `json:"model"`
+	Role         string             `json:"role"`
+	Error        *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -101,7 +113,8 @@ type sseEvent struct {
 	ContentBlock *sseContentBlock `json:"content_block,omitempty"`
 	Usage        *anthropicUsage  `json:"usage,omitempty"`
 	Message      *struct {
-		StopReason string `json:"stop_reason"`
+		StopReason   string `json:"stop_reason"`
+		StopSequence string `json:"stop_sequence"`
 	} `json:"message,omitempty"`
 }
 
@@ -139,9 +152,13 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 		return nil, fmt.Errorf("anthropic error: %s - %s", ar.Error.Type, ar.Error.Message)
 	}
 
+	// Collect all text blocks (the first text block is the reply; thinking
+	// blocks are the chain-of-thought, surfaced as Reasoning).
 	content := ""
-	if len(ar.Content) > 0 {
-		content = ar.Content[0].Text
+	for _, c := range ar.Content {
+		if c.Type == "text" {
+			content += c.Text
+		}
 	}
 
 	return &provider.ChatResponse{
@@ -209,6 +226,13 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 				},
 			}}
 		}
+	case "content_block_stop":
+		// Marks the end of a content block (text, thinking, or tool_use).
+		// Useful for signaling tool-call completion; we emit the index so
+		// the gateway knows this tool's argument stream is done.
+		return []provider.StreamEvent{{
+			ToolCall: &provider.ToolCallEvent{Index: ev.Index},
+		}}
 	case "content_block_delta":
 		if ev.Delta == nil {
 			return nil
@@ -232,17 +256,28 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 		}
 	case "message_delta":
 		if ev.Usage != nil {
-			return []provider.StreamEvent{{
+			out := []provider.StreamEvent{{
 				Usage: &provider.UsageEvent{
 					InputTokens:  ev.Usage.InputTokens,
 					OutputTokens: ev.Usage.OutputTokens,
 				},
 			}}
+			if ev.Message != nil && ev.Message.StopReason != "" {
+				out = append(out, provider.StreamEvent{
+					Delta: &provider.DeltaEvent{
+						FinishReason: ev.Message.StopReason,
+					},
+				})
+			}
+			return out
 		}
 	case "message_stop":
 		return []provider.StreamEvent{{
 			Delta: &provider.DeltaEvent{FinishReason: "stop"},
 		}}
+	case "ping":
+		// Heartbeat — no action needed.
+		return nil
 	case "error":
 		return []provider.StreamEvent{{
 			Error: fmt.Errorf("anthropic stream error: %s", data),
@@ -276,12 +311,23 @@ func (a *Adapter) ValidateKey(ctx context.Context, apiKey string) error {
 
 func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 	body := &anthropicReq{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Stream:      stream,
-		System:      req.SystemPrompt,
-		Messages:    make([]anthropicMessage, 0, len(req.Messages)),
+		Model:         req.Model,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		TopK:          req.TopK,
+		StopSequences: req.Stop,
+		Stream:        stream,
+		System:        req.SystemPrompt,
+		Messages:      make([]anthropicMessage, 0, len(req.Messages)),
+	}
+
+	// Map thinking budget to Anthropic's thinking config.
+	if req.ThinkingBudget >= 1024 {
+		body.Thinking = &anthropicThinking{
+			Type:         "enabled",
+			BudgetTokens: req.ThinkingBudget,
+		}
 	}
 
 	for _, msg := range req.Messages {
