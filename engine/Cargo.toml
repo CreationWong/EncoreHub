@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/core",
+    "crates/conversation",
     "crates/storage",
     "crates/skill",
 ]
@@ -89,6 +90,7 @@ required-features = ["standalone"]
 
 [dependencies]
 encorehub-core = { path = "crates/core" }
+encorehub-conversation = { path = "crates/conversation" }
 encorehub-storage = { path = "crates/storage" }
 encorehub-skill = { path = "crates/skill" }
 
