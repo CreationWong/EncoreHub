@@ -15,7 +15,7 @@ use tauri::{Manager, State};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 use encorehub_engine::logging::{normalize_level, LogControl};
-use encorehub_engine::{Database, SkillRegistry};
+use encorehub_engine::{find_free_port, Database, SkillRegistry};
 use log_layer::LogBufferLayer;
 use logs::{LogBuffer, LogEntry, Source};
 
@@ -26,6 +26,9 @@ use std::os::windows::process::CommandExt;
 /// when spawning child processes.
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Default starting port for auto-negotiation in Tauri / client mode.
+const CLIENT_PORT_START: u16 = 10000;
 
 /// A spawned sidecar plus the metadata the developer panel reports.
 struct ServiceHandle {
@@ -40,6 +43,16 @@ struct ServiceState {
     engine_started: Instant,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
+    /// Dynamically negotiated ports (filled during setup).
+    engine_port: u16,
+    gateway_port: u16,
+}
+
+/// Port info returned to the frontend so it can build API URLs.
+#[derive(Serialize, Clone, Copy)]
+struct ServicePorts {
+    engine_port: u16,
+    gateway_port: u16,
 }
 
 /// Status snapshot for one process, surfaced to the developer panel.
@@ -56,18 +69,29 @@ struct ServiceStatus {
 }
 
 #[tauri::command]
-fn check_engine_health() -> Result<String, String> {
-    match ureq::get("http://127.0.0.1:3000/health").call() {
+fn check_engine_health(state: State<ServiceState>) -> Result<String, String> {
+    let url = format!("http://127.0.0.1:{}/health", state.engine_port);
+    match ureq::get(&url).call() {
         Ok(r) => r.into_string().map_err(|e| format!("{e}")),
         Err(e) => Err(format!("Engine not ready: {e}")),
     }
 }
 
 #[tauri::command]
-fn check_gateway_health() -> Result<String, String> {
-    match ureq::get("http://127.0.0.1:8080/api/v1/health").call() {
+fn check_gateway_health(state: State<ServiceState>) -> Result<String, String> {
+    let url = format!("http://127.0.0.1:{}/api/v1/health", state.gateway_port);
+    match ureq::get(&url).call() {
         Ok(r) => r.into_string().map_err(|e| format!("{e}")),
         Err(e) => Err(format!("Gateway not ready: {e}")),
+    }
+}
+
+/// Return the negotiated ports so the frontend can construct API URLs.
+#[tauri::command]
+fn get_service_ports(state: State<ServiceState>) -> ServicePorts {
+    ServicePorts {
+        engine_port: state.engine_port,
+        gateway_port: state.gateway_port,
     }
 }
 
@@ -82,23 +106,20 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
             uptime_secs: 0,
             port: 0,
         },
-        // Engine runs in-process: it shares the desktop PID and lives for as
-        // long as the app does, so report it as running with its own uptime.
         ServiceStatus {
             name: "engine".into(),
             pid: Some(std::process::id()),
             running: true,
             uptime_secs: state.engine_started.elapsed().as_secs(),
-            port: 3000,
+            port: state.engine_port,
         },
-        status_of(&state.gateway, "gateway", 8080),
+        status_of(&state.gateway, "gateway", state.gateway_port),
     ]
 }
 
 fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> ServiceStatus {
     let mut guard = slot.lock().unwrap();
     match guard.as_mut() {
-        // `try_wait` returns Ok(None) while the child is still alive.
         Some(h) => ServiceStatus {
             name: name.into(),
             pid: Some(h.pid),
@@ -106,7 +127,6 @@ fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> Serv
             uptime_secs: h.started.elapsed().as_secs(),
             port,
         },
-        // Not spawned by us (e.g. dev mode runs sidecars in separate terminals).
         None => ServiceStatus {
             name: name.into(),
             pid: None,
@@ -171,8 +191,25 @@ fn main() {
             .map_err(|e| e.to_string())
     });
 
+    // --- port negotiation (client / Tauri mode) ---
+    // ENGINE_BIND / LISTEN_ADDR env vars override auto-negotiation so developers
+    // and headless deployments keep predictable ports.  When unset we scan from
+    // CLIENT_PORT_START, finding two adjacent free ports (engine then gateway).
+    let engine_port: u16 = std::env::var("ENGINE_BIND")
+        .ok()
+        .and_then(|v| v.rsplit(':').next()?.parse().ok())
+        .unwrap_or_else(|| find_free_port(CLIENT_PORT_START));
+    let gateway_port: u16 = std::env::var("LISTEN_ADDR")
+        .ok()
+        .and_then(|v| v.rsplit(':').next()?.parse().ok())
+        .unwrap_or_else(|| find_free_port(engine_port + 1));
+
+    tracing::info!(
+        "negotiated ports: engine={engine_port} gateway={gateway_port}"
+    );
+
     // `setup` consumes these once; an Option lets us `take()` inside the FnMut.
-    let mut startup = Some((exe_dir.clone(), log_control));
+    let mut startup = Some((exe_dir.clone(), log_control, engine_port, gateway_port));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -180,26 +217,31 @@ fn main() {
             engine_started: Instant::now(),
             gateway: Mutex::new(None),
             logs: logs.clone(),
+            engine_port,
+            gateway_port,
         })
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
             check_gateway_health,
+            get_service_ports,
             get_service_status,
             get_logs,
             clear_logs,
             open_devtools,
         ])
         .setup(move |app| {
-            let (exe_dir, log_control) = startup.take().expect("setup runs once");
+            let (exe_dir, log_control, engine_port, gateway_port) =
+                startup.take().expect("setup runs once");
             eprintln!("EncoreHub starting, exe dir: {:?}", exe_dir);
+            eprintln!("Ports: engine={engine_port} gateway={gateway_port}");
 
             let logs = app.state::<ServiceState>().logs.clone();
 
             // ---- Start engine in-process ----
-            start_engine(app, &exe_dir, log_control);
+            start_engine(app, &exe_dir, log_control, engine_port);
 
             // ---- Spawn gateway (still a sidecar) ----
-            if let Some(handle) = spawn_service(&exe_dir, "gateway", &logs) {
+            if let Some(handle) = spawn_service(&exe_dir, "gateway", &logs, engine_port, gateway_port) {
                 app.state::<ServiceState>()
                     .gateway
                     .lock()
@@ -211,9 +253,6 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                // The engine task dies with the process (SQLite is in WAL mode,
-                // so an abrupt stop is safe); only the gateway child needs an
-                // explicit kill.
                 let gateway = {
                     window
                         .state::<ServiceState>()
@@ -235,10 +274,12 @@ fn main() {
 /// Open the engine's database + skills and start its axum service on Tauri's
 /// tokio runtime. Replaces the old `spawn_service(.., "encorehub-engine", ..)`
 /// path — the engine is now a library task in this process, not a sidecar exe.
-fn start_engine(app: &tauri::App, exe_dir: &std::path::Path, log_control: LogControl) {
-    // Data and skills resolve relative to the executable (overridable by env so
-    // `make dev` / headless layouts can point elsewhere). Tauri's CWD differs
-    // from the old standalone binary's, so nothing here may be CWD-relative.
+fn start_engine(
+    app: &tauri::App,
+    exe_dir: &std::path::Path,
+    log_control: LogControl,
+    port: u16,
+) {
     let db_path = std::env::var("ENGINE_DB")
         .map(PathBuf::from)
         .unwrap_or_else(|_| exe_dir.join("data").join("encorehub.db"));
@@ -250,13 +291,11 @@ fn start_engine(app: &tauri::App, exe_dir: &std::path::Path, log_control: LogCon
     let db = match Database::open_and_return(&db_path) {
         Ok(db) => db,
         Err(e) => {
-            // No DB means no engine; surface it loudly but don't crash the UI.
             tracing::error!("failed to open engine database at {db_path:?}: {e}");
             return;
         }
     };
 
-    // Apply the level persisted in the DB (RUST_LOG already set the default).
     if let Ok(Some(entry)) = db.get_config("log_level") {
         if let Ok(level) = serde_json::from_str::<String>(&entry.value_json) {
             let _ = log_control.set(&level);
@@ -266,7 +305,7 @@ fn start_engine(app: &tauri::App, exe_dir: &std::path::Path, log_control: LogCon
     let skill_registry = SkillRegistry::load(&skills_dir);
     tracing::info!("Skills loaded: {} total", skill_registry.list().len());
 
-    let bind_addr = std::env::var("ENGINE_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let bind_addr = format!("127.0.0.1:{port}");
     tracing::info!("Engine starting in-process on http://{bind_addr}");
 
     tauri::async_runtime::spawn(async move {
@@ -285,6 +324,8 @@ fn spawn_service(
     dir: &std::path::Path,
     name: &str,
     logs: &Arc<LogBuffer>,
+    engine_port: u16,
+    gateway_port: u16,
 ) -> Option<ServiceHandle> {
     let path = match find_binary(dir, name) {
         Some(p) => p,
@@ -297,7 +338,9 @@ fn spawn_service(
 
     let mut cmd = Command::new(&path);
     cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stderr(std::process::Stdio::piped())
+        .env("ENGINE_URL", format!("http://127.0.0.1:{engine_port}"))
+        .env("LISTEN_ADDR", format!("127.0.0.1:{gateway_port}"));
 
     // Windows: don't flash a console window for the sidecar.
     #[cfg(target_os = "windows")]
