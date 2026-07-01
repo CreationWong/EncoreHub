@@ -18,6 +18,23 @@ pub use encorehub_storage::Database;
 
 use logging::LogControl;
 
+/// Try to find a free TCP port on 127.0.0.1, probing from `start_port`.
+///
+/// Binds a synchronous listener to test availability, then immediately drops
+/// it — there is a TOCTOU race between drop and real bind, but in practice
+/// the OS reuses ports slowly enough that this is reliable for desktop use.
+/// Returns `start_port` as a fallback if no port can be bound (should not
+/// happen on a healthy system).
+pub fn find_free_port(start_port: u16) -> u16 {
+    for port in start_port..=65535 {
+        let addr = format!("127.0.0.1:{port}");
+        if std::net::TcpListener::bind(&addr).is_ok() {
+            return port;
+        }
+    }
+    start_port
+}
+
 /// Run the engine's axum API on `bind_addr` until the listener stops.
 ///
 /// Shared by the standalone binary and the Tauri embed path. The caller owns
