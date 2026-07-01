@@ -46,6 +46,12 @@ export const devtools = {
 		await invoke("clear_logs");
 	},
 
+	/** Open the native webview DevTools (inspector). No-op outside Tauri. */
+	async openDevtools(): Promise<void> {
+		if (!inTauri()) return;
+		await invoke("open_devtools");
+	},
+
 	/**
 	 * Read the current persisted log level via the gateway (which reads it from
 	 * the engine's config). Works in or out of Tauri since it's an HTTP call.

@@ -1,8 +1,7 @@
-import { Eye, EyeOff, Lock, Plus, Save, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Eye, EyeOff, Lock, LockOpen, Plus, Save, Trash2 } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import { keyHintFor } from "../../constants/providers";
 import type { ProviderProfile } from "../../services/providers";
-import { secretsApi } from "../../services/secrets";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -13,6 +12,7 @@ export default function ProvidersPanel() {
 	const apiKeys = useSettingsStore((s) => s.apiKeys);
 	const setApiKey = useSettingsStore((s) => s.setApiKey);
 	const clearApiKey = useSettingsStore((s) => s.clearApiKey);
+	const loadKeys = useSettingsStore((s) => s.loadKeys);
 
 	const profiles = useProviderStore((s) => s.profiles);
 	const loading = useProviderStore((s) => s.loading);
@@ -21,6 +21,17 @@ export default function ProvidersPanel() {
 
 	const encrypted = useSecretsStore((s) => s.encrypted);
 	const unlocked = useSecretsStore((s) => s.unlocked);
+	const storedIds = useSecretsStore((s) => s.storedIds);
+	const refreshSecrets = useSecretsStore((s) => s.refresh);
+
+	// Re-pull keys + encryption state whenever the panel opens. The startup
+	// load (App.tsx) can race the engine's in-process warmup and come back
+	// empty; by the time the user reaches Settings the engine is ready, so this
+	// reliably populates the stored key even if the startup attempt missed.
+	useEffect(() => {
+		loadKeys();
+		refreshSecrets();
+	}, [loadKeys, refreshSecrets]);
 
 	// Local drafts: providers created via the Add dialog but not yet persisted
 	// (they lack a base_url/models, which the gateway requires). They live here
@@ -38,7 +49,7 @@ export default function ProvidersPanel() {
 	const isDraft =
 		selected !== null && !profiles.some((p) => p.id === selected.id);
 
-	const vaultActive = encrypted && unlocked;
+	const vaultLocked = encrypted && !unlocked;
 
 	const handleCreated = (draft: ProviderProfile) => {
 		setDrafts((d) => [...d, draft]);
@@ -67,6 +78,13 @@ export default function ProvidersPanel() {
 		// Once persisted, the draft is gone — it now lives in the store.
 		setDrafts((d) => d.filter((x) => x.id !== saved.id));
 	};
+
+	// A key is "stored" if the engine lists it (works even while locked) or we
+	// already hold it in session memory.
+	const keyStored =
+		selected !== null &&
+		(storedIds.includes(selected.id) ||
+			(apiKeys[selected.id]?.length ?? 0) > 0);
 
 	return (
 		<div className="flex h-full min-h-0 gap-4">
@@ -154,9 +172,14 @@ export default function ProvidersPanel() {
 						profile={selected}
 						isDraft={isDraft}
 						apiKey={apiKeys[selected.id] ?? ""}
-						vaultActive={vaultActive}
+						vaultLocked={vaultLocked}
+						keyStored={keyStored}
 						onSetKey={(v) => setApiKey(selected.id, v)}
-						onClearKey={() => clearApiKey(selected.id)}
+						onClearKey={async () => {
+							await clearApiKey(selected.id);
+							// Refresh stored-key ids so the masked indicator clears too.
+							refreshSecrets();
+						}}
 						onSave={async (next) => {
 							await upsert(next);
 							handleSaved(next);
@@ -177,7 +200,8 @@ interface DetailProps {
 	profile: ProviderProfile;
 	isDraft: boolean;
 	apiKey: string;
-	vaultActive: boolean;
+	vaultLocked: boolean;
+	keyStored: boolean;
 	onSetKey: (value: string) => void;
 	onClearKey: () => void;
 	onSave: (next: ProviderProfile) => Promise<void>;
@@ -189,7 +213,8 @@ function ProviderDetail({
 	profile,
 	isDraft,
 	apiKey,
-	vaultActive,
+	vaultLocked,
+	keyStored,
 	onSetKey,
 	onClearKey,
 	onSave,
@@ -202,8 +227,39 @@ function ProviderDetail({
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
+	// Inline unlock prompt: shown when the user asks to reveal a key that's
+	// stored encrypted while the vault is locked.
+	const unlock = useSecretsStore((s) => s.unlock);
+	const loadKeys = useSettingsStore((s) => s.loadKeys);
+	const [unlocking, setUnlocking] = useState(false);
+	const [pw, setPw] = useState("");
+	const [unlockBusy, setUnlockBusy] = useState(false);
+
 	// Builtins fall back to the SDK default endpoint, so an empty base_url is fine.
 	const allowEmptyBase = profile.protocol === "openai" && profile.builtin;
+
+	// The key is stored encrypted and we can't read it yet — show a masked
+	// placeholder instead of an empty field, and gate reveal behind the password.
+	const lockedStored = vaultLocked && keyStored;
+
+	const submitUnlock = async (e: FormEvent) => {
+		e.preventDefault();
+		setUnlockBusy(true);
+		try {
+			await unlock(pw);
+			// Now unlocked — pull the decrypted keys back into the store so this
+			// field can show the plaintext.
+			await loadKeys();
+			setReveal(true);
+			setPw("");
+			setUnlocking(false);
+			toast.success("Unlocked — key revealed");
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Incorrect password");
+		} finally {
+			setUnlockBusy(false);
+		}
+	};
 
 	const handleSave = async () => {
 		const models = modelsText
@@ -233,15 +289,6 @@ function ProviderDetail({
 			setError(e instanceof Error ? e.message : "Failed to save provider");
 		} finally {
 			setSaving(false);
-		}
-	};
-
-	const saveKeyToVault = async () => {
-		try {
-			await secretsApi.putKey(profile.id, apiKey);
-			toast.success("Key saved to encrypted vault");
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : "Failed to save key");
 		}
 	};
 
@@ -313,63 +360,112 @@ function ProviderDetail({
 					>
 						API key
 					</label>
-					{vaultActive ? (
+					{lockedStored ? (
 						<p className="mt-0.5 mb-1 flex items-start gap-1.5 text-[11px] text-text-muted">
-							<Lock className="mt-0.5 h-3 w-3 shrink-0 text-success" />
-							Encryption is on — use save to persist this key in the encrypted
-							vault.
+							<Lock className="mt-0.5 h-3 w-3 shrink-0" />A key is stored,
+							encrypted at rest. Click the eye to enter your master password and
+							reveal or change it.
+						</p>
+					) : vaultLocked ? (
+						<p className="mt-0.5 mb-1 flex items-start gap-1.5 text-[11px] text-warning">
+							<Lock className="mt-0.5 h-3 w-3 shrink-0" />
+							Vault is locked — keys entered now will only last this session.
+							Unlock in the Security tab to persist them.
 						</p>
 					) : (
 						<p className="mt-0.5 mb-1 text-[11px] text-text-muted">
-							Stored in session memory. Enable encryption in the Security tab to
-							persist it.
+							Keys are saved to disk automatically. Enable encryption in the
+							Security tab to protect them at rest.
 						</p>
 					)}
-					<div className="flex gap-2">
-						<input
-							id="detail-key"
-							type={reveal ? "text" : "password"}
-							value={apiKey}
-							onChange={(e) => onSetKey(e.target.value)}
-							placeholder={keyHintFor(profile.protocol)}
-							className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-						/>
-						<button
-							type="button"
-							onClick={() => setReveal((v) => !v)}
-							className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-							aria-label={reveal ? "Hide API key" : "Show API key"}
-							title={reveal ? "Hide" : "Show"}
-						>
-							{reveal ? (
-								<EyeOff className="h-3.5 w-3.5" />
-							) : (
-								<Eye className="h-3.5 w-3.5" />
+					{lockedStored ? (
+						<>
+							<div className="flex gap-2">
+								<div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-surface-alt px-3 py-2">
+									<span className="flex-1 truncate font-mono text-xs tracking-widest text-text-muted">
+										••••••••••••••••
+									</span>
+									<span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] uppercase text-text-muted">
+										encrypted
+									</span>
+								</div>
+								<button
+									type="button"
+									onClick={() => setUnlocking((v) => !v)}
+									className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+									aria-label="Unlock to view API key"
+									title="Enter password to view"
+								>
+									<Eye className="h-3.5 w-3.5" />
+								</button>
+								<button
+									type="button"
+									onClick={onClearKey}
+									aria-label="Clear API key"
+									className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
+									title="Clear"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</button>
+							</div>
+							{unlocking && (
+								<form onSubmit={submitUnlock} className="mt-2 flex gap-2">
+									<input
+										type="password"
+										value={pw}
+										onChange={(e) => setPw(e.target.value)}
+										placeholder="Master password"
+										// biome-ignore lint/a11y/noAutofocus: reveal prompt should focus immediately
+										autoFocus
+										className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+									/>
+									<button
+										type="submit"
+										disabled={unlockBusy || !pw}
+										className="flex items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40"
+									>
+										<LockOpen className="h-3.5 w-3.5" />
+										Unlock
+									</button>
+								</form>
 							)}
-						</button>
-						{vaultActive && apiKey && (
+						</>
+					) : (
+						<div className="flex gap-2">
+							<input
+								id="detail-key"
+								type={reveal ? "text" : "password"}
+								value={apiKey}
+								onChange={(e) => onSetKey(e.target.value)}
+								placeholder={keyHintFor(profile.protocol)}
+								className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+							/>
 							<button
 								type="button"
-								onClick={saveKeyToVault}
-								aria-label="Save API key to encrypted vault"
-								className="rounded-lg border border-border px-2 text-text-muted hover:bg-success-bg hover:text-success"
-								title="Save to encrypted vault"
+								onClick={() => setReveal((v) => !v)}
+								className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+								aria-label={reveal ? "Hide API key" : "Show API key"}
+								title={reveal ? "Hide" : "Show"}
 							>
-								<Save className="h-3.5 w-3.5" />
+								{reveal ? (
+									<EyeOff className="h-3.5 w-3.5" />
+								) : (
+									<Eye className="h-3.5 w-3.5" />
+								)}
 							</button>
-						)}
-						{apiKey && (
-							<button
-								type="button"
-								onClick={onClearKey}
-								aria-label="Clear API key"
-								className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
-								title="Clear"
-							>
-								<Trash2 className="h-3.5 w-3.5" />
-							</button>
-						)}
-					</div>
+							{apiKey && (
+								<button
+									type="button"
+									onClick={onClearKey}
+									aria-label="Clear API key"
+									className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
+									title="Clear"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</button>
+							)}
+						</div>
+					)}
 				</div>
 
 				<div>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
@@ -32,12 +33,13 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content     string  `json:"content" binding:"required"`
-	Provider    string  `json:"provider"`
-	Model       string  `json:"model"`
-	Stream      bool    `json:"stream"`
-	Search      bool    `json:"search"`
-	Temperature float32 `json:"temperature"`
+	Content        string  `json:"content" binding:"required"`
+	Provider       string  `json:"provider"`
+	Model          string  `json:"model"`
+	Stream         bool    `json:"stream"`
+	Search         bool    `json:"search"`
+	SearchProvider string  `json:"search_provider"` // "duckduckgo" | "bing" | "google"
+	Temperature    float32 `json:"temperature"`
 }
 
 type ChatResponse struct {
@@ -98,16 +100,42 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Step 1: Always store the user message in the engine first.
 	userMsgID := h.storeUserMessage(convID, req.Content)
 
-	// Step 1.5: Optional web search
+	// Step 1.5: Optional web search — fetches real-time results and
+	// injects them into the system prompt so the model has up-to-date
+	// information without needing a tool-call round-trip.
 	var searchContext string
 	if req.Search {
-		ddg := search.NewDuckDuckGo()
-		searchResp, err := ddg.Search(c.Request.Context(), req.Content, 5)
+		sp := req.SearchProvider
+		if sp == "" {
+			sp = "duckduckgo"
+		}
+		searchAPIKey := ""
+		switch sp {
+		case "bing":
+			searchAPIKey = os.Getenv("BING_SEARCH_API_KEY")
+		case "google":
+			searchAPIKey = os.Getenv("GOOGLE_SEARCH_API_KEY")
+		}
+		searchProvider, err := search.NewProvider(sp, searchAPIKey,
+			search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
+		)
 		if err != nil {
-			log.Warn().Err(err).Msg("web search failed")
+			log.Warn().Err(err).Str("provider", sp).Msg("web search provider init failed")
 		} else {
-			searchContext = search.FormatForContext(searchResp)
-			log.Info().Int("results", len(searchResp.Results)).Msg("web search completed")
+			searchResp, err := searchProvider.Search(c.Request.Context(), req.Content, 5)
+			if err != nil {
+				log.Warn().Err(err).Str("provider", sp).Msg("web search failed")
+			} else {
+				searchContext = search.FormatForContext(searchResp)
+				// Prepend an explicit note so the model knows the search
+				// has already been executed and doesn't claim it can't search.
+				searchContext = fmt.Sprintf(
+					"\n\n[IMPORTANT: The user's message triggered a web search via %s. "+
+						"The results below are real-time and have already been fetched. "+
+						"Use them to answer accurately. Do NOT say you cannot search the web.]",
+					strings.ToUpper(sp)) + searchContext
+				log.Info().Str("provider", sp).Int("results", len(searchResp.Results)).Msg("web search completed")
+			}
 		}
 	}
 
@@ -144,7 +172,8 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 			Stream:       req.Stream,
 			Temperature:  req.Temperature,
 			MaxTokens:    4096,
-			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Use provided context." + systemExtra,
+			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
+			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
 			},
@@ -404,7 +433,8 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 		Temperature: req.Temperature,
 		MaxTokens:   4096,
 	}
-	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately." + systemExtra
+	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
+			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra
 
 	for _, msg := range conv.Messages {
 		cr.Messages = append(cr.Messages, provider.Message{

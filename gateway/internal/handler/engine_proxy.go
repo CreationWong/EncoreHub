@@ -62,6 +62,13 @@ func (p *EngineProxy) Forward(c *gin.Context) {
 	defer resp.Body.Close()
 
 	for k, vs := range resp.Header {
+		// Skip CORS headers from the engine — the gateway's middleware already
+		// sets them. Duplicating them (e.g. the gateway sends the specific
+		// origin while the engine sends "*") causes the browser to reject the
+		// response with "multiple values not allowed".
+		if strings.HasPrefix(k, "Access-Control-") {
+			continue
+		}
 		for _, v := range vs {
 			c.Writer.Header().Add(k, v)
 		}

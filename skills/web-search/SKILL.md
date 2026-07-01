@@ -1,7 +1,7 @@
 ---
 name: web-search
-description: Search the web for real-time information using DuckDuckGo
-version: 1.0.0
+description: Search the web for real-time information using DuckDuckGo, Bing, or Google
+version: 1.1.0
 author: EncoreHub
 triggers:
   - "search for"
@@ -11,7 +11,7 @@ triggers:
   - "@web"
 tools:
   - name: web_search
-    description: Search the web using DuckDuckGo
+    description: Search the web (DuckDuckGo/Bing/Google)
     parameters:
       query:
         type: string
@@ -23,13 +23,18 @@ tools:
 
 # Web Search Skill
 
-Search the web for real-time information. Uses DuckDuckGo's Instant Answer API (free, no key required).
+Search the web for real-time information.
+
+Supported search providers:
+- **DuckDuckGo** — Instant Answer API (free, no key required)
+- **Bing** — Bing Web Search API v7 (requires `BING_SEARCH_API_KEY`)
+- **Google** — Google Custom Search JSON API (requires `GOOGLE_SEARCH_API_KEY` + `GOOGLE_CSE_CX`)
 
 ## Usage
 
-When the user asks to search for something, this skill queries DuckDuckGo and returns formatted results. Results include titles, URLs, and snippets.
+Toggle the web search button (🌐) in the chat input area, then select your preferred provider. When enabled, search results from the selected provider are injected into the AI's context before it generates a response.
 
 ## Example
 
 User: "search for Rust programming language"
-→ Returns Wikipedia abstract and related topics about Rust.
+→ Queries the selected search provider and returns formatted results (titles, URLs, snippets).

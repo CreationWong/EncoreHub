@@ -1,6 +1,7 @@
 import { apiFetch, buildHeaders } from "./api";
 import { API_BASE } from "./config";
 import type { Message } from "./conversation";
+import type { SearchProvider } from "../stores/settingsStore";
 
 interface ChatResponse {
 	conversation_id: string;
@@ -70,6 +71,8 @@ export const chatApi = {
 		convId: string,
 		content: string,
 		providerKey?: string,
+		search?: boolean,
+		searchProvider?: SearchProvider,
 	): Promise<ChatResponse> {
 		const headers: Record<string, string> = {};
 		if (providerKey) headers["X-Provider-Key"] = providerKey;
@@ -77,7 +80,10 @@ export const chatApi = {
 		return apiFetch<ChatResponse>(`/conversations/${convId}/chat`, {
 			method: "POST",
 			headers,
-			body: JSON.stringify({ content }),
+			body: JSON.stringify({
+				content,
+				...(search && { search: true, search_provider: searchProvider }),
+			}),
 		});
 	},
 
@@ -88,6 +94,8 @@ export const chatApi = {
 		providerKey: string | undefined,
 		callbacks: StreamCallbacks,
 		signal?: AbortSignal,
+		search?: boolean,
+		searchProvider?: SearchProvider,
 	): Promise<void> {
 		const extra: Record<string, string> = {};
 		if (providerKey) extra["X-Provider-Key"] = providerKey;
@@ -96,7 +104,11 @@ export const chatApi = {
 			const res = await fetch(`${API_BASE}/conversations/${convId}/chat`, {
 				method: "POST",
 				headers: buildHeaders(extra),
-				body: JSON.stringify({ content, stream: true }),
+				body: JSON.stringify({
+					content,
+					stream: true,
+					...(search && { search: true, search_provider: searchProvider }),
+				}),
 				signal,
 			});
 

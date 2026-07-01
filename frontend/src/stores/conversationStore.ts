@@ -150,8 +150,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			if (!convId) return;
 		}
 
-		// Get API key from settings
-		const { provider, apiKeys } = useSettingsStore.getState();
+		// Get API key + search settings
+		const { provider, apiKeys, searchEnabled, searchProvider } = useSettingsStore.getState();
 		const providerKey = provider ? apiKeys[provider] : undefined;
 
 		// Optimistic user message
@@ -271,6 +271,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				},
 			},
 			controller.signal,
+			searchEnabled,
+			searchProvider,
 		);
 
 		// If aborted mid-stream, finalize with what we have so the user keeps the

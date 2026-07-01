@@ -20,6 +20,7 @@ export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
 	const loadProviders = useProviderStore((s) => s.load);
 	const refreshSecrets = useSecretsStore((s) => s.refresh);
+	const loadKeys = useSettingsStore((s) => s.loadKeys);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
@@ -75,6 +76,7 @@ export default function App() {
 					loadList();
 					loadProviders();
 					refreshSecrets();
+					loadKeys();
 				}
 			} else {
 				attempts++;
@@ -83,7 +85,7 @@ export default function App() {
 		};
 
 		check();
-	}, [loadList, loadProviders, refreshSecrets]);
+	}, [loadList, loadProviders, refreshSecrets, loadKeys]);
 
 	// Splash screen while waiting for backend
 	if (checking) {

@@ -40,6 +40,13 @@ export const secretsApi = {
 		});
 	},
 
+	/** Fetch a single decrypted key. Requires unlock when in encrypted mode. */
+	getKey(providerId: string): Promise<{ key: string }> {
+		return apiFetch<{ key: string }>(
+			`/secrets/${encodeURIComponent(providerId)}`,
+		);
+	},
+
 	/** Remove a stored key. */
 	deleteKey(providerId: string): Promise<void> {
 		return apiFetch<void>(`/secrets/${encodeURIComponent(providerId)}`, {

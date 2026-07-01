@@ -129,6 +129,14 @@ fn clear_logs(state: State<ServiceState>) {
     state.logs.clear();
 }
 
+/// Open the webview's native DevTools (inspector). Available in release builds
+/// because the `devtools` Cargo feature is enabled; without it this method
+/// would only exist in debug builds.
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 fn main() {
     // Resolve the directory containing the executable. The engine's data dir,
     // skills, and the log mirror all live alongside it (e.g.
@@ -179,6 +187,7 @@ fn main() {
             get_service_status,
             get_logs,
             clear_logs,
+            open_devtools,
         ])
         .setup(move |app| {
             let (exe_dir, log_control) = startup.take().expect("setup runs once");

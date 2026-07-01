@@ -1,4 +1,4 @@
-import { Loader2, Send, Square } from "lucide-react";
+import { ChevronDown, Globe, Loader2, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	SLASH_COMMANDS,
@@ -6,18 +6,29 @@ import {
 	matchCommands,
 } from "../../commands/slash";
 import { useConversationStore } from "../../stores/conversationStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	useSettingsStore,
+	type SearchProvider,
+} from "../../stores/settingsStore";
 import SlashCommandMenu from "./SlashCommandMenu";
 
 const MAX_CHARS = 8000;
 const WARN_AT = 7000;
 
+const SEARCH_PROVIDERS: { value: SearchProvider; label: string }[] = [
+	{ value: "duckduckgo", label: "DuckDuckGo" },
+	{ value: "bing", label: "Bing" },
+	{ value: "google", label: "Google" },
+];
+
 export default function InputBox() {
 	const [input, setInput] = useState("");
 	const [menuIndex, setMenuIndex] = useState(0);
 	const [historyIdx, setHistoryIdx] = useState<number>(-1);
+	const [showProviderPicker, setShowProviderPicker] = useState(false);
 	const draftRef = useRef("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const pickerRef = useRef<HTMLDivElement>(null);
 	const sendMessage = useConversationStore((s) => s.sendMessage);
 	const stopStreaming = useConversationStore((s) => s.stopStreaming);
 	const streaming = useConversationStore((s) => s.streaming);
@@ -25,6 +36,10 @@ export default function InputBox() {
 	const messages = useConversationStore((s) => s.messages);
 	const pendingDraft = useConversationStore((s) => s.pendingDraft);
 	const clearDraft = useConversationStore((s) => s.clearDraft);
+	const searchEnabled = useSettingsStore((s) => s.searchEnabled);
+	const searchProvider = useSettingsStore((s) => s.searchProvider);
+	const setSearchEnabled = useSettingsStore((s) => s.setSearchEnabled);
+	const setSearchProvider = useSettingsStore((s) => s.setSearchProvider);
 
 	// External components (MemoryPanel "quote", future "edit-and-resend") push
 	// text into the input via store.setDraft. Pull it onto the local state and
@@ -71,6 +86,19 @@ export default function InputBox() {
 	useEffect(() => {
 		if (menuIndex >= slashMatches.length) setMenuIndex(0);
 	}, [slashMatches.length, menuIndex]);
+
+	// Close provider picker on outside click
+	useEffect(() => {
+		const handleClick = (e: MouseEvent) => {
+			if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+				setShowProviderPicker(false);
+			}
+		};
+		if (showProviderPicker) {
+			document.addEventListener("mousedown", handleClick);
+			return () => document.removeEventListener("mousedown", handleClick);
+		}
+	}, [showProviderPicker]);
 
 	const runCommand = useCallback(async (cmd: SlashCommand, args: string) => {
 		const ctx = {
@@ -217,6 +245,69 @@ export default function InputBox() {
 						>
 							{charCount}/{MAX_CHARS}
 						</span>
+					)}
+				</div>
+				{/* Search toggle + provider picker */}
+				<div className="relative flex items-center" ref={pickerRef}>
+					<button
+						type="button"
+						onClick={() => {
+							if (!streaming) setSearchEnabled(!searchEnabled);
+						}}
+						aria-label={
+							searchEnabled
+								? `Web search enabled (${searchProvider})`
+								: "Web search disabled"
+						}
+						title={
+							searchEnabled
+								? `Web search: ${searchProvider} — click to disable`
+								: "Enable web search"
+						}
+						className={`flex h-10 w-10 items-center justify-center rounded-l-xl border transition-colors ${
+							searchEnabled
+								? "border-accent bg-accent/10 text-accent"
+								: "border-border bg-surface-alt text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+						}`}
+					>
+						<Globe className={`h-4 w-4 ${searchEnabled ? "" : "opacity-40"}`} />
+					</button>
+					{searchEnabled && (
+						<button
+							type="button"
+							onClick={() => setShowProviderPicker(!showProviderPicker)}
+							aria-label="Change search provider"
+							title={`Current: ${searchProvider}`}
+							className={`-ml-px flex h-10 w-5 items-center justify-center rounded-r-xl border border-l-0 transition-colors ${
+								showProviderPicker
+									? "border-accent bg-accent/10 text-accent"
+									: "border-border bg-surface-alt text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+							}`}
+						>
+							<ChevronDown className="h-3 w-3" />
+						</button>
+					)}
+					{/* Provider dropdown */}
+					{showProviderPicker && searchEnabled && (
+						<div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-lg border border-border bg-surface p-1.5 shadow-lg">
+							{SEARCH_PROVIDERS.map((p) => (
+								<button
+									key={p.value}
+									type="button"
+									onClick={() => {
+										setSearchProvider(p.value);
+										setShowProviderPicker(false);
+									}}
+									className={`block w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
+										searchProvider === p.value
+											? "bg-accent/10 text-accent"
+											: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+									}`}
+								>
+									{p.label}
+								</button>
+							))}
+						</div>
 					)}
 				</div>
 				{streaming ? (

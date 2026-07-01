@@ -6,10 +6,16 @@ interface SecretsState {
 	encrypted: boolean;
 	/** Whether the session is currently unlocked (master key cached in engine). */
 	unlocked: boolean;
+	/**
+	 * Provider ids that have a key stored in the engine. Populated from
+	 * `secrets.list()`, which works regardless of lock state (it never decrypts),
+	 * so the UI can show a "key stored (encrypted)" indicator while locked.
+	 */
+	storedIds: string[];
 	loaded: boolean;
 	loading: boolean;
 
-	/** Refresh encryption/unlock state from the engine. */
+	/** Refresh encryption/unlock state (and stored-key ids) from the engine. */
 	refresh: () => Promise<void>;
 	/** Enable encryption with a new master password; seeds existing session keys. */
 	enable: (password: string, keys?: Record<string, string>) => Promise<void>;
@@ -28,6 +34,7 @@ interface SecretsState {
 export const useSecretsStore = create<SecretsState>((set, get) => ({
 	encrypted: false,
 	unlocked: false,
+	storedIds: [],
 	loaded: false,
 	loading: false,
 
@@ -35,9 +42,18 @@ export const useSecretsStore = create<SecretsState>((set, get) => ({
 		set({ loading: true });
 		try {
 			const s = await secretsApi.status();
+			// Which providers have a stored key — best-effort, keep previous on
+			// failure so a transient blip doesn't blank the indicators.
+			let storedIds = get().storedIds;
+			try {
+				storedIds = (await secretsApi.list()).provider_ids;
+			} catch {
+				/* keep previous */
+			}
 			set({
 				encrypted: s.encrypted,
 				unlocked: s.unlocked,
+				storedIds,
 				loaded: true,
 				loading: false,
 			});

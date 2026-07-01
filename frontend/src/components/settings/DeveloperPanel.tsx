@@ -1,4 +1,4 @@
-import { Download, Trash2 } from "lucide-react";
+import { Bug, Download, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type LogEntry,
@@ -266,6 +266,21 @@ export default function DeveloperPanel() {
 					/>
 					Follow
 				</label>
+				<button
+					type="button"
+					onClick={() =>
+						devtools.openDevtools().catch((err) => {
+							toast.error(
+								err instanceof Error ? err.message : "Failed to open DevTools",
+							);
+						})
+					}
+					aria-label="Open DevTools"
+					title="Open DevTools (inspector)"
+					className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+				>
+					<Bug className="h-4 w-4" />
+				</button>
 				<button
 					type="button"
 					onClick={exportLogs}
