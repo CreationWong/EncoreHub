@@ -1,101 +1,146 @@
-.PHONY: help install dev build test lint clean proto
+.PHONY: help install dev build test lint clean proto check dist
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
-	awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 # ===== Install =====
 install: install-frontend install-gateway install-engine install-data ## Install all dependencies
 
-install-frontend:
-	cd frontend && pnpm install
+install-frontend: ## pnpm install
+	cd frontend && pnpm install --frozen-lockfile
 
-install-gateway:
+install-gateway: ## go mod tidy
 	cd gateway && go mod tidy
 
-install-engine:
+install-engine: ## cargo fetch
 	cd engine && cargo fetch
 
-install-data:
+install-data: ## uv sync (Python)
 	cd data-services && uv sync
 
 # ===== Development =====
-dev: ## Start all services in development mode
+dev: ## Start all services (redis + engine + gateway + frontend in parallel)
 	@echo "Starting all services..."
-	docker-compose up -d redis
+	docker-compose up -d redis 2>/dev/null || true
 	$(MAKE) dev-engine & $(MAKE) dev-gateway & $(MAKE) dev-frontend & wait
 
-dev-frontend: ## Start frontend dev server
+dev-frontend: ## Vite dev server (port 1420)
 	cd frontend && pnpm dev
 
-dev-gateway: ## Start Go gateway
+dev-gateway: ## Go gateway (port 8080)
 	cd gateway && go run ./cmd/gateway
 
-dev-engine: ## Start Rust engine (standalone binary; the desktop app runs it in-process)
+dev-engine: ## Rust engine standalone binary (port 3000)
 	cd engine && cargo run --features standalone --bin encorehub-engine
 
-dev-data: ## Start Python data services
+dev-data: ## Python data-services (uvicorn)
 	cd data-services && uv run uvicorn src.main:app --reload
 
-# ===== Build =====
-build: build-engine build-gateway build-frontend ## Build all
+# ===== Fast check (no build artifacts) =====
+check: check-engine check-gateway check-frontend ## Static checks only (no compilation)
 
-build-frontend:
+check-engine: ## cargo check (fast, no codegen)
+	cd engine && cargo check
+
+check-gateway: ## go vet (fast, no binary)
+	cd gateway && go vet ./...
+
+check-frontend: ## tsc --noEmit
+	cd frontend && pnpm tsc --noEmit
+
+# ===== Build =====
+build: build-engine build-gateway build-frontend ## Build all (standalone engine binary)
+
+build-ci: ## CI build (engine + gateway concurrent, frontend)
+	@bash scripts/build.sh --parallel
+
+build-frontend: ## Vite production build → dist/
 	cd frontend && pnpm build
 
-build-gateway:
-	cd gateway && go build -o bin/gateway ./cmd/gateway
+build-gateway: ## Go binary → gateway/bin/
+	cd gateway && go build -trimpath -ldflags="-s -w" -o bin/gateway ./cmd/gateway
 
-build-engine: ## Build the standalone engine binaries (headless / sidecar use)
+build-engine: ## Standalone engine binary (headless/sidecar use)
 	cd engine && cargo build --release --features standalone
+
+# ===== Desktop app =====
+tauri-dev: ## Tauri desktop dev (engine runs in-process)
+	cd frontend && pnpm tauri dev
+
+tauri-build: ## Tauri desktop installer (.msi + .exe)
+	@powershell -NoProfile -File scripts/build.ps1 -Tauri
+
+tauri-build-win: ## Tauri installer (PowerShell)
+	@powershell -NoProfile -File scripts/build.ps1 -Tauri
+
+tauri-build-unix: ## Tauri installer (bash)
+	@bash scripts/build.sh --tauri
+
+dist: tauri-build ## Alias: build desktop installer
 
 # ===== Test =====
 test: test-engine test-gateway test-data test-frontend ## Run all tests
 
-test-frontend:
+test-frontend: ## Vitest
 	cd frontend && pnpm test
 
-test-gateway:
+test-gateway: ## go test ./...
 	cd gateway && go test ./...
 
-test-engine: ## Test the engine in both library and standalone modes
+test-engine: ## cargo test (lib + standalone)
 	cd engine && cargo test && cargo test --features standalone
 
-test-data:
+test-data: ## pytest (Python)
 	cd data-services && uv run pytest
 
 # ===== Lint =====
 lint: lint-frontend lint-gateway lint-engine lint-data ## Lint all
 
-lint-frontend:
+lint-frontend: ## Biome check
 	cd frontend && pnpm lint
 
-lint-gateway:
+lint-frontend-fix: ## Biome auto-fix
+	cd frontend && pnpm lint:fix
+
+lint-gateway: ## golangci-lint
 	cd gateway && golangci-lint run ./...
 
-lint-engine:
-	cd engine && cargo clippy -- -D warnings
+lint-engine: ## cargo clippy
+	cd engine && cargo clippy --all-targets --features standalone -- -D warnings
 
-lint-data:
+lint-data: ## ruff + mypy (Python)
 	cd data-services && uv run ruff check src/ && uv run mypy src/
 
-# ===== Code Generation =====
-proto: ## Generate protobuf code
-	buf generate
+fmt: ## Format all (Biome + cargo fmt + gofmt)
+	cd frontend && pnpm lint:fix
+	cd engine && cargo fmt
+	cd gateway && gofmt -w .
 
 # ===== Docker =====
-docker-up: ## Start all services via Docker
+docker-up: ## docker-compose up -d
 	docker-compose up -d
 
-docker-down: ## Stop all Docker services
+docker-down: ## docker-compose down
 	docker-compose down
 
-docker-logs: ## Tail Docker logs
+docker-logs: ## docker-compose logs -f
 	docker-compose logs -f
 
 # ===== Clean =====
-clean: ## Clean build artifacts
-	cargo clean
-	go clean -cache
-	rm -rf frontend/dist frontend/node_modules/.vite
+clean: ## Clean build artifacts (preserves cargo/gomodule caches)
+	cd engine && cargo clean
+	cd gateway && go clean -cache
+	rm -rf frontend/dist
+	rm -rf frontend/src-tauri/target/release/bundle
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+clean-all: clean ## Also clean dependency caches
+	rm -rf frontend/node_modules
+	rm -rf frontend/src-tauri/target
+	cd gateway && go clean -modcache
+	@echo "Run 'make install' to re-fetch everything."
+
+# ===== Proto =====
+proto: ## Generate protobuf stubs
+	buf generate
