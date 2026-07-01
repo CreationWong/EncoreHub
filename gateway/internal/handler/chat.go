@@ -244,7 +244,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Store assistant reply in engine
-	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil)
+	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
@@ -276,6 +276,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	var fullContent string
 	var fullReasoning string
+	var totalTokens int
 	agg := newToolCallAggregator()
 	flusher, _ := c.Writer.(http.Flusher)
 
@@ -314,6 +315,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				writeFrame("delta", map[string]string{"content": ev.Delta.Content})
 			}
 		case ev.Usage != nil:
+			totalTokens = ev.Usage.InputTokens + ev.Usage.OutputTokens
 			writeFrame("usage", map[string]int{
 				"input_tokens":  ev.Usage.InputTokens,
 				"output_tokens": ev.Usage.OutputTokens,
@@ -322,7 +324,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 
 	// Store assistant reply with reasoning + tool calls.
-	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, agg.toInputs())
+	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, agg.toInputs(), totalTokens)
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -380,7 +382,7 @@ func (a *toolCallAggregator) toInputs() []engine.ToolCallInput {
 
 func (h *ChatHandler) mockReply(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
 	reply := generateMockReply(req.Content)
-	h.storeAssistantMessage(convID, userMsgID, reply, "", nil)
+	h.storeAssistantMessage(convID, userMsgID, reply, "", nil, 0)
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
 		Reply:          reply,
@@ -412,7 +414,7 @@ func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string
 	}
 
 	// Store assistant reply
-	go h.storeAssistantMessage(convID, userMsgID, reply, "", nil)
+	go h.storeAssistantMessage(convID, userMsgID, reply, "", nil, 0)
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -431,13 +433,14 @@ func (h *ChatHandler) storeUserMessage(convID, content string) string {
 	return msg.ID
 }
 
-func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasoning string, toolCalls []engine.ToolCallInput) {
+func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasoning string, toolCalls []engine.ToolCallInput, tokenCount int) {
 	_, err := h.engine.AppendMessageFull(context.Background(), convID, engine.AppendMessageRequest{
-		Content:   content,
-		Role:      "assistant",
-		ParentID:  userMsgID,
-		Reasoning: reasoning,
-		ToolCalls: toolCalls,
+		Content:    content,
+		Role:       "assistant",
+		ParentID:   userMsgID,
+		Reasoning:  reasoning,
+		TokenCount: tokenCount,
+		ToolCalls:  toolCalls,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to store assistant message via engine")

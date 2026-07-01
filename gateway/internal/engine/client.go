@@ -43,11 +43,12 @@ type ConversationDetail struct {
 
 // Message represents a single message.
 type Message struct {
-	ID        string  `json:"id"`
-	Role      string  `json:"role"`
-	Content   string  `json:"content"`
-	ParentID  *string `json:"parent_id"`
-	CreatedAt string  `json:"created_at"`
+	ID         string  `json:"id"`
+	Role       string  `json:"role"`
+	Content    string  `json:"content"`
+	ParentID   *string `json:"parent_id"`
+	TokenCount int     `json:"token_count"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 // ToolCallInput is a tool call the gateway parsed from a provider stream,
@@ -145,11 +146,12 @@ func (c *Client) BaseURL() string {
 
 // AppendMessage stores a single message in the engine without auto-reply.
 type AppendMessageRequest struct {
-	Content   string          `json:"content"`
-	Role      string          `json:"role"`
-	ParentID  string          `json:"parent_id,omitempty"`
-	Reasoning string          `json:"reasoning,omitempty"`
-	ToolCalls []ToolCallInput `json:"tool_calls,omitempty"`
+	Content    string          `json:"content"`
+	Role       string          `json:"role"`
+	ParentID   string          `json:"parent_id,omitempty"`
+	Reasoning  string          `json:"reasoning,omitempty"`
+	TokenCount int             `json:"token_count,omitempty"`
+	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
 }
 
 func (c *Client) AppendMessage(ctx context.Context, convID, content, role, parentID string) (*Message, error) {
