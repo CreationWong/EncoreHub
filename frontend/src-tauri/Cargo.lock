@@ -874,6 +874,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "encorehub-conversation"
+version = "0.1.0"
+dependencies = [
+ "encorehub-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "encorehub-core"
 version = "0.1.0"
 dependencies = [
@@ -910,6 +920,7 @@ dependencies = [
  "argon2",
  "axum",
  "chrono",
+ "encorehub-conversation",
  "encorehub-core",
  "encorehub-skill",
  "encorehub-storage",
