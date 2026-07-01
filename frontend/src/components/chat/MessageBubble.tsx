@@ -183,6 +183,13 @@ function ToolCallCard({ call }: { call: ToolCall }) {
 	);
 }
 
+function tokenLabel(count: number): string {
+	if (count >= 1000) {
+		return `${(count / 1000).toFixed(1)}k tokens`;
+	}
+	return `${count} tokens`;
+}
+
 export default function MessageBubble({ message, isStreaming }: Props) {
 	const isUser = message.role === "user";
 	const isSystem = message.role === "system";
@@ -248,11 +255,18 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 			<div className="min-w-0 flex-1 pt-0.5">
 				<div className="mb-1 flex items-center justify-between">
 					<span className="text-xs font-medium text-text-muted">Assistant</span>
-					{!isStreaming && message.content && (
-						<div className="opacity-0 transition-opacity group-hover:opacity-100">
-							<CopyButton text={message.content} />
-						</div>
-					)}
+					<div className="flex items-center gap-2">
+						{message.token_count ? (
+							<span className="select-none text-[10px] text-text-muted/50 tabular-nums">
+								{tokenLabel(message.token_count)}
+							</span>
+						) : null}
+						{!isStreaming && message.content && (
+							<div className="opacity-0 transition-opacity group-hover:opacity-100">
+								<CopyButton text={message.content} />
+							</div>
+						)}
+					</div>
 				</div>
 				{message.reasoning && (
 					<ReasoningBlock

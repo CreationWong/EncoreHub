@@ -18,6 +18,8 @@ export interface Message {
 	reasoning?: string;
 	parent_id: string | null;
 	tool_calls: ToolCall[];
+	/** Total input+output tokens from the provider response. 0 if unknown. */
+	token_count?: number;
 	created_at: string;
 }
 

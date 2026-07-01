@@ -175,6 +175,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			abortController: controller,
 		});
 
+		let streamTokenCount = 0;
+
 		const finalize = (final: string) => {
 			const { streamingReasoning, streamingToolCalls } = get();
 			const toolCalls: ToolCall[] = streamingToolCalls
@@ -197,6 +199,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						reasoning: streamingReasoning || undefined,
 						parent_id: userMsg.id,
 						tool_calls: toolCalls,
+						token_count: streamTokenCount || undefined,
 						created_at: new Date().toISOString(),
 					},
 				],
@@ -252,6 +255,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 								: c,
 						),
 					}));
+				},
+				onUsage(input, output) {
+					streamTokenCount = input + output;
 				},
 				onDone(fullContent) {
 					finalize(fullContent || "(empty response)");
