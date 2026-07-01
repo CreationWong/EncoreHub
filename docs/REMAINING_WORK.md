@@ -5,6 +5,23 @@
 
 ---
 
+## ◆ 最近完成（2026-07-01）
+
+以下项在 master 分支已交付，代码+测试均通过：
+
+- [x] **API key 持久化**：key 始终存储到 engine DB（明文或 AES-256-GCM 加密）；前端启动/进供应商面板自动 `loadKeys`（带重试 + 退避）；旧 localStorage key 自动迁移
+- [x] **加密锁定态 key 显示**：供应商设置中加密+锁定时显示 `••••••••` 掩码 + `encrypted` 徽章，点眼睛图标弹内联密码框，解锁后显示明文
+- [x] **CORS 重复 header 修复**：gw engine proxy 跳过 engine 响应的 `Access-Control-*` 头，消除 `http://tauri.localhost, *` 双值导致浏览器拦截的问题
+- [x] **开发者面板 DevTools 按钮**：🐛 按钮直接打开 webview 原生检查器（`tauri` feature=`devtools`，release 构建可用）
+- [x] **ChatRequest 扩展**：统一格式新增 `TopP`/`FrequencyPenalty`/`PresencePenalty`/`Stop`/`Seed`/`JSONMode`/`ReasoningEffort`/`MaxCompletionTokens`/`TopK`/`ThinkingBudget`
+- [x] **OpenAI 适配器对齐**：`buildRequest()` 集中映射所有统一字段到 go-openai SDK
+- [x] **Anthropic 适配器对齐 Claude Messages API**：透传 `top_p`/`top_k`/`stop_sequences`/`thinking`；处理 `content_block_stop`/`ping` SSE 事件；收集全部 text content blocks
+- [x] **Chat handler 参数透传**：`SendMessageRequest` 支持全部新采样/推理参数
+- [x] **Claude API 参考文档**：`docs/claude API/` 5 个 Markdown 文件（Messages / Batch / Token Count / Models / Overview）
+- [x] **Conversation crate 骨架 + token 计数器**（阶段 6 2.1/2.2）：`engine/crates/conversation/` — `Usage` 结构体、`rough_token_count`（char/4 通用 + char/2 JSON）、`estimate_message_tokens`、`token_count_with_estimation`（API 用量 + 新消息估算）、`exceeds_token_limit`；16 个测试全部通过
+
+---
+
 ## 一、手动验收项（代码已完成，需桌面环境确认）
 
 这些项代码与自动化测试均已就位，仅需本地 `pnpm tauri dev` / `pnpm tauri build` 确认。
@@ -20,8 +37,8 @@
 
 > 目标：长对话不超 token。新建 `engine/crates/conversation/`。
 
-- [ ] **2.1** 建 crate 骨架（mod/context/token/compress），接入 workspace
-- [ ] **2.2** token 计数器：按模型近似（tiktoken-rs 或本地估算）
+- [x] **2.1** 建 crate 骨架（mod/context/token/compress），接入 workspace
+- [x] **2.2** token 计数器：按模型近似（本地估算 char/4，JSON char/2；Usage 追踪；含 16 个测试）
 - [ ] **2.3** 上下文构建器：给定对话 + token 上限，产出消息序列
 - [ ] **2.4** 滚动摘要：超限时旧消息压成 summary 存 `summaries` 表，保留近 N 轮原文
 - [ ] **2.5** 网关 chat 接入：用引擎上下文构建替换「全量历史」
@@ -63,7 +80,7 @@
 - [ ] **5.1** proto 决断：接入 `buf generate`，或移入 `docs/future/` 冻结
 - [ ] **5.2** 修正 blob 误标（已实现，更新 CLAUDE.md + 架构图）
 - [ ] **5.3** 架构图 RAG 能力校准（向量 + FTS5 混合）
-- [ ] **5.4** CLAUDE.md 更新：data-services 实际职责、engine crate 列表补 conversation、新增加密/开发者模式说明
+- [ ] **5.4** CLAUDE.md 更新：data-services 实际职责、engine crate 列表补 conversation、provider adapter 新字段文档
 
 ---
 
@@ -108,7 +125,8 @@
 - **data-services 打包**：Python 运行时纳入 Tauri 安装包复杂度高
 - **proto 漂移**：6 个 proto 维护却不生成，持续有分叉风险
 - **LanceDB 依赖**：arrow-rs 版本兼容性需验证
+- **Anthropic 适配器模型列表**：Anthropic 无 `/models` API，当前硬编码默认模型列表；需定期同步新模型或改用动态获取
 
 ---
 
-*最后更新：2026-06-29*
+*最后更新：2026-07-01*
