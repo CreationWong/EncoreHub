@@ -68,6 +68,7 @@ pub struct MessageResponse {
     pub reasoning: String,
     pub parent_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
+    pub token_count: i32,
     pub created_at: String,
 }
 
@@ -192,6 +193,7 @@ pub async fn get_one(
                 reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
+                token_count: m.token_count,
                 created_at: m.created_at.to_rfc3339(),
             }
         })
@@ -282,6 +284,7 @@ pub async fn get_messages(
                 reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
+                token_count: m.token_count,
                 created_at: m.created_at.to_rfc3339(),
             }
         })
@@ -298,6 +301,8 @@ pub struct AddMessageRequest {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub reasoning: String,
+    #[serde(default)]
+    pub token_count: i32,
     #[serde(default)]
     pub tool_calls: Vec<AddToolCall>,
 }
@@ -322,8 +327,9 @@ pub async fn add_message(
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
     let _conv = state.db.get_conversation(&conv_id).map_err(not_found)?;
     let role = Role::from_str(&req.role).unwrap_or(Role::User);
-    let msg =
+    let mut msg =
         Message::new(&conv_id, role, &req.content, req.parent_id).with_reasoning(&req.reasoning);
+    msg.token_count = req.token_count;
     state.db.append_message(&msg).map_err(internal_error)?;
 
     // Persist any tool calls the gateway parsed from the provider stream.
@@ -531,6 +537,7 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
                 status: tc.status.clone(),
             })
             .collect(),
+        token_count: msg.token_count,
         created_at: msg.created_at.to_rfc3339(),
     }
 }
