@@ -1,4 +1,4 @@
-import { API_BASE, AUTH_TOKEN } from "./config";
+import { apiBase, AUTH_TOKEN } from "./config";
 
 export class ApiError extends Error {
 	constructor(
@@ -29,7 +29,7 @@ export async function apiFetch<T>(
 	path: string,
 	options: RequestInit = {},
 ): Promise<T> {
-	const url = `${API_BASE}${path}`;
+	const url = `${apiBase()}${path}`;
 
 	const res = await fetch(url, {
 		...options,
@@ -52,4 +52,4 @@ export async function apiFetch<T>(
 	return res.json();
 }
 
-export { API_BASE, AUTH_TOKEN, buildHeaders };
+export { AUTH_TOKEN, buildHeaders };

@@ -1,5 +1,5 @@
 import { apiFetch, buildHeaders } from "./api";
-import { API_BASE } from "./config";
+import { apiBase } from "./config";
 import type { Message } from "./conversation";
 import type { SearchProvider } from "../stores/settingsStore";
 
@@ -101,7 +101,7 @@ export const chatApi = {
 		if (providerKey) extra["X-Provider-Key"] = providerKey;
 
 		try {
-			const res = await fetch(`${API_BASE}/conversations/${convId}/chat`, {
+			const res = await fetch(`${apiBase()}/conversations/${convId}/chat`, {
 				method: "POST",
 				headers: buildHeaders(extra),
 				body: JSON.stringify({

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Mock config so we can flip AUTH_TOKEN per test by re-importing the module.
 const mockConfig = vi.hoisted(() => ({
 	AUTH_TOKEN: "",
-	API_BASE: "http://test/api/v1",
+	apiBase: vi.fn(() => "http://test/api/v1"),
 }));
 
 vi.mock("./config", () => mockConfig);
@@ -11,6 +11,7 @@ vi.mock("./config", () => mockConfig);
 const fetchSpy = vi.fn();
 beforeEach(() => {
 	mockConfig.AUTH_TOKEN = "";
+	mockConfig.apiBase.mockReturnValue("http://test/api/v1");
 	fetchSpy.mockReset();
 	vi.stubGlobal("fetch", fetchSpy);
 });
@@ -20,7 +21,6 @@ afterEach(() => {
 });
 
 async function freshApi() {
-	// Re-import api.ts so it reads the current mockConfig.AUTH_TOKEN.
 	vi.resetModules();
 	return await import("./api");
 }
@@ -84,8 +84,6 @@ describe("apiFetch", () => {
 	});
 
 	it("throws ApiError with parsed json error message", async () => {
-		// Two mocks: one for the rejects.toMatchObject call, one for the
-		// instanceof assertion that follows.
 		const errResp = {
 			ok: false,
 			status: 401,

@@ -5,7 +5,8 @@ import SettingsModal from "./components/settings/SettingsModal";
 import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
 import ToastHost from "./components/ui/ToastHost";
-import { HEALTH_GATEWAY } from "./services/config";
+import { applyServicePorts, healthGatewayUrl } from "./services/config";
+import { inTauri } from "./services/devtools";
 import { useConversationStore } from "./stores/conversationStore";
 import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
@@ -40,6 +41,34 @@ export default function App() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, [openSettings]);
 
+	// Resolve service ports. In Tauri they are negotiated at startup; in dev mode
+	// they come from Vite env vars (or the hardcoded defaults).
+	useEffect(() => {
+		let cancelled = false;
+
+		async function resolvePorts() {
+			if (inTauri()) {
+				try {
+					// Dynamic import so Vite doesn't bundle @tauri-apps/api in the web build.
+					const { invoke } = await import("@tauri-apps/api/core");
+					const ports = await invoke<{ engine_port: number; gateway_port: number }>(
+						"get_service_ports",
+					);
+					if (!cancelled) {
+						applyServicePorts(ports.gateway_port, ports.engine_port);
+					}
+				} catch (e) {
+					console.warn("Failed to resolve Tauri ports, using defaults:", e);
+				}
+			}
+			// In non-Tauri mode (dev), VITE_GATEWAY_URL / VITE_ENGINE_URL env vars
+			// are already baked into the defaults — no action needed.
+		}
+
+		resolvePorts();
+		return () => { cancelled = true; };
+	}, []);
+
 	// Poll backend health on startup
 	useEffect(() => {
 		let attempts = 0;
@@ -55,7 +84,7 @@ export default function App() {
 			// port directly — a direct fetch to :3000 from the packaged webview is
 			// unreliable, and gating the splash on it can hang startup forever.
 			try {
-				const res = await fetch(HEALTH_GATEWAY);
+				const res = await fetch(healthGatewayUrl());
 				gatewayOk = res.ok;
 				if (res.ok) {
 					const body = await res.json().catch(() => null);
