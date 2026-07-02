@@ -239,12 +239,12 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Store assistant reply in engine
 	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
 
-	// Collect concurrently-generated title.
+	// Collect concurrently-generated title (block up to 5 s).
 	select {
-	case title := <-titleCh:
-		// Title ready — include in response.
-		_ = title // sent via SSE not available in non-streaming; frontend fallback handles it.
-	default:
+	case <-titleCh:
+		// Title generated and persisted by generateTitleSync; frontend will
+		// pick it up on next loadList.
+	case <-time.After(5 * time.Second):
 		go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
 	}
 
@@ -458,16 +458,17 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	// Store assistant message (fire-and-forget).
 	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
 
-	// Collect concurrently-generated title. The title goroutine was started
-	// before the chat loop so it ran in parallel with streaming.
+	// Wait for the concurrently-generated title (started before the chat loop).
+	// Block up to 5 s — the title AI call runs in parallel with streaming so it
+	// is almost always ready by the time we get here.
 	select {
 	case title := <-titleCh:
 		c.SSEvent("title_update", map[string]string{
 			"conversation_id": convID,
 			"title":          title,
 		})
-	default:
-		// Title not ready yet — background will handle it.
+	case <-time.After(5 * time.Second):
+		// Title took too long — let the background goroutine finish it.
 		go h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
 	}
 
