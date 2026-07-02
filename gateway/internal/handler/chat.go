@@ -221,7 +221,14 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Non-streaming
+	// Non-streaming — start title generation concurrently with the chat call.
+	titleCh := make(chan string, 1)
+	go func() {
+		if t, err := h.generateTitleSync(context.Background(), convID, req.Provider, req.Model, apiKey); err == nil {
+			titleCh <- t
+		}
+	}()
+
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
 	if err != nil {
 		log.Error().Err(err).Msg("provider chat failed")
@@ -232,21 +239,14 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Store assistant reply in engine
 	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
 
-	// Auto-generate title for first exchange (immediate + background for robustness).
-	go func() {
-		// Try to generate title immediately for feedback
-		title, err := h.generateTitleSync(context.Background(), convID, req.Provider, req.Model, apiKey)
-		if err == nil {
-			// Send title update via SSE for real-time UI update
-			c.SSEvent("title_update", map[string]string{
-				"conversation_id": convID,
-				"title":          title,
-			})
-		} else {
-			// Fallback to background generation if immediate fails
-			go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
-		}
-	}()
+	// Collect concurrently-generated title.
+	select {
+	case title := <-titleCh:
+		// Title ready — include in response.
+		_ = title // sent via SSE not available in non-streaming; frontend fallback handles it.
+	default:
+		go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+	}
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
@@ -336,6 +336,16 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	var err error
 	cr := req // start with the original request
+
+	// Start concurrent title generation — runs in parallel with the chat
+	// streaming so the title is ready (or nearly ready) by the time the
+	// reply finishes.
+	titleCh := make(chan string, 1)
+	go func() {
+		if t, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey); err == nil {
+			titleCh <- t
+		}
+	}()
 
 	for round := 0; round < maxToolRounds; round++ {
 		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr, round)
@@ -445,22 +455,21 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		cr = nextReq
 	}
 
-	// Store assistant reply + auto-generate title (immediate + background for robustness).
-	go func() {
-		h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
-		// Try to generate title immediately for feedback
-		title, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey)
-		if err == nil {
-			// Send title update via SSE for real-time UI update
-			c.SSEvent("title_update", map[string]string{
-				"conversation_id": convID,
-				"title":          title,
-			})
-		} else {
-			// Fallback to background generation if immediate fails
-			h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
-		}
-	}()
+	// Store assistant message (fire-and-forget).
+	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
+
+	// Collect concurrently-generated title. The title goroutine was started
+	// before the chat loop so it ran in parallel with streaming.
+	select {
+	case title := <-titleCh:
+		c.SSEvent("title_update", map[string]string{
+			"conversation_id": convID,
+			"title":          title,
+		})
+	default:
+		// Title not ready yet — background will handle it.
+		go h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+	}
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -876,11 +885,9 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 		log.Debug().Str("raw", chatResp.Content).Msg("auto-title: model returned empty title after cleaning, using fallback")
 		// Fallback: use truncated first user message.
 		title = firstUserMsg
-		if len(title) > 20 {
-			title = title[:20]
-		}
+		title = truncateRunes(title, 20)
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
-		title = strings.Trim(title, "\"'`*#_-–—")
+		title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，…")
 	}
 	if title == "" {
 		return
@@ -940,9 +947,8 @@ func cleanGeneratedTitle(raw string) string {
 
 	// Extract first line (models sometimes append commentary).
 	if idx := strings.IndexByte(title, '\n'); idx != -1 {
-		title = title[:idx]
+		title = strings.TrimSpace(title[:idx])
 	}
-	title = strings.TrimSpace(title)
 
 	// Strip common prefixes models sometimes emit.
 	for _, prefix := range []string{
@@ -964,14 +970,24 @@ func cleanGeneratedTitle(raw string) string {
 	title = stripBalanced(title, '』')
 	title = stripBalanced(title, '【')
 	title = stripBalanced(title, '】')
-	title = stripBalanced(title, '*')  // single asterisks (not bold markers)
-	title = strings.Trim(title, "\"'`*#_-–—")
+	title = stripBalanced(title, '*') // single asterisks (not bold markers)
+
+	// Strip leading/trailing punctuation and whitespace (including full-width).
+	title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，… \t\r\n")
 
 	title = strings.TrimSpace(title)
-	if len(title) > 100 {
-		title = title[:100]
-	}
+	// Rune-safe truncation (must not slice mid-char for CJK).
+	title = truncateRunes(title, 100)
 	return title
+}
+
+// truncateRunes truncates s to at most max runes without splitting multi-byte chars.
+func truncateRunes(s string, max int) string {
+	rs := []rune(s)
+	if len(rs) <= max {
+		return s
+	}
+	return string(rs[:max])
 }
 
 // stripBalanced removes c from both ends of s when both ends have it.
@@ -1037,11 +1053,9 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 	if title == "" {
 		// Fallback: use truncated first user message.
 		title = firstUserMsg
-		if len(title) > 20 {
-			title = title[:20]
-		}
+		title = truncateRunes(title, 20)
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
-		title = strings.Trim(title, "\"'`*#_-–—")
+		title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，…")
 	}
 	if title == "" {
 		return "", fmt.Errorf("generated title is empty")
@@ -1135,9 +1149,7 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 		log.Debug().Str("raw", chatResp.Content).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
 		// Fallback: use truncated first user message as title.
 		title = firstUserMsg
-		if len(title) > 20 {
-			title = title[:20]
-		}
+		title = truncateRunes(title, 20)
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
 		title = strings.Trim(title, "\"'`*#_-–—")
 	}
