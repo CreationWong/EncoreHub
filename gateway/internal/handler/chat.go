@@ -873,6 +873,16 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 
 	title := cleanGeneratedTitle(chatResp.Content)
 	if title == "" {
+		log.Debug().Str("raw", chatResp.Content).Msg("auto-title: model returned empty title after cleaning, using fallback")
+		// Fallback: use truncated first user message.
+		title = firstUserMsg
+		if len(title) > 50 {
+			title = title[:50]
+		}
+		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
+		title = strings.Trim(title, "\"'`*#_-–—")
+	}
+	if title == "" {
 		return
 	}
 
@@ -924,18 +934,56 @@ func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, co
 	return nil
 }
 
-// cleanGeneratedTitle strips quotes, extracts the first line, and caps length.
+// cleanGeneratedTitle strips formatting noise from an AI-generated title.
 func cleanGeneratedTitle(raw string) string {
 	title := strings.TrimSpace(raw)
-	title = strings.Trim(title, "\"'`*#")
+
+	// Extract first line (models sometimes append commentary).
 	if idx := strings.IndexByte(title, '\n'); idx != -1 {
 		title = title[:idx]
 	}
+	title = strings.TrimSpace(title)
+
+	// Strip common prefixes models sometimes emit.
+	for _, prefix := range []string{
+		"Title:", "title:", "标题：", "标题:",
+		"Here is a title:", "Sure,",
+	} {
+		if after, ok := strings.CutPrefix(title, prefix); ok {
+			title = strings.TrimSpace(after)
+			break
+		}
+	}
+
+	// Strip balanced surrounding quotes / brackets / asterisks.
+	title = stripBalanced(title, '"')
+	title = stripBalanced(title, '\'')
+	title = stripBalanced(title, '「')
+	title = stripBalanced(title, '」')
+	title = stripBalanced(title, '『')
+	title = stripBalanced(title, '』')
+	title = stripBalanced(title, '【')
+	title = stripBalanced(title, '】')
+	title = stripBalanced(title, '*')  // single asterisks (not bold markers)
+	title = strings.Trim(title, "\"'`*#_-–—")
+
 	title = strings.TrimSpace(title)
 	if len(title) > 100 {
 		title = title[:100]
 	}
 	return title
+}
+
+// stripBalanced removes c from both ends of s when both ends have it.
+func stripBalanced(s string, c rune) string {
+	rs := []rune(s)
+	if len(rs) < 2 {
+		return s
+	}
+	if rs[0] == c && rs[len(rs)-1] == c {
+		return strings.TrimSpace(string(rs[1 : len(rs)-1]))
+	}
+	return s
 }
 
 // generateTitleSync calls the AI provider synchronously to produce a title
@@ -986,6 +1034,15 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 	}
 
 	title := cleanGeneratedTitle(chatResp.Content)
+	if title == "" {
+		// Fallback: use truncated first user message.
+		title = firstUserMsg
+		if len(title) > 50 {
+			title = title[:50]
+		}
+		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
+		title = strings.Trim(title, "\"'`*#_-–—")
+	}
 	if title == "" {
 		return "", fmt.Errorf("generated title is empty")
 	}
@@ -1074,6 +1131,16 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 	}
 
 	title := cleanGeneratedTitle(chatResp.Content)
+	if title == "" {
+		log.Debug().Str("raw", chatResp.Content).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
+		// Fallback: use truncated first user message as title.
+		title = firstUserMsg
+		if len(title) > 50 {
+			title = title[:50]
+		}
+		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
+		title = strings.Trim(title, "\"'`*#_-–—")
+	}
 	if title == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "generated empty title"})
 		return
