@@ -223,15 +223,6 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Phase 1: Immediate title from first user message (no AI call).
-	if conv, err := h.engine.GetConversation(ctx, convID); err == nil && isDefaultTitle(conv.Title) {
-		if t := fallbackTitle(req.Content); t != "" {
-			if _, err := h.engine.RenameConversation(ctx, convID, t); err != nil {
-				log.Debug().Err(err).Str("conv_id", convID).Msg("immediate title rename failed")
-			}
-		}
-	}
-
 	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
 	go func() {
 		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
@@ -352,20 +343,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var err error
 	cr := req // start with the original request
 
-	// Phase 1: Immediate title from first user message (no AI call).
-	// Gives instant feedback before AI title (Phase 2) refines it.
-	if conv, err := h.engine.GetConversation(ctx, convID); err == nil && isDefaultTitle(conv.Title) {
-		if t := fallbackTitle(lastUserContent(req)); t != "" {
-			if _, err := h.engine.RenameConversation(ctx, convID, t); err == nil {
-				writeFrame("title_update", map[string]string{
-					"conversation_id": convID,
-					"title":           t,
-				})
-			}
-		}
-	}
-
-	// Phase 2: AI-refined title (runs concurrently with streaming).
+	// AI-refined title (runs concurrently with streaming).
 	// Only fires once per conversation (guarded by h.titleGenerated).
 	go func() {
 		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
@@ -1156,10 +1134,6 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 	conv, err := h.engine.GetConversation(ctx, convID)
 	if err != nil {
 		return "", err
-	}
-	// Only auto-generate for conversations still using the default title.
-	if conv.Title != "New Chat" {
-		return "", fmt.Errorf("conversation already has a title")
 	}
 	// Find the first user message.
 	var firstUserMsg string
