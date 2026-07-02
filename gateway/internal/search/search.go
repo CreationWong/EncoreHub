@@ -1,7 +1,7 @@
 // Package search provides web search capabilities.
 //
 // Supports multiple search backends:
-// - DuckDuckGo Instant Answer API (free, no API key)
+// - DuckDuckGo HTML search (free, no API key; scrapes html.duckduckgo.com)
 // - Bing Web Search API v7 (requires BING_SEARCH_API_KEY)
 // - Google Custom Search JSON API (requires GOOGLE_SEARCH_API_KEY + GOOGLE_CSE_CX)
 //
@@ -12,10 +12,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 // Result represents a single search result.
@@ -87,7 +91,10 @@ func WithGoogleCSEcx(cx string) ProviderOption {
 // DuckDuckGo provider
 // ============================================================
 
-// DuckDuckGo provider using the free Instant Answer API.
+// DuckDuckGo provider using the no-JS HTML search endpoint.
+// The Instant Answer API (api.duckduckgo.com) only returns encyclopedic
+// data (Wikipedia abstracts) and is empty for real-time/news queries.
+// The HTML endpoint returns actual web search results.
 type DuckDuckGo struct {
 	client *http.Client
 }
@@ -98,15 +105,61 @@ func NewDuckDuckGo() *DuckDuckGo {
 
 func (d *DuckDuckGo) Name() string { return "duckduckgo" }
 
+// ddgRedirectRx matches DuckDuckGo redirect URLs like:
+//
+//	//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=...
+var ddgRedirectRx = regexp.MustCompile(`[?&]uddg=([^&]+)`)
+
+// extractURL decodes a DuckDuckGo redirect URL to the real target URL.
+func extractURL(raw string) string {
+	m := ddgRedirectRx.FindStringSubmatch(raw)
+	if len(m) < 2 {
+		return raw
+	}
+	decoded, err := url.QueryUnescape(m[1])
+	if err != nil {
+		return raw
+	}
+	return decoded
+}
+
+// stripTags removes HTML tags and common entities from s.
+func stripTags(s string) string {
+	// Quick path: if there are no angle brackets, just decode entities.
+	if !strings.ContainsAny(s, "<>") {
+		return html.UnescapeString(strings.TrimSpace(s))
+	}
+	var b strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		default:
+			if !inTag {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return html.UnescapeString(strings.TrimSpace(b.String()))
+}
+
+// collapseWS replaces consecutive whitespace (including newlines) with a single space.
+func collapseWS(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
-	apiURL := fmt.Sprintf("https://api.duckduckgo.com/?q=%s&format=json&no_html=1&skip_disambig=1",
+	apiURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s",
 		url.QueryEscape(query))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "EncoreHub/0.1")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -114,51 +167,151 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 	}
 	defer resp.Body.Close()
 
-	var data struct {
-		AbstractText   string `json:"AbstractText"`
-		AbstractURL    string `json:"AbstractURL"`
-		AbstractSource string `json:"AbstractSource"`
-		Heading        string `json:"Heading"`
-		RelatedTopics  []struct {
-			Text     string `json:"Text"`
-			FirstURL string `json:"FirstURL"`
-		} `json:"RelatedTopics"`
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("duckduckgo read: %w", err)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("duckduckgo decode: %w", err)
-	}
-
-	results := make([]Result, 0, maxResults)
-
-	// Main abstract
-	if data.AbstractText != "" {
-		results = append(results, Result{
-			Title:   data.Heading,
-			URL:     data.AbstractURL,
-			Snippet: data.AbstractText,
-		})
-	}
-
-	// Related topics
-	for _, topic := range data.RelatedTopics {
-		if len(results) >= maxResults {
-			break
-		}
-		if topic.Text != "" && topic.FirstURL != "" {
-			results = append(results, Result{
-				Title:   "",
-				URL:     topic.FirstURL,
-				Snippet: topic.Text,
-			})
-		}
-	}
+	results := parseDDGHTML(string(body), maxResults)
 
 	return &SearchResponse{
 		Results:  results,
 		Provider: "duckduckgo",
 		Query:    query,
 	}, nil
+}
+
+// parseDDGHTML extracts search results from the DuckDuckGo HTML page.
+//
+// The HTML uses CSS classes: result__title (h2 > a), result__snippet (a),
+// result__url (a). Each result block is a div.result__body containing all
+// three. We parse the token stream and track state with a small FSM.
+func parseDDGHTML(raw string, maxResults int) []Result {
+	doc, err := html.Parse(strings.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+
+	type state int
+	const (
+		stIdle state = iota
+		stInBody    // inside a div.result__body
+		stInTitle   // inside h2.result__title
+		stInSnippet // inside a.result__snippet
+	)
+
+	results := make([]Result, 0, maxResults)
+	var cur Result
+	var s state
+	var titleDepth int
+
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		if len(results) >= maxResults {
+			return
+		}
+		if n.Type == html.ElementNode {
+			classes := attrVal(n, "class")
+
+			switch {
+			case n.Data == "div" && strings.Contains(classes, "result__body"):
+				// Start of a new result block.
+				if cur.URL != "" || cur.Snippet != "" {
+					results = append(results, cur)
+				}
+				cur = Result{}
+				s = stInBody
+
+			case n.Data == "h2" && strings.Contains(classes, "result__title"):
+				s = stInTitle
+				titleDepth = 0
+
+			case n.Data == "a" && strings.Contains(classes, "result__a") && s == stInTitle:
+				// Title link — capture URL from the href.
+				href := attrVal(n, "href")
+				if cur.URL == "" && href != "" {
+					cur.URL = extractURL(href)
+				}
+
+			case n.Data == "a" && strings.Contains(classes, "result__snippet"):
+				if s == stInBody || s == stInTitle {
+					href := attrVal(n, "href")
+					if cur.URL == "" && href != "" {
+						cur.URL = extractURL(href)
+					}
+					s = stInSnippet
+				}
+
+			case n.Data == "a" && strings.Contains(classes, "result__url"):
+				if cur.URL == "" {
+					href := attrVal(n, "href")
+					if href != "" {
+						cur.URL = extractURL(href)
+					}
+				}
+			}
+		}
+
+		if n.Type == html.TextNode {
+			text := collapseWS(stripTags(n.Data))
+			switch s {
+			case stInTitle:
+				if text != "" {
+					if cur.Title != "" {
+						cur.Title += " "
+					}
+					cur.Title += text
+					titleDepth++
+				}
+			case stInSnippet:
+				if text != "" {
+					if cur.Snippet != "" {
+						cur.Snippet += " "
+					}
+					cur.Snippet += text
+				}
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+
+		// When leaving a tracked element, drop back to the parent state.
+		if n.Type == html.ElementNode {
+			classes := attrVal(n, "class")
+			if n.Data == "h2" && strings.Contains(classes, "result__title") {
+				s = stInBody
+			}
+			if n.Data == "a" && strings.Contains(classes, "result__snippet") {
+				s = stInBody
+			}
+		}
+	}
+
+	walk(doc)
+
+	// Flush the last result.
+	if cur.URL != "" || cur.Snippet != "" {
+		results = append(results, cur)
+	}
+
+	// Truncate to maxResults.
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+
+	return results
+}
+
+// attrVal returns the value of the named attribute on n, or "".
+func attrVal(n *html.Node, name string) string {
+	for _, a := range n.Attr {
+		if a.Key == name {
+			return a.Val
+		}
+	}
+	return ""
 }
 
 // ============================================================

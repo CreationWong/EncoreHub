@@ -26,7 +26,7 @@ tools:
 Search the web for real-time information.
 
 Supported search providers:
-- **DuckDuckGo** — Instant Answer API (free, no key required)
+- **DuckDuckGo** — HTML web search (free, no key required; scrapes html.duckduckgo.com)
 - **Bing** — Bing Web Search API v7 (requires `BING_SEARCH_API_KEY`)
 - **Google** — Google Custom Search JSON API (requires `GOOGLE_SEARCH_API_KEY` + `GOOGLE_CSE_CX`)
 
