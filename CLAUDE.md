@@ -161,7 +161,7 @@ All AI providers implement the `provider.Adapter` interface (`gateway/internal/p
 
 Concrete adapters live in `gateway/internal/provider/{openai,anthropic,deepseek}/`. The `provider.Registry` maps provider IDs to adapters.
 
-The unified `ChatRequest` type includes: `Model`, `Messages`, `Stream`, `MaxTokens`, `MaxCompletionTokens`, `Temperature`, `TopP`, `FrequencyPenalty`, `PresencePenalty`, `Stop`, `Seed`, `SystemPrompt`, `JSONMode`, `ReasoningEffort`, `TopK`, `ThinkingBudget`. Each adapter's `buildRequest()` maps these to provider-native fields.
+The unified `ChatRequest` type includes: `Model`, `Messages`, `Stream`, `MaxTokens`, `MaxCompletionTokens`, `Temperature`, `TopP`, `FrequencyPenalty`, `PresencePenalty`, `Stop`, `Seed`, `SystemPrompt`, `JSONMode`, `ReasoningEffort`, `TopK`, `ThinkingBudget`, `Tools` (function tool definitions for model-invokable actions, e.g. `web_search`). Each adapter's `buildRequest()` maps these to provider-native fields.
 
 ### Engine Proxy
 
@@ -180,12 +180,24 @@ Gateway proxies `/api/v1/{skills,memories,knowledge}/*` transparently to the Rus
    - `Usage` struct with `input_tokens`/`output_tokens`/`cache_*` and `total()`
 3. **Frontend** `conversationStore.sendMessage()` wires `onUsage` callback, sums input+output, and stores `token_count` on the optimistic assistant message. `MessageBubble` renders the count (e.g. `1.2k tokens` in muted text) next to the "Assistant" label.
 
+### Web Search Flow (Tool-based)
+
+When the user toggles search on (globe icon in the input box):
+
+1. **Gateway** registers a `web_search` function tool on the provider request. The model decides when — and with what query — to invoke it.
+2. The provider adapter passes tools via `ChatRequest.Tools` → `go-openai` SDK. The adapter's `toOpenAITools()` maps `provider.Tool` → `goopenai.Tool`, passing `FunctionDefinition.Parameters` as `map[string]any` (**never** `[]byte` — `encoding/json` base64-encodes `[]byte` and providers reject it).
+3. **Model returns tool_calls** → gateway's `providerStream()` loop intercepts `web_search`, executes it via `executeWebSearch()` (DuckDuckGo HTML scraping by default; Bing/Google require env API keys, fall back to DuckDuckGo with a warning SSE event), formats results, builds a follow-up request via `cloneRequestForNextRound()` that appends an assistant message (with `ToolCalls`) and a tool message (with `ToolCallID`), then calls the model again (max 3 rounds).
+4. **Frontend** receives `tool_call` and `tool_result` SSE events → `conversationStore` tracks `streamingToolCalls` → rendered in `MessageBubble.ToolCallCard` (collapsed by default, click to expand). The `warning` SSE event triggers `toast.warning()`.
+5. Search providers live in `gateway/internal/search/`. DuckDuckGo uses `html.duckduckgo.com` (no-JS version, parsed with `golang.org/x/net/html`). The Instant Answer API (`api.duckduckgo.com`) is **not used** — it only returns Wikipedia abstracts, not web results.
+
 ### Frontend State (Zustand)
 
 - `conversationStore` — active conversation, message list, streaming state (content + reasoning + tool calls), `streamTokenCount` capture, optimistic updates with rollback on failure
-- `settingsStore` — provider selection, API keys (session-memory only, not persisted to localStorage by default), settings modal tab; `loadKeys()` loads from engine secrets DB with retry/backoff
+- `settingsStore` — provider selection, API keys (session-memory only, not persisted to localStorage by default), settings modal tab; `searchEnabled`/`searchProvider` toggle; `loadKeys()` loads from engine secrets DB with retry/backoff
 - `secretsStore` — encryption status (`enabled`/`locked`/`unlocked`), `storedIds` from `list()` (works while locked), `unlock(password)` for inline decryption
 - `providerStore` — custom provider profiles (CRUD via engine config API)
+- `confirmStore` — promise-based confirmation dialog (`confirm.ask(title, msg, danger?)`); replaces all browser `window.confirm()` calls
+- `toastStore` — 4 kinds: `success` / `error` / `info` / `warning`; imperative `toast.*()` helpers
 
 ### Slash Command System
 

@@ -90,7 +90,7 @@ cd frontend && pnpm install && pnpm dev
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
-- **DuckDuckGo 网搜**：请求体加 `"search": true`
+- **联网搜索**：点击输入框地球图标开启后，模型获得 `web_search` 工具，可主动搜索网页（DuckDuckGo/Bing/Google）。搜索结果作为 tool result 返回模型，模型引用来源生成回复
 
 ## 仓库导航
 
