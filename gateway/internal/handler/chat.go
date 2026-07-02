@@ -189,7 +189,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		chatReq = cr
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 115*time.Second)
 	defer cancel()
 
 	// Step 4: If no API key, refuse — unless ENCOREHUB_DEV_MOCK is set,
@@ -871,7 +871,7 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       true,
+		Stream:       false,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -880,13 +880,16 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 		},
 	}
 
-	bgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	// Stream so we accumulate only the final Content and skip reasoning.
-	raw, err := generateTitleText(bgCtx, adapter, titleReq, apiKey)
+	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
 	if err != nil {
 		return
+	}
+	raw := chatResp.Content
+	if raw == "" {
+		raw = chatResp.ReasoningContent
 	}
 
 	title := cleanGeneratedTitle(raw)
@@ -1073,37 +1076,8 @@ func fallbackTitle(userMsg string) string {
 	return s
 }
 
-// generateTitleText calls the provider in STREAMING mode and accumulates ONLY
-// the final answer (delta.Content), discarding any reasoning/thinking output.
-// Reasoning models (e.g. deepseek-v4-flash) emit the chain-of-thought in
-// ReasoningContent and the actual answer in Content afterwards — using the
-// non-streaming Chat() call can surface the thinking as the title. Streaming
-// lets us ignore the thinking entirely.
-func generateTitleText(ctx context.Context, adapter provider.Adapter, req *provider.ChatRequest, apiKey string) (string, error) {
-	events, err := adapter.ChatStream(ctx, req, apiKey)
-	if err != nil {
-		return "", err
-	}
-	var content strings.Builder
-	for ev := range events {
-		if ev.Error != nil {
-			return "", ev.Error
-		}
-		// Intentionally ignore ev.Reasoning — that is the thinking trace,
-		// not the title. Only the final Content deltas carry the answer.
-		if ev.Delta != nil && ev.Delta.Content != "" {
-			content.WriteString(ev.Delta.Content)
-		}
-	}
-	raw := content.String()
-	if raw == "" {
-		log.Warn().Str("model", req.Model).Msg("generate-title: streaming returned empty content")
-	}
-	return raw, nil
-}
-
-// generateTitleSync calls the AI provider synchronously to produce a title
-// and returns the generated title. For use with immediate feedback.
+// generateTitleSync calls the AI provider (non-streaming) to produce a short
+// title from the first user message, then persists it.
 func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerName, model, apiKey string) (string, error) {
 	conv, err := h.engine.GetConversation(ctx, convID)
 	if err != nil {
@@ -1128,7 +1102,7 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       true,
+		Stream:       false,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -1137,11 +1111,10 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 		},
 	}
 
-	bgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	// Stream so we accumulate only the final Content and skip reasoning.
-	raw, err := generateTitleText(bgCtx, adapter, titleReq, apiKey)
+	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
 	if err != nil {
 		log.Debug().Err(err).Str("conv_id", convID).Msg("generate-title AI call failed")
 		title := fallbackTitle(firstUserMsg)
@@ -1151,7 +1124,12 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 		return title, nil
 	}
 
+	raw := chatResp.Content
+	if raw == "" {
+		raw = chatResp.ReasoningContent
+	}
 	log.Debug().Str("conv_id", convID).Str("raw", raw).Msg("generate-title raw output")
+
 	title := cleanGeneratedTitle(raw)
 	if title == "" {
 		log.Debug().Str("conv_id", convID).Str("raw", raw).Msg("generate-title: cleaned to empty, using fallback")
@@ -1225,7 +1203,7 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       true,
+		Stream:       false,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -1236,13 +1214,15 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
-
-	// Stream so we accumulate only the final Content and skip reasoning.
-	raw, err := generateTitleText(ctx, adapter, titleReq, apiKey)
+	chatResp, err := adapter.Chat(ctx, titleReq, apiKey)
 	if err != nil {
 		log.Error().Err(err).Msg("generate-title provider call failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("provider error: %v", err)})
 		return
+	}
+	raw := chatResp.Content
+	if raw == "" {
+		raw = chatResp.ReasoningContent
 	}
 
 	title := cleanGeneratedTitle(raw)

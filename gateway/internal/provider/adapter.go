@@ -75,11 +75,12 @@ type ChatRequest struct {
 
 // ChatResponse is the unified (non-streaming) response.
 type ChatResponse struct {
-	Content      string `json:"content"`
-	FinishReason string `json:"finish_reason"`
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	Model        string `json:"model"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	FinishReason     string `json:"finish_reason"`
+	InputTokens      int    `json:"input_tokens"`
+	OutputTokens     int    `json:"output_tokens"`
+	Model            string `json:"model"`
 }
 
 // DeltaEvent is emitted during streaming.
