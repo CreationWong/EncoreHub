@@ -25,8 +25,9 @@ func devMockEnabled() bool {
 }
 
 type ChatHandler struct {
-	registry *provider.Registry
-	engine   *engine.Client
+	registry       *provider.Registry
+	engine         *engine.Client
+	titleGenerated sync.Map // map[convID]bool — prevents repeated AI title calls per conversation
 }
 
 func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *ChatHandler {
@@ -222,10 +223,22 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Non-streaming — fire title generation concurrently with the chat call.
-	// Don't block the response; the title is persisted asynchronously and
-	// the frontend picks it up on the next list refresh.
-	go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+	// Phase 1: Immediate title from first user message (no AI call).
+	if conv, err := h.engine.GetConversation(ctx, convID); err == nil && isDefaultTitle(conv.Title) {
+		if t := fallbackTitle(req.Content); t != "" {
+			if _, err := h.engine.RenameConversation(ctx, convID, t); err != nil {
+				log.Debug().Err(err).Str("conv_id", convID).Msg("immediate title rename failed")
+			}
+		}
+	}
+
+	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
+	go func() {
+		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
+			return
+		}
+		h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+	}()
 
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
 	if err != nil {
@@ -339,14 +352,27 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var err error
 	cr := req // start with the original request
 
-	// Start title generation in parallel with streaming. The title AI call
-	// runs concurrently with adapter.ChatStream(); the moment it returns we
-	// push a title_update SSE frame — possibly mid-stream — so the UI
-	// updates the title while the reply is still being generated.
+	// Phase 1: Immediate title from first user message (no AI call).
+	// Gives instant feedback before AI title (Phase 2) refines it.
+	if conv, err := h.engine.GetConversation(ctx, convID); err == nil && isDefaultTitle(conv.Title) {
+		if t := fallbackTitle(lastUserContent(req)); t != "" {
+			if _, err := h.engine.RenameConversation(ctx, convID, t); err == nil {
+				writeFrame("title_update", map[string]string{
+					"conversation_id": convID,
+					"title":           t,
+				})
+			}
+		}
+	}
+
+	// Phase 2: AI-refined title (runs concurrently with streaming).
+	// Only fires once per conversation (guarded by h.titleGenerated).
 	go func() {
+		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
+			return // already generated an AI title for this conversation
+		}
 		title, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey)
 		if err != nil {
-			// Background fallback already attempted inside generateTitleSync.
 			return
 		}
 		writeFrame("title_update", map[string]string{
@@ -1080,6 +1106,23 @@ func fallbackTitle(userMsg string) string {
 	// Rune-safe truncation at ~15 chars; trim trailing punctuation.
 	s = strings.Trim(truncateRunes(s, 15), " ：:，,、。.！!？?；;\"'`*#_-–—")
 	return s
+}
+
+// isDefaultTitle returns true when the conversation still has a default/
+// placeholder title (set at creation time) and hasn't been renamed yet.
+func isDefaultTitle(title string) bool {
+	title = strings.TrimSpace(title)
+	return title == "" || title == "New Chat"
+}
+
+// lastUserContent extracts the last user message from a ChatRequest.
+func lastUserContent(req *provider.ChatRequest) string {
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == "user" {
+			return req.Messages[i].Content
+		}
+	}
+	return ""
 }
 
 // generateTitleText calls the provider in STREAMING mode and accumulates ONLY
