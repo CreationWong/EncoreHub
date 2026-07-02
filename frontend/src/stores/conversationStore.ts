@@ -152,7 +152,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 
 		// Get API key + search settings
-		const { provider, apiKeys, searchEnabled, searchProvider } = useSettingsStore.getState();
+		const { provider, apiKeys, searchEnabled, searchProvider } =
+			useSettingsStore.getState();
 		const providerKey = provider ? apiKeys[provider] : undefined;
 
 		// Optimistic user message
@@ -262,6 +263,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				},
 				onWarning(msg) {
 					toast.warning(msg, 6000);
+				},
+				onTitleUpdate(data) {
+					if (data.conversation_id === convId) {
+						set((s) => ({
+							conversations: s.conversations.map((c) =>
+								c.id === data.conversation_id ? { ...c, title: data.title } : c,
+							),
+						}));
+					}
 				},
 				onDone(fullContent) {
 					finalize(fullContent || "(empty response)");

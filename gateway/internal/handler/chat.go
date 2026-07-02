@@ -109,10 +109,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Step 1: Always store the user message in the engine first.
 	userMsgID := h.storeUserMessage(convID, req.Content)
 
-	// Step 1.5: When web search is enabled the model receives a web_search
-	// tool so it can actively decide to search. The provider choice is
-	// captured so the tool executor uses the right backend.
-	var searchTool *provider.Tool
+	// Step 1.5: Register tools for the model to use
+	var searchTool, titleTool *provider.Tool
+
+	// Web search tool
 	if req.Search {
 		sp := req.SearchProvider
 		if sp == "" {
@@ -120,6 +120,14 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		}
 		t := newWebSearchTool(sp)
 		searchTool = &t
+	}
+
+	// Title update tool - enable for conversations with multiple messages
+	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
+		if len(convDetail.Messages) >= 3 {
+			t := newTitleUpdateTool(req.Provider)
+			titleTool = &t
+		}
 	}
 
 	// Step 2: Pull relevant memories + knowledge chunks via the engine client
@@ -149,7 +157,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	systemExtra := memoryContext + knowledgeContext
 	var chatReq *provider.ChatRequest
 	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-		chatReq = buildChatRequest(convDetail, req, systemExtra, searchTool)
+		chatReq = buildChatRequest(convDetail, req, systemExtra, searchTool, titleTool)
 	} else {
 		cr := &provider.ChatRequest{
 			Model:               req.Model,
@@ -224,8 +232,21 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Store assistant reply in engine
 	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
 
-	// Auto-generate title for first exchange (background, best-effort).
-	go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+	// Auto-generate title for first exchange (immediate + background for robustness).
+	go func() {
+		// Try to generate title immediately for feedback
+		title, err := h.generateTitleSync(context.Background(), convID, req.Provider, req.Model, apiKey)
+		if err == nil {
+			// Send title update via SSE for real-time UI update
+			c.SSEvent("title_update", map[string]string{
+				"conversation_id": convID,
+				"title":          title,
+			})
+		} else {
+			// Fallback to background generation if immediate fails
+			go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+		}
+	}()
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
@@ -360,6 +381,32 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			}
 		}
 
+		// Handle title update tool calls
+		for i := range toolCalls {
+			tc := &toolCalls[i]
+			if tc.Name == "update_conversation_title" {
+				// Parse title from JSON arguments
+				var args struct {
+					Title string `json:"title"`
+				}
+				if err := json.Unmarshal([]byte(tc.Arguments), &args); err == nil {
+					title := strings.TrimSpace(args.Title)
+					if title != "" {
+						// Execute title update
+						if err := h.executeTitleUpdate(ctx, c, convID, title); err != nil {
+							log.Warn().Err(err).Str("conv_id", convID).Msg("title update failed")
+							tc.Result = fmt.Sprintf("Title update failed: %v", err)
+							tc.Status = "error"
+						} else {
+							tc.Result = fmt.Sprintf("Title updated to: %s", title)
+							tc.Status = "success"
+						}
+						hasGatewayTool = true
+					}
+				}
+			}
+		}
+
 		if !hasGatewayTool || len(toolCalls) == 0 {
 			// Model returned a text response — we're done.
 			break
@@ -369,6 +416,12 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		for i := range toolCalls {
 			tc := &toolCalls[i]
 			if tc.Name == "web_search" {
+				writeFrame("tool_result", map[string]string{
+					"id":     tc.ID,
+					"result": tc.Result,
+					"status": tc.Status,
+				})
+			} else if tc.Name == "update_conversation_title" {
 				writeFrame("tool_result", map[string]string{
 					"id":     tc.ID,
 					"result": tc.Result,
@@ -392,10 +445,21 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		cr = nextReq
 	}
 
-	// Store assistant reply + auto-generate title (background, best-effort).
+	// Store assistant reply + auto-generate title (immediate + background for robustness).
 	go func() {
 		h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
-		h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+		// Try to generate title immediately for feedback
+		title, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+		if err == nil {
+			// Send title update via SSE for real-time UI update
+			c.SSEvent("title_update", map[string]string{
+				"conversation_id": convID,
+				"title":          title,
+			})
+		} else {
+			// Fallback to background generation if immediate fails
+			h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+		}
 	}()
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
@@ -611,9 +675,8 @@ func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasonin
 // ===== Helpers =====
 
 // buildChatRequest builds a provider ChatRequest from a stored conversation.
-// When searchTool is non-nil it is registered as an available tool so the
-// model can proactively invoke web search.
-func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string, searchTool *provider.Tool) *provider.ChatRequest {
+// When searchTool or titleTool are non-nil they are registered as available tools.
+func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string, searchTool, titleTool *provider.Tool) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
 		Model:               req.Model,
 		Stream:              req.Stream,
@@ -634,9 +697,15 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
 		"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra
 
+	// Register available tools
+	var tools []provider.Tool
 	if searchTool != nil {
-		cr.Tools = []provider.Tool{*searchTool}
+		tools = append(tools, *searchTool)
 	}
+	if titleTool != nil {
+		tools = append(tools, *titleTool)
+	}
+	cr.Tools = tools
 
 	for _, msg := range conv.Messages {
 		cr.Messages = append(cr.Messages, provider.Message{
@@ -812,6 +881,49 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 	}
 }
 
+// newTitleUpdateTool creates a tool for updating conversation titles.
+func newTitleUpdateTool(providerName string) provider.Tool {
+	return provider.Tool{
+		Type: "function",
+		Function: &provider.FunctionDefinition{
+			Name: "update_conversation_title",
+			Description: fmt.Sprintf("Update the title of this conversation using %s. Use this when the conversation topic has evolved or you want to give it a more descriptive name.", strings.ToUpper(providerName)),
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"title": map[string]any{
+						"type":        "string",
+						"description": "The new title for the conversation (2-8 words, descriptive and concise)",
+					},
+				},
+				"required": []any{"title"},
+			},
+		},
+	}
+}
+
+// executeTitleUpdate handles the execution of a title update tool call.
+func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, convID, title string) error {
+	// Validate title format
+	title = strings.TrimSpace(title)
+	if len(title) < 2 || len(title) > 100 {
+		return fmt.Errorf("title must be 2-100 characters")
+	}
+
+	// Update conversation title via engine
+	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
+		return fmt.Errorf("failed to update title: %w", err)
+	}
+
+	// Send title update via SSE for real-time UI update
+	c.SSEvent("title_update", map[string]string{
+		"conversation_id": convID,
+		"title":          title,
+	})
+
+	return nil
+}
+
 // cleanGeneratedTitle strips quotes, extracts the first line, and caps length.
 func cleanGeneratedTitle(raw string) string {
 	title := strings.TrimSpace(raw)
@@ -824,6 +936,65 @@ func cleanGeneratedTitle(raw string) string {
 		title = title[:100]
 	}
 	return title
+}
+
+// generateTitleSync calls the AI provider synchronously to produce a title
+// and returns the generated title. For use with immediate feedback.
+func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerName, model, apiKey string) (string, error) {
+	conv, err := h.engine.GetConversation(ctx, convID)
+	if err != nil {
+		return "", err
+	}
+	// Only auto-generate for conversations still using the default title.
+	if conv.Title != "New Chat" {
+		return "", fmt.Errorf("conversation already has a title")
+	}
+	// Find the first user message.
+	var firstUserMsg string
+	for _, msg := range conv.Messages {
+		if msg.Role == "user" {
+			firstUserMsg = msg.Content
+			break
+		}
+	}
+	if firstUserMsg == "" {
+		return "", fmt.Errorf("no user messages found")
+	}
+
+	adapter, err := h.registry.Get(providerName)
+	if err != nil {
+		return "", err
+	}
+
+	titleReq := &provider.ChatRequest{
+		Model:        model,
+		Stream:       false,
+		MaxTokens:    50,
+		Temperature:  0.3,
+		SystemPrompt: titleGenPrompt,
+		Messages: []provider.Message{
+			{Role: "user", Content: firstUserMsg},
+		},
+	}
+
+	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
+	if err != nil {
+		return "", err
+	}
+
+	title := cleanGeneratedTitle(chatResp.Content)
+	if title == "" {
+		return "", fmt.Errorf("generated title is empty")
+	}
+
+	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
+		return "", err
+	}
+
+	return title, nil
 }
 
 // GenerateTitle handles POST /api/v1/conversations/:id/generate-title.

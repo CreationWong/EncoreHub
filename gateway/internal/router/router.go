@@ -70,6 +70,8 @@ func Setup(cfg Config) *gin.Engine {
 			conv.POST("/:id/chat", chatHandler.SendMessage)
 			// AI-powered title generation
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
+			// Tool-based title update (proxied to engine)
+			conv.PATCH("/:id/title", engineProxy.Forward)
 		}
 
 		// Search

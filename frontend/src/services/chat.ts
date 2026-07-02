@@ -1,7 +1,7 @@
+import type { SearchProvider } from "../stores/settingsStore";
 import { apiFetch, buildHeaders } from "./api";
 import { apiBase } from "./config";
 import type { Message } from "./conversation";
-import type { SearchProvider } from "../stores/settingsStore";
 
 interface ChatResponse {
 	conversation_id: string;
@@ -38,6 +38,7 @@ export interface StreamCallbacks {
 	}) => void;
 	onUsage?: (input: number, output: number) => void;
 	onWarning?: (message: string) => void;
+	onTitleUpdate?: (data: { conversation_id: string; title: string }) => void;
 	onDone: (fullContent: string) => void;
 	onError: (error: string) => void;
 }
@@ -217,6 +218,15 @@ export const chatApi = {
 							callbacks.onWarning?.(j.message ?? ev.data);
 						} catch {
 							callbacks.onWarning?.(ev.data);
+						}
+						break;
+					}
+					case "title_update": {
+						try {
+							const j = JSON.parse(ev.data);
+							callbacks.onTitleUpdate?.(j);
+						} catch {
+							/* ignore malformed title_update frame */
 						}
 						break;
 					}

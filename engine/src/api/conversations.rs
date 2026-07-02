@@ -254,6 +254,52 @@ pub async fn update(
     }))
 }
 
+/// Update conversation title specifically for tool-based updates.
+/// This endpoint provides a simpler interface for tools that want to update titles.
+#[derive(Debug, Deserialize)]
+pub struct UpdateTitleRequest {
+    pub title: String,
+}
+
+pub async fn update_title(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateTitleRequest>,
+) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let title = req.title.trim();
+    if title.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "title cannot be empty".into(),
+            }),
+        ));
+    }
+    if title.len() > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "title too long (max 100 characters)".into(),
+            }),
+        ));
+    }
+
+    state
+        .db
+        .update_conversation_title(&id, title)
+        .map_err(internal_error)?;
+    let conv = state.db.get_conversation(&id).map_err(not_found)?;
+    Ok(Json(ConversationResponse {
+        id: conv.id,
+        title: conv.title,
+        provider: conv.provider,
+        model: conv.model,
+        message_count: 0,
+        created_at: conv.created_at.to_rfc3339(),
+        updated_at: conv.updated_at.to_rfc3339(),
+    }))
+}
+
 pub async fn get_messages(
     State(state): State<SharedState>,
     Path(id): Path<String>,

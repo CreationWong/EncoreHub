@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-EncoreHub is a cross-platform AI chat desktop app — one client aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: early development; core chat works, token counting + port negotiation landed, RAG/vector DB and WASM sandbox are on the roadmap.
+EncoreHub is a cross-platform AI chat desktop app — one client aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, and auto-generated conversation titles are complete; RAG/vector DB and WASM sandbox are on the roadmap.
 
 ```
 frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, axum)
@@ -41,13 +41,13 @@ actual ports via the `get_service_ports` Tauri command.
 
 ## Component Map
 
-| Module | Language | Role |
-|--------|----------|------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, settings/skill/memory/knowledge panels, slash commands; resolves ports via `get_service_ports` Tauri command |
-| `gateway/` | Go 1.25 (Gin) | HTTP/SSE entry, multi-provider adapter, auth/rate-limit/CORS, reverse proxy to engine; token count passthrough |
-| `engine/` | Rust (axum + tokio + rusqlite) | Conversations, memories, knowledge, skills storage & API; token counting (conversation crate); `find_free_port()` for port negotiation; AES-256-GCM secret encryption |
-| `data-services/` | Python 3.12 (FastAPI) | RAG/embedding/doc parsing — **skeleton, not wired up yet** |
-| `proto/` | protobuf | gRPC schema — **stubs not yet generated/enabled** |
+| Module | Language | Role | Status |
+|--------|----------|------|--------|
+| `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, settings/skill/memory/knowledge panels, slash commands, auto-generated conversation titles, token counting display | ✅ Active development |
+| `gateway/` | Go 1.25 (Gin) | HTTP/SSE entry, multi-provider adapter, auth/rate-limit/CORS, reverse proxy to engine, web search integration | ✅ Complete with provider adapters |
+| `engine/` | Rust (axum + tokio + rusqlite) | Conversations, memories, knowledge, skills storage & API, token counting, AES-256-GCM encryption, port negotiation | ✅ Core functionality complete |
+| `data-services/` | Python 3.12 (FastAPI) | RAG/embedding/doc parsing, vector database | ⏳ Skeleton, not wired up |
+| `proto/` | protobuf | gRPC schema for inter-service communication | ⏳ Schema complete, gRPC not yet enabled |
 
 Why this language split: see `docs/adr/0001-language-split.md`.
 
@@ -190,6 +190,14 @@ When the user toggles search on (globe icon in the input box):
 4. **Frontend** receives `tool_call` and `tool_result` SSE events → `conversationStore` tracks `streamingToolCalls` → rendered in `MessageBubble.ToolCallCard` (collapsed by default, click to expand). The `warning` SSE event triggers `toast.warning()`.
 5. Search providers live in `gateway/internal/search/`. DuckDuckGo uses `html.duckduckgo.com` (no-JS version, parsed with `golang.org/x/net/html`). The Instant Answer API (`api.duckduckgo.com`) is **not used** — it only returns Wikipedia abstracts, not web results.
 
+### Auto-Generated Conversation Titles
+
+- **Frontend** calls `autoGenerateTitle()` after successful message creation using the `conversation` crate's `estimate_message_tokens()` to stay within token limits
+- **Gateway** intercepts `POST /api/v1/conversations/:id/chat` responses and triggers title generation when a new conversation is created
+- **Engine** provides `/api/v1/conversations/:id/title-generation` endpoint that uses the conversation's first user message (plus context if needed) to generate titles
+- The `/retitle` command allows manual title generation for existing conversations
+- Titles are displayed in the conversation list and conversation header with edit functionality
+
 ### Frontend State (Zustand)
 
 - `conversationStore` — active conversation, message list, streaming state (content + reasoning + tool calls), `streamTokenCount` capture, optimistic updates with rollback on failure
@@ -203,19 +211,34 @@ When the user toggles search on (globe icon in the input box):
 
 Commands are declared in `frontend/src/commands/slash.ts` as a `SlashCommand[]` array. Each command has an `id`, `name`, `description`, and `run(args, ctx)` where `ctx` provides access to conversation and settings stores. Add new commands by appending to the array — they auto-register in the input box's `/` completion menu.
 
+**Current Commands**:
+- `/clear` - Clear conversation
+- `/model` - Switch model/provider
+- `/title` - Set conversation title
+- `/retitle` - Auto-generate conversation title (NEW)
+- `/export` - Export conversation
+- `/help` - Show available commands
+
 ### Engine Crate Structure
 
 The engine is a Cargo workspace with four crates:
 - `crates/core` — shared `EngineError` type and data types (`Message`, `Conversation`, `Memory`, `Role`, `Usage`, etc.)
-- `crates/conversation` — token counting (`rough_token_count`, `estimate_message_tokens`, `token_count_with_estimation`, `exceeds_token_limit`); context builder + rolling summariser are next (see `docs/REMAINING_WORK.md` §二)
+- `crates/conversation` — token counting (`rough_token_count`, `estimate_message_tokens`, `token_count_with_estimation`, `exceeds_token_limit`, `Usage` struct with total() method)
 - `crates/storage` — `Database` abstraction (SQLite via rusqlite with bundled libsqlite3; `lancedb/` and `blob/` modules are placeholders)
 - `crates/skill` — `SkillRegistry` that loads Markdown skills from a directory, with YAML frontmatter parsing
+- Built-in skills: `code-explainer`, `summarize`, `web-search` (with dynamic tool support)
 
 The main binary (`src/main.rs`) wires: open SQLite → load skills → install a reloadable tracing subscriber → resolve `ENGINE_BIND` (or default `127.0.0.1:3000`) → call `encorehub_engine::serve(...)`. `serve()` (in `src/lib.rs`) builds the axum router and runs it; it is shared by the standalone binary and the Tauri desktop app (which calls it from `tokio::spawn` on its own runtime). `lib.rs` also exports `find_free_port(start_port)` — a synchronous TCP probe used by Tauri for port negotiation. `main.rs` and `mcp_server.rs` are gated behind `#![cfg(feature = "standalone")]` so the library build skips them. The router is defined in `src/api/mod.rs` and each resource group (conversations, knowledge, memories, skills, plugins, secrets, config) is a submodule.
 
 ### Skills Directory
 
-Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative to the engine binary). The engine ships with three built-in skills: `code-explainer`, `summarize`, `web-search`.
+Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative to the engine binary). The engine ships with three built-in skills: `code-explainer`, `summarize`, `web-search`. The web-search skill supports dynamic tool calls for real-time web information retrieval.
+
+### Provider Enhancements
+
+- **Anthropic Claude API**: Full parameter support including `reasoning_effort`, `top_k`, `thinking_budget`, and enhanced sampling parameters
+- **Enhanced sampling**: All providers now support `top_p`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`, and `json_mode`
+- **Tool calling**: Dynamic tool registration with `web_search` integration and provider-specific tool formatting
 
 ## Configuration
 
@@ -246,9 +269,30 @@ GitHub Actions (`.github/workflows/ci.yml`): 4 parallel jobs — frontend (pnpm 
 | `POST /api/v1/conversations/:id/chat` | Send message, returns SSE stream when `stream: true` |
 | `GET/POST /api/v1/conversations` | List / create conversations |
 | `GET/PATCH/DELETE /api/v1/conversations/:id` | CRUD for a single conversation |
+| `POST /api/v1/conversations/:id/title-generation` | Auto-generate conversation title |
+| `/retitle` command | Manual title generation for existing conversations |
 | `GET/PUT /api/v1/providers` | List / update provider profiles |
 | `POST /api/v1/search` | Web search (DuckDuckGo, Bing, Google) |
 | `/api/v1/{skills,memories,knowledge,secrets}/*` | Proxied to engine |
 | `/api/v1/config/*` | Proxied to engine (runtime config) |
 
 All requests get an `X-Request-ID` header (generated if missing, propagated downstream).
+
+### Recent Updates & Completed Features
+
+- ✅ **Auto-generating conversation titles** with `/retitle` command
+- ✅ **Enhanced web search tool** with DuckDuckGo, Bing, and Google providers
+- ✅ **Token counting** with rough estimation and API usage tracking
+- ✅ **Provider adapter expansion** with full sampling parameter support
+- ✅ **CORS duplicate header fix** for engine proxy
+- ✅ **API key persistence** with optional AES-256-GCM encryption
+- ✅ **Developer panel** with DevTools button and real-time logging
+- ✅ **Anthropic Claude API alignment** with enhanced parameters
+
+### Development Focus Areas
+
+Current development is focused on:
+1. **Manual testing** of desktop app features (Tauri integration, web search, tool calls)
+2. **UI enhancements** for better user experience (conversation titles, provider badges)
+3. **API expansion** with additional provider parameters and features
+4. **Performance optimization** and refinement of existing features

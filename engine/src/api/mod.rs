@@ -10,7 +10,7 @@ use crate::crypto::MasterKey;
 use crate::logging::LogControl;
 use axum::{
     extract::State,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use encorehub_skill::SkillRegistry;
@@ -119,6 +119,10 @@ pub fn build_router_with(
             get(conversations::get_one)
                 .delete(conversations::delete)
                 .patch(conversations::update),
+        )
+        .route(
+            "/api/conversations/:id/title",
+            patch(conversations::update_title),
         )
         .route(
             "/api/conversations",
