@@ -887,11 +887,7 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 	title := cleanGeneratedTitle(chatResp.Content)
 	if title == "" {
 		log.Debug().Str("raw", chatResp.Content).Msg("auto-title: model returned empty title after cleaning, using fallback")
-		// Fallback: use truncated first user message.
-		title = firstUserMsg
-		title = truncateRunes(title, 20)
-		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
-		title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，…")
+		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
 		return
@@ -1006,6 +1002,55 @@ func stripBalanced(s string, c rune) string {
 	return s
 }
 
+// fallbackTitle builds a best-effort title from a user message when the AI
+// title generation fails. It strips leading imperative/command words (总结,
+// 帮我, please, …), takes the first clause, and truncates at a phrase
+// boundary so we never cut mid-word.
+func fallbackTitle(userMsg string) string {
+	s := strings.TrimSpace(userMsg)
+	if s == "" {
+		return ""
+	}
+	// Collapse newlines/tabs to spaces.
+	s = strings.Join(strings.Fields(s), " ")
+
+	// Strip leading command/imperative words (CJK + English).
+	commandWords := []string{
+		"总结", "概括", "归纳", "帮我", "帮助", "请", "麻烦",
+		"写", "编写", "生成", "翻译", "解释", "分析", "介绍",
+		"summarize", "summary", "please", "help", "write", "translate",
+		"explain", "analyze", "describe",
+	}
+	for {
+		trimmed := false
+		lower := strings.ToLower(s)
+		for _, w := range commandWords {
+			if strings.HasPrefix(lower, w) {
+				s = strings.TrimSpace(s[len(w):])
+				trimmed = true
+				break
+			}
+		}
+		// Also strip a leading colon/colon-space after a command word.
+		s = strings.TrimLeft(s, " ：:，,、")
+		if !trimmed {
+			break
+		}
+	}
+
+	// Take the first clause (up to a sentence/clause separator).
+	for _, sep := range []string{"。", "！", "？", "；", "\n", "，", "、", ".", "!", "?", ";", ","} {
+		if idx := strings.Index(s, sep); idx > 0 {
+			s = strings.TrimSpace(s[:idx])
+			break
+		}
+	}
+
+	// Rune-safe truncation at ~15 chars; trim trailing punctuation.
+	s = strings.Trim(truncateRunes(s, 15), " ：:，,、。.！!？?；;\"'`*#_-–—")
+	return s
+}
+
 // generateTitleSync calls the AI provider synchronously to produce a title
 // and returns the generated title. For use with immediate feedback.
 func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerName, model, apiKey string) (string, error) {
@@ -1055,11 +1100,7 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 
 	title := cleanGeneratedTitle(chatResp.Content)
 	if title == "" {
-		// Fallback: use truncated first user message.
-		title = firstUserMsg
-		title = truncateRunes(title, 20)
-		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
-		title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，…")
+		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
 		return "", fmt.Errorf("generated title is empty")
@@ -1151,11 +1192,7 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 	title := cleanGeneratedTitle(chatResp.Content)
 	if title == "" {
 		log.Debug().Str("raw", chatResp.Content).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
-		// Fallback: use truncated first user message as title.
-		title = firstUserMsg
-		title = truncateRunes(title, 20)
-		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
-		title = strings.Trim(title, "\"'`*#_-–—")
+		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "generated empty title"})

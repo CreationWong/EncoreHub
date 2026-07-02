@@ -108,8 +108,14 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("%s returned no choices", a.id)
 	}
+	// Reasoning models (e.g. deepseek-reasoner) may leave Content empty and
+	// put the answer in ReasoningContent. Fall back so callers still get text.
+	content := resp.Choices[0].Message.Content
+	if content == "" {
+		content = resp.Choices[0].Message.ReasoningContent
+	}
 	return &provider.ChatResponse{
-		Content:      resp.Choices[0].Message.Content,
+		Content:      content,
 		FinishReason: string(resp.Choices[0].FinishReason),
 		InputTokens:  resp.Usage.PromptTokens,
 		OutputTokens: resp.Usage.CompletionTokens,
