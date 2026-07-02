@@ -332,7 +332,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		// Check if any tool calls need the gateway to execute them.
 		hasGatewayTool := false
 		var searchResults []search.Result
-		for _, tc := range toolCalls {
+		for i := range toolCalls {
+			tc := &toolCalls[i]
 			if tc.Name == "web_search" {
 				// Extract the query from the arguments (JSON string).
 				query := parseSearchQuery(tc.Arguments)
@@ -362,7 +363,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		}
 
 		// Send tool_result events to the frontend so it can show what happened.
-		for _, tc := range toolCalls {
+		for i := range toolCalls {
+			tc := &toolCalls[i]
 			if tc.Name == "web_search" {
 				writeFrame("tool_result", map[string]string{
 					"id":     tc.ID,
