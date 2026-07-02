@@ -267,7 +267,14 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		}
 	}
 
-	processOneStream := func(cr *provider.ChatRequest) (content string, reasoning string, tokens int, toolCalls []engine.ToolCallInput, err error) {
+	processOneStream := func(cr *provider.ChatRequest, round int) (content string, reasoning string, tokens int, toolCalls []engine.ToolCallInput, err error) {
+		// Debug: log the full request for the follow-up round so we can
+		// verify tool_call_id and tool_calls are serialised correctly.
+		if round > 0 {
+			if b, e := json.Marshal(cr); e == nil {
+				log.Info().Int("round", round).Str("request", string(b)).Msg("tool-loop follow-up request")
+			}
+		}
 		events, streamErr := adapter.ChatStream(ctx, cr, apiKey)
 		if streamErr != nil {
 			return "", "", 0, nil, streamErr
@@ -307,7 +314,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	cr := req // start with the original request
 
 	for round := 0; round < maxToolRounds; round++ {
-		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr)
+		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr, round)
 		if streamErr != nil {
 			log.Error().Err(streamErr).Msg("stream error")
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", streamErr.Error())
@@ -480,14 +487,22 @@ func newToolCallAggregator() *toolCallAggregator {
 func (a *toolCallAggregator) add(ev *provider.ToolCallEvent) {
 	tc, ok := a.calls[ev.Index]
 	if !ok {
-		tc = &engine.ToolCallInput{Status: "pending"}
+		// Some providers (including DeepSeek streaming) may not include
+		// the tool call id in every delta chunk. Generate a synthetic
+		// one so the follow-up request always has a valid tool_call_id.
+		id := ev.ID
+		if id == "" {
+			id = fmt.Sprintf("call_%d", ev.Index)
+		}
+		tc = &engine.ToolCallInput{ID: id, Status: "pending"}
 		a.calls[ev.Index] = tc
 		a.order = append(a.order, ev.Index)
 	}
 	if ev.Name != "" {
 		tc.Name = ev.Name
 	}
-	if ev.ID != "" {
+	// Prefer an explicit ID from a later chunk over the synthetic one.
+	if ev.ID != "" && ev.ID != tc.ID {
 		tc.ID = ev.ID
 	}
 	tc.Arguments += ev.Arguments
