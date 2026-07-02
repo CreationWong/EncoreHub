@@ -332,12 +332,15 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				if query == "" {
 					query = fullContent // fallback
 				}
-				results, sErr := executeWebSearch(ctx, cr, query)
+				results, warnMsg, sErr := executeWebSearch(ctx, cr, query)
 				if sErr != nil {
 					log.Warn().Err(sErr).Msg("web_search execution failed")
 					tc.Result = fmt.Sprintf("Search failed: %v", sErr)
 					tc.Status = "error"
 				} else {
+					if warnMsg != "" {
+						writeFrame("warning", map[string]string{"message": warnMsg})
+					}
 					searchResults = append(searchResults, results...)
 					tc.Result = formatSearchToolResult(results)
 					tc.Status = "success"
@@ -665,7 +668,7 @@ func parseSearchQuery(arguments string) string {
 // executeWebSearch performs a web search using the engine's search provider.
 // The provider choice is read from the request's Tools list (baked in by
 // newWebSearchTool).
-func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query string) ([]search.Result, error) {
+func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query string) (results []search.Result, warning string, err error) {
 	// Determine which search provider the user selected by inspecting the
 	// tool description (set by newWebSearchTool).
 	sp := "duckduckgo"
@@ -689,23 +692,24 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 		apiKey = os.Getenv("GOOGLE_SEARCH_API_KEY")
 	}
 
-	searchProv, err := search.NewProvider(sp, apiKey,
+	searchProv, provErr := search.NewProvider(sp, apiKey,
 		search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
 	)
-	if err != nil {
+	if provErr != nil {
 		// If the user picked Bing/Google but no API key is configured, fall
-		// back to DuckDuckGo instead of failing outright.
-		log.Warn().Err(err).Str("fallback", "duckduckgo").Msg("web_search provider unavailable, falling back to DuckDuckGo")
+		// back to DuckDuckGo and return a warning for the frontend.
+		log.Warn().Err(provErr).Str("fallback", "duckduckgo").Msg("web_search provider unavailable, falling back to DuckDuckGo")
 		searchProv = search.NewDuckDuckGo()
+		warning = fmt.Sprintf("Search provider %q is not configured (missing API key). Using DuckDuckGo instead.", sp)
 	}
 
 	resp, err := searchProv.Search(ctx, query, 5)
 	if err != nil {
-		return nil, fmt.Errorf("search failed: %w", err)
+		return nil, "", fmt.Errorf("search failed: %w", err)
 	}
 
 	log.Info().Str("provider", searchProv.Name()).Str("query", query).Int("results", len(resp.Results)).Msg("web_search tool executed")
-	return resp.Results, nil
+	return resp.Results, warning, nil
 }
 
 // formatSearchToolResult formats search results as a text block the model can
