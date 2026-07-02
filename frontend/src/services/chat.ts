@@ -37,6 +37,7 @@ export interface StreamCallbacks {
 		status: string;
 	}) => void;
 	onUsage?: (input: number, output: number) => void;
+	onWarning?: (message: string) => void;
 	onDone: (fullContent: string) => void;
 	onError: (error: string) => void;
 }
@@ -207,6 +208,15 @@ export const chatApi = {
 							callbacks.onUsage?.(j.input_tokens ?? 0, j.output_tokens ?? 0);
 						} catch {
 							/* ignore malformed usage frame */
+						}
+						break;
+					}
+					case "warning": {
+						try {
+							const j = JSON.parse(ev.data);
+							callbacks.onWarning?.(j.message ?? ev.data);
+						} catch {
+							callbacks.onWarning?.(ev.data);
 						}
 						break;
 					}

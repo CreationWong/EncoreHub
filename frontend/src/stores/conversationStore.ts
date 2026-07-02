@@ -259,6 +259,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				onUsage(input, output) {
 					streamTokenCount = input + output;
 				},
+				onWarning(msg) {
+					toast.warning(msg, 6000);
+				},
 				onDone(fullContent) {
 					finalize(fullContent || "(empty response)");
 				},

@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockConfirmAsk = vi.fn().mockResolvedValue(true);
+vi.mock("../../stores/confirmStore", () => ({
+	useConfirmStore: {},
+	confirm: { ask: (...args: unknown[]) => mockConfirmAsk(...args) },
+}));
+
 // Mock the stores so we can assert what the component calls without touching
 // network or the real store implementation.
 const renameConversation = vi.fn();
@@ -90,8 +96,8 @@ describe("ConversationList rename", () => {
 		expect(renameConversation).toHaveBeenCalledWith("c1", "Via Blur");
 	});
 
-	it("delete button only fires when the confirm dialog is accepted", () => {
-		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+	it("delete button only fires when the confirm dialog is accepted", async () => {
+		mockConfirmAsk.mockResolvedValueOnce(false);
 		render(<ConversationList />);
 		// Trash icon button: locate by parent .group + svg query
 		const trashBtn = screen
@@ -100,7 +106,9 @@ describe("ConversationList rename", () => {
 		// Fallback: last button in the row contains the Trash svg.
 		const buttons = screen.getAllByRole("button");
 		fireEvent.click(trashBtn ?? buttons[buttons.length - 1]);
-		expect(confirmSpy).toHaveBeenCalled();
+		await vi.waitFor(() => {
+			expect(mockConfirmAsk).toHaveBeenCalled();
+		});
 		expect(deleteConversation).not.toHaveBeenCalled();
 	});
 });

@@ -420,10 +420,13 @@ function DisableSection({
 
 function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
 	const [busy, setBusy] = useState(false);
-	const handle = () => {
+	const handle = async () => {
+		const { confirm } = await import("../../stores/confirmStore");
 		if (
-			!confirm(
+			!await confirm.ask(
+				"Clear All Keys",
 				"Clear all stored API keys and encryption metadata? This cannot be undone. Use this only if you've forgotten your master password.",
+				true,
 			)
 		)
 			return;

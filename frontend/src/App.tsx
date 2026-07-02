@@ -4,6 +4,7 @@ import ChatView from "./components/chat/ChatView";
 import SettingsModal from "./components/settings/SettingsModal";
 import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
+import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
 import { applyServicePorts, healthGatewayUrl } from "./services/config";
 import { inTauri } from "./services/devtools";
@@ -163,6 +164,7 @@ export default function App() {
 			</main>
 			<SettingsModal />
 			<UnlockGate />
+			<ConfirmDialog />
 			<ToastHost />
 		</div>
 	);

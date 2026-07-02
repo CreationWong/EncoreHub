@@ -117,15 +117,15 @@ export default function ConversationList() {
 							type="button"
 							aria-label="Delete conversation"
 							className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-hover text-text-muted hover:text-danger transition-all"
-							onClick={(e) => {
+							onClick={async (e) => {
 								e.stopPropagation();
-								if (
-									window.confirm(
-										`Delete "${conv.title}"? This cannot be undone.`,
-									)
-								) {
-									deleteConversation(conv.id);
-								}
+								const { confirm } = await import("../../stores/confirmStore");
+								const ok = await confirm.ask(
+									"Delete Conversation",
+									`Delete "${conv.title}"? This cannot be undone.`,
+									true,
+								);
+								if (ok) deleteConversation(conv.id);
 							}}
 						>
 							<Trash2 className="h-3.5 w-3.5" />

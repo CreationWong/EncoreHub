@@ -1,5 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SLASH_COMMANDS, matchCommands } from "./slash";
+
+const mockConfirmAsk = vi.fn().mockResolvedValue(true);
+vi.mock("../stores/confirmStore", () => ({
+	useConfirmStore: {},
+	confirm: { ask: (...args: unknown[]) => mockConfirmAsk(...args) },
+}));
+
+beforeEach(() => {
+	mockConfirmAsk.mockReset();
+});
 
 type Stores = Parameters<(typeof SLASH_COMMANDS)[0]["run"]>[1];
 
@@ -67,7 +77,7 @@ describe("command handlers", () => {
 	});
 
 	it("/clear deletes when an active conversation exists", async () => {
-		vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+		mockConfirmAsk.mockResolvedValueOnce(true);
 		const s = fakeStores({ activeId: "c1" });
 		await find("clear").run("", { conv: s.conv, settings: s.settings });
 		expect(s._conv.deleteConversation).toHaveBeenCalledWith("c1");
@@ -80,7 +90,7 @@ describe("command handlers", () => {
 	});
 
 	it("/clear bails out when the user cancels the confirm", async () => {
-		vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+		mockConfirmAsk.mockResolvedValueOnce(false);
 		const s = fakeStores({ activeId: "c1" });
 		await find("clear").run("", { conv: s.conv, settings: s.settings });
 		expect(s._conv.deleteConversation).not.toHaveBeenCalled();

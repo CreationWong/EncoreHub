@@ -34,15 +34,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		description: "Delete the current conversation",
 		run: async (_args, { conv }) => {
 			if (!conv.activeId) return;
-			// Deletion is irreversible (engine doesn't keep tombstones).
-			// Skip the prompt in environments without window (vitest jsdom
-			// without explicit polyfill, future SSR).
-			const ok =
-				typeof window === "undefined" || typeof window.confirm !== "function"
-					? true
-					: window.confirm(
-							"Delete this conversation and all its messages? This cannot be undone.",
-						);
+			const { confirm } = await import("../stores/confirmStore");
+			const ok = await confirm.ask(
+				"Delete Conversation",
+				"Delete this conversation and all its messages? This cannot be undone.",
+				true,
+			);
 			if (!ok) return;
 			await conv.deleteConversation(conv.activeId);
 		},

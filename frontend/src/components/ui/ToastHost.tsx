@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import {
 	type Toast,
 	type ToastKind,
@@ -8,12 +8,14 @@ import {
 const ICONS: Record<ToastKind, typeof Info> = {
 	success: CheckCircle2,
 	error: AlertCircle,
+	warning: AlertTriangle,
 	info: Info,
 };
 
 const STYLES: Record<ToastKind, string> = {
 	success: "border-success-border bg-success-bg text-success",
 	error: "border-danger-border bg-danger-bg text-danger",
+	warning: "border-warning-border bg-warning-bg text-warning",
 	info: "border-info-border bg-info-bg text-info",
 };
 
