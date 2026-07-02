@@ -5,7 +5,7 @@
 
 ---
 
-## ◆ 最近完成（2026-07-01）
+## ◆ 最近完成（2026-07-02）
 
 以下项在 master 分支已交付，代码+测试均通过：
 
@@ -13,12 +13,15 @@
 - [x] **加密锁定态 key 显示**：供应商设置中加密+锁定时显示 `••••••••` 掩码 + `encrypted` 徽章，点眼睛图标弹内联密码框，解锁后显示明文
 - [x] **CORS 重复 header 修复**：gw engine proxy 跳过 engine 响应的 `Access-Control-*` 头，消除 `http://tauri.localhost, *` 双值导致浏览器拦截的问题
 - [x] **开发者面板 DevTools 按钮**：🐛 按钮直接打开 webview 原生检查器（`tauri` feature=`devtools`，release 构建可用）
-- [x] **ChatRequest 扩展**：统一格式新增 `TopP`/`FrequencyPenalty`/`PresencePenalty`/`Stop`/`Seed`/`JSONMode`/`ReasoningEffort`/`MaxCompletionTokens`/`TopK`/`ThinkingBudget`
+- [x] **ChatRequest 扩展**：统一格式新增 `TopP`/`FrequencyPenalty`/`PresencePenalty`/`Stop`/`Seed`/`JSONMode`/`ReasoningEffort`/`MaxCompletionTokens`/`TopK`/`ThinkingBudget`/`Tools`
 - [x] **OpenAI 适配器对齐**：`buildRequest()` 集中映射所有统一字段到 go-openai SDK
 - [x] **Anthropic 适配器对齐 Claude Messages API**：透传 `top_p`/`top_k`/`stop_sequences`/`thinking`；处理 `content_block_stop`/`ping` SSE 事件；收集全部 text content blocks
 - [x] **Chat handler 参数透传**：`SendMessageRequest` 支持全部新采样/推理参数
 - [x] **Claude API 参考文档**：`docs/claude API/` 5 个 Markdown 文件（Messages / Batch / Token Count / Models / Overview）
 - [x] **Conversation crate 骨架 + token 计数器**（阶段 6 2.1/2.2）：`engine/crates/conversation/` — `Usage` 结构体、`rough_token_count`（char/4 通用 + char/2 JSON）、`estimate_message_tokens`、`token_count_with_estimation`（API 用量 + 新消息估算）、`exceeds_token_limit`；16 个测试全部通过
+- [x] **DuckDuckGo 搜索后端**：从 Instant Answer API（百科数据）替换为 `html.duckduckgo.com` HTML 解析（golang.org/x/net/html）；5 个单元测试
+- [x] **web_search 工具调用**：模型获得 `web_search` function tool，可主动决定搜索。Gateway 拦截 tool call → 执行搜索 → 构建 tool result 消息 → 二次调用模型（最多 3 轮）。DuckDuckGo 免费默认，Bing/Google 需 API key（缺 key 时 fallback 到 DuckDuckGo + 前端 toast 警告）
+- [x] **前端通知统一**：toast store 新增 `warning` 类型；confirmStore（`confirm.ask()`）替换全部 4 处 `window.confirm()`；ConfirmDialog 组件（Escape 关闭、danger 样式）
 
 ---
 
@@ -90,7 +93,7 @@
 
 - [ ] **6.1** 聊天区顶部栏：显示对话标题（可点击重命名）+ 当前 provider·model 徽章 + 更多菜单
 - [ ] **6.2** 内容宽度约束：消息区最大宽度 ~720-760px 居中，宽屏不拉通
-- [ ] **6.3** 替换 `window.confirm`：`ConversationList.tsx` 和 `slash.ts` 中 2 处仍用原生弹窗
+- [x] **6.3** 替换 `window.confirm`：4 处全部替换为 `confirm.ask()`（ConfirmDialog 组件，Promise-based，danger 样式，Escape 关闭）；新增 `warning` toast 类型
 
 ### P2 — 精致度打磨
 
@@ -129,4 +132,4 @@
 
 ---
 
-*最后更新：2026-07-01*
+*最后更新：2026-07-02*
