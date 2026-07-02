@@ -822,7 +822,7 @@ func formatSearchToolResult(results []search.Result) string {
 // ===== Title generation =====
 
 // titleGenPrompt is the system prompt used to generate conversation titles.
-const titleGenPrompt = "Generate a short, descriptive title (3-6 words) for a conversation that starts with this message. Return ONLY the title, no quotes, no punctuation at the end, no additional text."
+const titleGenPrompt = "Summarize the following message into a concise title of no more than 10 characters (or 5 words for English). Capture the core topic only. Return ONLY the title, no quotes, no punctuation, no explanation."
 
 // generateTitle calls the AI provider in a background goroutine to produce a
 // short title from the first user message. It fails silently on all errors.
@@ -876,8 +876,8 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 		log.Debug().Str("raw", chatResp.Content).Msg("auto-title: model returned empty title after cleaning, using fallback")
 		// Fallback: use truncated first user message.
 		title = firstUserMsg
-		if len(title) > 50 {
-			title = title[:50]
+		if len(title) > 20 {
+			title = title[:20]
 		}
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
 		title = strings.Trim(title, "\"'`*#_-–—")
@@ -1037,8 +1037,8 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 	if title == "" {
 		// Fallback: use truncated first user message.
 		title = firstUserMsg
-		if len(title) > 50 {
-			title = title[:50]
+		if len(title) > 20 {
+			title = title[:20]
 		}
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
 		title = strings.Trim(title, "\"'`*#_-–—")
@@ -1135,8 +1135,8 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 		log.Debug().Str("raw", chatResp.Content).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
 		// Fallback: use truncated first user message as title.
 		title = firstUserMsg
-		if len(title) > 50 {
-			title = title[:50]
+		if len(title) > 20 {
+			title = title[:20]
 		}
 		title = strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
 		title = strings.Trim(title, "\"'`*#_-–—")
