@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
@@ -221,13 +222,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Non-streaming — start title generation concurrently with the chat call.
-	titleCh := make(chan string, 1)
-	go func() {
-		if t, err := h.generateTitleSync(context.Background(), convID, req.Provider, req.Model, apiKey); err == nil {
-			titleCh <- t
-		}
-	}()
+	// Non-streaming — fire title generation concurrently with the chat call.
+	// Don't block the response; the title is persisted asynchronously and
+	// the frontend picks it up on the next list refresh.
+	go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
 
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
 	if err != nil {
@@ -238,15 +236,6 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 	// Store assistant reply in engine
 	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
-
-	// Collect concurrently-generated title (block up to 5 s).
-	select {
-	case <-titleCh:
-		// Title generated and persisted by generateTitleSync; frontend will
-		// pick it up on next loadList.
-	case <-time.After(5 * time.Second):
-		go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
-	}
 
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
@@ -280,9 +269,22 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var allToolCalls []engine.ToolCallInput
 	flusher, _ := c.Writer.(http.Flusher)
 
+	// SSE writes are shared between the streaming loop and the concurrent
+	// title goroutine — guard them with a mutex. `closed` is set once `done`
+	// is emitted so late title results skip the write (frontend fallback
+	// handles them).
+	var (
+		writeMu sync.Mutex
+		closed  bool
+	)
 	writeFrame := func(event string, payload any) {
 		data, err := json.Marshal(payload)
 		if err != nil {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if closed && event != "done" {
 			return
 		}
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
@@ -337,14 +339,20 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var err error
 	cr := req // start with the original request
 
-	// Start concurrent title generation — runs in parallel with the chat
-	// streaming so the title is ready (or nearly ready) by the time the
-	// reply finishes.
-	titleCh := make(chan string, 1)
+	// Start title generation in parallel with streaming. The title AI call
+	// runs concurrently with adapter.ChatStream(); the moment it returns we
+	// push a title_update SSE frame — possibly mid-stream — so the UI
+	// updates the title while the reply is still being generated.
 	go func() {
-		if t, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey); err == nil {
-			titleCh <- t
+		title, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+		if err != nil {
+			// Background fallback already attempted inside generateTitleSync.
+			return
 		}
+		writeFrame("title_update", map[string]string{
+			"conversation_id": convID,
+			"title":          title,
+		})
 	}()
 
 	for round := 0; round < maxToolRounds; round++ {
@@ -458,24 +466,17 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	// Store assistant message (fire-and-forget).
 	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
 
-	// Wait for the concurrently-generated title (started before the chat loop).
-	// Block up to 5 s — the title AI call runs in parallel with streaming so it
-	// is almost always ready by the time we get here.
-	select {
-	case title := <-titleCh:
-		c.SSEvent("title_update", map[string]string{
-			"conversation_id": convID,
-			"title":          title,
-		})
-	case <-time.After(5 * time.Second):
-		// Title took too long — let the background goroutine finish it.
-		go h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
-	}
-
+	// Emit done. The title goroutine (started above) writes title_update
+	// independently the moment its AI call returns; if it hasn't finished by
+	// now, the frontend's generateTitle fallback covers it. We do NOT block
+	// here — that would defeat the parallelism.
+	writeMu.Lock()
+	closed = true
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
 		flusher.Flush()
 	}
+	writeMu.Unlock()
 
 	// Suppress unused error
 	_ = err
@@ -832,7 +833,9 @@ func formatSearchToolResult(results []search.Result) string {
 // ===== Title generation =====
 
 // titleGenPrompt is the system prompt used to generate conversation titles.
-const titleGenPrompt = "Summarize the following message into a concise title of no more than 10 characters (or 5 words for English). Capture the core topic only. Return ONLY the title, no quotes, no punctuation, no explanation."
+// Goal: let the user recognize the conversation at a glance with the fewest
+// possible characters — a topic keyword/phrase, never a full sentence.
+const titleGenPrompt = "用最少的字提炼这条消息的核心主题，作为对话标题。要求：≤10个字（英文≤4词），是话题关键词而非完整句子，去掉一切标点、引号、前缀。只输出标题本身，不要任何解释。示例——消息「帮我写一个快速排序」→「快速排序」；消息「How do I parse JSON in Go?」→「Go JSON parsing」"
 
 // generateTitle calls the AI provider in a background goroutine to produce a
 // short title from the first user message. It fails silently on all errors.

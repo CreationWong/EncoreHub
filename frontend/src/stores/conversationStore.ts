@@ -178,6 +178,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		});
 
 		let streamTokenCount = 0;
+		// Track whether the gateway pushed a title_update during streaming.
+		// If it did, the title is already set — skip the fallback API call.
+		let titleReceived = false;
 
 		const finalize = (final: string) => {
 			const { streamingReasoning, streamingToolCalls } = get();
@@ -213,12 +216,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			}));
 			get().loadList();
 
-			// Auto-generate title for first exchange (reliable frontend fallback).
-			// The gateway also sends a title_update SSE event but it races with
-			// "done" — this API call guarantees the title always gets generated.
-			const conv = get().conversations.find((c) => c.id === convId);
-			if (conv?.title === "New Chat") {
-				get().generateTitle(convId);
+			// Auto-generate title for first exchange only if the gateway did
+			// not already push a title_update during streaming.
+			if (!titleReceived) {
+				const conv = get().conversations.find((c) => c.id === convId);
+				if (conv?.title === "New Chat") {
+					get().generateTitle(convId);
+				}
 			}
 		};
 
@@ -274,6 +278,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				},
 				onTitleUpdate(data) {
 					if (data.conversation_id === convId) {
+						titleReceived = true;
 						set((s) => ({
 							conversations: s.conversations.map((c) =>
 								c.id === data.conversation_id ? { ...c, title: data.title } : c,
