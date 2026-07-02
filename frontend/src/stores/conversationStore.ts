@@ -212,6 +212,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				abortController: null,
 			}));
 			get().loadList();
+
+			// Auto-generate title for first exchange (reliable frontend fallback).
+			// The gateway also sends a title_update SSE event but it races with
+			// "done" — this API call guarantees the title always gets generated.
+			const conv = get().conversations.find((c) => c.id === convId);
+			if (conv?.title === "New Chat") {
+				get().generateTitle(convId);
+			}
 		};
 
 		await chatApi.sendMessageStream(
