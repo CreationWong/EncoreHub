@@ -17,7 +17,7 @@ func TestBuildChatRequest_AppendsSystemExtra(t *testing.T) {
 	}
 	req := SendMessageRequest{Model: "x", Temperature: 0.7, Stream: true}
 
-	cr := buildChatRequest(conv, req, "\n\n[Knowledge Base]\n1. (chunk 0) test")
+	cr := buildChatRequest(conv, req, "\n\n[Knowledge Base]\n1. (chunk 0) test", nil)
 
 	if cr.Model != "x" {
 		t.Errorf("model = %q", cr.Model)
@@ -44,7 +44,7 @@ func TestBuildChatRequest_PreservesMessageOrder(t *testing.T) {
 			{Role: "user", Content: "third"},
 		},
 	}
-	cr := buildChatRequest(conv, SendMessageRequest{}, "")
+	cr := buildChatRequest(conv, SendMessageRequest{}, "", nil)
 
 	if len(cr.Messages) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(cr.Messages))
@@ -59,7 +59,7 @@ func TestBuildChatRequest_PreservesMessageOrder(t *testing.T) {
 
 func TestBuildChatRequest_EmptyHistory(t *testing.T) {
 	conv := &engine.ConversationDetail{}
-	cr := buildChatRequest(conv, SendMessageRequest{}, "")
+	cr := buildChatRequest(conv, SendMessageRequest{}, "", nil)
 	if len(cr.Messages) != 0 {
 		t.Errorf("empty history must yield empty Messages, got %d", len(cr.Messages))
 	}

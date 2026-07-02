@@ -14,6 +14,20 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// FunctionDefinition describes a tool function the model may call.
+type FunctionDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Parameters is a JSON Schema object describing the function's arguments.
+	Parameters map[string]any `json:"parameters"`
+}
+
+// Tool is a tool/function the model may request to invoke.
+type Tool struct {
+	Type     string              `json:"type"` // "function"
+	Function *FunctionDefinition `json:"function,omitempty"`
+}
+
 // ChatRequest is the unified request format sent to AI providers.
 type ChatRequest struct {
 	Model               string    `json:"model"`
@@ -38,6 +52,9 @@ type ChatRequest struct {
 	// ThinkingBudget enables Claude's extended thinking. Set to >=1024 to enable;
 	// the tokens consumed count against MaxTokens. Ignored by non-Claude adapters.
 	ThinkingBudget int `json:"thinking_budget,omitempty"`
+	// Tools is a list of tool/function definitions the model may call.
+	// When non-empty the model may respond with tool_calls instead of text.
+	Tools []Tool `json:"tools,omitempty"`
 }
 
 // ChatResponse is the unified (non-streaming) response.

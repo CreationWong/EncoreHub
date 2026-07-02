@@ -74,7 +74,30 @@ func (a *Adapter) buildRequest(req *provider.ChatRequest) goopenai.ChatCompletio
 	if req.ReasoningEffort != "" {
 		cr.ReasoningEffort = req.ReasoningEffort
 	}
+	if len(req.Tools) > 0 {
+		cr.Tools = toOpenAITools(req.Tools)
+	}
 	return cr
+}
+
+// toOpenAITools converts EncoreHub Tool definitions to go-openai format.
+func toOpenAITools(tools []provider.Tool) []goopenai.Tool {
+	out := make([]goopenai.Tool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, goopenai.Tool{
+			Type: goopenai.ToolTypeFunction,
+			Function: &goopenai.FunctionDefinition{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				// go-openai defines Parameters as `any` — pass the map directly
+				// so encoding/json serialises it as a JSON object. Passing a
+				// []byte (json.RawMessage) would be base64-encoded by the
+				// stdlib and rejected by providers as an invalid schema.
+				Parameters: t.Function.Parameters,
+			},
+		})
+	}
+	return out
 }
 
 func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey string) (*provider.ChatResponse, error) {

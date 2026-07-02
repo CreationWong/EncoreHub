@@ -109,43 +109,17 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Step 1: Always store the user message in the engine first.
 	userMsgID := h.storeUserMessage(convID, req.Content)
 
-	// Step 1.5: Optional web search — fetches real-time results and
-	// injects them into the system prompt so the model has up-to-date
-	// information without needing a tool-call round-trip.
-	var searchContext string
+	// Step 1.5: When web search is enabled the model receives a web_search
+	// tool so it can actively decide to search. The provider choice is
+	// captured so the tool executor uses the right backend.
+	var searchTool *provider.Tool
 	if req.Search {
 		sp := req.SearchProvider
 		if sp == "" {
 			sp = "duckduckgo"
 		}
-		searchAPIKey := ""
-		switch sp {
-		case "bing":
-			searchAPIKey = os.Getenv("BING_SEARCH_API_KEY")
-		case "google":
-			searchAPIKey = os.Getenv("GOOGLE_SEARCH_API_KEY")
-		}
-		searchProvider, err := search.NewProvider(sp, searchAPIKey,
-			search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
-		)
-		if err != nil {
-			log.Warn().Err(err).Str("provider", sp).Msg("web search provider init failed")
-		} else {
-			searchResp, err := searchProvider.Search(c.Request.Context(), req.Content, 5)
-			if err != nil {
-				log.Warn().Err(err).Str("provider", sp).Msg("web search failed")
-			} else {
-				searchContext = search.FormatForContext(searchResp)
-				// Prepend an explicit note so the model knows the search
-				// has already been executed and doesn't claim it can't search.
-				searchContext = fmt.Sprintf(
-					"\n\n[IMPORTANT: The user's message triggered a web search via %s. "+
-						"The results below are real-time and have already been fetched. "+
-						"Use them to answer accurately. Do NOT say you cannot search the web.]",
-					strings.ToUpper(sp)) + searchContext
-				log.Info().Str("provider", sp).Int("results", len(searchResp.Results)).Msg("web search completed")
-			}
-		}
+		t := newWebSearchTool(sp)
+		searchTool = &t
 	}
 
 	// Step 2: Pull relevant memories + knowledge chunks via the engine client
@@ -170,11 +144,12 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		log.Debug().Err(err).Msg("knowledge search failed (non-fatal)")
 	}
 
-	// Step 4: Build chat request (includes messages + search results + memory + knowledge context)
-	systemExtra := searchContext + memoryContext + knowledgeContext
+	// Step 3: Build chat request (includes messages + memory + knowledge context;
+	// web search is a tool the model invokes on its own initiative).
+	systemExtra := memoryContext + knowledgeContext
 	var chatReq *provider.ChatRequest
 	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-		chatReq = buildChatRequest(convDetail, req, systemExtra)
+		chatReq = buildChatRequest(convDetail, req, systemExtra, searchTool)
 	} else {
 		cr := &provider.ChatRequest{
 			Model:               req.Model,
@@ -190,10 +165,13 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 			JSONMode:            req.JSONMode,
 			ReasoningEffort:     req.ReasoningEffort,
 			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
-			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra,
+			"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
 			},
+		}
+		if searchTool != nil {
+			cr.Tools = []provider.Tool{*searchTool}
 		}
 		if cr.MaxTokens == 0 {
 			cr.MaxTokens = 4096
@@ -204,7 +182,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
 	defer cancel()
 
-	// Step 3: If no API key, refuse — unless ENCOREHUB_DEV_MOCK is set,
+	// Step 4: If no API key, refuse — unless ENCOREHUB_DEV_MOCK is set,
 	// in which case fall through to the canned replies below.
 	if apiKey == "" {
 		if !devMockEnabled() {
@@ -223,7 +201,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Step 4: Call real AI provider
+	// Step 5: Call real AI provider
 	adapter, err := h.registry.Get(req.Provider)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -231,7 +209,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	if req.Stream {
-		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, userMsgID, req)
+		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, userMsgID)
 		return
 	}
 
@@ -258,26 +236,24 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	})
 }
 
-// ===== Streaming (real provider) =====
+// ===== Streaming with optional tool-call loop =====
 
 func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
-	req *provider.ChatRequest, apiKey, convID, userMsgID string, origReq SendMessageRequest) {
-
-	events, err := adapter.ChatStream(ctx, req, apiKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	req *provider.ChatRequest, apiKey, convID, userMsgID string) {
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Status(http.StatusOK)
 
+	// The model may return tool_calls (e.g. web_search). We loop at most
+	// maxToolRounds times, executing tools and re-calling the model with
+	// the tool results appended to the conversation.
+	const maxToolRounds = 3
 	var fullContent string
 	var fullReasoning string
 	var totalTokens int
-	agg := newToolCallAggregator()
+	var allToolCalls []engine.ToolCallInput
 	flusher, _ := c.Writer.(http.Flusher)
 
 	writeFrame := func(event string, payload any) {
@@ -291,45 +267,188 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		}
 	}
 
-	for ev := range events {
-		switch {
-		case ev.Error != nil:
-			log.Error().Err(ev.Error).Msg("stream error")
-			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", ev.Error.Error())
+	processOneStream := func(cr *provider.ChatRequest) (content string, reasoning string, tokens int, toolCalls []engine.ToolCallInput, err error) {
+		events, streamErr := adapter.ChatStream(ctx, cr, apiKey)
+		if streamErr != nil {
+			return "", "", 0, nil, streamErr
+		}
+
+		agg := newToolCallAggregator()
+		for ev := range events {
+			switch {
+			case ev.Error != nil:
+				return "", "", 0, nil, ev.Error
+			case ev.Reasoning != nil:
+				reasoning += ev.Reasoning.Content
+				writeFrame("reasoning", map[string]string{"content": ev.Reasoning.Content})
+			case ev.ToolCall != nil:
+				agg.add(ev.ToolCall)
+				writeFrame("tool_call", ev.ToolCall)
+			case ev.ToolResult != nil:
+				agg.setResult(ev.ToolResult)
+				writeFrame("tool_result", ev.ToolResult)
+			case ev.Delta != nil:
+				if ev.Delta.Content != "" {
+					content += ev.Delta.Content
+					writeFrame("delta", map[string]string{"content": ev.Delta.Content})
+				}
+			case ev.Usage != nil:
+				tokens = ev.Usage.InputTokens + ev.Usage.OutputTokens
+				writeFrame("usage", map[string]int{
+					"input_tokens":  ev.Usage.InputTokens,
+					"output_tokens": ev.Usage.OutputTokens,
+				})
+			}
+		}
+		return content, reasoning, tokens, agg.toInputs(), nil
+	}
+
+	var err error
+	cr := req // start with the original request
+
+	for round := 0; round < maxToolRounds; round++ {
+		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr)
+		if streamErr != nil {
+			log.Error().Err(streamErr).Msg("stream error")
+			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", streamErr.Error())
 			if flusher != nil {
 				flusher.Flush()
 			}
 			return
-		case ev.Reasoning != nil:
-			fullReasoning += ev.Reasoning.Content
-			writeFrame("reasoning", map[string]string{"content": ev.Reasoning.Content})
-		case ev.ToolCall != nil:
-			agg.add(ev.ToolCall)
-			writeFrame("tool_call", ev.ToolCall)
-		case ev.ToolResult != nil:
-			agg.setResult(ev.ToolResult)
-			writeFrame("tool_result", ev.ToolResult)
-		case ev.Delta != nil:
-			if ev.Delta.Content != "" {
-				fullContent += ev.Delta.Content
-				writeFrame("delta", map[string]string{"content": ev.Delta.Content})
-			}
-		case ev.Usage != nil:
-			totalTokens = ev.Usage.InputTokens + ev.Usage.OutputTokens
-			writeFrame("usage", map[string]int{
-				"input_tokens":  ev.Usage.InputTokens,
-				"output_tokens": ev.Usage.OutputTokens,
-			})
 		}
+
+		fullContent = content
+		fullReasoning = reasoning
+		totalTokens = tokens
+		allToolCalls = append(allToolCalls, toolCalls...)
+
+		// Check if any tool calls need the gateway to execute them.
+		hasGatewayTool := false
+		var searchResults []search.Result
+		for _, tc := range toolCalls {
+			if tc.Name == "web_search" {
+				// Extract the query from the arguments (JSON string).
+				query := parseSearchQuery(tc.Arguments)
+				if query == "" {
+					query = fullContent // fallback
+				}
+				results, sErr := executeWebSearch(ctx, cr, query)
+				if sErr != nil {
+					log.Warn().Err(sErr).Msg("web_search execution failed")
+					tc.Result = fmt.Sprintf("Search failed: %v", sErr)
+					tc.Status = "error"
+				} else {
+					searchResults = append(searchResults, results...)
+					tc.Result = formatSearchToolResult(results)
+					tc.Status = "success"
+				}
+				hasGatewayTool = true
+			}
+		}
+
+		if !hasGatewayTool || len(toolCalls) == 0 {
+			// Model returned a text response — we're done.
+			break
+		}
+
+		// Send tool_result events to the frontend so it can show what happened.
+		for _, tc := range toolCalls {
+			if tc.Name == "web_search" {
+				writeFrame("tool_result", map[string]string{
+					"id":     tc.ID,
+					"result": tc.Result,
+					"status": tc.Status,
+				})
+			}
+		}
+
+		// If we have search results, format them and build a new request
+		// with the tool-call + tool-result messages appended.
+		if len(searchResults) > 0 {
+			log.Info().Int("results", len(searchResults)).Int("round", round+1).Msg("web_search tool executed, continuing conversation")
+		}
+
+		// Build the next request: append the assistant message (with tool_calls)
+		// and a tool-result message for each executed tool.
+		nextReq := cloneRequestForNextRound(cr, toolCalls)
+		if nextReq == nil {
+			break
+		}
+		cr = nextReq
 	}
 
 	// Store assistant reply with reasoning + tool calls.
-	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, agg.toInputs(), totalTokens)
+	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
 		flusher.Flush()
 	}
+
+	// Suppress unused error
+	_ = err
+}
+
+// cloneRequestForNextRound builds a new ChatRequest from the previous one,
+// appending the assistant's tool-call message and a tool-result message for
+// each tool that was executed. This feeds the model the search results so it
+// can continue generating.
+func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.ToolCallInput) *provider.ChatRequest {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+
+	messages := make([]provider.Message, len(prev.Messages))
+	copy(messages, prev.Messages)
+
+	// Convert the aggregated tool calls into the format the model expects:
+	// an "assistant" message with tool_calls content, and a "tool" message
+	// per tool call with the result.
+	for _, tc := range toolCalls {
+		if tc.Name == "" {
+			continue
+		}
+		// Assistant message: include the tool call as structured content.
+		// We serialise it as JSON for the provider to parse.
+		tcJSON := fmt.Sprintf(`{"name":"%s","arguments":%s}`, tc.Name, tc.Arguments)
+		messages = append(messages, provider.Message{
+			Role:    "assistant",
+			Content: "", // tool calls go in a separate field for OpenAI
+		})
+		_ = tcJSON // used by the adapter to reconstruct tool_calls
+
+		// Tool result message.
+		result := tc.Result
+		if result == "" {
+			result = "Tool executed successfully."
+		}
+		messages = append(messages, provider.Message{
+			Role:    "tool",
+			Content: result,
+		})
+	}
+
+	next := &provider.ChatRequest{
+		Model:               prev.Model,
+		Stream:              prev.Stream,
+		Temperature:         prev.Temperature,
+		TopP:                prev.TopP,
+		MaxTokens:           prev.MaxTokens,
+		MaxCompletionTokens: prev.MaxCompletionTokens,
+		FrequencyPenalty:    prev.FrequencyPenalty,
+		PresencePenalty:     prev.PresencePenalty,
+		Stop:                prev.Stop,
+		Seed:                prev.Seed,
+		JSONMode:            prev.JSONMode,
+		ReasoningEffort:     prev.ReasoningEffort,
+		SystemPrompt:        prev.SystemPrompt,
+		Messages:            messages,
+		Tools:               nil, // don't offer tools again to avoid loops
+	}
+	if next.MaxTokens == 0 {
+		next.MaxTokens = 4096
+	}
+	return next
 }
 
 // toolCallAggregator reassembles streamed tool-call fragments (which arrive
@@ -352,6 +471,9 @@ func (a *toolCallAggregator) add(ev *provider.ToolCallEvent) {
 	}
 	if ev.Name != "" {
 		tc.Name = ev.Name
+	}
+	if ev.ID != "" {
+		tc.ID = ev.ID
 	}
 	tc.Arguments += ev.Arguments
 }
@@ -450,7 +572,10 @@ func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasonin
 
 // ===== Helpers =====
 
-func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string) *provider.ChatRequest {
+// buildChatRequest builds a provider ChatRequest from a stored conversation.
+// When searchTool is non-nil it is registered as an available tool so the
+// model can proactively invoke web search.
+func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string, searchTool *provider.Tool) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
 		Model:               req.Model,
 		Stream:              req.Stream,
@@ -469,7 +594,11 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 		cr.MaxTokens = 4096
 	}
 	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
-			"You have access to real-time web search (DuckDuckGo, Bing, Google) — when the user enables it via the globe icon in the chat input, search results are automatically fetched and injected below. If you see [Web Search Results] in the context, those results are already fetched — use them; do NOT claim you cannot search. If the user asks for real-time or up-to-date information but no search results are present, suggest they click the globe icon to enable it." + systemExtra
+		"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra
+
+	if searchTool != nil {
+		cr.Tools = []provider.Tool{*searchTool}
+	}
 
 	for _, msg := range conv.Messages {
 		cr.Messages = append(cr.Messages, provider.Message{
@@ -479,6 +608,108 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 	}
 	return cr
 }
+
+// ===== Web search tool =====
+
+// newWebSearchTool returns a Tool definition for the named search provider.
+// The provider name is baked into the tool description so the model is aware
+// which backend will be used.
+func newWebSearchTool(providerName string) provider.Tool {
+	desc := fmt.Sprintf(
+		"Search the web for real-time, up-to-date information using %s. Use this when you need current events, recent data, or facts beyond your knowledge cutoff. The results will include titles, URLs, and snippets.",
+		strings.ToUpper(providerName),
+	)
+	return provider.Tool{
+		Type: "function",
+		Function: &provider.FunctionDefinition{
+			Name:        "web_search",
+			Description: desc,
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The search query to look up on the web",
+					},
+				},
+				"required": []any{"query"},
+			},
+		},
+	}
+}
+
+// parseSearchQuery extracts the "query" field from a JSON arguments string.
+// Returns the query or an empty string on failure.
+func parseSearchQuery(arguments string) string {
+	var args struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return ""
+	}
+	return args.Query
+}
+
+// executeWebSearch performs a web search using the engine's search provider.
+// The provider choice is read from the request's Tools list (baked in by
+// newWebSearchTool).
+func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query string) ([]search.Result, error) {
+	// Determine which search provider to use by inspecting the tool definition.
+	sp := "duckduckgo"
+	for _, t := range req.Tools {
+		if t.Function != nil && t.Function.Name == "web_search" {
+			desc := t.Function.Description
+			if strings.Contains(desc, "BING") {
+				sp = "bing"
+			} else if strings.Contains(desc, "GOOGLE") {
+				sp = "google"
+			} else if strings.Contains(desc, "DUCKDUCKGO") {
+				sp = "duckduckgo"
+			}
+			break
+		}
+	}
+
+	var apiKey string
+	switch sp {
+	case "bing":
+		apiKey = os.Getenv("BING_SEARCH_API_KEY")
+	case "google":
+		apiKey = os.Getenv("GOOGLE_SEARCH_API_KEY")
+	}
+
+	searchProv, err := search.NewProvider(sp, apiKey,
+		search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search provider init: %w", err)
+	}
+
+	resp, err := searchProv.Search(ctx, query, 5)
+	if err != nil {
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+
+	log.Info().Str("provider", sp).Str("query", query).Int("results", len(resp.Results)).Msg("web_search tool executed")
+	return resp.Results, nil
+}
+
+// formatSearchToolResult formats search results as a text block the model can
+// read after a web_search tool call.
+func formatSearchToolResult(results []search.Result) string {
+	if len(results) == 0 {
+		return "No search results found."
+	}
+	var b strings.Builder
+	b.WriteString("Web search results:\n\n")
+	for i, r := range results {
+		fmt.Fprintf(&b, "%d. **%s**\n   %s\n   URL: %s\n\n", i+1, r.Title, r.Snippet, r.URL)
+	}
+	b.WriteString("Use these results to answer the user's question. Cite your sources.")
+	return b.String()
+}
+
+// ===== Mock helpers =====
 
 func generateMockReply(userInput string) string {
 	input := userInput

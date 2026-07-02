@@ -54,6 +54,7 @@ type Message struct {
 // ToolCallInput is a tool call the gateway parsed from a provider stream,
 // passed to the engine for persistence alongside an assistant message.
 type ToolCallInput struct {
+	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 	Result    string `json:"result,omitempty"`
