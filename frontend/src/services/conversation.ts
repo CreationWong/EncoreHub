@@ -79,3 +79,15 @@ export async function renameConversation(
 		body: JSON.stringify({ title }),
 	});
 }
+
+export async function generateTitle(
+	id: string,
+	providerKey?: string,
+): Promise<Conversation> {
+	const headers: Record<string, string> = {};
+	if (providerKey) headers["X-Provider-Key"] = providerKey;
+	return apiFetch<Conversation>(`/conversations/${id}/generate-title`, {
+		method: "POST",
+		headers,
+	});
+}

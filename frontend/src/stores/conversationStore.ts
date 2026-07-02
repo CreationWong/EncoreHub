@@ -34,6 +34,7 @@ interface ConversationState {
 	setDraft: (content: string) => void;
 	clearDraft: () => void;
 	clearError: () => void;
+	generateTitle: (id: string) => Promise<void>;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -324,6 +325,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
 	setDraft: (content: string) => set({ pendingDraft: content }),
 	clearDraft: () => set({ pendingDraft: null }),
+
+	generateTitle: async (id: string) => {
+		try {
+			const { provider, apiKeys } = useSettingsStore.getState();
+			const providerKey = provider ? apiKeys[provider] : undefined;
+			const conv = await convApi.generateTitle(id, providerKey);
+			set((s) => ({
+				conversations: s.conversations.map((c) =>
+					c.id === conv.id ? { ...c, title: conv.title } : c,
+				),
+			}));
+		} catch (err) {
+			console.error("generate title failed:", err);
+			toast.error("Failed to generate title");
+		}
+	},
 
 	clearError: () => set({ error: null }),
 }));

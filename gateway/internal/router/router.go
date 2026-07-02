@@ -68,6 +68,8 @@ func Setup(cfg Config) *gin.Engine {
 
 			// Chat endpoint (gateway handles AI provider calls)
 			conv.POST("/:id/chat", chatHandler.SendMessage)
+			// AI-powered title generation
+			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
 		}
 
 		// Search

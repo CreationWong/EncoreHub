@@ -224,6 +224,9 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Store assistant reply in engine
 	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
 
+	// Auto-generate title for first exchange (background, best-effort).
+	go h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+
 	c.JSON(http.StatusOK, ChatResponse{
 		ConversationID: convID,
 		Reply:          chatResp.Content,
@@ -389,8 +392,11 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		cr = nextReq
 	}
 
-	// Store assistant reply with reasoning + tool calls.
-	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
+	// Store assistant reply + auto-generate title (background, best-effort).
+	go func() {
+		h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
+		h.generateTitle(context.Background(), convID, adapter.ID(), req.Model, apiKey)
+	}()
 
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
 	if flusher != nil {
@@ -742,6 +748,174 @@ func formatSearchToolResult(results []search.Result) string {
 	}
 	b.WriteString("Use these results to answer the user's question. Cite your sources.")
 	return b.String()
+}
+
+// ===== Title generation =====
+
+// titleGenPrompt is the system prompt used to generate conversation titles.
+const titleGenPrompt = "Generate a short, descriptive title (3-6 words) for a conversation that starts with this message. Return ONLY the title, no quotes, no punctuation at the end, no additional text."
+
+// generateTitle calls the AI provider in a background goroutine to produce a
+// short title from the first user message. It fails silently on all errors.
+func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, model, apiKey string) {
+	conv, err := h.engine.GetConversation(ctx, convID)
+	if err != nil {
+		return
+	}
+	// Only auto-generate for conversations still using the default title.
+	if conv.Title != "New Chat" {
+		return
+	}
+	// Find the first user message.
+	var firstUserMsg string
+	for _, msg := range conv.Messages {
+		if msg.Role == "user" {
+			firstUserMsg = msg.Content
+			break
+		}
+	}
+	if firstUserMsg == "" {
+		return
+	}
+
+	adapter, err := h.registry.Get(providerName)
+	if err != nil {
+		return
+	}
+
+	titleReq := &provider.ChatRequest{
+		Model:        model,
+		Stream:       false,
+		MaxTokens:    50,
+		Temperature:  0.3,
+		SystemPrompt: titleGenPrompt,
+		Messages: []provider.Message{
+			{Role: "user", Content: firstUserMsg},
+		},
+	}
+
+	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
+	if err != nil {
+		return
+	}
+
+	title := cleanGeneratedTitle(chatResp.Content)
+	if title == "" {
+		return
+	}
+
+	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
+		log.Debug().Err(err).Str("conv_id", convID).Str("title", title).Msg("auto-title rename failed")
+	}
+}
+
+// cleanGeneratedTitle strips quotes, extracts the first line, and caps length.
+func cleanGeneratedTitle(raw string) string {
+	title := strings.TrimSpace(raw)
+	title = strings.Trim(title, "\"'`*#")
+	if idx := strings.IndexByte(title, '\n'); idx != -1 {
+		title = title[:idx]
+	}
+	title = strings.TrimSpace(title)
+	if len(title) > 100 {
+		title = title[:100]
+	}
+	return title
+}
+
+// GenerateTitle handles POST /api/v1/conversations/:id/generate-title.
+// It uses the conversation's AI provider to produce a title from the first
+// user message and renames the conversation. Returns proper HTTP errors.
+func (h *ChatHandler) GenerateTitle(c *gin.Context) {
+	convID := c.Param("id")
+
+	conv, err := h.engine.GetConversation(c.Request.Context(), convID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	providerName := conv.Provider
+	model := conv.Model
+	if providerName == "" {
+		providerName = "openai"
+	}
+	if model == "" {
+		model = "gpt-4o"
+	}
+
+	apiKey := c.GetHeader("X-Provider-Key")
+	if apiKey == "" {
+		apiKey = c.GetHeader("X-" + providerName + "-Key")
+	}
+	if apiKey == "" {
+		if k, found, engineErr := h.engine.GetSecret(c.Request.Context(), providerName); engineErr != nil {
+			log.Debug().Err(engineErr).Msg("engine secret lookup failed (non-fatal)")
+		} else if found {
+			apiKey = k
+		}
+	}
+	if apiKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing provider API key"})
+		return
+	}
+
+	// Find the first user message.
+	var firstUserMsg string
+	for _, msg := range conv.Messages {
+		if msg.Role == "user" {
+			firstUserMsg = msg.Content
+			break
+		}
+	}
+	if firstUserMsg == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no user message found in conversation"})
+		return
+	}
+
+	adapter, err := h.registry.Get(providerName)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	titleReq := &provider.ChatRequest{
+		Model:        model,
+		Stream:       false,
+		MaxTokens:    50,
+		Temperature:  0.3,
+		SystemPrompt: titleGenPrompt,
+		Messages: []provider.Message{
+			{Role: "user", Content: firstUserMsg},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	chatResp, err := adapter.Chat(ctx, titleReq, apiKey)
+	if err != nil {
+		log.Error().Err(err).Msg("generate-title provider call failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("provider error: %v", err)})
+		return
+	}
+
+	title := cleanGeneratedTitle(chatResp.Content)
+	if title == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "generated empty title"})
+		return
+	}
+
+	renamed, err := h.engine.RenameConversation(ctx, convID, title)
+	if err != nil {
+		log.Error().Err(err).Msg("generate-title rename failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, renamed)
 }
 
 // ===== Mock helpers =====

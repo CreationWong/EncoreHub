@@ -114,6 +114,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		},
 	},
 	{
+		id: "retitle",
+		name: "/retitle",
+		description: "Generate an AI title for this conversation",
+		run: async (_args, { conv }) => {
+			if (!conv.activeId) return;
+			await conv.generateTitle(conv.activeId);
+		},
+	},
+	{
 		id: "help",
 		name: "/help",
 		description: "Show available commands",
