@@ -34,22 +34,22 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content            string   `json:"content" binding:"required"`
-	Provider           string   `json:"provider"`
-	Model              string   `json:"model"`
-	Stream             bool     `json:"stream"`
-	Search             bool     `json:"search"`
-	SearchProvider     string   `json:"search_provider"` // "duckduckgo" | "bing" | "google"
-	Temperature        float32  `json:"temperature"`
-	TopP               float32  `json:"top_p"`
-	MaxTokens          int      `json:"max_tokens"`
-	MaxCompletionTokens int     `json:"max_completion_tokens"`
-	FrequencyPenalty   float32  `json:"frequency_penalty"`
-	PresencePenalty    float32  `json:"presence_penalty"`
-	Stop               []string `json:"stop"`
-	Seed               *int     `json:"seed"`
-	JSONMode           bool     `json:"json_mode"`
-	ReasoningEffort    string   `json:"reasoning_effort"`
+	Content             string   `json:"content" binding:"required"`
+	Provider            string   `json:"provider"`
+	Model               string   `json:"model"`
+	Stream              bool     `json:"stream"`
+	Search              bool     `json:"search"`
+	SearchProvider      string   `json:"search_provider"` // "duckduckgo" | "bing" | "google"
+	Temperature         float32  `json:"temperature"`
+	TopP                float32  `json:"top_p"`
+	MaxTokens           int      `json:"max_tokens"`
+	MaxCompletionTokens int      `json:"max_completion_tokens"`
+	FrequencyPenalty    float32  `json:"frequency_penalty"`
+	PresencePenalty     float32  `json:"presence_penalty"`
+	Stop                []string `json:"stop"`
+	Seed                *int     `json:"seed"`
+	JSONMode            bool     `json:"json_mode"`
+	ReasoningEffort     string   `json:"reasoning_effort"`
 }
 
 type ChatResponse struct {
@@ -174,7 +174,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 			JSONMode:            req.JSONMode,
 			ReasoningEffort:     req.ReasoningEffort,
 			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
-			"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra,
+				"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra,
 			Messages: []provider.Message{
 				{Role: "user", Content: req.Content},
 			},
@@ -351,7 +351,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		}
 		writeFrame("title_update", map[string]string{
 			"conversation_id": convID,
-			"title":          title,
+			"title":           title,
 		})
 	}()
 
@@ -743,7 +743,7 @@ func newWebSearchTool(providerName string) provider.Tool {
 			Name:        "web_search",
 			Description: desc,
 			Parameters: map[string]any{
-				"type":       "object",
+				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
@@ -867,7 +867,7 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       false,
+		Stream:       true,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -876,17 +876,18 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 		},
 	}
 
-	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	bgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
+	// Stream so we accumulate only the final Content and skip reasoning.
+	raw, err := generateTitleText(bgCtx, adapter, titleReq, apiKey)
 	if err != nil {
 		return
 	}
 
-	title := cleanGeneratedTitle(chatResp.Content)
+	title := cleanGeneratedTitle(raw)
 	if title == "" {
-		log.Debug().Str("raw", chatResp.Content).Msg("auto-title: model returned empty title after cleaning, using fallback")
+		log.Debug().Str("raw", raw).Msg("auto-title: model returned empty title after cleaning, using fallback")
 		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
@@ -903,7 +904,7 @@ func newTitleUpdateTool(providerName string) provider.Tool {
 	return provider.Tool{
 		Type: "function",
 		Function: &provider.FunctionDefinition{
-			Name: "update_conversation_title",
+			Name:        "update_conversation_title",
 			Description: fmt.Sprintf("Update the title of this conversation using %s. Use this when the conversation topic has evolved or you want to give it a more descriptive name.", strings.ToUpper(providerName)),
 			Parameters: map[string]any{
 				"type": "object",
@@ -935,7 +936,7 @@ func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, co
 	// Send title update via SSE for real-time UI update
 	c.SSEvent("title_update", map[string]string{
 		"conversation_id": convID,
-		"title":          title,
+		"title":           title,
 	})
 
 	return nil
@@ -976,9 +977,34 @@ func cleanGeneratedTitle(raw string) string {
 	title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，… \t\r\n")
 
 	title = strings.TrimSpace(title)
+
+	// Detect prompt-echo: weak/reasoning models sometimes return the
+	// instruction text itself instead of a title. If the result contains
+	// distinctive prompt phrases, treat it as garbage and let the caller
+	// fall back to a derived title.
+	if isPromptEcho(title) {
+		return ""
+	}
+
 	// Rune-safe truncation (must not slice mid-char for CJK).
 	title = truncateRunes(title, 100)
 	return title
+}
+
+// isPromptEcho reports whether s looks like the title-generation prompt
+// echoed back rather than a real title.
+func isPromptEcho(s string) bool {
+	lower := strings.ToLower(s)
+	for _, needle := range []string{
+		"提炼", "核心主题", "对话标题", "话题关键词", "完整句子",
+		"去掉一切标点", "只输出标题", "summarize the following",
+		"core topic", "conversation title",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateRunes truncates s to at most max runes without splitting multi-byte chars.
@@ -1038,17 +1064,47 @@ func fallbackTitle(userMsg string) string {
 		}
 	}
 
-	// Take the first clause (up to a sentence/clause separator).
-	for _, sep := range []string{"。", "！", "？", "；", "\n", "，", "、", ".", "!", "?", ";", ","} {
-		if idx := strings.Index(s, sep); idx > 0 {
-			s = strings.TrimSpace(s[:idx])
-			break
+	// Take the first clause: cut at the EARLIEST clause/paren separator so we
+	// keep only the leading topic phrase (e.g. "域名系统（英语：..." → "域名系统").
+	separators := []string{"。", "！", "？", "；", "\n", "，", "、", "（", "(", ".", "!", "?", ";", ","}
+	earliest := -1
+	for _, sep := range separators {
+		if idx := strings.Index(s, sep); idx > 0 && (earliest == -1 || idx < earliest) {
+			earliest = idx
 		}
+	}
+	if earliest > 0 {
+		s = strings.TrimSpace(s[:earliest])
 	}
 
 	// Rune-safe truncation at ~15 chars; trim trailing punctuation.
 	s = strings.Trim(truncateRunes(s, 15), " ：:，,、。.！!？?；;\"'`*#_-–—")
 	return s
+}
+
+// generateTitleText calls the provider in STREAMING mode and accumulates ONLY
+// the final answer (delta.Content), discarding any reasoning/thinking output.
+// Reasoning models (e.g. deepseek-v4-flash) emit the chain-of-thought in
+// ReasoningContent and the actual answer in Content afterwards — using the
+// non-streaming Chat() call can surface the thinking as the title. Streaming
+// lets us ignore the thinking entirely.
+func generateTitleText(ctx context.Context, adapter provider.Adapter, req *provider.ChatRequest, apiKey string) (string, error) {
+	events, err := adapter.ChatStream(ctx, req, apiKey)
+	if err != nil {
+		return "", err
+	}
+	var content strings.Builder
+	for ev := range events {
+		if ev.Error != nil {
+			return "", ev.Error
+		}
+		// Intentionally ignore ev.Reasoning — that is the thinking trace,
+		// not the title. Only the final Content deltas carry the answer.
+		if ev.Delta != nil && ev.Delta.Content != "" {
+			content.WriteString(ev.Delta.Content)
+		}
+	}
+	return content.String(), nil
 }
 
 // generateTitleSync calls the AI provider synchronously to produce a title
@@ -1081,7 +1137,7 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       false,
+		Stream:       true,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -1090,15 +1146,16 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 		},
 	}
 
-	bgCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	bgCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	chatResp, err := adapter.Chat(bgCtx, titleReq, apiKey)
+	// Stream so we accumulate only the final Content and skip reasoning.
+	raw, err := generateTitleText(bgCtx, adapter, titleReq, apiKey)
 	if err != nil {
 		return "", err
 	}
 
-	title := cleanGeneratedTitle(chatResp.Content)
+	title := cleanGeneratedTitle(raw)
 	if title == "" {
 		title = fallbackTitle(firstUserMsg)
 	}
@@ -1170,7 +1227,7 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 
 	titleReq := &provider.ChatRequest{
 		Model:        model,
-		Stream:       false,
+		Stream:       true,
 		MaxTokens:    50,
 		Temperature:  0.3,
 		SystemPrompt: titleGenPrompt,
@@ -1182,16 +1239,17 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	chatResp, err := adapter.Chat(ctx, titleReq, apiKey)
+	// Stream so we accumulate only the final Content and skip reasoning.
+	raw, err := generateTitleText(ctx, adapter, titleReq, apiKey)
 	if err != nil {
 		log.Error().Err(err).Msg("generate-title provider call failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("provider error: %v", err)})
 		return
 	}
 
-	title := cleanGeneratedTitle(chatResp.Content)
+	title := cleanGeneratedTitle(raw)
 	if title == "" {
-		log.Debug().Str("raw", chatResp.Content).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
+		log.Debug().Str("raw", raw).Str("conv_id", convID).Msg("generate-title: model returned empty title, using fallback")
 		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
