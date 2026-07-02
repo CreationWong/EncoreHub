@@ -8,10 +8,26 @@ import (
 	"context"
 )
 
+// ToolCallMessage is a lightweight tool-call stub embedded inside an assistant
+// Message. The full ToolCall type used by adapters is separate; this exists
+// solely to carry tool-call metadata across the adapter boundary when the
+// gateway constructs a follow-up request after executing tools.
+type ToolCallMessage struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
+}
+
 // Message represents a single chat message in unified format.
 type Message struct {
 	Role    string `json:"role"` // "user", "assistant", "system", "tool"
 	Content string `json:"content"`
+	// ToolCallID is set for role "tool" messages to associate the result
+	// with the tool call the model requested. Required by OpenAI / DeepSeek.
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	// ToolCalls is set for role "assistant" messages that contain tool
+	// invocations. Maps to the provider's native tool_calls array.
+	ToolCalls []ToolCallMessage `json:"tool_calls,omitempty"`
 }
 
 // FunctionDefinition describes a tool function the model may call.

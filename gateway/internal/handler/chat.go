@@ -401,30 +401,42 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 	messages := make([]provider.Message, len(prev.Messages))
 	copy(messages, prev.Messages)
 
-	// Convert the aggregated tool calls into the format the model expects:
-	// an "assistant" message with tool_calls content, and a "tool" message
-	// per tool call with the result.
+	// Build a single assistant message carrying all tool calls, then one tool
+	// result message per call. OpenAI / DeepSeek require:
+	//   assistant: {role:"assistant", content:null, tool_calls:[{id,function:{name,arguments}}]}
+	//   tool:      {role:"tool", tool_call_id:"<id>", content:"<result>"}
+	var tcms []provider.ToolCallMessage
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
 		}
-		// Assistant message: include the tool call as structured content.
-		// We serialise it as JSON for the provider to parse.
-		tcJSON := fmt.Sprintf(`{"name":"%s","arguments":%s}`, tc.Name, tc.Arguments)
-		messages = append(messages, provider.Message{
-			Role:    "assistant",
-			Content: "", // tool calls go in a separate field for OpenAI
+		tcms = append(tcms, provider.ToolCallMessage{
+			ID:        tc.ID,
+			Name:      tc.Name,
+			Arguments: tc.Arguments,
 		})
-		_ = tcJSON // used by the adapter to reconstruct tool_calls
+	}
 
-		// Tool result message.
+	if len(tcms) > 0 {
+		messages = append(messages, provider.Message{
+			Role:      "assistant",
+			Content:   "",
+			ToolCalls: tcms,
+		})
+	}
+
+	for _, tc := range toolCalls {
+		if tc.Name == "" {
+			continue
+		}
 		result := tc.Result
 		if result == "" {
 			result = "Tool executed successfully."
 		}
 		messages = append(messages, provider.Message{
-			Role:    "tool",
-			Content: result,
+			Role:       "tool",
+			Content:    result,
+			ToolCallID: tc.ID,
 		})
 	}
 
@@ -654,7 +666,8 @@ func parseSearchQuery(arguments string) string {
 // The provider choice is read from the request's Tools list (baked in by
 // newWebSearchTool).
 func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query string) ([]search.Result, error) {
-	// Determine which search provider to use by inspecting the tool definition.
+	// Determine which search provider the user selected by inspecting the
+	// tool description (set by newWebSearchTool).
 	sp := "duckduckgo"
 	for _, t := range req.Tools {
 		if t.Function != nil && t.Function.Name == "web_search" {
@@ -663,8 +676,6 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 				sp = "bing"
 			} else if strings.Contains(desc, "GOOGLE") {
 				sp = "google"
-			} else if strings.Contains(desc, "DUCKDUCKGO") {
-				sp = "duckduckgo"
 			}
 			break
 		}
@@ -682,7 +693,10 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 		search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("search provider init: %w", err)
+		// If the user picked Bing/Google but no API key is configured, fall
+		// back to DuckDuckGo instead of failing outright.
+		log.Warn().Err(err).Str("fallback", "duckduckgo").Msg("web_search provider unavailable, falling back to DuckDuckGo")
+		searchProv = search.NewDuckDuckGo()
 	}
 
 	resp, err := searchProv.Search(ctx, query, 5)
@@ -690,7 +704,7 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
-	log.Info().Str("provider", sp).Str("query", query).Int("results", len(resp.Results)).Msg("web_search tool executed")
+	log.Info().Str("provider", searchProv.Name()).Str("query", query).Int("results", len(resp.Results)).Msg("web_search tool executed")
 	return resp.Results, nil
 }
 

@@ -212,10 +212,31 @@ func toMessages(req *provider.ChatRequest) []goopenai.ChatCompletionMessage {
 		})
 	}
 	for _, msg := range req.Messages {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+		gmsg := goopenai.ChatCompletionMessage{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+		if len(msg.ToolCalls) > 0 {
+			gmsg.ToolCalls = toOpenAIToolCalls(msg.ToolCalls)
+		}
+		messages = append(messages, gmsg)
 	}
 	return messages
+}
+
+// toOpenAIToolCalls converts EncoreHub ToolCallMessages to go-openai format.
+func toOpenAIToolCalls(tcms []provider.ToolCallMessage) []goopenai.ToolCall {
+	out := make([]goopenai.ToolCall, 0, len(tcms))
+	for _, tc := range tcms {
+		out = append(out, goopenai.ToolCall{
+			ID:   tc.ID,
+			Type: goopenai.ToolTypeFunction,
+			Function: goopenai.FunctionCall{
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			},
+		})
+	}
+	return out
 }
