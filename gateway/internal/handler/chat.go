@@ -1068,39 +1068,9 @@ func fallbackTitle(userMsg string) string {
 		}
 	}
 
-	// Take the first clause: cut at the EARLIEST clause/paren separator so we
-	// keep only the leading topic phrase (e.g. "域名系统（英语：..." → "域名系统").
-	separators := []string{"。", "！", "？", "；", "\n", "，", "、", "（", "(", ".", "!", "?", ";", ","}
-	earliest := -1
-	for _, sep := range separators {
-		if idx := strings.Index(s, sep); idx > 0 && (earliest == -1 || idx < earliest) {
-			earliest = idx
-		}
-	}
-	if earliest > 0 {
-		s = strings.TrimSpace(s[:earliest])
-	}
-
-	// Rune-safe truncation at ~15 chars; trim trailing punctuation.
-	s = strings.Trim(truncateRunes(s, 15), " ：:，,、。.！!？?；;\"'`*#_-–—")
+	// Rune-safe truncation at ~20 chars; trim trailing punctuation.
+	s = strings.Trim(truncateRunes(s, 20), " ：:，,、。.！!？?；;\"'`*#_-–—")
 	return s
-}
-
-// isDefaultTitle returns true when the conversation still has a default/
-// placeholder title (set at creation time) and hasn't been renamed yet.
-func isDefaultTitle(title string) bool {
-	title = strings.TrimSpace(title)
-	return title == "" || title == "New Chat"
-}
-
-// lastUserContent extracts the last user message from a ChatRequest.
-func lastUserContent(req *provider.ChatRequest) string {
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == "user" {
-			return req.Messages[i].Content
-		}
-	}
-	return ""
 }
 
 // generateTitleText calls the provider in STREAMING mode and accumulates ONLY
@@ -1125,7 +1095,11 @@ func generateTitleText(ctx context.Context, adapter provider.Adapter, req *provi
 			content.WriteString(ev.Delta.Content)
 		}
 	}
-	return content.String(), nil
+	raw := content.String()
+	if raw == "" {
+		log.Warn().Str("model", req.Model).Msg("generate-title: streaming returned empty content")
+	}
+	return raw, nil
 }
 
 // generateTitleSync calls the AI provider synchronously to produce a title
@@ -1169,11 +1143,18 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 	// Stream so we accumulate only the final Content and skip reasoning.
 	raw, err := generateTitleText(bgCtx, adapter, titleReq, apiKey)
 	if err != nil {
-		return "", err
+		log.Debug().Err(err).Str("conv_id", convID).Msg("generate-title AI call failed")
+		title := fallbackTitle(firstUserMsg)
+		if title != "" {
+			h.engine.RenameConversation(ctx, convID, title)
+		}
+		return title, nil
 	}
 
+	log.Debug().Str("conv_id", convID).Str("raw", raw).Msg("generate-title raw output")
 	title := cleanGeneratedTitle(raw)
 	if title == "" {
+		log.Debug().Str("conv_id", convID).Str("raw", raw).Msg("generate-title: cleaned to empty, using fallback")
 		title = fallbackTitle(firstUserMsg)
 	}
 	if title == "" {
