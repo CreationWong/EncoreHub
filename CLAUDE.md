@@ -34,6 +34,7 @@ actual ports via the `get_service_ports` Tauri command.
 - Before modifying auth-related code, flag the security implications explicitly
 - Never log or comment API keys, tokens, or secrets — treat them as opaque strings
 - Before writing code for non-trivial changes, briefly explain the approach; when multiple valid approaches exist, present them as options
+- **Go: never use `any` in struct fields that will be JSON-serialized to external APIs.** `encoding/json` marshals `[]byte` as base64, which causes API rejections when the field is expected to be a JSON object. For function parameters/schemas passed to AI providers, use typed maps (`map[string]any`) or concrete structs. `json.RawMessage` is `[]byte` — it will be base64-encoded, not inlined.
 - Frontend UI: use semantic color tokens (`success`/`warning`/`danger`/`info` + `-bg`/`-border` variants, defined in `styles/globals.css`, wired through `tailwind.config.js`) — never hardcode Tailwind palette colors like `red-400`
 - Frontend errors/feedback: surface via the global toast store (`stores/toastStore.ts` — `toast.success/error/info`), not inline error bars
 - Frontend a11y: icon-only buttons must carry an `aria-label`; keyboard focus uses the global `:focus-visible` ring (no per-component focus styling needed)
