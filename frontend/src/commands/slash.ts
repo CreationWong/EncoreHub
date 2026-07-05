@@ -119,7 +119,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		description: "Generate an AI title for this conversation",
 		run: async (_args, { conv }) => {
 			if (!conv.activeId) return;
-			await conv.generateTitle(conv.activeId);
+			await conv.generateTitle(conv.activeId, true);
 		},
 	},
 	{

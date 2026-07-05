@@ -39,6 +39,7 @@ export interface StreamCallbacks {
 	onUsage?: (input: number, output: number) => void;
 	onWarning?: (message: string) => void;
 	onTitleUpdate?: (data: { conversation_id: string; title: string }) => void;
+	onTitleError?: (message: string) => void;
 	onDone: (fullContent: string) => void;
 	onError: (error: string) => void;
 }
@@ -227,6 +228,15 @@ export const chatApi = {
 							callbacks.onTitleUpdate?.(j);
 						} catch {
 							/* ignore malformed title_update frame */
+						}
+						break;
+					}
+					case "title_error": {
+						try {
+							const j = JSON.parse(ev.data);
+							callbacks.onTitleError?.(j.message ?? "Failed to generate title");
+						} catch {
+							callbacks.onTitleError?.("Failed to generate title");
 						}
 						break;
 					}

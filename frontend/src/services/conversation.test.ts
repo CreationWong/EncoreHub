@@ -6,6 +6,7 @@ vi.mock("./api", () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 import {
 	createConversation,
 	deleteConversation,
+	generateTitle,
 	getConversation,
 	listConversations,
 	renameConversation,
@@ -59,5 +60,20 @@ describe("conversation service", () => {
 		expect(path).toBe("/conversations/c1");
 		expect(opts.method).toBe("PATCH");
 		expect(JSON.parse(opts.body)).toEqual({ title: "renamed" });
+	});
+
+	it("generateTitle posts force flag and provider key", async () => {
+		await generateTitle("c1", "sk-test", true);
+		const [path, opts] = apiFetch.mock.calls[0];
+		expect(path).toBe("/conversations/c1/generate-title");
+		expect(opts.method).toBe("POST");
+		expect(opts.headers).toEqual({ "X-Provider-Key": "sk-test" });
+		expect(JSON.parse(opts.body)).toEqual({ force: true });
+	});
+
+	it("generateTitle defaults force to false", async () => {
+		await generateTitle("c1");
+		const [, opts] = apiFetch.mock.calls[0];
+		expect(JSON.parse(opts.body)).toEqual({ force: false });
 	});
 });

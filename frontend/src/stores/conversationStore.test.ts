@@ -13,6 +13,7 @@ vi.mock("../services/chat", () => ({
 // conversation API mocked too so newConversation/deleteConversation/loadList
 // are no-ops.
 const renameConversationApi = vi.fn();
+const generateTitleApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
 	createConversation: vi
@@ -23,10 +24,12 @@ vi.mock("../services/conversation", () => ({
 		.mockResolvedValue({ id: "c1", title: "x", messages: [] }),
 	deleteConversation: vi.fn().mockResolvedValue(undefined),
 	renameConversation: (...args: unknown[]) => renameConversationApi(...args),
+	generateTitle: (...args: unknown[]) => generateTitleApi(...args),
 }));
 
 // Force module evaluation order: import store after the mocks above.
 import { useConversationStore } from "./conversationStore";
+import { useSettingsStore } from "./settingsStore";
 
 beforeEach(() => {
 	useConversationStore.setState({
@@ -42,6 +45,21 @@ beforeEach(() => {
 	});
 	sendMessageStream.mockReset();
 	renameConversationApi.mockReset();
+	generateTitleApi.mockReset();
+	generateTitleApi.mockResolvedValue({
+		id: "c1",
+		title: "Generated",
+		provider: "anthropic",
+		model: "claude",
+		message_count: 2,
+		created_at: "",
+		updated_at: "",
+	});
+	useSettingsStore.setState({
+		provider: "openai",
+		model: "gpt-4o",
+		apiKeys: { openai: "openai-key", anthropic: "anthropic-key" },
+	});
 });
 
 describe("pushSystemMessage", () => {
@@ -189,6 +207,164 @@ describe("sendMessage", () => {
 		// Streaming scratch state is cleared after finalize.
 		expect(s.streamingReasoning).toBe("");
 		expect(s.streamingToolCalls).toEqual([]);
+	});
+
+	it("uses title_update without issuing a second title generation request", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onTitleUpdate?.({ conversation_id: "c1", title: "Stream Title" });
+				cb.onDone("done");
+			},
+		);
+
+		useConversationStore.setState({
+			activeId: "c1",
+			conversations: [
+				{
+					id: "c1",
+					title: "New Chat",
+					provider: "anthropic",
+					model: "claude",
+					message_count: 0,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(generateTitleApi).not.toHaveBeenCalled();
+		expect(useConversationStore.getState().conversations[0].title).toBe(
+			"Stream Title",
+		);
+	});
+
+	it("sends chat with the active conversation provider key", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onDone("done");
+			},
+		);
+
+		useConversationStore.setState({
+			activeId: "c1",
+			conversations: [
+				{
+					id: "c1",
+					title: "Existing",
+					provider: "anthropic",
+					model: "claude",
+					message_count: 2,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(sendMessageStream.mock.calls[0][2]).toBe("anthropic-key");
+	});
+
+	it("does not issue a second title generation request when stream has no title event", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onDone("done");
+			},
+		);
+
+		useConversationStore.setState({
+			activeId: "c1",
+			conversations: [
+				{
+					id: "c1",
+					title: "New Chat",
+					provider: "anthropic",
+					model: "claude",
+					message_count: 0,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(generateTitleApi).not.toHaveBeenCalled();
+	});
+
+	it("surfaces hidden automatic-title errors without a second generation request", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onTitleError?.("Failed to generate title");
+				cb.onDone("done");
+			},
+		);
+
+		useConversationStore.setState({
+			activeId: "c1",
+			conversations: [
+				{
+					id: "c1",
+					title: "New Chat",
+					provider: "anthropic",
+					model: "claude",
+					message_count: 0,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(generateTitleApi).not.toHaveBeenCalled();
+	});
+});
+
+describe("generateTitle", () => {
+	it("uses the conversation provider key and forwards force", async () => {
+		useConversationStore.setState({
+			conversations: [
+				{
+					id: "c1",
+					title: "Manual",
+					provider: "anthropic",
+					model: "claude",
+					message_count: 2,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+
+		await useConversationStore.getState().generateTitle("c1", true);
+
+		expect(generateTitleApi).toHaveBeenCalledWith(
+			"c1",
+			"anthropic-key",
+			true,
+		);
+		expect(useConversationStore.getState().conversations[0].title).toBe(
+			"Generated",
+		);
 	});
 });
 

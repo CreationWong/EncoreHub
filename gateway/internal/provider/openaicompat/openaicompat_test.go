@@ -67,3 +67,38 @@ func TestToMessages_NoSystemPrompt(t *testing.T) {
 		t.Fatalf("messages = %#v", msgs)
 	}
 }
+
+func TestExtraBodyForRequest_DisablesDeepSeekThinkingWithoutChangingModel(t *testing.T) {
+	a := New(provider.ProviderProfile{ID: "deepseek", BaseURL: "https://api.deepseek.com/v1"})
+	req := &provider.ChatRequest{Model: "deepseek-v4-flash", DisableReasoning: true}
+
+	cr := a.buildRequest(req)
+	if cr.Model != "deepseek-v4-flash" {
+		t.Fatalf("model changed to %q", cr.Model)
+	}
+
+	extra := a.extraBodyForRequest(req)
+	thinking, ok := extra["thinking"].(map[string]string)
+	if !ok {
+		t.Fatalf("thinking extra missing: %#v", extra)
+	}
+	if thinking["type"] != "disabled" {
+		t.Fatalf("thinking.type = %q", thinking["type"])
+	}
+}
+
+func TestExtraBodyForRequest_DoesNotAffectOtherProviders(t *testing.T) {
+	a := New(provider.ProviderProfile{ID: "openai"})
+	extra := a.extraBodyForRequest(&provider.ChatRequest{Model: "gpt-4o", DisableReasoning: true})
+	if extra != nil {
+		t.Fatalf("unexpected extra body: %#v", extra)
+	}
+}
+
+func TestExtraBodyForRequest_MatchesCustomDeepSeekProvider(t *testing.T) {
+	a := New(provider.ProviderProfile{ID: "custom-openai", BaseURL: "https://example.local/v1"})
+	extra := a.extraBodyForRequest(&provider.ChatRequest{Model: "vendor/deepseek-v4-flash", DisableReasoning: true})
+	if extra == nil {
+		t.Fatal("expected DeepSeek V4 thinking switch for custom provider model")
+	}
+}

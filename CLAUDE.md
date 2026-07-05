@@ -192,10 +192,13 @@ When the user toggles search on (globe icon in the input box):
 
 ### Auto-Generated Conversation Titles
 
-- **Frontend** calls `autoGenerateTitle()` after successful message creation using the `conversation` crate's `estimate_message_tokens()` to stay within token limits
-- **Gateway** intercepts `POST /api/v1/conversations/:id/chat` responses and triggers title generation when a new conversation is created
-- **Engine** provides `/api/v1/conversations/:id/title-generation` endpoint that uses the conversation's first user message (plus context if needed) to generate titles
-- The `/retitle` command allows manual title generation for existing conversations
+- **Manual rename** has highest priority: user-edited titles must not be overwritten by automatic generation
+- **Requested rename** uses the `update_conversation_title` tool and shows the tool call/result in chat
+- **Automatic title generation** runs as a hidden non-streaming gateway request after the first user message, in parallel with the visible chat response; it emits `title_update` or `title_error` SSE before `done`
+- **Gateway** provides `POST /api/v1/conversations/:id/generate-title` for explicit `/retitle` requests (`force: true`) and guarded automatic requests (`force: false`)
+- **Engine** stores title updates via conversation PATCH/title update endpoints; it does not own AI title generation
+- Automatic generation uses the conversation's configured model and must not automatically switch to a non-reasoning or lighter model; provider-native reasoning disable flags are allowed for the hidden title request (DeepSeek V4 uses `thinking.type=disabled`)
+- Limits: Chinese-only ≤20 chars, English-only ≤15 words, mixed Chinese/English ≤15 chars; timeout 30s; 3 retries with full request/response/error logging
 - Titles are displayed in the conversation list and conversation header with edit functionality
 
 ### Frontend State (Zustand)
@@ -214,8 +217,7 @@ Commands are declared in `frontend/src/commands/slash.ts` as a `SlashCommand[]` 
 **Current Commands**:
 - `/clear` - Clear conversation
 - `/model` - Switch model/provider
-- `/title` - Set conversation title
-- `/retitle` - Auto-generate conversation title (NEW)
+- `/retitle` - Force AI title regeneration for the current conversation
 - `/export` - Export conversation
 - `/help` - Show available commands
 
@@ -269,8 +271,8 @@ GitHub Actions (`.github/workflows/ci.yml`): 4 parallel jobs — frontend (pnpm 
 | `POST /api/v1/conversations/:id/chat` | Send message, returns SSE stream when `stream: true` |
 | `GET/POST /api/v1/conversations` | List / create conversations |
 | `GET/PATCH/DELETE /api/v1/conversations/:id` | CRUD for a single conversation |
-| `POST /api/v1/conversations/:id/title-generation` | Auto-generate conversation title |
-| `/retitle` command | Manual title generation for existing conversations |
+| `POST /api/v1/conversations/:id/generate-title` | AI-generate conversation title (`force` controls manual vs guarded automatic behavior) |
+| `/retitle` command | Force AI title regeneration for the current conversation |
 | `GET/PUT /api/v1/providers` | List / update provider profiles |
 | `POST /api/v1/search` | Web search (DuckDuckGo, Bing, Google) |
 | `/api/v1/{skills,memories,knowledge,secrets}/*` | Proxied to engine |

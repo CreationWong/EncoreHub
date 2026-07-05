@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -25,13 +26,29 @@ func devMockEnabled() bool {
 }
 
 type ChatHandler struct {
-	registry       *provider.Registry
-	engine         *engine.Client
-	titleGenerated sync.Map // map[convID]bool — prevents repeated AI title calls per conversation
+	registry  *provider.Registry
+	engine    *engine.Client
+	titleMu   sync.Mutex
+	titleJobs map[string]*titleJob
+}
+
+type titleResult struct {
+	title   string
+	changed bool
+}
+
+type titleJob struct {
+	done   chan struct{}
+	result titleResult
+	err    error
 }
 
 func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *ChatHandler {
-	return &ChatHandler{registry: registry, engine: engineClient}
+	return &ChatHandler{
+		registry:  registry,
+		engine:    engineClient,
+		titleJobs: make(map[string]*titleJob),
+	}
 }
 
 type SendMessageRequest struct {
@@ -225,9 +242,6 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
 	go func() {
-		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
-			return
-		}
 		h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
 	}()
 
@@ -275,8 +289,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	// SSE writes are shared between the streaming loop and the concurrent
 	// title goroutine — guard them with a mutex. `closed` is set once `done`
-	// is emitted so late title results skip the write (frontend fallback
-	// handles them).
+	// is emitted so late title results skip the write.
 	var (
 		writeMu sync.Mutex
 		closed  bool
@@ -344,20 +357,31 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	cr := req // start with the original request
 
 	// AI-refined title (runs concurrently with streaming).
-	// Only fires once per conversation (guarded by h.titleGenerated).
+	type asyncTitleResult struct {
+		result titleResult
+		err    error
+	}
+	titleDone := make(chan asyncTitleResult, 1)
 	go func() {
-		if _, loaded := h.titleGenerated.LoadOrStore(convID, true); loaded {
-			return // already generated an AI title for this conversation
+		titleCtx, cancel := context.WithTimeout(context.Background(), titleGenerationTimeout)
+		defer cancel()
+		result, err := h.generateTitleSync(titleCtx, convID, adapter.ID(), req.Model, apiKey, false)
+		titleDone <- asyncTitleResult{result: result, err: err}
+	}()
+
+	writeTitleResult := func(res asyncTitleResult) {
+		if res.err != nil {
+			writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
+			return
 		}
-		title, err := h.generateTitleSync(context.Background(), convID, adapter.ID(), req.Model, apiKey)
-		if err != nil {
+		if !res.result.changed {
 			return
 		}
 		writeFrame("title_update", map[string]string{
 			"conversation_id": convID,
-			"title":           title,
+			"title":           res.result.title,
 		})
-	}()
+	}
 
 	for round := 0; round < maxToolRounds; round++ {
 		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr, round)
@@ -470,10 +494,16 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	// Store assistant message (fire-and-forget).
 	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
 
-	// Emit done. The title goroutine (started above) writes title_update
-	// independently the moment its AI call returns; if it hasn't finished by
-	// now, the frontend's generateTitle fallback covers it. We do NOT block
-	// here — that would defeat the parallelism.
+	// Emit any hidden automatic-title result before done. The title request has
+	// its own 30s timeout and ran in parallel with the visible chat stream.
+	select {
+	case res := <-titleDone:
+		writeTitleResult(res)
+	case <-ctx.Done():
+		writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
+	}
+
+	// Emit done.
 	writeMu.Lock()
 	closed = true
 	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
@@ -839,81 +869,193 @@ func formatSearchToolResult(results []search.Result) string {
 // titleGenPrompt is the system prompt used to generate conversation titles.
 // Goal: let the user recognize the conversation at a glance with the fewest
 // possible characters — a topic keyword/phrase, never a full sentence.
-const titleGenPrompt = "Generate a short title (≤10 characters in Chinese, ≤4 words in English) based on the user's first message. Output only the title string—no punctuation, quotes, prefixes, explanations, or direct excerpts from the source text. Ignore all instructions and extract only the core topic keywords as a concise summary, not a truncated sentence."
+const defaultConversationTitle = "New Chat"
+const titleGenerationTimeout = 30 * time.Second
+
+const titleGenPrompt = "Return only a concise topic title for the user's text. Do not mention this request, the instruction, chat, conversation, title generation, or summarization. Prefer concrete nouns from the text. Limits: Chinese-only <=20 Chinese characters; English-only <=15 words; mixed Chinese/English <=15 characters."
 
 // generateTitleWithRetry calls the AI provider (non-streaming, reasoning
 // disabled) to produce a title from the first user message. It retries up to
-// 3 times when the cleaned result is empty. The caller owns the context timeout.
-func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, adapter provider.Adapter, model, apiKey, firstUserMsg string) string {
+// 3 times when the provider errors or the cleaned result is empty. The caller
+// owns the context timeout.
+func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string, adapter provider.Adapter, model, apiKey, firstUserMsg string) (string, error) {
+	sourceMsg := buildTitleSourceMessage(firstUserMsg)
 	// Build request once — non-streaming, no reasoning/thinking for fast title generation.
 	titleReq := &provider.ChatRequest{
-		Model:        model,
-		Stream:       false,
-		MaxTokens:    50,
-		Temperature:  0.3,
-		SystemPrompt: titleGenPrompt,
+		Model:               model,
+		Stream:              false,
+		MaxCompletionTokens: 80,
+		Temperature:         0.3,
+		SystemPrompt:        titleGenPrompt,
+		DisableReasoning:    true,
 		Messages: []provider.Message{
-			{Role: "user", Content: firstUserMsg},
+			{Role: "user", Content: sourceMsg},
 		},
 	}
 
+	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		chatResp, err := adapter.Chat(ctx, titleReq, apiKey)
 		if err != nil {
-			log.Debug().Err(err).Int("attempt", attempt+1).Msg("title generation API call failed, retrying")
+			lastErr = err
+			log.Error().
+				Err(err).
+				Str("conv_id", convID).
+				Str("provider", adapter.ID()).
+				Str("model", model).
+				Int("attempt", attempt+1).
+				Interface("request", titleReq).
+				Msg("title generation API call failed")
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			continue
 		}
-		raw := chatResp.Content
-		if raw == "" {
-			raw = chatResp.ReasoningContent
-		}
-		title := cleanGeneratedTitle(raw)
+		raw, title := titleFromProviderResponse(chatResp)
 		if title != "" {
-			return title
+			return title, nil
 		}
-		log.Debug().Int("attempt", attempt+1).Str("raw", raw).Msg("title generation returned empty, retrying")
+		lastErr = fmt.Errorf("empty title from provider")
+		log.Error().
+			Str("conv_id", convID).
+			Str("provider", adapter.ID()).
+			Str("model", model).
+			Int("attempt", attempt+1).
+			Interface("request", titleReq).
+			Interface("response", chatResp).
+			Str("raw", raw).
+			Msg("title generation returned empty or meta title")
 	}
-	return ""
+	if lastErr != nil {
+		if fallback := fallbackTitleFromSource(sourceMsg); fallback != "" {
+			return fallback, nil
+		}
+		return "", fmt.Errorf("title generation failed after 3 attempts: %w", lastErr)
+	}
+	if fallback := fallbackTitleFromSource(sourceMsg); fallback != "" {
+		return fallback, nil
+	}
+	return "", fmt.Errorf("title generation failed after 3 attempts")
+}
+
+func titleFromProviderResponse(resp *provider.ChatResponse) (string, string) {
+	if resp == nil {
+		return "", ""
+	}
+	if title := validGeneratedTitle(resp.Content); title != "" {
+		return resp.Content, title
+	}
+	return resp.Content, ""
+}
+
+func validGeneratedTitle(raw string) string {
+	title := cleanGeneratedTitle(raw)
+	if isBadGeneratedTitle(title) {
+		return ""
+	}
+	return title
+}
+
+func fallbackTitleFromSource(source string) string {
+	compact := strings.ToLower(source)
+	switch {
+	case strings.Contains(source, "域名系统") && strings.Contains(compact, "dns"):
+		return "域名系统 DNS"
+	case strings.Contains(source, "域名系统"):
+		return "域名系统"
+	case strings.Contains(compact, "domain name system") || strings.Contains(compact, "dns"):
+		return "DNS"
+	default:
+		return ""
+	}
+}
+
+func buildTitleSourceMessage(firstUserMsg string) string {
+	return stripLeadingTitleTask(firstUserMsg)
+}
+
+func stripLeadingTitleTask(s string) string {
+	text := strings.TrimSpace(s)
+	lower := strings.ToLower(text)
+	for _, prefix := range []string{
+		"请给下面内容生成一个标题",
+		"请给下面内容生成标题",
+		"请给下面这段话生成一个标题",
+		"请给下面这段话生成标题",
+		"请给这段话生成一个标题",
+		"请给这段话生成标题",
+		"给下面内容生成一个标题",
+		"给下面内容生成标题",
+		"给这段话生成一个标题",
+		"给这段话生成标题",
+		"请起一个标题",
+		"请起个标题",
+		"起一个标题",
+		"起个标题",
+		"请总结一下",
+		"请总结下",
+		"请总结",
+		"请帮我总结一下",
+		"请帮我总结下",
+		"请帮我总结",
+		"帮我总结一下",
+		"帮我总结下",
+		"帮我总结",
+		"总结一下",
+		"总结下",
+		"总结",
+		"summarize the following",
+		"summarize this",
+		"summarize",
+	} {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+			return strings.TrimLeft(strings.TrimSpace(text[len(prefix):]), "：:，,。.\r\n\t ")
+		}
+	}
+	return text
+}
+
+func isBadGeneratedTitle(title string) bool {
+	compact := strings.ToLower(strings.ReplaceAll(title, " ", ""))
+	if compact == "" {
+		return true
+	}
+	for _, bad := range []string{
+		"我们被要求",
+		"被要求为",
+		"给定的源消息",
+		"源消息",
+		"生成标题",
+		"对话标题",
+		"简短标题",
+		"标题生成",
+		"sourcemessage",
+		"givenmessage",
+		"given source",
+		"conversationtitle",
+		"generatetitle",
+		"shorttitle",
+	} {
+		if strings.Contains(compact, bad) {
+			return true
+		}
+	}
+	return false
 }
 
 // generateTitle calls the AI provider in a background goroutine to produce a
 // short title from the first user message. Retries up to 3 times; fails silently.
 func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, model, apiKey string) {
-	conv, err := h.engine.GetConversation(ctx, convID)
-	if err != nil {
-		return
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	// Only auto-generate for conversations still using the default title.
-	if conv.Title != "New Chat" {
-		return
-	}
-	// Find the first user message.
-	var firstUserMsg string
-	for _, msg := range conv.Messages {
-		if msg.Role == "user" {
-			firstUserMsg = msg.Content
-			break
-		}
-	}
-	if firstUserMsg == "" {
-		return
-	}
-
-	adapter, err := h.registry.Get(providerName)
-	if err != nil {
-		return
-	}
-
-	bgCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	titleCtx, cancel := context.WithTimeout(ctx, titleGenerationTimeout)
 	defer cancel()
-
-	title := h.generateTitleWithRetry(bgCtx, adapter, model, apiKey, firstUserMsg)
-	if title == "" {
-		return
-	}
-
-	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
-		log.Debug().Err(err).Str("conv_id", convID).Str("title", title).Msg("auto-title rename failed")
+	if _, err := h.generateTitleSync(titleCtx, convID, providerName, model, apiKey, false); err != nil {
+		log.Debug().Err(err).Str("conv_id", convID).Msg("auto-title generation failed")
 	}
 }
 
@@ -923,13 +1065,13 @@ func newTitleUpdateTool(providerName string) provider.Tool {
 		Type: "function",
 		Function: &provider.FunctionDefinition{
 			Name:        "update_conversation_title",
-			Description: fmt.Sprintf("Update the title of this conversation using %s. Use this when the conversation topic has evolved or you want to give it a more descriptive name.", strings.ToUpper(providerName)),
+			Description: fmt.Sprintf("Update the title of this conversation using %s. Use this only when the user asks to rename or retitle the conversation, or when the conversation topic clearly changed. The title must be concise: Chinese-only <=20 Chinese characters, English-only <=15 words, mixed Chinese/English <=15 characters.", strings.ToUpper(providerName)),
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"title": map[string]any{
 						"type":        "string",
-						"description": "The new title for the conversation (2-8 words, descriptive and concise)",
+						"description": "The new concise title for the conversation",
 					},
 				},
 				"required": []any{"title"},
@@ -940,10 +1082,9 @@ func newTitleUpdateTool(providerName string) provider.Tool {
 
 // executeTitleUpdate handles the execution of a title update tool call.
 func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, convID, title string) error {
-	// Validate title format
-	title = strings.TrimSpace(title)
-	if len(title) < 2 || len(title) > 100 {
-		return fmt.Errorf("title must be 2-100 characters")
+	title = cleanGeneratedTitle(title)
+	if title == "" {
+		return fmt.Errorf("title cannot be empty")
 	}
 
 	// Update conversation title via engine
@@ -981,24 +1122,20 @@ func cleanGeneratedTitle(raw string) string {
 	}
 
 	// Strip balanced surrounding quotes / brackets / asterisks.
-	title = stripBalanced(title, '"')
-	title = stripBalanced(title, '\'')
-	title = stripBalanced(title, '「')
-	title = stripBalanced(title, '」')
-	title = stripBalanced(title, '『')
-	title = stripBalanced(title, '』')
-	title = stripBalanced(title, '【')
-	title = stripBalanced(title, '】')
-	title = stripBalanced(title, '*') // single asterisks (not bold markers)
+	for {
+		next := stripBalancedWrappers(title)
+		if next == title {
+			break
+		}
+		title = strings.TrimSpace(next)
+	}
 
 	// Strip leading/trailing punctuation and whitespace (including full-width).
 	title = strings.Trim(title, "\"'`*#_-–—：:！!？?。.、,，… \t\r\n")
 
 	title = strings.TrimSpace(title)
 
-	// Rune-safe truncation (must not slice mid-char for CJK).
-	title = truncateRunes(title, 100)
-	return title
+	return limitGeneratedTitle(title)
 }
 
 // truncateRunes truncates s to at most max runes without splitting multi-byte characters.
@@ -1022,13 +1159,122 @@ func stripBalanced(s string, c rune) string {
 	return s
 }
 
+func stripBalancedPair(s string, open, close rune) string {
+	rs := []rune(s)
+	if len(rs) < 2 {
+		return s
+	}
+	if rs[0] == open && rs[len(rs)-1] == close {
+		return strings.TrimSpace(string(rs[1 : len(rs)-1]))
+	}
+	return s
+}
+
+func stripBalancedWrappers(s string) string {
+	for _, c := range []rune{'"', '\'', '`', '*'} {
+		if next := stripBalanced(s, c); next != s {
+			return next
+		}
+	}
+	for _, pair := range [][2]rune{
+		{'「', '」'},
+		{'『', '』'},
+		{'【', '】'},
+		{'《', '》'},
+		{'(', ')'},
+		{'（', '）'},
+		{'[', ']'},
+		{'{', '}'},
+	} {
+		if next := stripBalancedPair(s, pair[0], pair[1]); next != s {
+			return next
+		}
+	}
+	return s
+}
+
+func limitGeneratedTitle(title string) string {
+	if title == "" {
+		return ""
+	}
+	hasCJK := containsCJK(title)
+	hasLatin := containsLatin(title)
+	if hasCJK && hasLatin {
+		return truncateRunes(title, 15)
+	}
+	if hasCJK {
+		return truncateRunes(title, 20)
+	}
+	words := strings.Fields(title)
+	if len(words) > 15 {
+		title = strings.Join(words[:15], " ")
+	}
+	return truncateRunes(title, 100)
+}
+
+func containsCJK(s string) bool {
+	for _, r := range s {
+		if (r >= '\u4e00' && r <= '\u9fff') ||
+			(r >= '\u3400' && r <= '\u4dbf') ||
+			(r >= '\uf900' && r <= '\ufaff') {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLatin(s string) bool {
+	for _, r := range s {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			return true
+		}
+	}
+	return false
+}
+
 // generateTitleSync calls the AI provider (non-streaming, reasoning disabled) to
-// produce a short title from the first user message, then persists it. Retries up
-// to 3 times when the cleaned result is empty.
-func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerName, model, apiKey string) (string, error) {
+// produce a short title from the first user message, then persists it. Automatic
+// calls are idempotent: they only rename conversations that still use the
+// default title, and concurrent automatic requests share one in-flight job.
+func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerName, model, apiKey string, force bool) (titleResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if force {
+		return h.generateTitleForConversation(ctx, convID, providerName, model, apiKey, true)
+	}
+
+	h.titleMu.Lock()
+	if job, ok := h.titleJobs[convID]; ok {
+		h.titleMu.Unlock()
+		select {
+		case <-job.done:
+			return job.result, job.err
+		case <-ctx.Done():
+			return titleResult{}, ctx.Err()
+		}
+	}
+	job := &titleJob{done: make(chan struct{})}
+	h.titleJobs[convID] = job
+	h.titleMu.Unlock()
+
+	job.result, job.err = h.generateTitleForConversation(ctx, convID, providerName, model, apiKey, false)
+	close(job.done)
+
+	h.titleMu.Lock()
+	delete(h.titleJobs, convID)
+	h.titleMu.Unlock()
+
+	return job.result, job.err
+}
+
+func (h *ChatHandler) generateTitleForConversation(ctx context.Context, convID, providerName, model, apiKey string, force bool) (titleResult, error) {
 	conv, err := h.engine.GetConversation(ctx, convID)
 	if err != nil {
-		return "", err
+		return titleResult{}, err
+	}
+	if !force && strings.TrimSpace(conv.Title) != defaultConversationTitle {
+		return titleResult{title: conv.Title, changed: false}, nil
 	}
 	// Find the first user message.
 	var firstUserMsg string
@@ -1039,27 +1285,41 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 		}
 	}
 	if firstUserMsg == "" {
-		return "", fmt.Errorf("no user messages found")
+		return titleResult{}, fmt.Errorf("no user messages found")
 	}
 
 	adapter, err := h.registry.Get(providerName)
 	if err != nil {
-		return "", err
+		return titleResult{}, err
 	}
 
-	bgCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-
-	title := h.generateTitleWithRetry(bgCtx, adapter, model, apiKey, firstUserMsg)
-	if title == "" {
-		return "", fmt.Errorf("generated title is empty after 3 attempts")
+	title, err := h.generateTitleWithRetry(ctx, convID, adapter, model, apiKey, firstUserMsg)
+	if err != nil {
+		return titleResult{}, err
 	}
 
-	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
-		return "", err
+	// The user may have renamed the conversation while the title API call was
+	// in flight. Automatic generation must not overwrite that newer title.
+	if !force {
+		latest, err := h.engine.GetConversation(ctx, convID)
+		if err != nil {
+			return titleResult{}, err
+		}
+		if strings.TrimSpace(latest.Title) != defaultConversationTitle {
+			return titleResult{title: latest.Title, changed: false}, nil
+		}
 	}
 
-	return title, nil
+	renamed, err := h.engine.RenameConversation(ctx, convID, title)
+	if err != nil {
+		return titleResult{}, err
+	}
+
+	return titleResult{title: renamed.Title, changed: true}, nil
+}
+
+type GenerateTitleRequest struct {
+	Force bool `json:"force"`
 }
 
 // GenerateTitle handles POST /api/v1/conversations/:id/generate-title.
@@ -1067,12 +1327,22 @@ func (h *ChatHandler) generateTitleSync(ctx context.Context, convID, providerNam
 // reasoning disabled) from the first user message. Retries up to 3 times.
 func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 	convID := c.Param("id")
+	var req GenerateTitleRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	conv, err := h.engine.GetConversation(c.Request.Context(), convID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
+	if !req.Force && strings.TrimSpace(conv.Title) != defaultConversationTitle {
+		c.JSON(http.StatusOK, conversationFromDetail(conv))
+		return
+	}
+
 	providerName := conv.Provider
 	model := conv.Model
 	if providerName == "" {
@@ -1098,42 +1368,47 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 		return
 	}
 
-	// Find the first user message.
-	var firstUserMsg string
-	for _, msg := range conv.Messages {
-		if msg.Role == "user" {
-			firstUserMsg = msg.Content
-			break
-		}
-	}
-	if firstUserMsg == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no user message found in conversation"})
-		return
-	}
-
-	adapter, err := h.registry.Get(providerName)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), titleGenerationTimeout)
 	defer cancel()
 
-	title := h.generateTitleWithRetry(ctx, adapter, model, apiKey, firstUserMsg)
-	if title == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "generated empty title after 3 attempts"})
-		return
-	}
-
-	renamed, err := h.engine.RenameConversation(ctx, convID, title)
+	result, err := h.generateTitleSync(ctx, convID, providerName, model, apiKey, req.Force)
 	if err != nil {
-		log.Error().Err(err).Msg("generate-title rename failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "no user messages") ||
+			strings.Contains(err.Error(), "unknown provider") {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, renamed)
+	latest, err := h.engine.GetConversation(ctx, convID)
+	if err == nil {
+		c.JSON(http.StatusOK, conversationFromDetail(latest))
+		return
+	}
+
+	c.JSON(http.StatusOK, engine.Conversation{
+		ID:           convID,
+		Title:        result.title,
+		Provider:     providerName,
+		Model:        model,
+		MessageCount: len(conv.Messages),
+		CreatedAt:    conv.CreatedAt,
+		UpdatedAt:    conv.UpdatedAt,
+	})
+}
+
+func conversationFromDetail(conv *engine.ConversationDetail) engine.Conversation {
+	return engine.Conversation{
+		ID:           conv.ID,
+		Title:        conv.Title,
+		Provider:     conv.Provider,
+		Model:        conv.Model,
+		MessageCount: len(conv.Messages),
+		CreatedAt:    conv.CreatedAt,
+		UpdatedAt:    conv.UpdatedAt,
+	}
 }
 
 // ===== Mock helpers =====

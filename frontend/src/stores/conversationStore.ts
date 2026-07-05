@@ -34,7 +34,7 @@ interface ConversationState {
 	setDraft: (content: string) => void;
 	clearDraft: () => void;
 	clearError: () => void;
-	generateTitle: (id: string) => Promise<void>;
+	generateTitle: (id: string, force?: boolean) => Promise<void>;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -154,7 +154,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		// Get API key + search settings
 		const { provider, apiKeys, searchEnabled, searchProvider } =
 			useSettingsStore.getState();
-		const providerKey = provider ? apiKeys[provider] : undefined;
+		const convProvider =
+			get().conversations.find((c) => c.id === convId)?.provider || provider;
+		const providerKey = convProvider ? apiKeys[convProvider] : undefined;
 
 		// Optimistic user message
 		const userMsg: Message = {
@@ -178,9 +180,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		});
 
 		let streamTokenCount = 0;
-		// Track whether the gateway pushed a title_update during streaming.
-		// If it did, the title is already set — skip the fallback API call.
-		let titleReceived = false;
 
 		const finalize = (final: string) => {
 			const { streamingReasoning, streamingToolCalls } = get();
@@ -215,15 +214,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				abortController: null,
 			}));
 			get().loadList();
-
-			// Auto-generate title for first exchange only if the gateway did
-			// not already push a title_update during streaming.
-			if (!titleReceived) {
-				const conv = get().conversations.find((c) => c.id === convId);
-				if (conv?.title === "New Chat") {
-					get().generateTitle(convId);
-				}
-			}
 		};
 
 		await chatApi.sendMessageStream(
@@ -278,13 +268,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				},
 				onTitleUpdate(data) {
 					if (data.conversation_id === convId) {
-						titleReceived = true;
 						set((s) => ({
 							conversations: s.conversations.map((c) =>
 								c.id === data.conversation_id ? { ...c, title: data.title } : c,
 							),
 						}));
 					}
+				},
+				onTitleError(msg) {
+					toast.error(msg);
 				},
 				onDone(fullContent) {
 					finalize(fullContent || "(empty response)");
@@ -349,11 +341,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	setDraft: (content: string) => set({ pendingDraft: content }),
 	clearDraft: () => set({ pendingDraft: null }),
 
-	generateTitle: async (id: string) => {
+	generateTitle: async (id: string, force = false) => {
 		try {
-			const { provider, apiKeys } = useSettingsStore.getState();
-			const providerKey = provider ? apiKeys[provider] : undefined;
-			const conv = await convApi.generateTitle(id, providerKey);
+			const { apiKeys } = useSettingsStore.getState();
+			const existing = get().conversations.find((c) => c.id === id);
+			const providerKey = existing?.provider
+				? apiKeys[existing.provider]
+				: undefined;
+			const conv = await convApi.generateTitle(id, providerKey, force);
 			set((s) => ({
 				conversations: s.conversations.map((c) =>
 					c.id === conv.id ? { ...c, title: conv.title } : c,

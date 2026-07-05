@@ -63,6 +63,10 @@ type ChatRequest struct {
 	JSONMode bool `json:"json_mode,omitempty"`
 	// ReasoningEffort for o-series / reasoning models ("low", "medium", "high").
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// DisableReasoning asks adapters to disable provider-native reasoning/thinking
+	// for lightweight internal calls such as title generation. It must not switch
+	// to a different model.
+	DisableReasoning bool `json:"disable_reasoning,omitempty"`
 	// TopK for Claude-compatible nucleus sampling (Claude-specific).
 	TopK int `json:"top_k,omitempty"`
 	// ThinkingBudget enables Claude's extended thinking. Set to >=1024 to enable;

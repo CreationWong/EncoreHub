@@ -83,11 +83,13 @@ export async function renameConversation(
 export async function generateTitle(
 	id: string,
 	providerKey?: string,
+	force = false,
 ): Promise<Conversation> {
 	const headers: Record<string, string> = {};
 	if (providerKey) headers["X-Provider-Key"] = providerKey;
 	return apiFetch<Conversation>(`/conversations/${id}/generate-title`, {
 		method: "POST",
 		headers,
+		body: JSON.stringify({ force }),
 	});
 }

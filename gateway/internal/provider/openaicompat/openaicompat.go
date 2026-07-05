@@ -8,9 +8,13 @@
 package openaicompat
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
 
 	"github.com/encorehub/gateway/internal/provider"
 	goopenai "github.com/sashabaranov/go-openai"
@@ -101,7 +105,8 @@ func toOpenAITools(tools []provider.Tool) []goopenai.Tool {
 }
 
 func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey string) (*provider.ChatResponse, error) {
-	resp, err := a.client(apiKey).CreateChatCompletion(ctx, a.buildRequest(req))
+	cr := a.buildRequest(req)
+	resp, err := a.createChatCompletion(ctx, cr, req, apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("%s chat: %w", a.id, err)
 	}
@@ -116,6 +121,87 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 		OutputTokens:     resp.Usage.CompletionTokens,
 		Model:            resp.Model,
 	}, nil
+}
+
+func (a *Adapter) createChatCompletion(
+	ctx context.Context,
+	cr goopenai.ChatCompletionRequest,
+	req *provider.ChatRequest,
+	apiKey string,
+) (goopenai.ChatCompletionResponse, error) {
+	extra := a.extraBodyForRequest(req)
+	if len(extra) == 0 {
+		return a.client(apiKey).CreateChatCompletion(ctx, cr)
+	}
+	return a.createChatCompletionWithExtraBody(ctx, cr, apiKey, extra)
+}
+
+func (a *Adapter) extraBodyForRequest(req *provider.ChatRequest) map[string]any {
+	if req == nil || !req.DisableReasoning || !a.usesDeepSeekThinkingSwitch(req.Model) {
+		return nil
+	}
+	return map[string]any{
+		"thinking": map[string]string{"type": "disabled"},
+	}
+}
+
+func (a *Adapter) usesDeepSeekThinkingSwitch(model string) bool {
+	id := strings.ToLower(a.id)
+	baseURL := strings.ToLower(a.baseURL)
+	model = strings.ToLower(model)
+	return strings.Contains(id, "deepseek") ||
+		strings.Contains(baseURL, "api.deepseek.com") ||
+		strings.Contains(model, "deepseek-v4-")
+}
+
+func (a *Adapter) createChatCompletionWithExtraBody(
+	ctx context.Context,
+	cr goopenai.ChatCompletionRequest,
+	apiKey string,
+	extra map[string]any,
+) (goopenai.ChatCompletionResponse, error) {
+	var resp goopenai.ChatCompletionResponse
+	baseBody, err := json.Marshal(cr)
+	if err != nil {
+		return resp, fmt.Errorf("marshal request: %w", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(baseBody, &body); err != nil {
+		return resp, fmt.Errorf("unmarshal request body: %w", err)
+	}
+	for k, v := range extra {
+		body[k] = v
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return resp, fmt.Errorf("marshal request body: %w", err)
+	}
+
+	endpoint := strings.TrimRight(a.config(apiKey).BaseURL, "/") + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBody))
+	if err != nil {
+		return resp, fmt.Errorf("build request: %w", err)
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	httpResp, err := a.config(apiKey).HTTPClient.Do(httpReq)
+	if err != nil {
+		return resp, err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusBadRequest {
+		bodyBytes, _ := io.ReadAll(httpResp.Body)
+		return resp, fmt.Errorf("http %d: %s", httpResp.StatusCode, string(bodyBytes))
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return resp, fmt.Errorf("decode response: %w", err)
+	}
+	return resp, nil
 }
 
 func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, apiKey string) (<-chan provider.StreamEvent, error) {

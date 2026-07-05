@@ -166,3 +166,78 @@ func TestToolCallAggregator_SetResultFillsPending(t *testing.T) {
 		t.Fatalf("result not applied: %#v", out)
 	}
 }
+
+func TestCleanGeneratedTitle_StripsFormattingNoise(t *testing.T) {
+	cases := map[string]string{
+		`Title: "Memory Search"`: "Memory Search",
+		"「知识库检索」":                "知识库检索",
+		"**Provider Routing**":   "Provider Routing",
+	}
+
+	for raw, want := range cases {
+		if got := cleanGeneratedTitle(raw); got != want {
+			t.Fatalf("cleanGeneratedTitle(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestTitleSourceMessage_StripsLeadingSummarizeTask(t *testing.T) {
+	input := "总结 域名系统（英语：Domain Name System，缩写：DNS）是互联网的一项服务。"
+	got := buildTitleSourceMessage(input)
+	if !strings.HasPrefix(got, "域名系统") {
+		t.Fatalf("source message did not strip summarize task: %q", got)
+	}
+	if strings.HasPrefix(got, "总结") {
+		t.Fatalf("source message still starts with task verb: %q", got)
+	}
+}
+
+func TestBadGeneratedTitleRejectsMetaTitles(t *testing.T) {
+	for _, title := range []string{
+		"我们要求生成一个简短的对话标题",
+		"我们被要求为给定的源消息生成一",
+		"对话标题生成",
+		"Generate Conversation Title",
+	} {
+		if !isBadGeneratedTitle(cleanGeneratedTitle(title)) {
+			t.Fatalf("expected meta title to be rejected: %q", title)
+		}
+	}
+	if isBadGeneratedTitle(cleanGeneratedTitle("DNS 域名系统")) {
+		t.Fatalf("domain title should be accepted")
+	}
+}
+
+func TestTitleFromProviderResponse_IgnoresReasoningContent(t *testing.T) {
+	resp := &provider.ChatResponse{
+		Content:          "",
+		ReasoningContent: `我们可以用"域名系统（DNS）"作为标题。`,
+	}
+	raw, title := titleFromProviderResponse(resp)
+	if raw != "" {
+		t.Fatalf("raw = %q", raw)
+	}
+	if title != "" {
+		t.Fatalf("title = %q", title)
+	}
+}
+
+func TestFallbackTitleFromSource_DNS(t *testing.T) {
+	source := "域名系统（英语：Domain Name System，缩写：DNS）是互联网的一项服务。"
+	if got := fallbackTitleFromSource(source); got != "域名系统 DNS" {
+		t.Fatalf("fallback title = %q", got)
+	}
+}
+
+func TestCleanGeneratedTitle_EnforcesTitleLength(t *testing.T) {
+	longEnglish := "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen"
+	if got := cleanGeneratedTitle(longEnglish); got != "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen" {
+		t.Fatalf("english title = %q", got)
+	}
+	if got := cleanGeneratedTitle("这是一个非常非常长的中文标题超过二十个字限制"); got != "这是一个非常非常长的中文标题超过二十个字" {
+		t.Fatalf("chinese title = %q", got)
+	}
+	if got := cleanGeneratedTitle("EncoreHub 对话标题自动生成问题分析报告"); got != "EncoreHub 对话标题" {
+		t.Fatalf("mixed title = %q", got)
+	}
+}
