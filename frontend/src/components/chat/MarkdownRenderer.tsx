@@ -106,8 +106,8 @@ const markdownComponents: Components = {
 			return <span className="markdown-link-disabled">{children}</span>;
 		}
 
-		const external = isExternalHref(href);
 		const httpUrl = toHttpUrl(href);
+		const isExternal = httpUrl !== null && isExternalHref(href);
 		return (
 			<a
 				{...props}
@@ -118,8 +118,10 @@ const markdownComponents: Components = {
 					event.preventDefault();
 					void openHttpUrl(httpUrl);
 				}}
-				target={external ? "_blank" : undefined}
-				rel={external ? "noreferrer noopener" : undefined}
+				// Don't set target="_blank" — Tauri's webview intercepts it
+				// natively (before JS) and opens a system-browser tab, which
+				// would race with the onClick handler and produce 2 tabs.
+				rel={isExternal ? "noreferrer noopener" : undefined}
 			>
 				{children}
 			</a>

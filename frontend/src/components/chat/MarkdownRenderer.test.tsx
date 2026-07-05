@@ -38,7 +38,7 @@ describe("MarkdownRenderer", () => {
 
 		const site = screen.getByRole("link", { name: "site" });
 		expect(site.getAttribute("href")).toBe("https://example.com");
-		expect(site.getAttribute("target")).toBe("_blank");
+		expect(site.getAttribute("target")).toBeNull();
 		expect(site.getAttribute("rel")).toContain("noopener");
 
 		const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
