@@ -103,10 +103,18 @@ export function installClientLogBridge(): void {
 		warn: console.warn.bind(console),
 	};
 
+	// Re-entrancy guard — when the bridge itself triggers a console call (e.g.
+	// invoke failure), skip forwarding to avoid an infinite error loop.
+	let forwarding = false;
+
 	const forward = (level: LogLevel, args: unknown[]) => {
+		if (forwarding) return;
 		const message = formatConsoleArgs(args);
 		if (!message) return;
-		void devtools.clientLog(level, message).catch(() => undefined);
+		forwarding = true;
+		void devtools.clientLog(level, message).finally(() => {
+			forwarding = false;
+		});
 	};
 
 	console.debug = (...args: unknown[]) => {

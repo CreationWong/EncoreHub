@@ -53,6 +53,26 @@ function isExternalHref(href: string) {
 	return /^(https?:)?\/\//i.test(href);
 }
 
+function toHttpUrl(href: string) {
+	if (/^https?:\/\//i.test(href)) return href;
+	if (/^\/\//.test(href)) return `https:${href}`;
+	return null;
+}
+
+async function openHttpUrl(href: string) {
+	// Only use Tauri's shell plugin when running inside the webview.
+	if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+		try {
+			const { open } = await import("@tauri-apps/plugin-shell");
+			await open(href);
+			return;
+		} catch {
+			// shell.open may fail if the capability is missing — fall through to window.open.
+		}
+	}
+	window.open(href, "_blank", "noopener,noreferrer");
+}
+
 const safeUrlTransform: UrlTransform = (url) => defaultUrlTransform(url);
 
 function CodeBlock({ language, value }: CodeBlockProps) {
@@ -87,10 +107,17 @@ const markdownComponents: Components = {
 		}
 
 		const external = isExternalHref(href);
+		const httpUrl = toHttpUrl(href);
 		return (
 			<a
 				{...props}
 				href={href}
+				onClick={(event) => {
+					props.onClick?.(event);
+					if (event.defaultPrevented || !httpUrl) return;
+					event.preventDefault();
+					void openHttpUrl(httpUrl);
+				}}
 				target={external ? "_blank" : undefined}
 				rel={external ? "noreferrer noopener" : undefined}
 			>

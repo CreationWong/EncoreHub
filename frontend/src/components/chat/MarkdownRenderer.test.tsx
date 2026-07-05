@@ -1,8 +1,11 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import MarkdownRenderer from "./MarkdownRenderer";
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.clearAllMocks();
+});
 
 describe("MarkdownRenderer", () => {
 	it("renders GFM tables, task lists, and strikethrough", () => {
@@ -37,6 +40,16 @@ describe("MarkdownRenderer", () => {
 		expect(site.getAttribute("href")).toBe("https://example.com");
 		expect(site.getAttribute("target")).toBe("_blank");
 		expect(site.getAttribute("rel")).toContain("noopener");
+
+		const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+		fireEvent.click(site);
+		expect(openSpy).toHaveBeenCalledWith(
+			"https://example.com",
+			"_blank",
+			"noopener,noreferrer",
+		);
+		openSpy.mockRestore();
+
 		expect(container.querySelector('a[href^="javascript"]')).toBeNull();
 		expect(screen.queryByRole("link", { name: "bad" })).toBeNull();
 		expect(screen.getByText("bad")).not.toBeNull();
