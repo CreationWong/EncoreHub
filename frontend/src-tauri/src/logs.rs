@@ -3,9 +3,10 @@
 //! and secrets are redacted before a line ever enters the buffer — so neither
 //! the buffer nor anything the frontend pulls can contain an API key.
 //!
-//! Lines are also mirrored to a daily file under the install dir's `log/` so
-//! issues can be diagnosed after the app closes. Only the redacted message is
-//! written; raw key material never reaches disk.
+//! Lines at or above the configured file level (Info by default) are mirrored
+//! to a daily file under the install dir's `log/` so issues can be diagnosed
+//! after the app closes. Only the redacted message is written; raw key material
+//! never reaches disk.
 
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
@@ -28,6 +29,7 @@ pub enum Source {
     Engine,
     Gateway,
     Desktop,
+    Frontend,
 }
 
 impl Source {
@@ -50,6 +52,40 @@ pub enum Level {
     Debug,
 }
 
+impl Level {
+    pub fn parse(level: &str) -> Option<Level> {
+        match level.trim().to_ascii_lowercase().as_str() {
+            "error" => Some(Level::Error),
+            "warn" | "warning" => Some(Level::Warn),
+            "info" => Some(Level::Info),
+            "debug" => Some(Level::Debug),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Level::Error => "error",
+            Level::Warn => "warn",
+            Level::Info => "info",
+            Level::Debug => "debug",
+        }
+    }
+
+    fn severity(self) -> u8 {
+        match self {
+            Level::Error => 0,
+            Level::Warn => 1,
+            Level::Info => 2,
+            Level::Debug => 3,
+        }
+    }
+
+    fn should_write_to_file(self, file_level: Level) -> bool {
+        self.severity() <= file_level.severity()
+    }
+}
+
 /// One captured log line.
 #[derive(Clone, Debug, Serialize)]
 pub struct LogEntry {
@@ -64,6 +100,9 @@ pub struct LogEntry {
 /// Thread-safe ring buffer of log entries.
 pub struct LogBuffer {
     inner: Mutex<Inner>,
+    /// File mirror threshold. Memory keeps every captured line; disk keeps
+    /// entries at or above this level. Defaults to Info.
+    file_level: Mutex<Level>,
     /// Optional file mirror. `None` when no log dir was configured (e.g. tests).
     file: Option<Mutex<FileSink>>,
 }
@@ -172,6 +211,7 @@ impl LogBuffer {
                 entries: VecDeque::with_capacity(MAX_LINES),
                 next_seq: 1,
             }),
+            file_level: Mutex::new(Level::Info),
             file: None,
         }
     }
@@ -195,8 +235,17 @@ impl LogBuffer {
                 entries: VecDeque::with_capacity(MAX_LINES),
                 next_seq: 1,
             }),
+            file_level: Mutex::new(Level::Info),
             file,
         }
+    }
+
+    pub fn set_file_level(&self, level: Level) {
+        *self.file_level.lock().unwrap() = level;
+    }
+
+    pub fn file_level(&self) -> Level {
+        *self.file_level.lock().unwrap()
     }
 
     /// Tag, redact, and append a raw line. The stream ("out"/"err") nudges the
@@ -216,9 +265,12 @@ impl LogBuffer {
     fn append(&self, source: Source, level: Level, raw: &str) {
         let message = redact(raw);
         // Mirror to the daily file (already redacted — no key material on disk).
-        if let Some(file) = self.file.as_ref() {
-            if let Ok(mut sink) = file.lock() {
-                sink.write_line(source, level, &message);
+        let file_level = self.file_level();
+        if level.should_write_to_file(file_level) {
+            if let Some(file) = self.file.as_ref() {
+                if let Ok(mut sink) = file.lock() {
+                    sink.write_line(source, level, &message);
+                }
             }
         }
         let mut inner = self.inner.lock().unwrap();
@@ -527,5 +579,42 @@ mod tests {
         assert_eq!(strip_ansi(colored), " INFO starting up");
         // plain text is unchanged
         assert_eq!(strip_ansi("no codes here"), "no codes here");
+    }
+
+    #[test]
+    fn file_logging_defaults_to_info_threshold() {
+        let dir = std::env::temp_dir().join(format!(
+            "encorehub-log-test-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let buf = LogBuffer::with_log_dir(dir.clone());
+
+        buf.push_event(Source::Engine, Level::Debug, "debug skipped");
+        buf.push_event(Source::Engine, Level::Info, "info kept");
+
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let path = dir.join(format!("encorehub-{day}.log"));
+        let text = std::fs::read_to_string(&path).expect("log file should exist");
+        assert!(!text.contains("debug skipped"), "got: {text}");
+        assert!(text.contains("info kept"), "got: {text}");
+
+        buf.set_file_level(Level::Debug);
+        buf.push_event(Source::Engine, Level::Debug, "debug kept");
+        let text = std::fs::read_to_string(&path).expect("log file should exist");
+        assert!(text.contains("debug kept"), "got: {text}");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parses_file_log_level_names() {
+        assert_eq!(Level::parse("ERROR"), Some(Level::Error));
+        assert_eq!(Level::parse("warning"), Some(Level::Warn));
+        assert_eq!(Level::parse(" info "), Some(Level::Info));
+        assert_eq!(Level::parse("debug"), Some(Level::Debug));
+        assert_eq!(Level::parse("trace"), None);
     }
 }

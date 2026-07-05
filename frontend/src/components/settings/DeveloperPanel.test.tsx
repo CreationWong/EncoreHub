@@ -10,9 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const status = vi.fn();
 const logs = vi.fn();
 const clear = vi.fn();
+const openDevtools = vi.fn();
 const getLogLevel = vi.fn();
 const setLogLevel = vi.fn();
+const getFileLogLevel = vi.fn();
+const setFileLogLevel = vi.fn();
 const inTauri = vi.fn();
+const confirmAsk = vi.fn();
 
 vi.mock("../../services/devtools", () => ({
 	inTauri: () => inTauri(),
@@ -20,9 +24,16 @@ vi.mock("../../services/devtools", () => ({
 		status: () => status(),
 		logs: (after: number) => logs(after),
 		clear: () => clear(),
+		openDevtools: () => openDevtools(),
 		getLogLevel: () => getLogLevel(),
 		setLogLevel: (level: string) => setLogLevel(level),
+		getFileLogLevel: () => getFileLogLevel(),
+		setFileLogLevel: (level: string) => setFileLogLevel(level),
 	},
+}));
+
+vi.mock("../../stores/confirmStore", () => ({
+	confirm: { ask: (...args: unknown[]) => confirmAsk(...args) },
 }));
 
 import { useToastStore } from "../../stores/toastStore";
@@ -44,8 +55,12 @@ beforeEach(() => {
 	status.mockReset().mockResolvedValue(statusFixture);
 	logs.mockReset().mockResolvedValue(logFixture);
 	clear.mockReset().mockResolvedValue(undefined);
+	openDevtools.mockReset().mockResolvedValue(undefined);
 	getLogLevel.mockReset().mockResolvedValue("info");
 	setLogLevel.mockReset().mockResolvedValue(undefined);
+	getFileLogLevel.mockReset().mockResolvedValue("info");
+	setFileLogLevel.mockReset().mockImplementation(async (level: string) => level);
+	confirmAsk.mockReset().mockResolvedValue(true);
 	useToastStore.setState({ toasts: [] });
 });
 
@@ -128,5 +143,45 @@ describe("DeveloperPanel", () => {
 			target: { value: "debug" },
 		});
 		await waitFor(() => expect(setLogLevel).toHaveBeenCalledWith("debug"));
+	});
+
+	it("loads and changes the file log level", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(getFileLogLevel).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText("Set file log level"), {
+			target: { value: "warn" },
+		});
+		await waitFor(() => expect(setFileLogLevel).toHaveBeenCalledWith("warn"));
+	});
+
+	it("warns before enabling debug file logs", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(getFileLogLevel).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText("Set file log level"), {
+			target: { value: "debug" },
+		});
+
+		await waitFor(() =>
+			expect(confirmAsk).toHaveBeenCalledWith(
+				"Enable debug file logs?",
+				expect.stringContaining("grow quickly"),
+			),
+		);
+		await waitFor(() => expect(setFileLogLevel).toHaveBeenCalledWith("debug"));
+	});
+
+	it("does not enable debug file logs when the warning is cancelled", async () => {
+		confirmAsk.mockResolvedValue(false);
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(getFileLogLevel).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText("Set file log level"), {
+			target: { value: "debug" },
+		});
+
+		await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+		expect(setFileLogLevel).not.toHaveBeenCalled();
 	});
 });

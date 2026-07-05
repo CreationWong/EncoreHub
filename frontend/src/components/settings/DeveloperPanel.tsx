@@ -8,6 +8,7 @@ import {
 	devtools,
 	inTauri,
 } from "../../services/devtools";
+import { confirm } from "../../stores/confirmStore";
 import { toast } from "../../stores/toastStore";
 
 const POLL_MS = 1500;
@@ -20,7 +21,7 @@ const LEVEL_STYLES: Record<LogLevel, string> = {
 	debug: "text-text-muted",
 };
 
-const SOURCES: LogSource[] = ["engine", "gateway", "desktop"];
+const SOURCES: LogSource[] = ["engine", "gateway", "desktop", "frontend"];
 const LEVELS: LogLevel[] = ["error", "warn", "info", "debug"];
 
 function uptimeLabel(secs: number): string {
@@ -79,6 +80,7 @@ export default function DeveloperPanel() {
 	const [query, setQuery] = useState("");
 	const [follow, setFollow] = useState(true);
 	const [logLevel, setLogLevelState] = useState<LogLevel>("info");
+	const [fileLogLevel, setFileLogLevelState] = useState<LogLevel>("info");
 
 	const cursor = useRef(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,12 +89,12 @@ export default function DeveloperPanel() {
 
 	// Load the current runtime log level once on mount.
 	useEffect(() => {
-		devtools
-			.getLogLevel()
-			.then(setLogLevelState)
-			.catch(() => {
-				/* gateway not ready; keep default */
-			});
+		Promise.allSettled([devtools.getLogLevel(), devtools.getFileLogLevel()]).then(
+			([runtime, file]) => {
+				if (runtime.status === "fulfilled") setLogLevelState(runtime.value);
+				if (file.status === "fulfilled") setFileLogLevelState(file.value);
+			},
+		);
 	}, []);
 
 	const changeLogLevel = useCallback(async (level: LogLevel) => {
@@ -106,6 +108,32 @@ export default function DeveloperPanel() {
 			);
 		}
 	}, []);
+
+	const changeFileLogLevel = useCallback(
+		async (level: LogLevel) => {
+			if (level === "debug" && fileLogLevel !== "debug") {
+				const ok = await confirm.ask(
+					"Enable debug file logs?",
+					"DEBUG will write high-volume logs to disk and may make log files grow quickly.",
+				);
+				if (!ok) return;
+			}
+
+			const previous = fileLogLevel;
+			setFileLogLevelState(level);
+			try {
+				const applied = await devtools.setFileLogLevel(level);
+				setFileLogLevelState(applied);
+				toast.success(`File log level set to ${applied}`);
+			} catch (err) {
+				setFileLogLevelState(previous);
+				toast.error(
+					err instanceof Error ? err.message : "Failed to set file log level",
+				);
+			}
+		},
+		[fileLogLevel],
+	);
 
 	// Poll status + incremental logs. The cursor (last seen seq) lets us pull
 	// only new lines each tick instead of the whole buffer.
@@ -200,25 +228,44 @@ export default function DeveloperPanel() {
 				))}
 			</div>
 
-			{/* Runtime log level (applies to engine + gateway immediately) */}
-			<div className="flex items-center gap-2">
-				<span className="text-xs font-medium text-text-secondary">
-					Log level
-				</span>
-				<select
-					value={logLevel}
-					onChange={(e) => changeLogLevel(e.target.value as LogLevel)}
-					aria-label="Set runtime log level"
-					className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
-				>
-					{LEVELS.map((l) => (
-						<option key={l} value={l}>
-							{l}
-						</option>
-					))}
-				</select>
+			{/* Log level controls */}
+			<div className="flex flex-wrap items-center gap-3">
+				<label className="flex items-center gap-2">
+					<span className="text-xs font-medium text-text-secondary">
+						Runtime log level
+					</span>
+					<select
+						value={logLevel}
+						onChange={(e) => changeLogLevel(e.target.value as LogLevel)}
+						aria-label="Set runtime log level"
+						className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
+					>
+						{LEVELS.map((l) => (
+							<option key={l} value={l}>
+								{l}
+							</option>
+						))}
+					</select>
+				</label>
+				<label className="flex items-center gap-2">
+					<span className="text-xs font-medium text-text-secondary">
+						File log level
+					</span>
+					<select
+						value={fileLogLevel}
+						onChange={(e) => changeFileLogLevel(e.target.value as LogLevel)}
+						aria-label="Set file log level"
+						className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
+					>
+						{LEVELS.map((l) => (
+							<option key={l} value={l}>
+								{l}
+							</option>
+						))}
+					</select>
+				</label>
 				<span className="text-[11px] text-text-muted">
-					applies to engine + gateway
+					runtime controls emitted logs; file controls disk storage
 				</span>
 			</div>
 

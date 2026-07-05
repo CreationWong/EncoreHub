@@ -1,4 +1,4 @@
-//! A `tracing` layer that forwards the in-process engine's events into the
+//! A `tracing` layer that forwards in-process events into the
 //! shared [`LogBuffer`].
 //!
 //! Before the merge, the engine ran as a separate process and its stdout/stderr
@@ -46,7 +46,22 @@ impl<S: Subscriber> Layer<S> for LogBufferLayer {
         // Prefix the target (module path) so panel lines read like the old
         // sidecar output, e.g. "encorehub_engine::api: Listening on ...".
         let line = format!("{}:{}", meta.target(), visitor.0);
-        self.logs.push_event(Source::Engine, level, &line);
+        self.logs
+            .push_event(source_from_target(meta.target()), level, &line);
+    }
+}
+
+fn source_from_target(target: &str) -> Source {
+    if target.starts_with("encorehub_engine")
+        || target.starts_with("encorehub_storage")
+        || target.starts_with("encorehub_skill")
+        || target.starts_with("tower_http")
+        || target.starts_with("axum")
+        || target.starts_with("hyper")
+    {
+        Source::Engine
+    } else {
+        Source::Desktop
     }
 }
 

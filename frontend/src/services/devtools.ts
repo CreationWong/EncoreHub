@@ -1,12 +1,12 @@
 // Thin wrapper over the Tauri commands that power the developer panel
-// (service status + sidecar logs). Everything is guarded by `inTauri()` so the
+// (service status + unified logs). Everything is guarded by `inTauri()` so the
 // app still runs in a plain browser (Vite dev / vitest), where these commands
 // don't exist — callers get empty data instead of a thrown "not in Tauri".
 
 import { invoke } from "@tauri-apps/api/core";
 import { apiFetch } from "./api";
 
-export type LogSource = "engine" | "gateway" | "desktop";
+export type LogSource = "engine" | "gateway" | "desktop" | "frontend";
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
 export interface LogEntry {
@@ -72,4 +72,88 @@ export const devtools = {
 			body: JSON.stringify({ level }),
 		});
 	},
+
+	async getFileLogLevel(): Promise<LogLevel> {
+		if (!inTauri()) return "info";
+		return invoke<LogLevel>("get_file_log_level");
+	},
+
+	async setFileLogLevel(level: LogLevel): Promise<LogLevel> {
+		if (!inTauri()) return level;
+		return invoke<LogLevel>("set_file_log_level", { level });
+	},
+
+	async clientLog(level: LogLevel, message: string): Promise<void> {
+		if (!inTauri() || !message) return;
+		await invoke("write_client_log", { level, message });
+	},
 };
+
+let consoleBridgeInstalled = false;
+
+export function installClientLogBridge(): void {
+	if (consoleBridgeInstalled || !inTauri()) return;
+	consoleBridgeInstalled = true;
+
+	const original = {
+		debug: console.debug.bind(console),
+		error: console.error.bind(console),
+		info: console.info.bind(console),
+		log: console.log.bind(console),
+		warn: console.warn.bind(console),
+	};
+
+	const forward = (level: LogLevel, args: unknown[]) => {
+		const message = formatConsoleArgs(args);
+		if (!message) return;
+		void devtools.clientLog(level, message).catch(() => undefined);
+	};
+
+	console.debug = (...args: unknown[]) => {
+		original.debug(...args);
+		forward("debug", args);
+	};
+	console.error = (...args: unknown[]) => {
+		original.error(...args);
+		forward("error", args);
+	};
+	console.info = (...args: unknown[]) => {
+		original.info(...args);
+		forward("info", args);
+	};
+	console.log = (...args: unknown[]) => {
+		original.log(...args);
+		forward("info", args);
+	};
+	console.warn = (...args: unknown[]) => {
+		original.warn(...args);
+		forward("warn", args);
+	};
+
+	window.addEventListener("error", (event) => {
+		forward("error", [
+			event.message,
+			event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : "",
+			event.error,
+		]);
+	});
+	window.addEventListener("unhandledrejection", (event) => {
+		forward("error", ["Unhandled promise rejection", event.reason]);
+	});
+}
+
+function formatConsoleArgs(args: unknown[]): string {
+	return args.map(formatConsoleValue).filter(Boolean).join(" ");
+}
+
+function formatConsoleValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value instanceof Error) {
+		return value.stack || `${value.name}: ${value.message}`;
+	}
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
+}

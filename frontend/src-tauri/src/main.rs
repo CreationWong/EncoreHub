@@ -17,7 +17,7 @@ use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_engine::{find_free_port, Database, SkillRegistry};
 use log_layer::LogBufferLayer;
-use logs::{LogBuffer, LogEntry, Source};
+use logs::{Level, LogBuffer, LogEntry, Source};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -29,6 +29,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Default starting port for auto-negotiation in Tauri / client mode.
 const CLIENT_PORT_START: u16 = 10000;
+
+const FILE_LOG_LEVEL_CONFIG_KEY: &str = "file_log_level";
 
 /// A spawned sidecar plus the metadata the developer panel reports.
 struct ServiceHandle {
@@ -149,12 +151,49 @@ fn clear_logs(state: State<ServiceState>) {
     state.logs.clear();
 }
 
+#[tauri::command]
+fn get_file_log_level(state: State<ServiceState>) -> String {
+    state.logs.file_level().as_str().to_string()
+}
+
+#[tauri::command]
+fn set_file_log_level(state: State<ServiceState>, level: String) -> Result<String, String> {
+    let parsed = Level::parse(&level).ok_or_else(|| format!("invalid file log level: {level}"))?;
+    persist_file_log_level(state.engine_port, parsed)?;
+    state.logs.set_file_level(parsed);
+    tracing::info!("file log level changed to {}", parsed.as_str());
+    Ok(parsed.as_str().to_string())
+}
+
+#[tauri::command]
+fn write_client_log(
+    state: State<ServiceState>,
+    level: String,
+    message: String,
+) -> Result<(), String> {
+    let parsed =
+        Level::parse(&level).ok_or_else(|| format!("invalid client log level: {level}"))?;
+    state.logs.push_event(Source::Frontend, parsed, &message);
+    Ok(())
+}
+
 /// Open the webview's native DevTools (inspector). Available in release builds
 /// because the `devtools` Cargo feature is enabled; without it this method
 /// would only exist in debug builds.
 #[tauri::command]
 fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
+}
+
+fn persist_file_log_level(engine_port: u16, level: Level) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{engine_port}/api/config/{FILE_LOG_LEVEL_CONFIG_KEY}");
+    let body = serde_json::to_string(level.as_str())
+        .map_err(|e| format!("failed to encode file log level: {e}"))?;
+    ureq::put(&url)
+        .set("Content-Type", "application/json")
+        .send_string(&body)
+        .map(|_| ())
+        .map_err(|e| format!("failed to persist file log level: {e}"))
 }
 
 fn main() {
@@ -204,9 +243,7 @@ fn main() {
         .and_then(|v| v.rsplit(':').next()?.parse().ok())
         .unwrap_or_else(|| find_free_port(engine_port + 1));
 
-    tracing::info!(
-        "negotiated ports: engine={engine_port} gateway={gateway_port}"
-    );
+    tracing::info!("negotiated ports: engine={engine_port} gateway={gateway_port}");
 
     // `setup` consumes these once; an Option lets us `take()` inside the FnMut.
     let mut startup = Some((exe_dir.clone(), log_control, engine_port, gateway_port));
@@ -227,21 +264,26 @@ fn main() {
             get_service_status,
             get_logs,
             clear_logs,
+            get_file_log_level,
+            set_file_log_level,
+            write_client_log,
             open_devtools,
         ])
         .setup(move |app| {
             let (exe_dir, log_control, engine_port, gateway_port) =
                 startup.take().expect("setup runs once");
-            eprintln!("EncoreHub starting, exe dir: {:?}", exe_dir);
-            eprintln!("Ports: engine={engine_port} gateway={gateway_port}");
+            tracing::info!("EncoreHub starting, exe dir: {:?}", exe_dir);
+            tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 
             let logs = app.state::<ServiceState>().logs.clone();
 
             // ---- Start engine in-process ----
-            start_engine(app, &exe_dir, log_control, engine_port);
+            start_engine(app, &exe_dir, log_control, engine_port, logs.clone());
 
             // ---- Spawn gateway (still a sidecar) ----
-            if let Some(handle) = spawn_service(&exe_dir, "gateway", &logs, engine_port, gateway_port) {
+            if let Some(handle) =
+                spawn_service(&exe_dir, "gateway", &logs, engine_port, gateway_port)
+            {
                 app.state::<ServiceState>()
                     .gateway
                     .lock()
@@ -279,6 +321,7 @@ fn start_engine(
     exe_dir: &std::path::Path,
     log_control: LogControl,
     port: u16,
+    logs: Arc<LogBuffer>,
 ) {
     let db_path = std::env::var("ENGINE_DB")
         .map(PathBuf::from)
@@ -299,6 +342,24 @@ fn start_engine(
     if let Ok(Some(entry)) = db.get_config("log_level") {
         if let Ok(level) = serde_json::from_str::<String>(&entry.value_json) {
             let _ = log_control.set(&level);
+        }
+    }
+
+    if let Ok(Some(entry)) = db.get_config(FILE_LOG_LEVEL_CONFIG_KEY) {
+        match serde_json::from_str::<String>(&entry.value_json)
+            .ok()
+            .and_then(|level| Level::parse(&level))
+        {
+            Some(level) => {
+                logs.set_file_level(level);
+                tracing::info!("applied persisted file log level: {}", level.as_str());
+            }
+            None => {
+                tracing::warn!(
+                    "ignored invalid persisted file log level: {}",
+                    entry.value_json
+                );
+            }
         }
     }
 
@@ -330,11 +391,11 @@ fn spawn_service(
     let path = match find_binary(dir, name) {
         Some(p) => p,
         None => {
-            eprintln!("{name} binary not found!");
+            tracing::error!("{name} binary not found");
             return None;
         }
     };
-    eprintln!("{name} path: {path:?}");
+    tracing::info!("{name} path: {path:?}");
 
     let mut cmd = Command::new(&path);
     cmd.stdout(std::process::Stdio::piped())
@@ -349,7 +410,7 @@ fn spawn_service(
     match cmd.spawn() {
         Ok(mut child) => {
             let pid = child.id();
-            eprintln!("{name} started (pid: {pid})");
+            tracing::info!("{name} started (pid: {pid})");
             let source = Source::from_service(name);
             if let Some(stdout) = child.stdout.take() {
                 drain(source, "out", stdout, logs.clone());
@@ -364,7 +425,7 @@ fn spawn_service(
             })
         }
         Err(e) => {
-            eprintln!("Failed to start {name}: {e}");
+            tracing::error!("Failed to start {name}: {e}");
             None
         }
     }
@@ -402,7 +463,7 @@ fn find_binary(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> 
             return Some(c.clone());
         }
     }
-    eprintln!(
+    tracing::warn!(
         "Tried paths: {:?}",
         candidates
             .iter()

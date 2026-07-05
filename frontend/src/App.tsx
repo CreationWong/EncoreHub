@@ -29,6 +29,7 @@ export default function App() {
 		gateway: false,
 	});
 	const [checking, setChecking] = useState(true);
+	const [portsReady, setPortsReady] = useState(() => !inTauri());
 
 	// Cmd/Ctrl + , opens Settings — convention from VS Code / Chrome.
 	useEffect(() => {
@@ -60,22 +61,34 @@ export default function App() {
 					}
 				} catch (e) {
 					console.warn("Failed to resolve Tauri ports, using defaults:", e);
+				} finally {
+					if (!cancelled) setPortsReady(true);
 				}
+			} else if (!cancelled) {
+				setPortsReady(true);
 			}
 			// In non-Tauri mode (dev), VITE_GATEWAY_URL / VITE_ENGINE_URL env vars
 			// are already baked into the defaults — no action needed.
 		}
 
 		resolvePorts();
-		return () => { cancelled = true; };
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	// Poll backend health on startup
 	useEffect(() => {
+		if (!portsReady) return;
+
 		let attempts = 0;
 		const maxAttempts = 60;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let cancelled = false;
 
 		const check = async () => {
+			if (cancelled) return;
+
 			let engineOk = false;
 			let gatewayOk = false;
 
@@ -95,6 +108,7 @@ export default function App() {
 				/* not ready */
 			}
 
+			if (cancelled) return;
 			setStatus({ engine: engineOk, gateway: gatewayOk });
 
 			// Proceed once the gateway is up (engine may still be warming up).
@@ -110,12 +124,16 @@ export default function App() {
 				}
 			} else {
 				attempts++;
-				setTimeout(check, 1000);
+				timer = setTimeout(check, 1000);
 			}
 		};
 
 		check();
-	}, [loadList, loadProviders, refreshSecrets, loadKeys]);
+		return () => {
+			cancelled = true;
+			if (timer) clearTimeout(timer);
+		};
+	}, [portsReady, loadList, loadProviders, refreshSecrets, loadKeys]);
 
 	// Splash screen while waiting for backend
 	if (checking) {
