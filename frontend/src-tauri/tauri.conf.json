@@ -41,7 +41,17 @@
       "binaries/gateway"
     ],
     "windows": {
-      "wix": {}
+      "wix": {
+        "fragmentPaths": [
+          "wix/cleanup-runtime-data.wxs"
+        ],
+        "componentRefs": [
+          "CleanupRuntimeDataMarker"
+        ]
+      },
+      "nsis": {
+        "installerHooks": "nsis/installer-hooks.nsh"
+      }
     },
     "macOS": {
       "minimumSystemVersion": "12.0"
