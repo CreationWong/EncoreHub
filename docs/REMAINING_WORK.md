@@ -51,7 +51,7 @@
 
 ## 三、data-services 唤醒（阶段 7 / Sprint 2）
 
-> 目标：Python 承担 embedding / 文档解析 / 分块。
+> 目标：Python 承担 embedding / 文档解析 / 分块。使用 PyOxidizer 将 data-services 编译为原生模块，由 engine 侧通过 FFI 调用，无需用户安装 Python 运行时。
 
 - [ ] **3.1** 定型：embedding 本地模型选型 + 维度 + 是否需 GPU（写进文档）
 - [ ] **3.2** 结构：建 `embedding/` / `parsing/` / `rag/` / `schemas.py`
@@ -125,11 +125,11 @@
 ## 主要风险
 
 - **embedding 模型选型**：本地模型体积/性能 vs API 成本，需早定维度避免返工
-- **data-services 打包**：Python 运行时纳入 Tauri 安装包复杂度高
+- **data-services 打包**：使用 PyOxidizer 将 Python 代码编译为原生模块（.so/.dll），由 engine 通过 FFI 加载调用。PyOxidizer 对 native 扩展（如 torch/onnxruntime）的支持需提前验证
 - **proto 漂移**：6 个 proto 维护却不生成，持续有分叉风险
 - **LanceDB 依赖**：arrow-rs 版本兼容性需验证
 - **Anthropic 适配器模型列表**：Anthropic 无 `/models` API，当前硬编码默认模型列表；需定期同步新模型或改用动态获取
 
 ---
 
-*最后更新：2026-07-02*
+*最后更新：2026-07-05*
