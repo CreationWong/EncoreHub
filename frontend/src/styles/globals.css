@@ -93,13 +93,153 @@
 	}
 }
 
-/* Code block styling */
+/* Code typography */
+code,
 pre {
-	@apply bg-surface-alt rounded-lg p-4 overflow-x-auto text-sm;
+	font-family: "JetBrains Mono", "Fira Code", monospace;
 }
 
-code {
-	font-family: "JetBrains Mono", "Fira Code", monospace;
+@layer components {
+	.markdown-body {
+		overflow-wrap: anywhere;
+		line-height: 1.65;
+	}
+
+	.markdown-body-sm {
+		font-size: 0.875rem;
+	}
+
+	.markdown-body-xs {
+		font-size: 0.75rem;
+		line-height: 1.55;
+	}
+
+	.markdown-body > :first-child {
+		margin-top: 0;
+	}
+
+	.markdown-body > :last-child {
+		margin-bottom: 0;
+	}
+
+	.markdown-body :where(p, ul, ol, blockquote, .markdown-table-wrap, .markdown-codeblock, hr) {
+		margin-top: 0.625rem;
+		margin-bottom: 0.625rem;
+	}
+
+	.markdown-body-xs :where(p, ul, ol, blockquote, .markdown-table-wrap, .markdown-codeblock, hr) {
+		margin-top: 0.375rem;
+		margin-bottom: 0.375rem;
+	}
+
+	.markdown-body :where(h1, h2, h3, h4) {
+		@apply font-semibold text-text-primary;
+		line-height: 1.3;
+		margin-top: 1rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.markdown-body h1 {
+		font-size: 1.25rem;
+	}
+
+	.markdown-body h2 {
+		font-size: 1.125rem;
+	}
+
+	.markdown-body h3 {
+		font-size: 1rem;
+	}
+
+	.markdown-body h4 {
+		font-size: 0.9375rem;
+	}
+
+	.markdown-body a {
+		@apply text-accent underline underline-offset-2 transition-colors;
+		text-decoration-color: var(--color-accent);
+	}
+
+	.markdown-body a:hover {
+		@apply text-accent-hover;
+		text-decoration-color: var(--color-accent-hover);
+	}
+
+	.markdown-link-disabled {
+		@apply text-text-muted;
+	}
+
+	.markdown-body strong {
+		@apply font-semibold text-text-primary;
+	}
+
+	.markdown-body del {
+		@apply text-text-muted;
+	}
+
+	.markdown-body :where(ul, ol) {
+		padding-left: 1.25rem;
+	}
+
+	.markdown-body ul {
+		list-style-type: disc;
+	}
+
+	.markdown-body ol {
+		list-style-type: decimal;
+	}
+
+	.markdown-body li {
+		margin-top: 0.25rem;
+		margin-bottom: 0.25rem;
+		padding-left: 0.125rem;
+	}
+
+	.markdown-body li > :where(p, ul, ol) {
+		margin-top: 0.25rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.markdown-body blockquote {
+		@apply border-l-2 border-border pl-3 text-text-muted;
+	}
+
+	.markdown-body hr {
+		@apply border-0 border-t border-border;
+	}
+
+	.markdown-body :where(p, li, td, th, blockquote, h1, h2, h3, h4) > code {
+		@apply rounded bg-surface-alt px-1.5 py-0.5 text-[0.92em] text-text-primary;
+	}
+
+	.markdown-raw-pre {
+		@apply overflow-x-auto rounded-lg bg-surface-alt p-3 text-sm text-text-primary;
+	}
+
+	.markdown-table-wrap {
+		@apply overflow-x-auto rounded-lg border border-border;
+	}
+
+	.markdown-table-wrap table {
+		@apply w-full border-collapse text-left text-sm;
+		min-width: max-content;
+	}
+
+	.markdown-table-wrap th {
+		@apply bg-surface-alt px-3 py-2 font-semibold text-text-primary;
+	}
+
+	.markdown-table-wrap td {
+		@apply border-t border-border px-3 py-2 align-top;
+	}
+
+	.markdown-task-checkbox {
+		@apply mr-2 h-3.5 w-3.5 align-middle accent-accent;
+	}
+
+	.markdown-body img {
+		@apply my-3 max-w-full rounded-lg border border-border;
+	}
 }
 
 /* Blink animation for streaming cursor */

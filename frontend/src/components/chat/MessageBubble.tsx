@@ -1,97 +1,13 @@
-import {
-	Check,
-	ChevronRight,
-	Copy,
-	Info,
-	Sparkles,
-	User,
-	Wrench,
-} from "lucide-react";
+import { ChevronRight, Info, Sparkles, User, Wrench } from "lucide-react";
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message, ToolCall } from "../../services/conversation";
+import CopyButton from "./CopyButton";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 interface Props {
 	message: Message;
 	isStreaming?: boolean;
 }
-
-function CopyButton({
-	text,
-	label = "Copy",
-}: { text: string; label?: string }) {
-	const [copied, setCopied] = useState(false);
-	const onClick = async () => {
-		try {
-			await navigator.clipboard.writeText(text);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 1500);
-		} catch {
-			/* clipboard blocked — silently ignore */
-		}
-	};
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			title={label}
-			className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
-		>
-			{copied ? (
-				<>
-					<Check className="h-3 w-3" />
-					<span>Copied</span>
-				</>
-			) : (
-				<>
-					<Copy className="h-3 w-3" />
-					<span>{label}</span>
-				</>
-			)}
-		</button>
-	);
-}
-
-function CodeBlock({ language, value }: { language: string; value: string }) {
-	return (
-		<div className="my-3 overflow-hidden rounded-lg border border-border bg-code-bg">
-			<div className="flex items-center justify-between bg-surface-alt/40 px-3 py-1 text-[11px] text-text-muted">
-				<span className="font-mono">{language}</span>
-				<CopyButton text={value} />
-			</div>
-			<SyntaxHighlighter
-				style={oneDark}
-				language={language}
-				PreTag="div"
-				customStyle={{
-					margin: 0,
-					padding: "0.75rem 1rem",
-					background: "transparent",
-					fontSize: "0.8125rem",
-				}}
-			>
-				{value}
-			</SyntaxHighlighter>
-		</div>
-	);
-}
-
-const markdownCodeComponents = {
-	code({ className, children, ...props }: React.HTMLAttributes<HTMLElement>) {
-		const match = /language-(\w+)/.exec(className || "");
-		const codeStr = String(children).replace(/\n$/, "");
-		if (match) {
-			return <CodeBlock language={match[1]} value={codeStr} />;
-		}
-		return (
-			<code className={className} {...props}>
-				{children}
-			</code>
-		);
-	},
-};
 
 /**
  * Collapsible chain-of-thought block. Visually muted (small text, left rule)
@@ -164,7 +80,7 @@ function ToolCallCard({ call }: { call: ToolCall }) {
 					<div className="mb-1 text-[10px] uppercase text-text-muted">
 						Arguments
 					</div>
-					<pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-text-primary">
+					<pre className="overflow-x-auto rounded-md bg-surface px-2.5 py-2 font-mono text-text-primary whitespace-pre-wrap break-words">
 						{call.arguments || "{}"}
 					</pre>
 					{call.result && (
@@ -172,7 +88,7 @@ function ToolCallCard({ call }: { call: ToolCall }) {
 							<div className="mt-2 mb-1 text-[10px] uppercase text-text-muted">
 								Result
 							</div>
-							<pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-text-primary">
+							<pre className="overflow-x-auto rounded-md bg-surface px-2.5 py-2 font-mono text-text-primary whitespace-pre-wrap break-words">
 								{call.result}
 							</pre>
 						</>
@@ -199,11 +115,12 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 		return (
 			<div className="group flex gap-3 px-4 py-2">
 				<Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
-				<div className="prose prose-xs dark:prose-invert min-w-0 flex-1 max-w-none text-xs text-text-muted">
-					<ReactMarkdown components={markdownCodeComponents}>
-						{message.content}
-					</ReactMarkdown>
-				</div>
+				<MarkdownRenderer
+					content={message.content}
+					size="xs"
+					muted
+					className="min-w-0 flex-1"
+				/>
 			</div>
 		);
 	}
@@ -218,11 +135,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 							<ToolCallCard key={tc.id} call={tc} />
 						))
 					) : (
-						<div className="prose prose-xs dark:prose-invert max-w-none text-xs text-text-muted">
-							<ReactMarkdown components={markdownCodeComponents}>
-								{message.content}
-							</ReactMarkdown>
-						</div>
+						<MarkdownRenderer content={message.content} size="xs" muted />
 					)}
 				</div>
 			</div>
@@ -277,14 +190,10 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 				{message.tool_calls?.map((tc) => (
 					<ToolCallCard key={tc.id} call={tc} />
 				))}
-				<div className="prose prose-sm dark:prose-invert max-w-none text-text-primary">
-					<ReactMarkdown components={markdownCodeComponents}>
-						{message.content}
-					</ReactMarkdown>
-					{isStreaming && (
-						<span className="ml-0.5 inline-block h-4 w-1.5 animate-cursor-blink bg-accent align-text-bottom" />
-					)}
-				</div>
+				<MarkdownRenderer content={message.content} />
+				{isStreaming && (
+					<span className="ml-0.5 inline-block h-4 w-1.5 animate-cursor-blink bg-accent align-text-bottom" />
+				)}
 			</div>
 		</div>
 	);
