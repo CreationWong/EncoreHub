@@ -51,6 +51,21 @@ function saveActiveViewToCache(s: ConversationState): Record<string, ConvCacheEn
 	};
 }
 
+function logStoreError(operation: string, error: unknown): void {
+	let errorType: string = typeof error;
+	let errorLength = 0;
+	if (error instanceof Error) {
+		errorType = error.name || "Error";
+		errorLength = error.message.length;
+	} else if (typeof error === "string") {
+		errorLength = error.length;
+	}
+	console.error(operation, {
+		error_type: errorType,
+		error_length: errorLength,
+	});
+}
+
 /**
  * Build the partial state needed to apply an update to a conversation's cache
  * entry. When the conversation is the active one the same fields are mirrored
@@ -129,7 +144,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			const resp = await convApi.listConversations();
 			set({ conversations: resp.conversations });
 		} catch (err) {
-			console.error("Failed to load conversations:", err);
+			logStoreError("Failed to load conversations", err);
 		}
 	},
 
@@ -180,7 +195,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				};
 			});
 		} catch (err) {
-			console.error("Failed to load conversation:", err);
+			logStoreError("Failed to load conversation", err);
 			set((s) =>
 				s.activeId === id
 					? { loading: false, error: "Failed to load conversation" }
@@ -214,7 +229,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			}));
 			return conv.id;
 		} catch (err) {
-			console.error("Failed to create conversation:", err);
+			logStoreError("Failed to create conversation", err);
 			set({ error: "Failed to create conversation" });
 			toast.error("Failed to create conversation");
 			return "";
@@ -244,7 +259,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			}
 			await get().loadList();
 		} catch (err) {
-			console.error("Failed to delete conversation:", err);
+			logStoreError("Failed to delete conversation", err);
 			set({ error: "Failed to delete conversation" });
 			toast.error("Failed to delete conversation");
 		}
@@ -263,7 +278,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		try {
 			await convApi.renameConversation(id, trimmed);
 		} catch (err) {
-			console.error("rename failed:", err);
+			logStoreError("Rename failed", err);
 			set((s) => ({
 				conversations: s.conversations.map((c) =>
 					c.id === id && prev !== undefined ? { ...c, title: prev } : c,
@@ -463,7 +478,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					finalize(fullContent || "(empty response)");
 				},
 				onError(errorMsg) {
-					console.error("Stream error:", errorMsg);
+					logStoreError("Stream error", errorMsg);
 					set((s) => {
 						const patch = cacheUpdate(s, convId, {
 							messages: (s.convCache[convId]?.messages ?? []).filter(
@@ -550,7 +565,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				),
 			}));
 		} catch (err) {
-			console.error("generate title failed:", err);
+			logStoreError("Generate title failed", err);
 			toast.error("Failed to generate title");
 		}
 	},

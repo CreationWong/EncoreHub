@@ -353,6 +353,10 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
 ///   - common API-key prefixes (sk-, sk-ant-, ghp_, etc.) and the token after
 ///   - the value following key/token/password/secret/authorization markers
 fn redact(line: &str) -> String {
+    if contains_payload_field(line) {
+        return "[redacted payload log]".to_string();
+    }
+
     let mut out = String::with_capacity(line.len());
     let mut chars = line.char_indices().peekable();
 
@@ -379,6 +383,33 @@ fn redact(line: &str) -> String {
     }
 
     redact_after_markers(&out)
+}
+
+/// Drop whole lines that contain structured request/response payload fields.
+/// The gateway should never emit them, but this keeps legacy or stray sidecar
+/// logs from reaching the in-memory panel, file mirror, or exported log file.
+fn contains_payload_field(line: &str) -> bool {
+    const FIELDS: [&str; 8] = [
+        "request",
+        "response",
+        "raw",
+        "prompt",
+        "system_prompt",
+        "content",
+        "query",
+        "tool_result",
+    ];
+
+    let lower = line.to_ascii_lowercase();
+    FIELDS.iter().any(|field| {
+        [
+            format!(r#""{field}":"#),
+            format!("{field}="),
+            format!("{field}: "),
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    })
 }
 
 /// If `s` starts with a known secret prefix followed by a plausible token body,
@@ -562,6 +593,50 @@ mod tests {
         assert!(!r2.contains("plain-secret-value"), "got: {r2}");
         let r3 = redact("password=hunter2trustno1");
         assert!(!r3.contains("hunter2trustno1"), "got: {r3}");
+    }
+
+    #[test]
+    fn drops_payload_fields_from_memory_and_file_logs() {
+        const CANARY: &str = "WF01-CANARY-private-conversation-content";
+        let dir = std::env::temp_dir().join(format!(
+            "encorehub-payload-log-test-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let buf = LogBuffer::with_log_dir(dir.clone());
+
+        let payload_fields = [
+            "request",
+            "response",
+            "raw",
+            "prompt",
+            "system_prompt",
+            "content",
+            "query",
+            "tool_result",
+        ];
+        for field in payload_fields {
+            let raw = format!(r#"{{"level":"info","{field}":"{CANARY}"}}"#);
+            buf.push(Source::Gateway, "out", &raw);
+        }
+        buf.push(Source::Gateway, "out", &format!("query={CANARY}"));
+        buf.push(Source::Gateway, "out", &format!("response: {CANARY}"));
+
+        let buffered = buf.since(0);
+        assert_eq!(buffered.len(), payload_fields.len() + 2);
+        assert!(
+            buffered.iter().all(|entry| !entry.message.contains(CANARY)),
+            "memory log leaked payload: {buffered:?}"
+        );
+
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let path = dir.join(format!("encorehub-{day}.log"));
+        let text = std::fs::read_to_string(&path).expect("log file should exist");
+        assert!(!text.contains(CANARY), "file log leaked payload: {text}");
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -241,13 +241,20 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
+	requestID := c.GetString("request_id")
 	go func() {
-		h.generateTitle(context.Background(), convID, req.Provider, req.Model, apiKey)
+		titleCtx := withLogRequestID(context.Background(), requestID)
+		h.generateTitle(titleCtx, convID, req.Provider, req.Model, apiKey)
 	}()
 
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
 	if err != nil {
-		log.Error().Err(err).Msg("provider chat failed")
+		safeExternalError(log.Error().
+			Str("request_id", c.GetString("request_id")).
+			Str("conv_id", convID).
+			Str("provider", req.Provider).
+			Str("model", req.Model), err).
+			Msg("provider chat failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("provider error: %v", err)})
 		return
 	}
@@ -272,6 +279,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
 	req *provider.ChatRequest, apiKey, convID, userMsgID string) {
 
+	requestID := c.GetString("request_id")
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -311,12 +319,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 
 	processOneStream := func(cr *provider.ChatRequest, round int) (content string, reasoning string, tokens int, toolCalls []engine.ToolCallInput, err error) {
-		// Debug: log the full request for the follow-up round so we can
-		// verify tool_call_id and tool_calls are serialised correctly.
 		if round > 0 {
-			if b, e := json.Marshal(cr); e == nil {
-				log.Info().Int("round", round).Str("request", string(b)).Msg("tool-loop follow-up request")
-			}
+			logToolLoopFollowup(cr, round)
 		}
 		events, streamErr := adapter.ChatStream(ctx, cr, apiKey)
 		if streamErr != nil {
@@ -363,7 +367,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 	titleDone := make(chan asyncTitleResult, 1)
 	go func() {
-		titleCtx, cancel := context.WithTimeout(context.Background(), titleGenerationTimeout)
+		baseTitleCtx := withLogRequestID(context.Background(), requestID)
+		titleCtx, cancel := context.WithTimeout(baseTitleCtx, titleGenerationTimeout)
 		defer cancel()
 		result, err := h.generateTitleSync(titleCtx, convID, adapter.ID(), req.Model, apiKey, false)
 		titleDone <- asyncTitleResult{result: result, err: err}
@@ -386,7 +391,13 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	for round := 0; round < maxToolRounds; round++ {
 		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr, round)
 		if streamErr != nil {
-			log.Error().Err(streamErr).Msg("stream error")
+			safeExternalError(log.Error().
+				Str("request_id", requestID).
+				Str("conv_id", convID).
+				Str("provider", adapter.ID()).
+				Str("model", req.Model).
+				Int("round", round), streamErr).
+				Msg("stream error")
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", streamErr.Error())
 			if flusher != nil {
 				flusher.Flush()
@@ -412,7 +423,11 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				}
 				results, warnMsg, sErr := executeWebSearch(ctx, cr, query)
 				if sErr != nil {
-					log.Warn().Err(sErr).Msg("web_search execution failed")
+					safeExternalError(log.Warn().
+						Str("request_id", requestID).
+						Str("conv_id", convID).
+						Str("operation", "web_search"), sErr).
+						Msg("web_search execution failed")
 					tc.Result = fmt.Sprintf("Search failed: %v", sErr)
 					tc.Status = "error"
 				} else {
@@ -845,7 +860,7 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 		return nil, "", fmt.Errorf("search failed: %w", err)
 	}
 
-	log.Info().Str("provider", searchProv.Name()).Str("query", query).Int("results", len(resp.Results)).Msg("web_search tool executed")
+	logSearchCompleted(searchProv.Name(), query, len(resp.Results))
 	return resp.Results, warning, nil
 }
 
@@ -899,16 +914,16 @@ func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string,
 			return "", err
 		}
 		chatResp, err := adapter.Chat(ctx, titleReq, apiKey)
+		meta := titleLogMetadata{
+			RequestID:      logRequestID(ctx),
+			ConversationID: convID,
+			Provider:       adapter.ID(),
+			Model:          model,
+			Attempt:        attempt + 1,
+		}
 		if err != nil {
 			lastErr = err
-			log.Error().
-				Err(err).
-				Str("conv_id", convID).
-				Str("provider", adapter.ID()).
-				Str("model", model).
-				Int("attempt", attempt+1).
-				Interface("request", titleReq).
-				Msg("title generation API call failed")
+			logTitleProviderFailure(meta, err)
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
@@ -919,15 +934,7 @@ func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string,
 			return title, nil
 		}
 		lastErr = fmt.Errorf("empty title from provider")
-		log.Error().
-			Str("conv_id", convID).
-			Str("provider", adapter.ID()).
-			Str("model", model).
-			Int("attempt", attempt+1).
-			Interface("request", titleReq).
-			Interface("response", chatResp).
-			Str("raw", raw).
-			Msg("title generation returned empty or meta title")
+		logTitleRejected(meta, chatResp, raw)
 	}
 	if lastErr != nil {
 		if fallback := fallbackTitleFromSource(sourceMsg); fallback != "" {
@@ -1055,7 +1062,12 @@ func (h *ChatHandler) generateTitle(ctx context.Context, convID, providerName, m
 	titleCtx, cancel := context.WithTimeout(ctx, titleGenerationTimeout)
 	defer cancel()
 	if _, err := h.generateTitleSync(titleCtx, convID, providerName, model, apiKey, false); err != nil {
-		log.Debug().Err(err).Str("conv_id", convID).Msg("auto-title generation failed")
+		safeExternalError(log.Debug().
+			Str("request_id", logRequestID(titleCtx)).
+			Str("conv_id", convID).
+			Str("provider", providerName).
+			Str("model", model), err).
+			Msg("auto-title generation failed")
 	}
 }
 
@@ -1368,7 +1380,8 @@ func (h *ChatHandler) GenerateTitle(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), titleGenerationTimeout)
+	requestCtx := withLogRequestID(c.Request.Context(), c.GetString("request_id"))
+	ctx, cancel := context.WithTimeout(requestCtx, titleGenerationTimeout)
 	defer cancel()
 
 	result, err := h.generateTitleSync(ctx, convID, providerName, model, apiKey, req.Force)

@@ -165,6 +165,33 @@ describe("renameConversation", () => {
 });
 
 describe("sendMessage", () => {
+	it("does not write raw stream errors to the bridged console log", async () => {
+		const canary = "WF01-CANARY-private-provider-response";
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onError(`provider failed: ${canary}`);
+			},
+		);
+		useConversationStore.setState({ activeId: "c1" });
+
+		try {
+			await useConversationStore.getState().sendMessage("hi");
+			const logged = JSON.stringify(consoleError.mock.calls);
+			expect(logged).not.toContain(canary);
+			expect(logged).toContain("error_length");
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
 	it("removes the optimistic user message on stream error", async () => {
 		sendMessageStream.mockImplementation(
 			async (
