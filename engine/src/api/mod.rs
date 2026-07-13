@@ -9,7 +9,11 @@ mod skills;
 use crate::crypto::MasterKey;
 use crate::logging::LogControl;
 use axum::{
+    body::Body,
     extract::State,
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
     Json, Router,
 };
@@ -18,7 +22,6 @@ use encorehub_storage::Database;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub struct AppState {
@@ -31,6 +34,9 @@ pub struct AppState {
     /// Runtime control over the tracing subscriber's level filter. `None` in
     /// contexts that don't install a subscriber (e.g. integration tests).
     pub log_control: Option<LogControl>,
+    /// Shared only with trusted internal callers. `None` deliberately rejects
+    /// every protected request so an empty configuration can never fail open.
+    internal_auth_token: Option<Arc<str>>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -56,12 +62,20 @@ struct HealthResponse {
     database: DatabaseStatus,
 }
 
+#[derive(Debug, Serialize)]
+struct LivenessResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+}
+
 pub fn build_router(
     db: Database,
     skill_registry: SkillRegistry,
     log_control: LogControl,
+    internal_auth_token: String,
 ) -> Router {
-    build_router_with(db, skill_registry, Some(log_control))
+    build_router_with(db, skill_registry, Some(log_control), internal_auth_token)
 }
 
 /// Build the router with an optional [`LogControl`]. Integration tests pass
@@ -70,20 +84,23 @@ pub fn build_router_with(
     db: Database,
     skill_registry: SkillRegistry,
     log_control: Option<LogControl>,
+    internal_auth_token: String,
 ) -> Router {
+    let internal_auth_token = internal_auth_token.trim();
+    let internal_auth_token = if internal_auth_token.is_empty() {
+        None
+    } else {
+        Some(Arc::<str>::from(internal_auth_token))
+    };
     let state = Arc::new(AppState {
         db,
         skill_registry: Mutex::new(skill_registry),
         master_key: Mutex::new(None),
         log_control,
+        internal_auth_token,
     });
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    Router::new()
+    let protected = Router::new()
         // Plugins
         .route(
             "/api/plugins",
@@ -143,11 +160,73 @@ pub fn build_router_with(
             "/api/secrets/:provider_id",
             get(secrets::get_key).delete(secrets::delete_key),
         )
-        // Health
+        // Readiness includes database state and is internal-only.
         .route("/health", get(health_check))
-        .layer(cors)
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_internal_auth,
+        ));
+
+    Router::new()
+        .route("/health/live", get(liveness_check))
+        .merge(protected)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn require_internal_auth(
+    State(state): State<SharedState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let authorized = state
+        .internal_auth_token
+        .as_deref()
+        .is_some_and(|expected| valid_bearer_token(request.headers(), expected));
+
+    if !authorized {
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+            Json(ErrorResponse {
+                error: "unauthorized".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
+}
+
+fn valid_bearer_token(headers: &axum::http::HeaderMap, expected: &str) -> bool {
+    let Some(candidate) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return false;
+    };
+
+    constant_time_eq(candidate.as_bytes(), expected.as_bytes())
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+        == 0
+}
+
+async fn liveness_check() -> Json<LivenessResponse> {
+    Json(LivenessResponse {
+        status: "ok",
+        service: "encorehub-engine",
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 async fn health_check(State(state): State<SharedState>) -> Json<HealthResponse> {

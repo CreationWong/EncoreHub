@@ -12,6 +12,10 @@ use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Resolve authentication before opening storage or binding a socket. A
+    // standalone Engine without an internal token must never start.
+    let internal_auth_token = encorehub_engine::require_internal_auth_token()?;
+
     // Open the database first so we can read the persisted log level before the
     // subscriber is built.
     let db = Database::open_and_return("data/encorehub.db")?;
@@ -58,5 +62,12 @@ async fn main() -> anyhow::Result<()> {
     // HTTP server — delegate to the shared in-process entrypoint.
     let bind_addr = std::env::var("ENGINE_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     tracing::info!("Listening on http://{}", bind_addr);
-    encorehub_engine::serve(db, skill_registry, Some(log_control), bind_addr).await
+    encorehub_engine::serve(
+        db,
+        skill_registry,
+        Some(log_control),
+        bind_addr,
+        internal_auth_token,
+    )
+    .await
 }

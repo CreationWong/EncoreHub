@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,9 +42,15 @@ func main() {
 		engineURL = "http://127.0.0.1:3000"
 	}
 
+	engineAuthToken := strings.TrimSpace(os.Getenv(engine.AuthTokenEnv))
+	if engineAuthToken == "" {
+		log.Fatal().Str("env", engine.AuthTokenEnv).
+			Msg("required Engine authentication token is not configured")
+	}
+
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
-		listenAddr = ":8080"
+		listenAddr = "127.0.0.1:8080"
 	}
 
 	// Provider registry starts empty; the ProfileStore populates it from
@@ -51,7 +58,7 @@ func main() {
 	registry := provider.NewRegistry()
 
 	// Initialize engine client
-	engineClient := engine.NewClient(engineURL)
+	engineClient := engine.NewClient(engineURL, engineAuthToken)
 
 	// Health check against engine. The engine and gateway are spawned together
 	// by the desktop app, so the engine may still be booting — retry briefly

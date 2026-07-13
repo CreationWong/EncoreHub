@@ -18,6 +18,20 @@ pub use encorehub_storage::Database;
 
 use logging::LogControl;
 
+/// Environment variable used by standalone deployments and the gateway.
+pub const ENGINE_AUTH_TOKEN_ENV: &str = "ENCOREHUB_ENGINE_AUTH_TOKEN";
+
+/// Read the internal Engine token without ever including its value in errors.
+pub fn require_internal_auth_token() -> anyhow::Result<String> {
+    let token = std::env::var(ENGINE_AUTH_TOKEN_ENV)
+        .map_err(|_| anyhow::anyhow!("{ENGINE_AUTH_TOKEN_ENV} must be set"))?;
+    let token = token.trim();
+    if token.is_empty() {
+        anyhow::bail!("{ENGINE_AUTH_TOKEN_ENV} must not be empty");
+    }
+    Ok(token.to_owned())
+}
+
 /// Try to find a free TCP port on 127.0.0.1, probing from `start_port`.
 ///
 /// Binds a synchronous listener to test availability, then immediately drops
@@ -47,8 +61,13 @@ pub async fn serve(
     skill_registry: SkillRegistry,
     log_control: Option<LogControl>,
     bind_addr: String,
+    internal_auth_token: String,
 ) -> anyhow::Result<()> {
-    let app = api::build_router_with(db, skill_registry, log_control);
+    let internal_auth_token = internal_auth_token.trim().to_owned();
+    if internal_auth_token.is_empty() {
+        anyhow::bail!("internal Engine authentication token must not be empty");
+    }
+    let app = api::build_router_with(db, skill_registry, log_control, internal_auth_token);
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

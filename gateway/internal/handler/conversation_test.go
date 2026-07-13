@@ -16,7 +16,7 @@ import (
 // the rest of router.go (auth, rate-limit, request-id).
 func renameRouter(target string) *gin.Engine {
 	r := gin.New()
-	h := handler.NewConversationHandler(engine.NewClient(target))
+	h := handler.NewConversationHandler(engine.NewClient(target, "test-engine-token"))
 	r.PATCH("/api/v1/conversations/:id", h.Rename)
 	return r
 }

@@ -76,14 +76,14 @@ describe("App startup", () => {
 	});
 
 	it("waits for Tauri ports before polling gateway health", async () => {
-		const ports = deferred<{ engine_port: number; gateway_port: number }>();
+		const ports = deferred<{ gateway_port: number }>();
 		invoke.mockReturnValue(ports.promise);
 
 		render(<App />);
 		await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_service_ports"));
 		expect(fetch).not.toHaveBeenCalled();
 
-		ports.resolve({ engine_port: 10000, gateway_port: 10001 });
+		ports.resolve({ gateway_port: 10001 });
 
 		await waitFor(() =>
 			expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:10001/api/v1/health"),

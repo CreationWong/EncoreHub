@@ -6,7 +6,9 @@
 
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
+    response::Response,
 };
 use encorehub_engine::api::build_router_with;
 use encorehub_skill::SkillRegistry;
@@ -15,17 +17,33 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
+const TEST_AUTH_TOKEN: &str = "wf02-engine-test-token";
+
+async fn inject_test_auth(mut request: Request<Body>, next: Next) -> Response {
+    request.headers_mut().insert(
+        header::AUTHORIZATION,
+        "Bearer wf02-engine-test-token".parse().unwrap(),
+    );
+    next.run(request).await
+}
+
 fn make_app() -> (TempDir, axum::Router) {
     let (dir, app, _path) = make_app_with_path();
     (dir, app)
 }
 
 fn make_app_with_path() -> (TempDir, axum::Router, std::path::PathBuf) {
+    let (dir, app, db_path) = make_raw_app_with_path();
+    let app = app.layer(middleware::from_fn(inject_test_auth));
+    (dir, app, db_path)
+}
+
+fn make_raw_app_with_path() -> (TempDir, axum::Router, std::path::PathBuf) {
     let dir = TempDir::new().expect("tempdir");
     let db_path = dir.path().join("test.db");
     let db = Database::open_and_return(&db_path).expect("open db");
     let skills = SkillRegistry::load(dir.path().join("nonexistent-skills"));
-    let app = build_router_with(db, skills, None);
+    let app = build_router_with(db, skills, None, TEST_AUTH_TOKEN.to_string());
     (dir, app, db_path)
 }
 
@@ -60,6 +78,109 @@ async fn health_returns_json_with_db_ok() {
     assert_eq!(v["service"], "encorehub-engine");
     assert_eq!(v["status"], "ok");
     assert_eq!(v["database"]["ok"], true);
+}
+
+#[tokio::test]
+async fn liveness_is_public_but_readiness_requires_auth() {
+    let (_dir, app, _) = make_raw_app_with_path();
+
+    let live = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/live")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(live.status(), StatusCode::OK);
+
+    let readiness = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(readiness.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn protected_resources_reject_missing_and_wrong_tokens() {
+    for path in [
+        "/api/secrets/status",
+        "/api/config/wf02-probe",
+        "/api/conversations",
+    ] {
+        for authorization in [None, Some("Bearer wrong-token")] {
+            let (_dir, app, _) = make_raw_app_with_path();
+            let mut request = Request::builder().uri(path);
+            if let Some(value) = authorization {
+                request = request.header(header::AUTHORIZATION, value);
+            }
+            let response = app
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "path={path}, authorization={authorization:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn protected_resources_accept_the_internal_token_without_cors() {
+    for path in [
+        "/api/secrets/status",
+        "/api/config/wf02-probe",
+        "/api/conversations",
+    ] {
+        let (_dir, app, _) = make_raw_app_with_path();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {TEST_AUTH_TOKEN}"))
+                    .header(header::ORIGIN, "https://evil.example")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "path={path}");
+        assert!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none(),
+            "Engine must not grant browser CORS access for {path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn empty_router_token_fails_closed() {
+    let dir = TempDir::new().expect("tempdir");
+    let db = Database::open_and_return(dir.path().join("test.db")).expect("open db");
+    let skills = SkillRegistry::load(dir.path().join("nonexistent-skills"));
+    let app = build_router_with(db, skills, None, String::new());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/conversations")
+                .header(header::AUTHORIZATION, "Bearer ")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

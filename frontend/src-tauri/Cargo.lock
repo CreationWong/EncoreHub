@@ -901,6 +901,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "encorehub-engine",
+ "rand",
  "serde",
  "serde_json",
  "tauri",

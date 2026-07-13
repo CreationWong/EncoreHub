@@ -107,7 +107,7 @@ flowchart LR
 |---|---|---|---|---|---:|---|
 | WF-00 | P0 | 全部 | Maintainer | 无 | 0.5 天 | `Ready` |
 | WF-01 | P0 | P0-2 | Gateway + Desktop | WF-00 | 0.5-1 天 | `In review`（本地验收完成） |
-| WF-02 | P0 | P0-1 | Engine + Gateway + Desktop | WF-00 | 1-2 天 | `Not started` |
+| WF-02 | P0 | P0-1 | Engine + Gateway + Desktop | WF-00 | 1-2 天 | `In review`（本地验收完成，待 Docker smoke） |
 | WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `Not started` |
 | WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `Not started` |
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `Not started` |
@@ -133,7 +133,7 @@ M0 与 M1 可由不同负责人并行执行。M0 完成前持续冻结发布；�
 - [ ] 给 P0 工作项标记 stop-ship，并冻结 release tag/installer 分发。
 - [ ] 把第 9 节命令结果附到 WF-00，记录已知红灯，不把既有失败误归因于后续 PR。
 - [ ] 指定 Engine/Gateway/Desktop 三个区域的审查者。
-- [ ] 约定内部 token 的配置名、header、轮换和 health 例外。
+- [x] 约定内部 token 的配置名、header、轮换和 health 例外。
 
 **完成定义**
 
@@ -189,6 +189,14 @@ cargo test logs::tests
 - `/health/live` 可公开；readiness 和所有业务路由默认强制认证。
 - Engine 不承担浏览器 API，默认移除 CORS；确有需求时使用严格 allowlist。
 
+**认证契约（2026-07-12）**
+
+- 配置名固定为 `ENCOREHUB_ENGINE_AUTH_TOKEN`，请求使用 `Authorization: Bearer <token>`。
+- Tauri 每次启动使用 OS CSPRNG 生成 256-bit token，只保存在 Rust 进程内存并注入 Gateway 子进程；不通过 Tauri command、React 配置、日志或 SQLite 暴露。
+- Standalone/Docker 由部署环境注入同一个至少 256-bit 随机值，不提供默认 token；缺失或空值时 Engine 与 Gateway 均在监听端口前退出。
+- `/health/live` 是唯一公开 Engine 路由；`/health` readiness 和所有 `/api/*` 路由默认强制认证。
+- token 生命周期等于桌面进程或一次部署 secret 版本；轮换时 Engine 与 Gateway 必须作为一个部署单元同时重启。
+
 **建议 PR 切分**
 
 1. `feat(engine): require internal bearer token`
@@ -197,13 +205,25 @@ cargo test logs::tests
 
 **任务**
 
-- [ ] 在 Engine router 增加统一 auth middleware，而非逐 handler 检查。
-- [ ] Engine client 自动附带内部 token，并覆盖所有调用方法。
-- [ ] Tauri 生成 token，分别交给进程内 engine 与 gateway sidecar。
-- [ ] Standalone 启动缺少 token 时 fail closed，并输出不含 token 的配置错误。
-- [ ] 移除 Engine `CorsLayer::allow_origin(Any)`。
-- [ ] Compose 删除 engine 的 host `ports`，gateway 默认只绑定 loopback；显式网络部署另给 profile/example。
-- [ ] 添加 secrets/config/conversation 的未认证、错 token、正确 token、恶意 origin 测试。
+- [x] 在 Engine router 增加统一 auth middleware，而非逐 handler 检查。
+- [x] Engine client 自动附带内部 token，并覆盖所有调用方法。
+- [x] Tauri 生成 token，分别交给进程内 engine 与 gateway sidecar。
+- [x] Standalone 启动缺少 token 时 fail closed，并输出不含 token 的配置错误。
+- [x] 移除 Engine `CorsLayer::allow_origin(Any)`。
+- [x] Compose 删除 engine 的 host `ports`，gateway 默认只绑定 loopback；显式网络部署另给 profile/example。
+- [x] 添加 secrets/config/conversation 的未认证、错 token、正确 token、恶意 origin 测试。
+
+**执行记录（2026-07-12）**
+
+- Engine 将公开 `/health/live` 与受保护 router 分离；统一 middleware 对 readiness、secrets、config、conversation 及其余业务路由校验内部 Bearer，空 router token 也保持 fail closed，并完全移除 Engine CORS layer。
+- Gateway `engine.Client` 集中注入内部 Bearer，覆盖 typed JSON、secret 读取、health 和透明 proxy；外部 `ENCOREHUB_AUTH_TOKEN` 开关不改变内部凭据。Gateway 默认监听改为 `127.0.0.1:8080`，缺内部 token 时不启动。
+- Tauri 每次启动生成 32-byte OS 随机 token，同时传给进程内 Engine 和 Gateway command env；受保护的文件日志等级写入也携带凭据。启动路由配置只下发 Gateway 端口，`VITE_ENGINE_URL` 和 Engine URL helper 已删除；DeveloperPanel 可显示 Engine 端口状态，但不接收内部 token。
+- Compose 要求显式提供 `ENCOREHUB_ENGINE_AUTH_TOKEN`，Engine 仅 `expose: 3000` 而不发布 host port，Gateway host mapping 默认使用 `127.0.0.1`；文档中的网络部署示例要求显式覆盖并配置独立外部 token。
+- 已通过：Engine 7 个单元测试、18 个 API 集成测试、fmt、clippy；Tauri 13 个测试、fmt、clippy；Gateway WF-02 专项测试与 `go vet ./...`；Frontend 129 个测试与 production build。
+- 安全扫描通过：React source/production bundle 不含内部 token 配置名、`VITE_ENGINE_URL` 或直连 `:3000` URL；Engine source 不含 CORS layer；Compose YAML 结构化检查确认 Engine 无 `ports` 且两端强制同一 secret。
+- Fail-closed smoke 通过：Standalone Engine 和 Gateway 在缺少 `ENCOREHUB_ENGINE_AUTH_TOKEN` 时均在监听前退出，错误只包含配置名，不包含 token 值。
+- 当前环境没有 Docker CLI，尚未执行 `host:3000 -> connection refused` 与容器内 Gateway -> Engine 的运行时 smoke；因此状态保持 `In review`。
+- 全局 gate 仍有 WF-03 基线问题：Gateway 混合标题长度断言失败，Frontend lint 当前报告 27 个既有错误；WF-02 专项 gate 没有新增失败。
 
 **专项验证**
 

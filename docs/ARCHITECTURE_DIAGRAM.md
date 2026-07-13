@@ -54,7 +54,7 @@ graph TB
         subgraph SERVICES["Services Layer"]
             direction LR
             V1["api.ts — apiFetch() + ApiError"]
-            V2["config.ts — GATEWAY_URL / ENGINE_URL / AUTH_TOKEN"]
+            V2["config.ts — GATEWAY_URL / AUTH_TOKEN"]
             V3["chat.ts — SSE stream parser (delta/usage/error/done)"]
             V4["conversation.ts — CRUD"]
             V5["skills.ts / memories.ts / knowledge.ts"]
@@ -69,8 +69,8 @@ graph TB
         end
 
         subgraph TAURI["Tauri Shell"]
-            T1["src-tauri/<br/>main.rs + Cargo.toml"]
-            T2["tauri.conf.json<br/>externalBin: engine + gateway"]
+            T1["src-tauri/main.rs<br/>in-process Engine + random token"]
+            T2["tauri.conf.json<br/>externalBin: gateway"]
             T3["Plugins: shell, notification,<br/>clipboard, fs, global-shortcut"]
         end
 
@@ -127,7 +127,7 @@ graph TB
 
         subgraph GW_INFRA["Infrastructure"]
             direction LR
-            G1["engine/client.go<br/>HTTP client → Rust engine<br/>X-Request-ID propagation"]
+            G1["engine/client.go<br/>HTTP client → Rust engine<br/>internal Bearer + X-Request-ID"]
             G2["metrics/metrics.go<br/>encorehub_gateway_requests_total<br/>encorehub_gateway_request_duration_seconds<br/>encorehub_gateway_in_flight_requests"]
             G3["search/search.go<br/>DuckDuckGo integration"]
         end
@@ -143,7 +143,8 @@ graph TB
 
         subgraph API["API Routes (src/api/)"]
             direction LR
-            R1["GET /health → DB round-trip"]
+            R0["GET /health/live → public liveness"]
+            R1["GET /health → authenticated DB readiness"]
             R2["POST/GET /api/conversations"]
             R3["GET/PATCH/DELETE /api/conversations/:id"]
             R4["POST /api/conversations/:id/messages"]
@@ -199,7 +200,7 @@ graph TB
     FRONTEND -->|"HTTP REST + SSE<br/>:8080/api/v1/*"| GATEWAY
 
     %% ===== CONNECTIONS: Gateway → Engine =====
-    GATEWAY -->|"HTTP JSON<br/>:3000 (ENGINE_URL)<br/>conversations / skills<br/>memories / knowledge"| ENGINE
+    GATEWAY -->|"HTTP JSON + internal Bearer<br/>:3000 (ENGINE_URL)<br/>conversations / skills<br/>memories / knowledge"| ENGINE
 
     %% ===== CONNECTIONS: Gateway → Providers =====
     GATEWAY -->|"HTTPS + API Key<br/>X-Provider-Key header"| EXTERNAL
@@ -228,7 +229,7 @@ graph TB
     subgraph CROSSCUT["🔧 Cross-Cutting Concerns"]
         direction LR
         X1["X-Request-ID<br/>generated at gateway<br/>propagated to engine"]
-        X2["Health Check<br/>GET /health always 200<br/>engine.ok = readiness"]
+        X2["Health Check<br/>Gateway /health always 200<br/>Engine /health/live public<br/>Engine /health authenticated"]
         X3["Prometheus /metrics<br/>public, no auth"]
         X4["Biome (frontend lint)"]
         X5["golangci-lint (gateway)"]

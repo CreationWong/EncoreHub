@@ -1,6 +1,7 @@
 package router_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,7 +23,7 @@ func newRouter() *gin.Engine {
 	// Engine baseURL is unused in the routes we hit (health/providers). The
 	// store is left unloaded, so /providers returns an empty list — fine for
 	// the routing/auth/CORS assertions here.
-	eng := engine.NewClient("http://127.0.0.1:0")
+	eng := engine.NewClient("http://127.0.0.1:0", "test-engine-token")
 	return router.Setup(router.Config{
 		Registry:     registry,
 		Engine:       eng,
@@ -112,6 +113,53 @@ func TestProvidersRejectsWrongBearer(t *testing.T) {
 	})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGatewayAuthSettingDoesNotChangeInternalEngineCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		gatewayToken  string
+		requestHeader string
+	}{
+		{name: "gateway auth disabled"},
+		{
+			name:          "gateway auth enabled",
+			gatewayToken:  "external-gateway-token",
+			requestHeader: "Bearer external-gateway-token",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ENCOREHUB_AUTH_TOKEN", tc.gatewayToken)
+
+			received := make(chan string, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				received <- r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"skills":[]}`)
+			}))
+			t.Cleanup(upstream.Close)
+
+			registry := provider.NewRegistry()
+			eng := engine.NewClient(upstream.URL, "internal-engine-token")
+			r := router.Setup(router.Config{
+				Registry:     registry,
+				Engine:       eng,
+				ProfileStore: handler.NewProfileStore(eng, registry),
+			})
+
+			headers := map[string]string{}
+			if tc.requestHeader != "" {
+				headers["Authorization"] = tc.requestHeader
+			}
+			rec := do(t, r, http.MethodGet, "/api/v1/skills", headers)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+			}
+			if got := <-received; got != "Bearer internal-engine-token" {
+				t.Fatalf("Engine authorization = %q", got)
+			}
+		})
 	}
 }
 

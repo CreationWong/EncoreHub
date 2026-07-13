@@ -9,13 +9,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
+// AuthTokenEnv is the shared secret used only for Gateway -> Engine calls.
+const AuthTokenEnv = "ENCOREHUB_ENGINE_AUTH_TOKEN"
+
 // Client communicates with the EncoreHub Rust engine via HTTP.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL           string
+	internalAuthToken string
+	httpClient        *http.Client
 }
 
 // Conversation represents a conversation from the engine.
@@ -74,9 +79,10 @@ type ListResponse struct {
 }
 
 // NewClient creates a new engine client.
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL, internalAuthToken string) *Client {
 	return &Client{
-		baseURL: baseURL,
+		baseURL:           baseURL,
+		internalAuthToken: strings.TrimSpace(internalAuthToken),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -257,7 +263,7 @@ func (c *Client) GetSecret(ctx context.Context, providerID string) (string, bool
 	if id := requestIDFromCtx(ctx); id != "" {
 		req.Header.Set("X-Request-ID", id)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return "", false, fmt.Errorf("engine http: %w", err)
 	}
@@ -307,6 +313,19 @@ func requestIDFromCtx(ctx context.Context) string {
 	return ""
 }
 
+// Do sends an Engine request with the internal bearer credential. Keeping
+// authentication here covers both typed JSON calls and transparent proxying.
+func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	if c.internalAuthToken == "" {
+		return nil, fmt.Errorf("engine authentication token is not configured")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.internalAuthToken)
+	if id := requestIDFromCtx(req.Context()); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
+	return c.httpClient.Do(req)
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -331,7 +350,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interf
 		req.Header.Set("X-Request-ID", id)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return fmt.Errorf("engine http: %w", err)
 	}

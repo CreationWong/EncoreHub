@@ -30,10 +30,14 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 需要：Node 22+ / pnpm 9 / Go 1.25 / Rust stable。
 
 ```bash
+# 在 Engine 与 Gateway 两个终端设置同一个随机值；不要使用固定示例值
+export ENCOREHUB_ENGINE_AUTH_TOKEN="$(openssl rand -hex 32)"
+
 # 1. 启动 engine（Rust，监听 127.0.0.1:3000）
 cd engine && cargo run --features standalone --bin encorehub-engine
 
-# 2. 启动 gateway（Go，监听 :8080）
+# 2. 在另一个带相同 ENCOREHUB_ENGINE_AUTH_TOKEN 的终端启动 gateway
+#    （Go，默认监听 127.0.0.1:8080）
 cd gateway && go run ./cmd/gateway
 
 # 3. 启动前端（Vite dev，1420）
@@ -50,21 +54,30 @@ cd frontend && pnpm install && pnpm dev
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `LISTEN_ADDR` | `:8080` | gateway 监听 |
+| `LISTEN_ADDR` | `127.0.0.1:8080` | gateway 监听 |
 | `ENGINE_URL` | `http://127.0.0.1:3000` | gateway → engine |
 | `ENGINE_BIND` | `127.0.0.1:3000` | engine 监听（容器里改 `0.0.0.0:3000`） |
+| `ENCOREHUB_ENGINE_AUTH_TOKEN` | 无 | Engine 内部 Bearer token；standalone/Docker 必填，Engine 与 Gateway 必须相同；Tauri 每次启动自动生成 |
 | `ENCOREHUB_AUTH_TOKEN` | _空_ | 设了则 gateway `/api/v1/*` 校验 `Authorization: Bearer …`；前端通过 `VITE_AUTH_TOKEN` 传 |
+| `ENCOREHUB_GATEWAY_HOST` | `127.0.0.1` | Compose 的 Gateway host binding；仅显式网络部署时改为 `0.0.0.0` |
 | `ENCOREHUB_CORS_ORIGINS` | _空_ | 追加 CORS 来源（逗号分隔） |
 | `ENCOREHUB_RATE_LIMIT_RPS` | `30` | 每 IP 限速 |
 | `ENCOREHUB_RATE_LIMIT_BURST` | `60` | 每 IP 突发上限 |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
 
-前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_ENGINE_URL` / `VITE_AUTH_TOKEN`。
+前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`。React 不配置或直连 Engine。
+
+Compose 显式网络部署必须同时启用独立的 Gateway 外部认证；不要复用 Engine 内部 token：
+
+```dotenv
+ENCOREHUB_GATEWAY_HOST=0.0.0.0
+ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
+```
 
 ### 端口协商
 
 - **Client / Tauri 模式**：`ENGINE_BIND` 与 `LISTEN_ADDR` 未设时，桌面壳从 10000 向上自动扫描可用端口（engine 先、gateway 后）。前端通过 `get_service_ports` Tauri command 获取端口并构建 API URL。
-- **Headless / 开发模式**：端口始终走 env（`ENGINE_BIND`、`LISTEN_ADDR`），或使用默认值 `:3000` / `:8080`。
+- **Headless / 开发模式**：端口始终走 env（`ENGINE_BIND`、`LISTEN_ADDR`），或使用 loopback 默认值 `127.0.0.1:3000` / `127.0.0.1:8080`。
 - 固定端口只需设上述 env 变量即可。
 
 ## Ops & 可观测性
@@ -158,11 +171,12 @@ CI 配置见 `.github/workflows/ci.yml`，4 个语言并行 job。
 
 ## 安全说明
 
-- 默认 CORS 只放 Tauri webview（`tauri://localhost`、`http(s)://tauri.localhost`）与 `localhost:1420`；扩展请用 `ENCOREHUB_CORS_ORIGINS`。
+- Gateway 默认 CORS 只放 Tauri webview（`tauri://localhost`、`http(s)://tauri.localhost`）与 `localhost:1420`；扩展请用 `ENCOREHUB_CORS_ORIGINS`。
+- Engine 不提供浏览器 CORS；仅 `/health/live` 公开，readiness 和全部业务路由强制校验 `ENCOREHUB_ENGINE_AUTH_TOKEN`。Compose 不向宿主机发布 Engine 端口。
 - `ENCOREHUB_AUTH_TOKEN` 不设时 gateway 不强制 auth（适合本机 sidecar），任何网络暴露的部署 **必须** 设。
 - **API key 存储**：默认仅会话内存，不入 localStorage。在 Security 标签开启加密后，key 以 AES-256-GCM 加密落引擎库（Argon2id 派生主密钥、随机 salt、verifier 校验口令），主密钥仅驻内存、关闭即清。此方案保护**静态磁盘泄露**，不防运行中已解锁会话或渲染层 XSS。忘记主密码不可恢复（只能清空重填）。
 - 密钥/口令全程作为不透明字符串处理，不进日志/落盘（日志写盘前统一脱敏）。
-- Gateway 在 Tauri 模式下绑定 `127.0.0.1`（非 `0.0.0.0`），仅本机可达。
+- Gateway 在 Tauri 模式和默认 Compose 配置下绑定 `127.0.0.1`，仅显式网络部署才允许覆盖。
 
 ## 许可证
 

@@ -42,9 +42,11 @@ func newFakeEngine(t *testing.T, status int, replyBody string) *fakeEngine {
 	return fe
 }
 
+const testEngineToken = "test-engine-token"
+
 func newProxyRouter(target string) *gin.Engine {
 	r := gin.New()
-	proxy := handler.NewEngineProxy(engine.NewClient(target))
+	proxy := handler.NewEngineProxy(engine.NewClient(target, testEngineToken))
 	for _, res := range []string{"skills", "memories", "knowledge"} {
 		r.Any("/api/v1/"+res, proxy.Forward)
 		r.Any("/api/v1/"+res+"/*rest", proxy.Forward)
@@ -80,6 +82,9 @@ func TestForward_TranslatesPrefixAndProxiesBody(t *testing.T) {
 	}
 	if fe.last.URL.Path != "/api/skills" {
 		t.Errorf("path = %q, want /api/skills", fe.last.URL.Path)
+	}
+	if got := fe.last.Header.Get("Authorization"); got != "Bearer "+testEngineToken {
+		t.Errorf("internal authorization = %q", got)
 	}
 	if !strings.Contains(rec.Body.String(), `"skills"`) {
 		t.Errorf("response body not piped through: %q", rec.Body.String())

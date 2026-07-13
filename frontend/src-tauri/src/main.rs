@@ -3,6 +3,7 @@
 mod log_layer;
 mod logs;
 
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -10,12 +11,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
+use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
 use tauri::{Manager, State};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 use encorehub_engine::logging::{normalize_level, LogControl};
-use encorehub_engine::{find_free_port, Database, SkillRegistry};
+use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
 use log_layer::LogBufferLayer;
 use logs::{Level, LogBuffer, LogEntry, Source};
 
@@ -48,12 +50,14 @@ struct ServiceState {
     /// Dynamically negotiated ports (filled during setup).
     engine_port: u16,
     gateway_port: u16,
+    /// Process-lifetime credential for trusted Rust/sidecar calls only. This
+    /// state is intentionally not serializable and no Tauri command returns it.
+    internal_auth_token: Arc<str>,
 }
 
 /// Port info returned to the frontend so it can build API URLs.
 #[derive(Serialize, Clone, Copy)]
 struct ServicePorts {
-    engine_port: u16,
     gateway_port: u16,
 }
 
@@ -72,7 +76,7 @@ struct ServiceStatus {
 
 #[tauri::command]
 fn check_engine_health(state: State<ServiceState>) -> Result<String, String> {
-    let url = format!("http://127.0.0.1:{}/health", state.engine_port);
+    let url = format!("http://127.0.0.1:{}/health/live", state.engine_port);
     match ureq::get(&url).call() {
         Ok(r) => r.into_string().map_err(|e| format!("{e}")),
         Err(e) => Err(format!("Engine not ready: {e}")),
@@ -92,7 +96,6 @@ fn check_gateway_health(state: State<ServiceState>) -> Result<String, String> {
 #[tauri::command]
 fn get_service_ports(state: State<ServiceState>) -> ServicePorts {
     ServicePorts {
-        engine_port: state.engine_port,
         gateway_port: state.gateway_port,
     }
 }
@@ -159,7 +162,7 @@ fn get_file_log_level(state: State<ServiceState>) -> String {
 #[tauri::command]
 fn set_file_log_level(state: State<ServiceState>, level: String) -> Result<String, String> {
     let parsed = Level::parse(&level).ok_or_else(|| format!("invalid file log level: {level}"))?;
-    persist_file_log_level(state.engine_port, parsed)?;
+    persist_file_log_level(state.engine_port, parsed, &state.internal_auth_token)?;
     state.logs.set_file_level(parsed);
     tracing::info!("file log level changed to {}", parsed.as_str());
     Ok(parsed.as_str().to_string())
@@ -185,12 +188,17 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
-fn persist_file_log_level(engine_port: u16, level: Level) -> Result<(), String> {
+fn persist_file_log_level(
+    engine_port: u16,
+    level: Level,
+    internal_auth_token: &str,
+) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{engine_port}/api/config/{FILE_LOG_LEVEL_CONFIG_KEY}");
     let body = serde_json::to_string(level.as_str())
         .map_err(|e| format!("failed to encode file log level: {e}"))?;
     ureq::put(&url)
         .set("Content-Type", "application/json")
+        .set("Authorization", &format!("Bearer {internal_auth_token}"))
         .send_string(&body)
         .map(|_| ())
         .map_err(|e| format!("failed to persist file log level: {e}"))
@@ -207,6 +215,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("."));
 
     let logs = Arc::new(LogBuffer::with_log_dir(exe_dir.join("log")));
+    let internal_auth_token: Arc<str> = generate_internal_auth_token().into();
 
     // Install a global tracing subscriber so the in-process engine's events flow
     // into the developer-panel buffer (and the terminal, for `pnpm tauri dev`).
@@ -246,7 +255,13 @@ fn main() {
     tracing::info!("negotiated ports: engine={engine_port} gateway={gateway_port}");
 
     // `setup` consumes these once; an Option lets us `take()` inside the FnMut.
-    let mut startup = Some((exe_dir.clone(), log_control, engine_port, gateway_port));
+    let mut startup = Some((
+        exe_dir.clone(),
+        log_control,
+        engine_port,
+        gateway_port,
+        internal_auth_token.clone(),
+    ));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -256,6 +271,7 @@ fn main() {
             logs: logs.clone(),
             engine_port,
             gateway_port,
+            internal_auth_token,
         })
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
@@ -270,7 +286,7 @@ fn main() {
             open_devtools,
         ])
         .setup(move |app| {
-            let (exe_dir, log_control, engine_port, gateway_port) =
+            let (exe_dir, log_control, engine_port, gateway_port, internal_auth_token) =
                 startup.take().expect("setup runs once");
             tracing::info!("EncoreHub starting, exe dir: {:?}", exe_dir);
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
@@ -278,12 +294,24 @@ fn main() {
             let logs = app.state::<ServiceState>().logs.clone();
 
             // ---- Start engine in-process ----
-            start_engine(app, &exe_dir, log_control, engine_port, logs.clone());
+            start_engine(
+                app,
+                &exe_dir,
+                log_control,
+                engine_port,
+                logs.clone(),
+                internal_auth_token.clone(),
+            );
 
             // ---- Spawn gateway (still a sidecar) ----
-            if let Some(handle) =
-                spawn_service(&exe_dir, "gateway", &logs, engine_port, gateway_port)
-            {
+            if let Some(handle) = spawn_service(
+                &exe_dir,
+                "gateway",
+                &logs,
+                engine_port,
+                gateway_port,
+                &internal_auth_token,
+            ) {
                 app.state::<ServiceState>()
                     .gateway
                     .lock()
@@ -322,6 +350,7 @@ fn start_engine(
     log_control: LogControl,
     port: u16,
     logs: Arc<LogBuffer>,
+    internal_auth_token: Arc<str>,
 ) {
     let db_path = std::env::var("ENGINE_DB")
         .map(PathBuf::from)
@@ -370,8 +399,14 @@ fn start_engine(
     tracing::info!("Engine starting in-process on http://{bind_addr}");
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            encorehub_engine::serve(db, skill_registry, Some(log_control), bind_addr).await
+        if let Err(e) = encorehub_engine::serve(
+            db,
+            skill_registry,
+            Some(log_control),
+            bind_addr,
+            internal_auth_token.to_string(),
+        )
+        .await
         {
             tracing::error!("engine serve exited: {e}");
         }
@@ -387,6 +422,7 @@ fn spawn_service(
     logs: &Arc<LogBuffer>,
     engine_port: u16,
     gateway_port: u16,
+    internal_auth_token: &str,
 ) -> Option<ServiceHandle> {
     let path = match find_binary(dir, name) {
         Some(p) => p,
@@ -398,10 +434,9 @@ fn spawn_service(
     tracing::info!("{name} path: {path:?}");
 
     let mut cmd = Command::new(&path);
+    configure_gateway_command(&mut cmd, engine_port, gateway_port, internal_auth_token);
     cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .env("ENGINE_URL", format!("http://127.0.0.1:{engine_port}"))
-        .env("LISTEN_ADDR", format!("127.0.0.1:{gateway_port}"));
+        .stderr(std::process::Stdio::piped());
 
     // Windows: don't flash a console window for the sidecar.
     #[cfg(target_os = "windows")]
@@ -429,6 +464,29 @@ fn spawn_service(
             None
         }
     }
+}
+
+fn generate_internal_auth_token() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+
+    let mut token = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut token, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    token
+}
+
+fn configure_gateway_command(
+    command: &mut Command,
+    engine_port: u16,
+    gateway_port: u16,
+    internal_auth_token: &str,
+) {
+    command
+        .env("ENGINE_URL", format!("http://127.0.0.1:{engine_port}"))
+        .env("LISTEN_ADDR", format!("127.0.0.1:{gateway_port}"))
+        .env(ENGINE_AUTH_TOKEN_ENV, internal_auth_token);
 }
 
 /// Continuously read a child stream line-by-line on a dedicated thread so the
@@ -471,4 +529,44 @@ fn find_binary(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> 
             .collect::<Vec<_>>()
     );
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn generated_internal_tokens_are_high_entropy_and_unique() {
+        let first = generate_internal_auth_token();
+        let second = generate_internal_auth_token();
+
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn gateway_command_receives_internal_token_without_frontend_exposure() {
+        const TOKEN: &str = "wf02-desktop-token-canary";
+        let mut command = Command::new("gateway");
+        configure_gateway_command(&mut command, 10000, 10001, TOKEN);
+
+        let env: HashMap<_, _> = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect();
+        assert_eq!(
+            env.get(std::ffi::OsStr::new(ENGINE_AUTH_TOKEN_ENV))
+                .map(|value| value.as_os_str()),
+            Some(std::ffi::OsStr::new(TOKEN))
+        );
+
+        let ports = serde_json::to_string(&ServicePorts {
+            gateway_port: 10001,
+        })
+        .unwrap();
+        assert!(!ports.contains(TOKEN));
+        assert!(!ports.contains(ENGINE_AUTH_TOKEN_ENV));
+    }
 }

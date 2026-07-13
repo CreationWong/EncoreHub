@@ -53,7 +53,7 @@ func (p *EngineProxy) Forward(c *gin.Context) {
 		req.Header.Set("Content-Type", ct)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.engine.Do(req)
 	if err != nil {
 		log.Warn().Err(err).Str("target", target).Msg("engine proxy failed")
 		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "engine unavailable"})

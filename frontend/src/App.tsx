@@ -53,11 +53,11 @@ export default function App() {
 				try {
 					// Dynamic import so Vite doesn't bundle @tauri-apps/api in the web build.
 					const { invoke } = await import("@tauri-apps/api/core");
-					const ports = await invoke<{ engine_port: number; gateway_port: number }>(
+					const ports = await invoke<{ gateway_port: number }>(
 						"get_service_ports",
 					);
 					if (!cancelled) {
-						applyServicePorts(ports.gateway_port, ports.engine_port);
+						applyServicePorts(ports.gateway_port);
 					}
 				} catch (e) {
 					console.warn("Failed to resolve Tauri ports, using defaults:", e);
@@ -67,8 +67,7 @@ export default function App() {
 			} else if (!cancelled) {
 				setPortsReady(true);
 			}
-			// In non-Tauri mode (dev), VITE_GATEWAY_URL / VITE_ENGINE_URL env vars
-			// are already baked into the defaults — no action needed.
+			// In non-Tauri mode, VITE_GATEWAY_URL is already the default.
 		}
 
 		resolvePorts();
