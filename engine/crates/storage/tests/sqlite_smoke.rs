@@ -118,6 +118,14 @@ fn memory_fts_search_finds_global_content() {
         "expected to find seeded memory, got {hits:?}"
     );
 
+    let punctuated_hits = db
+        .search_memories_fts("Tauri?", Some(&MemoryScope::Global), 10)
+        .expect("literal punctuation query");
+    assert!(
+        punctuated_hits.iter().any(|m| m.id == mem.id),
+        "punctuation must not change literal memory search semantics"
+    );
+
     // Scope filter excludes when wrong scope used
     let hits_conv = db
         .search_memories_fts("Tauri", Some(&MemoryScope::Conversation), 10)

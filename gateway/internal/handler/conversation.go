@@ -62,18 +62,11 @@ func (h *ConversationHandler) Get(c *gin.Context) {
 
 func (h *ConversationHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-
-	req, err := http.NewRequest("DELETE", h.engine.BaseURL()+"/api/conversations/"+id, nil)
-	if err != nil {
+	if err := h.engine.DeleteConversation(c.Request.Context(), id); err != nil {
+		log.Error().Err(err).Msg("engine delete conversation failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode >= 400 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
-		return
-	}
-	defer resp.Body.Close()
 
 	c.Status(http.StatusNoContent)
 }

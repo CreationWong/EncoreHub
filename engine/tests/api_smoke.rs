@@ -432,6 +432,52 @@ async fn memories_list_and_search_are_empty_initially() {
 }
 
 #[tokio::test]
+async fn fts_search_accepts_user_punctuation_as_literal_text() {
+    let (_dir, app) = make_app();
+
+    let ingest = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/knowledge",
+            json!({
+                "title": "literal-search-fixture",
+                "content": "A C++ guide for foo/bar published on 2026-07-15.",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(ingest.status(), StatusCode::OK);
+
+    for (path, should_match) in [
+        ("/api/memories/search?q=%3F%3F%3F&top_k=3", false),
+        ("/api/memories/search?q=what%3F&top_k=3", false),
+        ("/api/memories/search?q=C%2B%2B&top_k=3", false),
+        ("/api/memories/search?q=foo%2Fbar&top_k=3", false),
+        ("/api/memories/search?q=2026-07-15&top_k=3", false),
+        ("/api/knowledge/search?q=%3F%3F%3F&top_k=3", false),
+        ("/api/knowledge/search?q=what%3F&top_k=3", false),
+        ("/api/knowledge/search?q=C%2B%2B&top_k=3", true),
+        ("/api/knowledge/search?q=foo%2Fbar&top_k=3", true),
+        ("/api/knowledge/search?q=2026-07-15&top_k=3", true),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "path={path}");
+        if should_match {
+            let payload = body_json(response).await;
+            assert!(
+                !payload["results"].as_array().unwrap().is_empty(),
+                "literal query should match fixture: path={path}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn config_get_unset_returns_null_then_roundtrips() {
     let (_dir, app) = make_app();
 

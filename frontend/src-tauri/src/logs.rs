@@ -263,7 +263,7 @@ impl LogBuffer {
 
     /// Redact, mirror to disk, and append one entry at the given level.
     fn append(&self, source: Source, level: Level, raw: &str) {
-        let message = redact(raw);
+        let message = redact(&strip_ansi(raw));
         // Mirror to the daily file (already redacted — no key material on disk).
         let file_level = self.file_level();
         if level.should_write_to_file(file_level) {
@@ -315,13 +315,28 @@ impl Default for LogBuffer {
 /// (covers both `ERROR foo` and `[2024-...] WARN foo` shapes); falls back to
 /// the stream — stderr is treated as a warning, stdout as info.
 fn detect_level(line: &str, stream: &str) -> Level {
-    let lower = line.to_ascii_lowercase();
-    if contains_word(&lower, "error") || contains_word(&lower, "fatal") || lower.contains("panic") {
+    let lower = strip_ansi(line).to_ascii_lowercase();
+    if ["error", "err", "fatal", "ftl"]
+        .iter()
+        .any(|level| contains_word(&lower, level))
+        || lower.contains("panic")
+    {
         Level::Error
-    } else if contains_word(&lower, "warn") || contains_word(&lower, "warning") {
+    } else if ["warn", "warning", "wrn"]
+        .iter()
+        .any(|level| contains_word(&lower, level))
+    {
         Level::Warn
-    } else if contains_word(&lower, "debug") || contains_word(&lower, "trace") {
+    } else if ["debug", "dbg", "trace", "trc"]
+        .iter()
+        .any(|level| contains_word(&lower, level))
+    {
         Level::Debug
+    } else if ["info", "inf"]
+        .iter()
+        .any(|level| contains_word(&lower, level))
+    {
+        Level::Info
     } else if stream == "err" {
         Level::Warn
     } else {
@@ -408,8 +423,25 @@ fn contains_payload_field(line: &str) -> bool {
             format!("{field}: "),
         ]
         .iter()
-        .any(|marker| lower.contains(marker))
+        .any(|marker| contains_field_marker(&lower, marker))
     })
+}
+
+fn contains_field_marker(line: &str, marker: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(relative) = line[search_from..].find(marker) {
+        let start = search_from + relative;
+        let left_boundary = start == 0
+            || line[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|c| !c.is_ascii_alphanumeric() && c != '_');
+        if left_boundary {
+            return true;
+        }
+        search_from = start + marker.len();
+    }
+    false
 }
 
 /// If `s` starts with a known secret prefix followed by a plausible token body,
@@ -573,6 +605,25 @@ mod tests {
         // word-boundary: "info" inside another word doesn't force info, and
         // "error" must be a standalone word
         assert_eq!(detect_level("reinforcement step", "out"), Level::Info);
+
+        let zerolog_info = "\u{1b}[90m10:09AM\u{1b}[0m \u{1b}[32mINF\u{1b}[0m Gateway listening";
+        assert_eq!(detect_level(zerolog_info, "err"), Level::Info);
+        let zerolog_warn = "\u{1b}[90m10:09AM\u{1b}[0m \u{1b}[33mWRN\u{1b}[0m search fallback";
+        assert_eq!(detect_level(zerolog_warn, "err"), Level::Warn);
+    }
+
+    #[test]
+    fn keeps_safe_payload_metadata_and_strips_ansi() {
+        let buf = LogBuffer::new();
+        let raw = "\u{1b}[32mINF\u{1b}[0m has_system_prompt=true tool-loop follow-up request";
+        buf.push(Source::Gateway, "err", raw);
+
+        let entry = &buf.since(0)[0];
+        assert_eq!(entry.level, Level::Info);
+        assert_eq!(
+            entry.message,
+            "INF has_system_prompt=true tool-loop follow-up request"
+        );
     }
 
     #[test]

@@ -420,6 +420,9 @@ impl Database {
         scope: Option<&MemoryScope>,
         limit: i64,
     ) -> Result<Vec<Memory>> {
+        let Some(query) = literal_fts_query(query) else {
+            return Ok(Vec::new());
+        };
         let conn = self.conn.lock().unwrap();
 
         let results: Vec<Memory> = if let Some(s) = scope {
@@ -769,6 +772,9 @@ impl Database {
     }
 
     pub fn search_chunks_fts(&self, query: &str, limit: i64) -> Result<Vec<(DocumentChunk, f64)>> {
+        let Some(query) = literal_fts_query(query) else {
+            return Ok(Vec::new());
+        };
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT dc.id, dc.document_id, dc.content, dc.chunk_index, dc.token_count, rank
@@ -795,6 +801,25 @@ impl Database {
 }
 
 // ===== Helper =====
+
+/// Compile arbitrary user text into an FTS5 query containing literal terms.
+/// Punctuation and operators from chat input must never reach MATCH syntax.
+fn literal_fts_query(input: &str) -> Option<String> {
+    let terms: Vec<&str> = input
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .collect();
+    if terms.is_empty() {
+        return None;
+    }
+    Some(
+        terms
+            .into_iter()
+            .map(|term| format!("\"{term}\""))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
 
 fn secret_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<SecretRow> {
     Ok(SecretRow {

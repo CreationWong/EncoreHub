@@ -486,6 +486,7 @@ fn configure_gateway_command(
     command
         .env("ENGINE_URL", format!("http://127.0.0.1:{engine_port}"))
         .env("LISTEN_ADDR", format!("127.0.0.1:{gateway_port}"))
+        .env("GIN_MODE", "release")
         .env(ENGINE_AUTH_TOKEN_ENV, internal_auth_token);
 }
 
@@ -560,6 +561,11 @@ mod tests {
             env.get(std::ffi::OsStr::new(ENGINE_AUTH_TOKEN_ENV))
                 .map(|value| value.as_os_str()),
             Some(std::ffi::OsStr::new(TOKEN))
+        );
+        assert_eq!(
+            env.get(std::ffi::OsStr::new("GIN_MODE"))
+                .map(|value| value.as_os_str()),
+            Some(std::ffi::OsStr::new("release"))
         );
 
         let ports = serde_json::to_string(&ServicePorts {

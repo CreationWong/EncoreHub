@@ -21,6 +21,40 @@ func renameRouter(target string) *gin.Engine {
 	return r
 }
 
+func deleteRouter(target string) *gin.Engine {
+	r := gin.New()
+	h := handler.NewConversationHandler(engine.NewClient(target, "test-engine-token"))
+	r.DELETE("/api/v1/conversations/:id", h.Delete)
+	return r
+}
+
+func TestDelete_UsesAuthenticatedEngineClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		if authorization != "Bearer test-engine-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	r := deleteRouter(server.URL)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/conversations/c1", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if authorization != "Bearer test-engine-token" {
+		t.Fatalf("engine authorization = %q", authorization)
+	}
+}
+
 func TestRename_ForwardsPatchBodyAndReturnsEngineJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

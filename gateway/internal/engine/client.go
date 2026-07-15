@@ -113,6 +113,11 @@ func (c *Client) RenameConversation(ctx context.Context, id, title string) (*Con
 	return &conv, nil
 }
 
+// DeleteConversation removes a conversation and its dependent records.
+func (c *Client) DeleteConversation(ctx context.Context, id string) error {
+	return c.doJSON(ctx, http.MethodDelete, "/api/conversations/"+url.PathEscape(id), nil, nil)
+}
+
 // GetConversation retrieves a conversation with messages.
 func (c *Client) GetConversation(ctx context.Context, id string) (*ConversationDetail, error) {
 	var detail ConversationDetail
