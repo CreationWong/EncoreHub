@@ -575,4 +575,23 @@ mod tests {
         assert!(!ports.contains(TOKEN));
         assert!(!ports.contains(ENGINE_AUTH_TOKEN_ENV));
     }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_gateway_resolver_finds_target_sidecar() {
+        let root = std::env::temp_dir().join(format!(
+            "encorehub-sidecar-test-{}-{}",
+            std::process::id(),
+            generate_internal_auth_token()
+        ));
+        let binaries = root.join("binaries");
+        std::fs::create_dir_all(&binaries).unwrap();
+        let gateway = binaries.join("gateway-x86_64-pc-windows-msvc.exe");
+        std::fs::write(&gateway, b"sidecar-test").unwrap();
+
+        let found = find_binary(&root, "gateway");
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(found, Some(gateway));
+    }
 }

@@ -85,7 +85,7 @@ flowchart LR
 | Gate | 必须满足 | 解锁内容 |
 |---|---|---|
 | G0 安全止血 | Engine 非 health 路由强制内部认证；任意 origin 不可读 secrets；日志 canary 不落盘；compose 不发布 engine | 允许进入数据正确性与发布修复 |
-| G1 工程基线 | 四个 CI job 绿色；Rust workspace 与 Tauri 进入 gate；主分支 clean-tree | 允许常规修复与低风险 UI 工作 |
+| G1 工程基线 | 五个 CI job 绿色；Rust workspace 与 Tauri 进入 gate；主分支 clean-tree | 允许常规修复与低风险 UI 工作 |
 | G2 数据一致性 | Secrets 故障回滚通过；chat 失败/中止/重载一致；tool usage 权威化 | 允许继续对话智能层开发 |
 | G3 可分发 | Docker clean build/smoke；Windows 安装验收；声明支持的其他 OS 通过 smoke | 允许生成发布候选版本 |
 | G4 维护收敛 | Data-services 基线、bundle budget、文档契约检查进入 CI | 恢复全部路线图开发 |
@@ -109,7 +109,7 @@ flowchart LR
 | WF-01 | P0 | P0-2 | Gateway + Desktop | WF-00 | 0.5-1 天 | `In review`（本地验收完成） |
 | WF-02 | P0 | P0-1 | Engine + Gateway + Desktop | WF-00 | 1-2 天 | `In review`（本地验收完成，待 Docker smoke） |
 | WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `In review`（四个本地 CI gate 绿色） |
-| WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `Not started` |
+| WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `Not started` |
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `Not started` |
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `Not started` |
@@ -284,16 +284,25 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] Engine test 使用 `cargo test --workspace`。
-- [ ] Engine clippy 使用 `--workspace --all-targets`，单独验证 standalone feature。
-- [ ] Frontend CI 增加 `frontend/src-tauri` 的 `cargo check` 和 `cargo test`。
-- [ ] 增加 Windows job覆盖 Windows-only process/sidecar 代码。
-- [ ] 生成测试清单，确认 conversation、storage、skill、engine、Tauri 均在 CI 输出中出现。
+- [x] Engine test 使用 `cargo test --workspace`。
+- [x] Engine clippy 使用 `--workspace --all-targets`，单独验证 standalone feature。
+- [x] Frontend CI 增加 `frontend/src-tauri` 的 `cargo check` 和 `cargo test`。
+- [x] 增加 Windows job覆盖 Windows-only process/sidecar 代码。
+- [x] 生成测试清单，确认 conversation、storage、skill、engine、Tauri 均在 CI 输出中出现。
+
+**执行记录（2026-07-15）**
+
+- 修复前 `cargo test -- --list` 只列出 Engine 根包的 26 个测试；`cargo test --workspace -- --list` 列出 50 个，确认旧 CI 漏掉 conversation 16 个、skill 1 个和 storage 7 个测试。
+- Engine CI 现在分别执行 workspace clippy、standalone target clippy、workspace test 和 standalone target test；release build 显式构建两个 standalone binaries。
+- Frontend Linux job安装 Tauri 系统依赖并构建真实的 `gateway-x86_64-unknown-linux-gnu` sidecar，然后执行 Tauri check、test inventory 和 test。
+- 新增 `desktop-windows` job，构建真实的 `gateway-x86_64-pc-windows-msvc.exe`，编译 Windows `CREATE_NO_WINDOW` 进程路径，并执行 Windows 专属 target-sidecar 解析测试。
+- CI 测试清单现在显式输出 conversation 16、engine unit 7、engine API 19、skill 1、storage 7 和 Tauri 14 个跨平台测试；Windows 额外执行 1 个 sidecar 解析测试。Engine workspace 合计 50 个测试。
+- 本地五-job 等价 gate 已全部通过：Frontend lint/131 tests/build、Gateway tidy/vet/test/build、Engine workspace/standalone fmt/clippy/test/release binaries、Data Services ruff/mypy/pytest，以及 Tauri check/15 个 Windows tests。远端 GitHub Actions 尚未触发，状态保持 `In review`。
 
 **完成定义**
 
 - `cargo test` 默认成员陷阱不再造成假覆盖。
-- 当前本地 45 个 engine workspace 测试和 10 个 Tauri 测试全部成为 gate。
+- 当前本地 50 个 Engine workspace 测试、14 个跨平台 Tauri 测试和 1 个 Windows-only Tauri 测试全部成为 gate。
 
 ## 6. Milestone M2：数据正确性与入口加固
 
@@ -475,10 +484,11 @@ go test ./...
 
 # Engine workspace
 cd ..\engine
-cargo fmt --check
-cargo clippy --workspace --all-targets --features standalone -- -D warnings
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p encorehub-engine --all-targets --features standalone -- -D warnings
 cargo test --workspace
-cargo test -p encorehub-engine --features standalone --all-targets
+cargo test -p encorehub-engine --all-targets --features standalone
 
 # Tauri
 cd ..\frontend\src-tauri

@@ -27,10 +27,35 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: gateway/go.sum
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            patchelf
+      - name: Build Linux gateway sidecar for Tauri
+        working-directory: gateway
+        run: |
+          mkdir -p ../frontend/src-tauri/binaries
+          go build -trimpath -o ../frontend/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu ./cmd/gateway
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - name: Check Tauri desktop
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: List Tauri desktop tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --list
+      - name: Test Tauri desktop
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
   # ===== Gateway (Go) =====
   gateway:
@@ -43,6 +68,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache-dependency-path: gateway/go.sum
       - run: go mod tidy
       - run: git diff --exit-code
       - run: go vet ./...
@@ -60,14 +86,44 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
-      - run: cargo fmt --check
-      # Lint/test both the library build (consumed in-process by Tauri) and the
-      # standalone binaries (headless / sidecar). `--all-targets` with the
-      # feature also exercises the bin entrypoints.
-      - run: cargo clippy --all-targets --features standalone -- -D warnings
-      - run: cargo test
-      - run: cargo test --features standalone
-      - run: cargo build --release --features standalone
+      - run: cargo fmt --all -- --check
+      - name: Lint Engine workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Lint standalone Engine targets
+        run: cargo clippy -p encorehub-engine --all-targets --features standalone -- -D warnings
+      - name: List Engine workspace tests
+        run: cargo test --workspace -- --list
+      - name: Test Engine workspace
+        run: cargo test --workspace
+      - name: Test standalone Engine targets
+        run: cargo test -p encorehub-engine --all-targets --features standalone
+      - run: cargo build --release -p encorehub-engine --bins --features standalone
+
+  # ===== Desktop (Windows-only process/sidecar paths) =====
+  desktop-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: gateway/go.sum
+      - name: Build Windows gateway sidecar for Tauri
+        shell: pwsh
+        working-directory: gateway
+        run: |
+          New-Item -ItemType Directory -Force ../frontend/src-tauri/binaries | Out-Null
+          go build -trimpath -o ../frontend/src-tauri/binaries/gateway-x86_64-pc-windows-msvc.exe ./cmd/gateway
+      - name: Check Windows desktop process integration
+        run: cargo check
+      - name: List Windows desktop tests
+        run: cargo test -- --list
+      - name: Test Windows desktop process integration
+        run: cargo test
 
   # ===== Data Services (Python) =====
   data-services:
