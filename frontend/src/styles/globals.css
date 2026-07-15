@@ -122,12 +122,30 @@ pre {
 		margin-bottom: 0;
 	}
 
-	.markdown-body :where(p, ul, ol, blockquote, .markdown-table-wrap, .markdown-codeblock, hr) {
+	.markdown-body
+		:where(
+			p,
+			ul,
+			ol,
+			blockquote,
+			.markdown-table-wrap,
+			.markdown-codeblock,
+			hr
+		) {
 		margin-top: 0.625rem;
 		margin-bottom: 0.625rem;
 	}
 
-	.markdown-body-xs :where(p, ul, ol, blockquote, .markdown-table-wrap, .markdown-codeblock, hr) {
+	.markdown-body-xs
+		:where(
+			p,
+			ul,
+			ol,
+			blockquote,
+			.markdown-table-wrap,
+			.markdown-codeblock,
+			hr
+		) {
 		margin-top: 0.375rem;
 		margin-bottom: 0.375rem;
 	}

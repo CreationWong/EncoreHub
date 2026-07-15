@@ -39,7 +39,7 @@ dependencies = [
     "grpcio-tools>=1.68",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff>=0.8",
     "mypy>=1.13",
@@ -60,3 +60,5 @@ strict = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]

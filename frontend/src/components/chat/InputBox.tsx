@@ -7,8 +7,8 @@ import {
 } from "../../commands/slash";
 import { useConversationStore } from "../../stores/conversationStore";
 import {
-	useSettingsStore,
 	type SearchProvider,
+	useSettingsStore,
 } from "../../stores/settingsStore";
 import SlashCommandMenu from "./SlashCommandMenu";
 

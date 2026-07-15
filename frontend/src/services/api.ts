@@ -1,4 +1,4 @@
-import { apiBase, AUTH_TOKEN } from "./config";
+import { AUTH_TOKEN, apiBase } from "./config";
 
 export class ApiError extends Error {
 	constructor(

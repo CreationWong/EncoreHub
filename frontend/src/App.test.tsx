@@ -20,25 +20,30 @@ vi.mock("./components/ui/ConfirmDialog", () => ({ default: () => null }));
 vi.mock("./components/ui/ToastHost", () => ({ default: () => null }));
 
 vi.mock("./stores/conversationStore", () => ({
-	useConversationStore: (selector: (state: { loadList: typeof loadList }) => unknown) =>
-		selector({ loadList }),
+	useConversationStore: (
+		selector: (state: { loadList: typeof loadList }) => unknown,
+	) => selector({ loadList }),
 }));
 
 vi.mock("./stores/providerStore", () => ({
-	useProviderStore: (selector: (state: { load: typeof loadProviders }) => unknown) =>
-		selector({ load: loadProviders }),
+	useProviderStore: (
+		selector: (state: { load: typeof loadProviders }) => unknown,
+	) => selector({ load: loadProviders }),
 }));
 
 vi.mock("./stores/secretsStore", () => ({
-	useSecretsStore: (selector: (state: { refresh: typeof refreshSecrets }) => unknown) =>
-		selector({ refresh: refreshSecrets }),
+	useSecretsStore: (
+		selector: (state: { refresh: typeof refreshSecrets }) => unknown,
+	) => selector({ refresh: refreshSecrets }),
 }));
 
 vi.mock("./stores/settingsStore", () => ({
-	useSettingsStore: (selector: (state: {
-		loadKeys: typeof loadKeys;
-		openSettings: typeof openSettings;
-	}) => unknown) => selector({ loadKeys, openSettings }),
+	useSettingsStore: (
+		selector: (state: {
+			loadKeys: typeof loadKeys;
+			openSettings: typeof openSettings;
+		}) => unknown,
+	) => selector({ loadKeys, openSettings }),
 }));
 
 import App from "./App";
@@ -53,7 +58,9 @@ function deferred<T>() {
 
 describe("App startup", () => {
 	beforeEach(() => {
-		(window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+		(
+			window as unknown as { __TAURI_INTERNALS__?: object }
+		).__TAURI_INTERNALS__ = {};
 		invoke.mockReset();
 		loadList.mockReset();
 		loadProviders.mockReset();
@@ -70,7 +77,9 @@ describe("App startup", () => {
 	});
 
 	afterEach(() => {
-		delete (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
+		(
+			window as unknown as { __TAURI_INTERNALS__?: object }
+		).__TAURI_INTERNALS__ = undefined;
 		vi.unstubAllGlobals();
 		cleanup();
 	});
@@ -80,13 +89,17 @@ describe("App startup", () => {
 		invoke.mockReturnValue(ports.promise);
 
 		render(<App />);
-		await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_service_ports"));
+		await waitFor(() =>
+			expect(invoke).toHaveBeenCalledWith("get_service_ports"),
+		);
 		expect(fetch).not.toHaveBeenCalled();
 
 		ports.resolve({ gateway_port: 10001 });
 
 		await waitFor(() =>
-			expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:10001/api/v1/health"),
+			expect(fetch).toHaveBeenCalledWith(
+				"http://127.0.0.1:10001/api/v1/health",
+			),
 		);
 	});
 });

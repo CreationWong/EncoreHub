@@ -14,6 +14,7 @@ gateway/vendor/
 # Python
 data-services/__pycache__/
 data-services/**/__pycache__/
+data-services/.pytest_cache/
 data-services/.venv/
 data-services/venv/
 data-services/*.egg-info/

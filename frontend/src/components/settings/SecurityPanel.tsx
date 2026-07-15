@@ -423,11 +423,11 @@ function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
 	const handle = async () => {
 		const { confirm } = await import("../../stores/confirmStore");
 		if (
-			!await confirm.ask(
+			!(await confirm.ask(
 				"Clear All Keys",
 				"Clear all stored API keys and encryption metadata? This cannot be undone. Use this only if you've forgotten your master password.",
 				true,
-			)
+			))
 		)
 			return;
 		run(onClear, setBusy);

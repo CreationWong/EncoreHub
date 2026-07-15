@@ -59,7 +59,9 @@ beforeEach(() => {
 	getLogLevel.mockReset().mockResolvedValue("info");
 	setLogLevel.mockReset().mockResolvedValue(undefined);
 	getFileLogLevel.mockReset().mockResolvedValue("info");
-	setFileLogLevel.mockReset().mockImplementation(async (level: string) => level);
+	setFileLogLevel
+		.mockReset()
+		.mockImplementation(async (level: string) => level);
 	confirmAsk.mockReset().mockResolvedValue(true);
 	useToastStore.setState({ toasts: [] });
 });

@@ -146,10 +146,7 @@ pub fn estimate_messages_tokens(messages: &[Message]) -> usize {
 ///
 /// When `last_usage` is `None` (e.g. no API call has happened yet) falls back
 /// to a pure rough estimate of **all** messages.
-pub fn token_count_with_estimation(
-    all_messages: &[Message],
-    last_usage: Option<Usage>,
-) -> usize {
+pub fn token_count_with_estimation(all_messages: &[Message], last_usage: Option<Usage>) -> usize {
     match last_usage {
         Some(usage) if usage.total() > 0 => {
             // If the last API call covered N messages, we need the count of

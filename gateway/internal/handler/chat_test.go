@@ -237,7 +237,9 @@ func TestCleanGeneratedTitle_EnforcesTitleLength(t *testing.T) {
 	if got := cleanGeneratedTitle("这是一个非常非常长的中文标题超过二十个字限制"); got != "这是一个非常非常长的中文标题超过二十个字" {
 		t.Fatalf("chinese title = %q", got)
 	}
-	if got := cleanGeneratedTitle("EncoreHub 对话标题自动生成问题分析报告"); got != "EncoreHub 对话标题" {
+	if got := cleanGeneratedTitle("EncoreHub 对话标题自动生成问题分析报告"); got != "EncoreHub 对话标题自" {
 		t.Fatalf("mixed title = %q", got)
+	} else if len([]rune(got)) != titleMixedMaxRunes {
+		t.Fatalf("mixed title rune count = %d, want %d", len([]rune(got)), titleMixedMaxRunes)
 	}
 }

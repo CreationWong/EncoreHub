@@ -65,11 +65,14 @@ export default function ProvidersPanel() {
 			return;
 		}
 		const { confirm } = await import("../../stores/confirmStore");
-		if (!await confirm.ask(
-			"Delete Provider",
-			`Delete provider "${p.name}"? This cannot be undone.`,
-			true,
-		)) return;
+		if (
+			!(await confirm.ask(
+				"Delete Provider",
+				`Delete provider "${p.name}"? This cannot be undone.`,
+				true,
+			))
+		)
+			return;
 		try {
 			await removeProfile(p.id);
 			if (selectedId === p.id) setSelectedId(null);

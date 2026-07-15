@@ -43,7 +43,9 @@ function currentViewEntry(s: ConversationState): ConvCacheEntry {
 	};
 }
 
-function saveActiveViewToCache(s: ConversationState): Record<string, ConvCacheEntry> {
+function saveActiveViewToCache(
+	s: ConversationState,
+): Record<string, ConvCacheEntry> {
 	if (!s.activeId || !s.convCache[s.activeId]) return s.convCache;
 	return {
 		...s.convCache,
@@ -349,10 +351,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			set((s) => {
 				const entry = s.convCache[convId];
 				if (!entry) return {};
-				const {
-					streamingReasoning: reasoning,
-					streamingToolCalls: toolCalls,
-				} = entry;
+				const { streamingReasoning: reasoning, streamingToolCalls: toolCalls } =
+					entry;
 				const mapped: ToolCall[] = toolCalls
 					.filter((tc) => tc.name)
 					.map((tc) => ({
@@ -464,9 +464,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					if (data.conversation_id === convId) {
 						set((s) => ({
 							conversations: s.conversations.map((c) =>
-								c.id === data.conversation_id
-									? { ...c, title: data.title }
-									: c,
+								c.id === data.conversation_id ? { ...c, title: data.title } : c,
 							),
 						}));
 					}
@@ -526,7 +524,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	stopStreaming: () => {
 		const { activeId, convCache } = get();
 		if (activeId && convCache[activeId]?.abortController) {
-			convCache[activeId].abortController!.abort();
+			convCache[activeId].abortController?.abort();
 		}
 	},
 

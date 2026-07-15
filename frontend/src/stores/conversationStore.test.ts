@@ -81,7 +81,11 @@ beforeEach(() => {
 
 // ---- helpers ----
 
-function seedConversation(id: string, title = "Chat", messages: unknown[] = []) {
+function seedConversation(
+	id: string,
+	title = "Chat",
+	messages: unknown[] = [],
+) {
 	useConversationStore.setState({
 		conversations: [
 			...useConversationStore.getState().conversations,
@@ -555,7 +559,7 @@ describe("multi-conversation streaming", () => {
 		expect(useConversationStore.getState().streamingContent).toBe("");
 
 		// A's cache still holds the in-flight stream.
-		const cacheA = useConversationStore.getState().convCache["a"];
+		const cacheA = useConversationStore.getState().convCache.a;
 		expect(cacheA).toBeDefined();
 		expect(cacheA.streaming).toBe(true);
 		expect(cacheA.streamingContent).toBe("A-partial");
@@ -634,12 +638,10 @@ describe("multi-conversation streaming", () => {
 		await new Promise((r) => setTimeout(r, 0));
 
 		expect(useConversationStore.getState().streamingContent).toBe("");
-		expect(
-			useConversationStore.getState().convCache["a"].streamingContent,
-		).toBe("A-partial-after-new");
-		expect(useConversationStore.getState().convCache["a"].streaming).toBe(
-			true,
+		expect(useConversationStore.getState().convCache.a.streamingContent).toBe(
+			"A-partial-after-new",
 		);
+		expect(useConversationStore.getState().convCache.a.streaming).toBe(true);
 
 		abortConv("a");
 		await promise.catch(() => {});
@@ -671,9 +673,9 @@ describe("multi-conversation streaming", () => {
 		await new Promise((r) => setTimeout(r, 0));
 
 		expect(useConversationStore.getState().streamingContent).toBe("");
-		expect(
-			useConversationStore.getState().convCache["a"].streamingContent,
-		).toBe("SHOULD-STAY-IN-A");
+		expect(useConversationStore.getState().convCache.a.streamingContent).toBe(
+			"SHOULD-STAY-IN-A",
+		);
 
 		// Cleanup.
 		abortConv("a");
@@ -725,7 +727,7 @@ describe("multi-conversation streaming", () => {
 		expect(bMsgs.find((m) => m.content === "A final answer")).toBeUndefined();
 
 		// A's cache must have the assistant message.
-		const aMsgs = useConversationStore.getState().convCache["a"].messages;
+		const aMsgs = useConversationStore.getState().convCache.a.messages;
 		const asst = aMsgs.find((m) => m.role === "assistant");
 		expect(asst?.content).toBe("A final answer");
 
@@ -770,20 +772,20 @@ describe("multi-conversation streaming", () => {
 		await new Promise((r) => setTimeout(r, 0));
 
 		// Both streams emit.
-		deltas["a"]?.("alpha");
-		deltas["b"]?.("beta");
+		deltas.a?.("alpha");
+		deltas.b?.("beta");
 		await new Promise((r) => setTimeout(r, 0));
 
 		// B's view shows beta only.
 		expect(useConversationStore.getState().streamingContent).toBe("beta");
 
 		// A's cache shows alpha only.
-		expect(
-			useConversationStore.getState().convCache["a"].streamingContent,
-		).toBe("alpha");
-		expect(
-			useConversationStore.getState().convCache["b"].streamingContent,
-		).toBe("beta");
+		expect(useConversationStore.getState().convCache.a.streamingContent).toBe(
+			"alpha",
+		);
+		expect(useConversationStore.getState().convCache.b.streamingContent).toBe(
+			"beta",
+		);
 
 		// Switch back to A — should show alpha.
 		await useConversationStore.getState().selectConversation("a");
@@ -813,14 +815,10 @@ describe("multi-conversation streaming", () => {
 
 	it("deleteConversation removes cache entry", async () => {
 		await useConversationStore.getState().selectConversation("a");
-		expect(
-			useConversationStore.getState().convCache["a"],
-		).toBeDefined();
+		expect(useConversationStore.getState().convCache.a).toBeDefined();
 
 		await useConversationStore.getState().deleteConversation("a");
-		expect(
-			useConversationStore.getState().convCache["a"],
-		).toBeUndefined();
+		expect(useConversationStore.getState().convCache.a).toBeUndefined();
 		expect(useConversationStore.getState().activeId).toBeNull();
 	});
 
@@ -844,7 +842,7 @@ describe("multi-conversation streaming", () => {
 		const s = useConversationStore.getState();
 		expect(s.messages).toHaveLength(1);
 		expect(s.messages[0].content).toBe("sys-msg");
-		expect(s.convCache["a"].messages).toHaveLength(1);
-		expect(s.convCache["a"].messages[0].content).toBe("sys-msg");
+		expect(s.convCache.a.messages).toHaveLength(1);
+		expect(s.convCache.a.messages[0].content).toBe("sys-msg");
 	});
 });

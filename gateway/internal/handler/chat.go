@@ -887,7 +887,19 @@ func formatSearchToolResult(results []search.Result) string {
 const defaultConversationTitle = "New Chat"
 const titleGenerationTimeout = 30 * time.Second
 
-const titleGenPrompt = "Return only a concise topic title for the user's text. Do not mention this request, the instruction, chat, conversation, title generation, or summarization. Prefer concrete nouns from the text. Limits: Chinese-only <=20 Chinese characters; English-only <=15 words; mixed Chinese/English <=15 characters."
+const (
+	titleChineseMaxRunes = 20
+	titleEnglishMaxWords = 15
+	titleMixedMaxRunes   = 15
+	titleEnglishMaxRunes = 100
+)
+
+var titleGenPrompt = fmt.Sprintf(
+	"Return only a concise topic title for the user's text. Do not mention this request, the instruction, chat, conversation, title generation, or summarization. Prefer concrete nouns from the text. Limits: Chinese-only <=%d Unicode characters; English-only <=%d words; mixed Chinese/English <=%d Unicode code points, including spaces and punctuation.",
+	titleChineseMaxRunes,
+	titleEnglishMaxWords,
+	titleMixedMaxRunes,
+)
 
 // generateTitleWithRetry calls the AI provider (non-streaming, reasoning
 // disabled) to produce a title from the first user message. It retries up to
@@ -1076,8 +1088,14 @@ func newTitleUpdateTool(providerName string) provider.Tool {
 	return provider.Tool{
 		Type: "function",
 		Function: &provider.FunctionDefinition{
-			Name:        "update_conversation_title",
-			Description: fmt.Sprintf("Update the title of this conversation using %s. Use this only when the user asks to rename or retitle the conversation, or when the conversation topic clearly changed. The title must be concise: Chinese-only <=20 Chinese characters, English-only <=15 words, mixed Chinese/English <=15 characters.", strings.ToUpper(providerName)),
+			Name: "update_conversation_title",
+			Description: fmt.Sprintf(
+				"Update the title of this conversation using %s. Use this only when the user asks to rename or retitle the conversation, or when the conversation topic clearly changed. The title must be concise: Chinese-only <=%d Unicode characters, English-only <=%d words, mixed Chinese/English <=%d Unicode code points including spaces and punctuation.",
+				strings.ToUpper(providerName),
+				titleChineseMaxRunes,
+				titleEnglishMaxWords,
+				titleMixedMaxRunes,
+			),
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1212,16 +1230,18 @@ func limitGeneratedTitle(title string) string {
 	hasCJK := containsCJK(title)
 	hasLatin := containsLatin(title)
 	if hasCJK && hasLatin {
-		return truncateRunes(title, 15)
+		// Keep this deterministic across providers. Semantic CJK word-boundary
+		// trimming would require a tokenizer and produces unstable limits.
+		return truncateRunes(title, titleMixedMaxRunes)
 	}
 	if hasCJK {
-		return truncateRunes(title, 20)
+		return truncateRunes(title, titleChineseMaxRunes)
 	}
 	words := strings.Fields(title)
-	if len(words) > 15 {
-		title = strings.Join(words[:15], " ")
+	if len(words) > titleEnglishMaxWords {
+		title = strings.Join(words[:titleEnglishMaxWords], " ")
 	}
-	return truncateRunes(title, 100)
+	return truncateRunes(title, titleEnglishMaxRunes)
 }
 
 func containsCJK(s string) bool {

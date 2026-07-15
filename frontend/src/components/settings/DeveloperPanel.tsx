@@ -89,12 +89,13 @@ export default function DeveloperPanel() {
 
 	// Load the current runtime log level once on mount.
 	useEffect(() => {
-		Promise.allSettled([devtools.getLogLevel(), devtools.getFileLogLevel()]).then(
-			([runtime, file]) => {
-				if (runtime.status === "fulfilled") setLogLevelState(runtime.value);
-				if (file.status === "fulfilled") setFileLogLevelState(file.value);
-			},
-		);
+		Promise.allSettled([
+			devtools.getLogLevel(),
+			devtools.getFileLogLevel(),
+		]).then(([runtime, file]) => {
+			if (runtime.status === "fulfilled") setLogLevelState(runtime.value);
+			if (file.status === "fulfilled") setFileLogLevelState(file.value);
+		});
 	}, []);
 
 	const changeLogLevel = useCallback(async (level: LogLevel) => {

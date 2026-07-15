@@ -27,7 +27,7 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
@@ -44,6 +44,7 @@ jobs:
         with:
           go-version: "1.25"
       - run: go mod tidy
+      - run: git diff --exit-code
       - run: go vet ./...
       - run: go test ./...
       - run: go build -o bin/gateway ./cmd/gateway
@@ -80,7 +81,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install uv
-      - run: uv sync
-      - run: uv run ruff check src/
-      - run: uv run mypy src/
-      - run: uv run pytest
+      - run: uv sync --frozen --group dev
+      - run: uv run --frozen ruff check src/ tests/
+      - run: uv run --frozen mypy src/ tests/
+      - run: uv run --frozen pytest

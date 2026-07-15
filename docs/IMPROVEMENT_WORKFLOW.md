@@ -108,7 +108,7 @@ flowchart LR
 | WF-00 | P0 | 全部 | Maintainer | 无 | 0.5 天 | `Ready` |
 | WF-01 | P0 | P0-2 | Gateway + Desktop | WF-00 | 0.5-1 天 | `In review`（本地验收完成） |
 | WF-02 | P0 | P0-1 | Engine + Gateway + Desktop | WF-00 | 1-2 天 | `In review`（本地验收完成，待 Docker smoke） |
-| WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `Not started` |
+| WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `In review`（四个本地 CI gate 绿色） |
 | WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `Not started` |
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `Not started` |
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `Not started` |
@@ -253,13 +253,27 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] 修复 29 个 Biome error；a11y 问题必须行为修复，不能 blanket ignore。
-- [ ] 明确混合标题是“最多 15 rune”还是“按语义词组截断”，同步实现、prompt 和测试。
-- [ ] 运行 rustfmt 并确认只有预期格式变更。
-- [ ] 把 Python 工具移到 `[dependency-groups].dev`，或 CI 显式安装 `--extra dev`。
-- [ ] 给 `health_check` 增加返回类型和至少一个 API test。
-- [ ] 生成并提交 `uv.lock`；CI 使用 `--frozen`。
-- [ ] `go mod tidy` 后增加 clean-tree 检查。
+- [x] 修复 29 个 Biome error；a11y 问题必须行为修复，不能 blanket ignore。
+- [x] 明确混合标题是“最多 15 rune”还是“按语义词组截断”，同步实现、prompt 和测试。
+- [x] 运行 rustfmt 并确认只有预期格式变更。
+- [x] 把 Python 工具移到 `[dependency-groups].dev`，或 CI 显式安装 `--extra dev`。
+- [x] 给 `health_check` 增加返回类型和至少一个 API test。
+- [x] 生成并提交 `uv.lock`；CI 使用 `--frozen`。
+- [x] `go mod tidy` 后增加 clean-tree 检查。
+
+**执行记录（2026-07-15）**
+
+- Frontend 实际复测基线为 27 个 Biome diagnostics；安全格式与导入修复后，`delete`、非空断言和测试字面键使用等价的类型安全写法。确认框从带 `role="dialog"` 的 `div` 改为原生 `<dialog>`，通过 `showModal`、`cancel` 事件、标题关联和初始取消焦点保留键盘与可访问行为，并新增 2 个回归测试；没有使用 blanket ignore。
+- 混合标题契约固定为最多 15 个 Unicode rune，空格和标点计入。中文 20 rune、英文 15 词、混合 15 rune 与英文 100 rune safety cap 使用共享常量，生成 prompt、标题工具描述、实现和测试已同步；不引入不稳定的中文分词启发式。
+- Engine 仅有 `engine/crates/conversation/src/token.rs` 一处 rustfmt 机械变更，完整 fmt、clippy、默认/standalone 测试和 release build 均通过。
+- Data Services 将 ruff、mypy、pytest 与 pytest-asyncio 移入 `[dependency-groups].dev`；`health_check` 增加 `dict[str, str]` 返回类型，并以 `httpx.AsyncClient + ASGITransport` 增加无弃用警告的 API 测试。
+- `data-services/uv.lock` 锁定 169 个解析包；本地已通过 `uv lock --check`、`uv sync --frozen --group dev`、ruff、strict mypy 和 pytest。Docker runtime 也从同一 lock 使用 `uv sync --frozen --no-dev`。
+- CI 现在使用 frozen pnpm/uv 安装，Python lint/type-check 覆盖 `src/` 与 `tests/`，所有 `uv run` 禁止重解锁；Gateway 在 `go mod tidy` 后执行完整 `git diff --exit-code`。
+- Frontend gate：Biome 检查 61 个文件、18 个测试文件共 131 个测试、production build 全部通过。bundle 大小与动态 import 警告归属 WF-11，不影响本项基线。
+- Gateway gate：`go mod tidy` clean-tree、`go vet ./...`、`go test ./...` 和 gateway build 全部通过。
+- Engine gate：`cargo fmt --all -- --check`、standalone clippy、默认/standalone 测试及 release build 全部通过。
+- Data Services gate：ruff、strict mypy 与 1 个 API test 全部通过且无测试警告。
+- 当前尚未推送触发 GitHub Actions，状态保持 `In review`；合并前需确认四个远端 job 与上述本地等价 gate 一致。
 
 **完成定义**
 
