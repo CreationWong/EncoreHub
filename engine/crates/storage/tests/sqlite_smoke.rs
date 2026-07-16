@@ -5,15 +5,20 @@
 //! (the production code path requires a real path; `:memory:` works but
 //! parent-dir handling differs across platforms).
 
-use encorehub_core::{Memory, MemoryScope, MemoryType, Message, Role};
+use encorehub_core::{CryptoMeta, Memory, MemoryScope, MemoryType, Message, Role, SecretRow};
 use encorehub_storage::Database;
 use tempfile::TempDir;
 
 fn fresh_db() -> (TempDir, Database) {
+    let (dir, db, _) = fresh_db_with_path();
+    (dir, db)
+}
+
+fn fresh_db_with_path() -> (TempDir, Database, std::path::PathBuf) {
     let dir = TempDir::new().expect("tempdir");
     let db_path = dir.path().join("test.db");
     let db = Database::open_and_return(&db_path).expect("open db");
-    (dir, db)
+    (dir, db, db_path)
 }
 
 #[test]
@@ -162,4 +167,184 @@ fn memory_delete_removes_from_fts() {
         after.iter().all(|m| m.id != mem.id),
         "deleted memory must not surface in FTS"
     );
+}
+
+type SecretSnapshot = (
+    Vec<(String, Option<String>, Option<Vec<u8>>, Option<Vec<u8>>)>,
+    Option<(bool, Vec<u8>, Vec<u8>, Vec<u8>)>,
+);
+
+fn secret_snapshot(db: &Database) -> SecretSnapshot {
+    let rows = db
+        .list_secrets()
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.provider_id, row.plaintext, row.ciphertext, row.nonce))
+        .collect();
+    let meta = db.get_crypto_meta().unwrap().map(|meta| {
+        (
+            meta.enabled,
+            meta.salt,
+            meta.verifier_ciphertext,
+            meta.verifier_nonce,
+        )
+    });
+    (rows, meta)
+}
+
+fn plaintext_secret(provider_id: &str, value: &str) -> SecretRow {
+    SecretRow {
+        provider_id: provider_id.to_string(),
+        plaintext: Some(value.to_string()),
+        ciphertext: None,
+        nonce: None,
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+fn encrypted_secret(provider_id: &str, marker: u8) -> SecretRow {
+    SecretRow {
+        provider_id: provider_id.to_string(),
+        plaintext: None,
+        ciphertext: Some(vec![marker; 24]),
+        nonce: Some(vec![marker; 12]),
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+fn crypto_meta(marker: u8) -> CryptoMeta {
+    CryptoMeta {
+        enabled: true,
+        salt: vec![marker; 16],
+        verifier_ciphertext: vec![marker; 24],
+        verifier_nonce: vec![marker; 12],
+        updated_at: chrono::Utc::now(),
+    }
+}
+
+fn inject_secret_transition_failure(
+    db_path: &std::path::Path,
+    write_step: usize,
+    clears_meta: bool,
+) {
+    let sql = match write_step {
+        0 => {
+            "CREATE TRIGGER fail_secret_a BEFORE INSERT ON secrets
+             WHEN NEW.provider_id = 'provider-a'
+             BEGIN SELECT RAISE(ABORT, 'injected provider-a failure'); END;"
+        }
+        1 => {
+            "CREATE TRIGGER fail_secret_b BEFORE INSERT ON secrets
+             WHEN NEW.provider_id = 'provider-b'
+             BEGIN SELECT RAISE(ABORT, 'injected provider-b failure'); END;"
+        }
+        2 if clears_meta => {
+            "CREATE TRIGGER fail_crypto_meta BEFORE DELETE ON crypto_meta
+             BEGIN SELECT RAISE(ABORT, 'injected metadata failure'); END;"
+        }
+        2 => {
+            "CREATE TRIGGER fail_crypto_meta BEFORE INSERT ON crypto_meta
+             BEGIN SELECT RAISE(ABORT, 'injected metadata failure'); END;"
+        }
+        _ => unreachable!(),
+    };
+    rusqlite::Connection::open(db_path)
+        .unwrap()
+        .execute_batch(sql)
+        .unwrap();
+}
+
+fn assert_failed_transition_survives_restart(
+    dir: TempDir,
+    db: Database,
+    db_path: std::path::PathBuf,
+    before: &SecretSnapshot,
+) {
+    assert_eq!(&secret_snapshot(&db), before);
+    drop(db);
+
+    let reopened = Database::open_and_return(&db_path).unwrap();
+    assert_eq!(&secret_snapshot(&reopened), before);
+    drop(reopened);
+    drop(dir);
+}
+
+#[test]
+fn enable_secret_encryption_rolls_back_each_write_step() {
+    for write_step in 0..=2 {
+        let (dir, db, db_path) = fresh_db_with_path();
+        db.upsert_secret(&plaintext_secret("provider-a", "key-a"))
+            .unwrap();
+        db.upsert_secret(&plaintext_secret("provider-b", "key-b"))
+            .unwrap();
+        let before = secret_snapshot(&db);
+        inject_secret_transition_failure(&db_path, write_step, false);
+
+        let result = db.enable_secret_encryption(
+            &[
+                encrypted_secret("provider-a", 1),
+                encrypted_secret("provider-b", 2),
+            ],
+            &crypto_meta(3),
+        );
+        let error = result.expect_err("injected write must fail");
+        assert!(
+            error.to_string().contains("injected"),
+            "write step {write_step} failed for the wrong reason: {error}"
+        );
+        assert_failed_transition_survives_restart(dir, db, db_path, &before);
+    }
+}
+
+#[test]
+fn rotate_secret_encryption_rolls_back_each_write_step() {
+    for write_step in 0..=2 {
+        let (dir, db, db_path) = fresh_db_with_path();
+        db.upsert_secret(&encrypted_secret("provider-a", 1))
+            .unwrap();
+        db.upsert_secret(&encrypted_secret("provider-b", 2))
+            .unwrap();
+        db.set_crypto_meta(&crypto_meta(3)).unwrap();
+        let before = secret_snapshot(&db);
+        inject_secret_transition_failure(&db_path, write_step, false);
+
+        let result = db.rotate_secret_encryption(
+            &[
+                encrypted_secret("provider-a", 4),
+                encrypted_secret("provider-b", 5),
+            ],
+            &crypto_meta(6),
+        );
+        let error = result.expect_err("injected write must fail");
+        assert!(
+            error.to_string().contains("injected"),
+            "write step {write_step} failed for the wrong reason: {error}"
+        );
+        assert_failed_transition_survives_restart(dir, db, db_path, &before);
+    }
+}
+
+#[test]
+fn disable_secret_encryption_rolls_back_each_write_step() {
+    for write_step in 0..=2 {
+        let (dir, db, db_path) = fresh_db_with_path();
+        db.upsert_secret(&encrypted_secret("provider-a", 1))
+            .unwrap();
+        db.upsert_secret(&encrypted_secret("provider-b", 2))
+            .unwrap();
+        db.set_crypto_meta(&crypto_meta(3)).unwrap();
+        let before = secret_snapshot(&db);
+        inject_secret_transition_failure(&db_path, write_step, true);
+
+        let result = db.disable_secret_encryption(&[
+            plaintext_secret("provider-a", "key-a"),
+            plaintext_secret("provider-b", "key-b"),
+        ]);
+        let error = result.expect_err("injected write must fail");
+        assert!(
+            error.to_string().contains("injected"),
+            "write step {write_step} failed for the wrong reason: {error}"
+        );
+        assert_failed_transition_survives_restart(dir, db, db_path, &before);
+    }
 }

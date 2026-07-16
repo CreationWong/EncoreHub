@@ -110,7 +110,7 @@ flowchart LR
 | WF-02 | P0 | P0-1 | Engine + Gateway + Desktop | WF-00 | 1-2 天 | `In review`（本地验收完成，待 Docker smoke） |
 | WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `In review`（四个本地 CI gate 绿色） |
 | WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `In review`（本地验收完成，待远端 CI） |
-| WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `Not started` |
+| WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `Not started` |
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `Not started` |
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `Not started` |
@@ -296,13 +296,13 @@ host:3000 under docker compose           -> connection refused
 - Engine CI 现在分别执行 workspace clippy、standalone target clippy、workspace test 和 standalone target test；release build 显式构建两个 standalone binaries。
 - Frontend Linux job安装 Tauri 系统依赖并构建真实的 `gateway-x86_64-unknown-linux-gnu` sidecar，然后执行 Tauri check、test inventory 和 test。
 - 新增 `desktop-windows` job，构建真实的 `gateway-x86_64-pc-windows-msvc.exe`，编译 Windows `CREATE_NO_WINDOW` 进程路径，并执行 Windows 专属 target-sidecar 解析测试。
-- CI 测试清单现在显式输出 conversation 16、engine unit 7、engine API 19、skill 1、storage 7 和 Tauri 14 个跨平台测试；Windows 额外执行 1 个 sidecar 解析测试。Engine workspace 合计 50 个测试。
+- WF-04 建立 gate 时的清单显式输出 conversation 16、engine unit 7、engine API 19、skill 1、storage 7 和 Tauri 14 个跨平台测试；Windows 额外执行 1 个 sidecar 解析测试。当时 Engine workspace 基线为 50 个，后续工作项新增测试会由同一 workspace gate 自动纳入。
 - 本地五-job 等价 gate 已全部通过：Frontend lint/131 tests/build、Gateway tidy/vet/test/build、Engine workspace/standalone fmt/clippy/test/release binaries、Data Services ruff/mypy/pytest，以及 Tauri check/15 个 Windows tests。远端 GitHub Actions 尚未触发，状态保持 `In review`。
 
 **完成定义**
 
 - `cargo test` 默认成员陷阱不再造成假覆盖。
-- 当前本地 50 个 Engine workspace 测试、14 个跨平台 Tauri 测试和 1 个 Windows-only Tauri 测试全部成为 gate。
+- 当前本地 56 个 Engine workspace 测试、14 个跨平台 Tauri 测试和 1 个 Windows-only Tauri 测试全部成为 gate。
 
 ## 6. Milestone M2：数据正确性与入口加固
 
@@ -315,11 +315,20 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] 新增 transaction 内的 enable/disable/rotate storage 方法。
-- [ ] API handler 不再逐条 `upsert_secret`。
-- [ ] 对每个写入步骤提供故障注入点。
-- [ ] 验证失败后旧密码和全部旧 key 仍可读取。
-- [ ] 验证成功后旧密码完全失效，新密码可读取全部 key。
+- [x] 新增 transaction 内的 enable/disable/rotate storage 方法。
+- [x] API handler 不再逐条 `upsert_secret`。
+- [x] 对每个写入步骤提供故障注入点。
+- [x] 验证失败后旧密码和全部旧 key 仍可读取。
+- [x] 验证成功后旧密码完全失效，新密码可读取全部 key。
+
+**执行记录（2026-07-15）**
+
+- 三个 API tracer 在旧实现上稳定复现混合状态：enable 失败并重启后读取旧 key 返回 `423`；reset-password 失败后旧密码通过 verifier 但读取旧 key 返回 `500`；disable 失败后两行已变为 plaintext 而 metadata 仍为 encrypted。
+- 新增 `sqlite/secret_transactions.rs` 深模块，公开 enable/disable/rotate 三个意图接口；源模式、目标 row 形态、provider 集合和 metadata 在 transaction 内统一校验，任一条件变化都会在写入前终止。
+- API 在进入 Storage 前完成全部加密、解密、UTF-8 校验、重加密和 verifier 生成；三个 handler 不再逐条调用 `upsert_secret` 或单独更新 crypto metadata。
+- Storage 测试通过真实 SQLite trigger，分别在每种 transition 的第 1 行、第 2 行和 metadata 写入处注入 `RAISE(ABORT)`，共 9 个故障点；每次失败均比较事务前快照，并关闭、重开数据库后再次比较。
+- 成功轮换测试覆盖两个 provider：重启后旧密码返回 `401`，新密码可以解锁并读取全部原 key；enable/reset/disable 的 API 专项共 8 项通过。
+- Engine workspace 当前共 56 项测试；workspace/standalone fmt、clippy、test、release binaries，以及 Tauri check/15 tests 均已通过。远端 GitHub Actions 尚未触发，状态保持 `In review`。
 
 **完成定义**
 

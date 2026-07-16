@@ -328,6 +328,7 @@ dependencies = [
  "encorehub-storage",
  "http-body-util",
  "rand",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

@@ -537,6 +537,13 @@ async fn get_text(app: &axum::Router, uri: &str) -> (StatusCode, Value) {
     (status, body_json(resp).await)
 }
 
+fn reopen_test_app(db_path: &std::path::Path, skills_path: &std::path::Path) -> axum::Router {
+    let db = Database::open_and_return(db_path).expect("reopen db");
+    let skills = SkillRegistry::load(skills_path);
+    build_router_with(db, skills, None, TEST_AUTH_TOKEN.to_string())
+        .layer(middleware::from_fn(inject_test_auth))
+}
+
 #[tokio::test]
 async fn secrets_plaintext_mode_store_and_read() {
     let (_dir, app) = make_app();
@@ -640,14 +647,83 @@ async fn secrets_enable_encrypts_existing_then_lock_unlock() {
 }
 
 #[tokio::test]
+async fn secrets_enable_failure_rolls_back_rows_and_metadata_after_restart() {
+    let (dir, app, db_path) = make_app_with_path();
+
+    for (provider_id, key) in [
+        ("openai", "sk-openai-old"),
+        ("anthropic", "sk-anthropic-old"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(json_post(
+                "PUT",
+                "/api/secrets",
+                json!({"provider_id": provider_id, "key": key}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER fail_crypto_meta_insert
+             BEFORE INSERT ON crypto_meta
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected crypto metadata failure');
+             END;",
+        )
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({
+                "password": "enable-password",
+                "keys": {"deepseek": "sk-deepseek-new"}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    drop(app);
+
+    let reopened = reopen_test_app(&db_path, &dir.path().join("nonexistent-skills"));
+    let (_, status) = get_text(&reopened, "/api/secrets/status").await;
+    assert_eq!(status["encrypted"], false);
+    assert_eq!(status["unlocked"], false);
+
+    for (provider_id, expected_key) in [
+        ("openai", "sk-openai-old"),
+        ("anthropic", "sk-anthropic-old"),
+    ] {
+        let (status, payload) = get_text(&reopened, &format!("/api/secrets/{provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["key"], expected_key);
+    }
+    let (status, _) = get_text(&reopened, "/api/secrets/deepseek").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn secrets_reset_password_old_fails_new_works() {
-    let (_dir, app) = make_app();
+    let (dir, app, db_path) = make_app_with_path();
 
     app.clone()
         .oneshot(json_post(
             "POST",
             "/api/secrets/enable",
-            json!({"password":"old-pw","keys":{"openai":"sk-abc"}}),
+            json!({
+                "password": "old-pw",
+                "keys": {
+                    "openai": "sk-openai",
+                    "anthropic": "sk-anthropic"
+                }
+            }),
         ))
         .await
         .unwrap();
@@ -663,13 +739,12 @@ async fn secrets_reset_password_old_fails_new_works() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    drop(app);
 
-    // Lock, then old password fails, new succeeds.
-    app.clone()
-        .oneshot(json_post("POST", "/api/secrets/lock", json!({})))
-        .await
-        .unwrap();
-    let resp = app
+    // A fresh process starts locked: the old password fails and the new one
+    // unlocks every re-encrypted provider key.
+    let reopened = reopen_test_app(&db_path, &dir.path().join("nonexistent-skills"));
+    let resp = reopened
         .clone()
         .oneshot(json_post(
             "POST",
@@ -680,7 +755,7 @@ async fn secrets_reset_password_old_fails_new_works() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
-    let resp = app
+    let resp = reopened
         .clone()
         .oneshot(json_post(
             "POST",
@@ -690,8 +765,93 @@ async fn secrets_reset_password_old_fails_new_works() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
-    let (_, v) = get_text(&app, "/api/secrets/openai").await;
-    assert_eq!(v["key"], "sk-abc");
+
+    for (provider_id, expected_key) in [("openai", "sk-openai"), ("anthropic", "sk-anthropic")] {
+        let (status, payload) = get_text(&reopened, &format!("/api/secrets/{provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["key"], expected_key);
+    }
+}
+
+#[tokio::test]
+async fn secrets_reset_failure_keeps_old_password_and_all_keys_after_restart() {
+    let (dir, app, db_path) = make_app_with_path();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({
+                "password": "old-password",
+                "keys": {
+                    "openai": "sk-openai-old",
+                    "anthropic": "sk-anthropic-old"
+                }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER fail_crypto_meta_rotate
+             BEFORE INSERT ON crypto_meta
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected crypto metadata failure');
+             END;",
+        )
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/reset-password",
+            json!({"old_password": "old-password", "new_password": "new-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    drop(app);
+
+    let reopened = reopen_test_app(&db_path, &dir.path().join("nonexistent-skills"));
+    let response = reopened
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password": "old-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    for (provider_id, expected_key) in [
+        ("openai", "sk-openai-old"),
+        ("anthropic", "sk-anthropic-old"),
+    ] {
+        let (status, payload) = get_text(&reopened, &format!("/api/secrets/{provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["key"], expected_key);
+    }
+
+    reopened
+        .clone()
+        .oneshot(json_post("POST", "/api/secrets/lock", json!({})))
+        .await
+        .unwrap();
+    let response = reopened
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password": "new-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -724,6 +884,84 @@ async fn secrets_disable_returns_to_plaintext() {
     let (status, v) = get_text(&app, "/api/secrets/openai").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["key"], "sk-xyz");
+}
+
+#[tokio::test]
+async fn secrets_disable_failure_keeps_encrypted_rows_and_password_after_restart() {
+    let (dir, app, db_path) = make_app_with_path();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/enable",
+            json!({
+                "password": "disable-password",
+                "keys": {
+                    "openai": "sk-openai-encrypted",
+                    "anthropic": "sk-anthropic-encrypted"
+                }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER fail_crypto_meta_delete
+             BEFORE DELETE ON crypto_meta
+             BEGIN
+                 SELECT RAISE(ABORT, 'injected crypto metadata failure');
+             END;",
+        )
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/disable",
+            json!({"password": "disable-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    drop(app);
+
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    let non_encrypted_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM secrets
+             WHERE plaintext IS NOT NULL OR ciphertext IS NULL OR nonce IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(non_encrypted_rows, 0);
+    drop(connection);
+
+    let reopened = reopen_test_app(&db_path, &dir.path().join("nonexistent-skills"));
+    let response = reopened
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/secrets/unlock",
+            json!({"password": "disable-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    for (provider_id, expected_key) in [
+        ("openai", "sk-openai-encrypted"),
+        ("anthropic", "sk-anthropic-encrypted"),
+    ] {
+        let (status, payload) = get_text(&reopened, &format!("/api/secrets/{provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["key"], expected_key);
+    }
 }
 
 #[tokio::test]

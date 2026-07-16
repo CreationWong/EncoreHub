@@ -4,6 +4,7 @@
 //! memories (metadata), search cache, config.
 
 mod migrations;
+mod secret_transactions;
 
 use encorehub_core::{
     ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document, DocumentChunk,

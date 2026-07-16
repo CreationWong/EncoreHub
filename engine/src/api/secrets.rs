@@ -123,24 +123,24 @@ pub async fn enable(
         plaintext.insert(pid, k);
     }
 
-    // Re-store each as ciphertext.
-    for (pid, pt) in &plaintext {
-        let (ct, nonce) = key.encrypt(pt.as_bytes()).map_err(crypto_err)?;
-        state
-            .db
-            .upsert_secret(&encrypted_row(pid, ct, nonce))
-            .map_err(internal)?;
-    }
+    let encrypted_secrets = plaintext
+        .iter()
+        .map(|(provider_id, plaintext)| {
+            let (ciphertext, nonce) = key.encrypt(plaintext.as_bytes()).map_err(crypto_err)?;
+            Ok(encrypted_row(provider_id, ciphertext, nonce))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    let meta = CryptoMeta {
+        enabled: true,
+        salt,
+        verifier_ciphertext: vct,
+        verifier_nonce: vnonce,
+        updated_at: chrono::Utc::now(),
+    };
 
     state
         .db
-        .set_crypto_meta(&CryptoMeta {
-            enabled: true,
-            salt,
-            verifier_ciphertext: vct,
-            verifier_nonce: vnonce,
-            updated_at: chrono::Utc::now(),
-        })
+        .enable_secret_encryption(&encrypted_secrets, &meta)
         .map_err(internal)?;
 
     // Unlocked immediately after enabling.
@@ -156,18 +156,26 @@ pub async fn disable(
 ) -> Result<StatusCode, ApiError> {
     let key = derive_and_verify(&state, req.password)?;
 
-    for row in state.db.list_secrets().map_err(internal)? {
-        if let (Some(ct), Some(nonce)) = (row.ciphertext, row.nonce) {
-            let pt = key.decrypt(&ct, &nonce).map_err(crypto_err)?;
-            let pt = String::from_utf8(pt).map_err(|_| internal("corrupt secret"))?;
-            state
-                .db
-                .upsert_secret(&plaintext_row(&row.provider_id, pt))
-                .map_err(internal)?;
-        }
-    }
+    let plaintext_secrets = state
+        .db
+        .list_secrets()
+        .map_err(internal)?
+        .into_iter()
+        .filter_map(|row| match (row.ciphertext, row.nonce) {
+            (Some(ciphertext), Some(nonce)) => Some((row.provider_id, ciphertext, nonce)),
+            _ => None,
+        })
+        .map(|(provider_id, ciphertext, nonce)| {
+            let plaintext = key.decrypt(&ciphertext, &nonce).map_err(crypto_err)?;
+            let plaintext = String::from_utf8(plaintext).map_err(|_| internal("corrupt secret"))?;
+            Ok(plaintext_row(&provider_id, plaintext))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
 
-    state.db.clear_crypto_meta().map_err(internal)?;
+    state
+        .db
+        .disable_secret_encryption(&plaintext_secrets)
+        .map_err(internal)?;
     *state.master_key.lock().unwrap() = None;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -203,27 +211,32 @@ pub async fn reset_password(
     let new_salt = crypto::generate_salt();
     let new_key = crypto::derive_key(req.new_password, &new_salt).map_err(crypto_err)?;
 
-    for row in state.db.list_secrets().map_err(internal)? {
-        if let (Some(ct), Some(nonce)) = (row.ciphertext, row.nonce) {
-            let pt = old_key.decrypt(&ct, &nonce).map_err(crypto_err)?;
-            let (nct, nnonce) = new_key.encrypt(&pt).map_err(crypto_err)?;
-            state
-                .db
-                .upsert_secret(&encrypted_row(&row.provider_id, nct, nnonce))
-                .map_err(internal)?;
-        }
-    }
-
+    let encrypted_secrets = state
+        .db
+        .list_secrets()
+        .map_err(internal)?
+        .into_iter()
+        .filter_map(|row| match (row.ciphertext, row.nonce) {
+            (Some(ciphertext), Some(nonce)) => Some((row.provider_id, ciphertext, nonce)),
+            _ => None,
+        })
+        .map(|(provider_id, ciphertext, nonce)| {
+            let plaintext = old_key.decrypt(&ciphertext, &nonce).map_err(crypto_err)?;
+            let (new_ciphertext, new_nonce) = new_key.encrypt(&plaintext).map_err(crypto_err)?;
+            Ok(encrypted_row(&provider_id, new_ciphertext, new_nonce))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
     let (vct, vnonce) = crypto::make_verifier(&new_key).map_err(crypto_err)?;
+    let meta = CryptoMeta {
+        enabled: true,
+        salt: new_salt,
+        verifier_ciphertext: vct,
+        verifier_nonce: vnonce,
+        updated_at: chrono::Utc::now(),
+    };
     state
         .db
-        .set_crypto_meta(&CryptoMeta {
-            enabled: true,
-            salt: new_salt,
-            verifier_ciphertext: vct,
-            verifier_nonce: vnonce,
-            updated_at: chrono::Utc::now(),
-        })
+        .rotate_secret_encryption(&encrypted_secrets, &meta)
         .map_err(internal)?;
 
     *state.master_key.lock().unwrap() = Some(new_key);
