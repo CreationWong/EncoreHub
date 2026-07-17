@@ -39,12 +39,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CARGO_PROFILE=""
 CARGO_TARGET="debug"
 GO_LDFLAGS=()
-TAURI_CMD="tauri build"
+TAURI_ARGS=(tauri build)
 
 if [ "$DEBUG_BUILD" = false ]; then
     CARGO_PROFILE="--release"
     CARGO_TARGET="release"
     GO_LDFLAGS=(-ldflags "-s -w")
+else
+    TAURI_ARGS=(tauri dev)
 fi
 
 BINARY_DIR="$REPO_ROOT/frontend/src-tauri/binaries"
@@ -184,17 +186,27 @@ if [ "$TAURI_BUILD" = true ]; then
     step "Tauri external binaries"
     mkdir -p "$BINARY_DIR"
 
+    TARGET_TRIPLE="$(rustc -vV | awk '/^host:/ { print $2; exit }')"
+    if [ -z "$TARGET_TRIPLE" ]; then
+        err "could not determine Rust host target triple"
+    fi
+    TARGET_GATEWAY_BIN="gateway-${TARGET_TRIPLE}"
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) TARGET_GATEWAY_BIN="${TARGET_GATEWAY_BIN}.exe" ;;
+    esac
+
     # Only gateway is a Tauri sidecar — engine runs in-process.
     if [ -f "$GATEWAY_SRC" ]; then
         cp -f "$GATEWAY_SRC" "$BINARY_DIR/$GATEWAY_BIN"
-        ok "copied $GATEWAY_BIN → binaries/ ($(format_size $(wc -c < "$GATEWAY_SRC")))"
+        cp -f "$GATEWAY_SRC" "$BINARY_DIR/$TARGET_GATEWAY_BIN"
+        ok "copied $GATEWAY_BIN → binaries/ ($(format_size $(wc -c < "$GATEWAY_SRC"))), target $TARGET_TRIPLE"
     else
         warn "gateway binary not found — Tauri may use a stale cached binary"
     fi
 
-    step "Tauri desktop installer (pnpm $TAURI_CMD)"
-    (cd "$REPO_ROOT/frontend" && pnpm "tauri" "$TAURI_CMD") || err "tauri $TAURI_CMD failed"
-    ok "Tauri installer generated"
+    step "Tauri desktop (pnpm ${TAURI_ARGS[*]})"
+    (cd "$REPO_ROOT/frontend" && pnpm "${TAURI_ARGS[@]}") || err "${TAURI_ARGS[*]} failed"
+    ok "Tauri command completed"
 fi
 
 # ---------- summary ----------
@@ -207,7 +219,7 @@ done < "$TIMINGS_FILE"
 printf "${GREEN}%-50s${NC}\n" "=================================================="
 rm -f "$TIMINGS_FILE"
 
-if [ "$TAURI_BUILD" = true ]; then
+if [ "$TAURI_BUILD" = true ] && [ "$DEBUG_BUILD" = false ]; then
     printf "\n  MSI:   %s/frontend/src-tauri/target/release/bundle/msi\n" "$REPO_ROOT"
     printf "  NSIS:  %s/frontend/src-tauri/target/release/bundle/nsis\n\n" "$REPO_ROOT"
 fi

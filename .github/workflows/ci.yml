@@ -27,25 +27,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache-dependency-path: gateway/go.sum
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            patchelf
-      - name: Build Linux gateway sidecar for Tauri
-        working-directory: gateway
-        run: |
-          mkdir -p ../frontend/src-tauri/binaries
-          go build -trimpath -o ../frontend/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu ./cmd/gateway
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
@@ -57,12 +38,6 @@ jobs:
           path: frontend/dist
           if-no-files-found: error
           retention-days: 1
-      - name: Check Tauri desktop
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-      - name: List Tauri desktop tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --list
-      - name: Test Tauri desktop
-        run: cargo test --manifest-path src-tauri/Cargo.toml
 
   # ===== Gateway (Go) =====
   gateway:
@@ -106,43 +81,61 @@ jobs:
         run: cargo test -p encorehub-engine --all-targets --features standalone
       - run: cargo build --release -p encorehub-engine --bins --features standalone
 
-  # ===== Desktop (Windows-only process/sidecar paths) =====
-  desktop-windows:
+  # ===== Desktop platform compile + no-bundle smoke =====
+  desktop-platforms:
     needs: frontend
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: frontend/src-tauri
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Download validated frontend assets
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist
       - name: Verify frontend assets required by Tauri macros
-        shell: pwsh
-        run: |
-          if (-not (Test-Path ../dist/index.html)) {
-            throw "frontend/dist/index.html is required by tauri build.frontendDist"
-          }
+        run: node -e "if (!require('node:fs').existsSync('frontend/dist/index.html')) process.exit(1)"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
           cache-dependency-path: gateway/go.sum
-      - name: Build Windows gateway sidecar for Tauri
-        shell: pwsh
-        working-directory: gateway
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
         run: |
-          New-Item -ItemType Directory -Force ../frontend/src-tauri/binaries | Out-Null
-          go build -trimpath -o ../frontend/src-tauri/binaries/gateway-x86_64-pc-windows-msvc.exe ./cmd/gateway
-      - name: Check Windows desktop process integration
-        run: cargo check
-      - name: List Windows desktop tests
-        run: cargo test -- --list
-      - name: Test Windows desktop process integration
-        run: cargo test
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            patchelf
+      - name: Validate Unix build script
+        if: runner.os == 'Linux'
+        run: bash -n scripts/build.sh
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - name: Prepare current-target Gateway sidecar
+        run: node scripts/prepare-gateway-sidecar.mjs
+      - name: Check desktop integration
+        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
+      - name: Test desktop integration
+        run: cargo test --manifest-path frontend/src-tauri/Cargo.toml
+      - name: Build current-platform desktop executable
+        run: pnpm --dir frontend tauri build --debug --no-bundle --ci
 
   # ===== Data Services (Python) =====
   data-services:

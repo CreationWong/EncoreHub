@@ -76,3 +76,48 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	assert.doesNotMatch(makefile, /cargo (build|test|check)|go (build|test|vet)|pnpm --filter/);
 	assert.doesNotMatch(readme, /\bmake (dev|build|check|test|lint|fmt)\b/);
 });
+
+test("Desktop keeps mutable state in app data and bundles readonly skills", async () => {
+	const [main, tauriConfig] = await Promise.all([
+		read("frontend/src-tauri/src/main.rs"),
+		read("frontend/src-tauri/tauri.conf.json"),
+	]);
+	assert.match(main, /app\.path\(\)\.app_data_dir\(\)/);
+	assert.match(main, /app\.path\(\)\.resource_dir\(\)/);
+	assert.doesNotMatch(main, /with_log_dir\(exe_dir\.join\("log"\)\)/);
+	assert.doesNotMatch(main, /exe_dir\.join\("data"\)/);
+	const config = JSON.parse(tauriConfig);
+	assert.equal(config.bundle.resources?.["../../skills/"], "skills/");
+});
+
+test("Desktop launches the Gateway through Tauri's sidecar resolver", async () => {
+	const main = await read("frontend/src-tauri/src/main.rs");
+	assert.match(main, /\.shell\(\)\.sidecar\("gateway"\)/);
+	assert.doesNotMatch(main, /fn find_binary|std::process::Command/);
+});
+
+test("Unix desktop build uses argument arrays and target-triple sidecars", async () => {
+	const script = await read("scripts/build.sh");
+	assert.match(script, /TAURI_ARGS=\([^\n]*tauri[^\n]*(build|dev)/);
+	assert.match(script, /pnpm "\$\{TAURI_ARGS\[@\]\}"/);
+	assert.match(script, /gateway-\$\{?TARGET_TRIPLE\}?/);
+	assert.doesNotMatch(script, /TAURI_CMD="tauri build"|pnpm "tauri" "\$TAURI_CMD"/);
+});
+
+test("Desktop CI compiles and dry-builds all declared platforms", async () => {
+	const workflow = await read(".github/workflows/ci.yml");
+	for (const runner of ["ubuntu-latest", "macos-latest", "windows-latest"]) {
+		assert.match(workflow, new RegExp(`os: ${runner}`));
+	}
+	assert.match(workflow, /tauri build --debug --no-bundle/);
+});
+
+test("Windows uninstall hooks preserve app data outside the install directory", async () => {
+	const [wix, nsis] = await Promise.all([
+		read("frontend/src-tauri/wix/cleanup-runtime-data.wxs"),
+		read("frontend/src-tauri/nsis/installer-hooks.nsh"),
+	]);
+	assert.doesNotMatch(`${wix}\n${nsis}`, /APPDATA|LOCALAPPDATA|AppData|Roaming/i);
+	assert.match(wix, /NOT UPGRADINGPRODUCTCODE/);
+	assert.match(nsis, /\$UpdateMode <> 1/);
+});

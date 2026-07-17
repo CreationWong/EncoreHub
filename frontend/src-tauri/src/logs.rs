@@ -4,7 +4,7 @@
 //! the buffer nor anything the frontend pulls can contain an API key.
 //!
 //! Lines at or above the configured file level (Info by default) are mirrored
-//! to a daily file under the install dir's `log/` so issues can be diagnosed
+//! to a daily file under the app data directory's `log/` so issues can be diagnosed
 //! after the app closes. Only the redacted message is written; raw key material
 //! never reaches disk.
 

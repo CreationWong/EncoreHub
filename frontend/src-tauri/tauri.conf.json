@@ -40,6 +40,9 @@
     "externalBin": [
       "binaries/gateway"
     ],
+    "resources": {
+      "../../skills/": "skills/"
+    },
     "windows": {
       "wix": {
         "fragmentPaths": [

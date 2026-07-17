@@ -114,7 +114,7 @@ flowchart LR
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `In review`（本地验收完成） |
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker smoke） |
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker CI smoke） |
-| WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `Not started` |
+| WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `In review`（Windows 本地 build 绿色，待三平台安装 smoke） |
 | WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `Not started` |
 | WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `Not started` |
 | WF-12 | P2 | P2-5 | Maintainer | G1；可随前序 PR 增量执行 | 1-2 天 | `Not started` |
@@ -468,12 +468,22 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 
 **任务**
 
-- [ ] 实现 Windows 现有 `data/` 和 `log/` 的一次性迁移与回滚标记。
-- [ ] 修复 macOS/Linux sidecar 名称、target triple 和 executable 查找。
-- [ ] Bash 使用参数数组，正确执行 `pnpm tauri build/dev`。
-- [ ] 验证卸载/升级不会误删 app data；明确保留或清理策略。
+- [x] 实现 Windows 现有 `data/` 和 `log/` 的一次性迁移与回滚标记。
+- [x] 修复 macOS/Linux sidecar 名称、target triple 和 executable 查找。
+- [x] Bash 使用参数数组，正确执行 `pnpm tauri build/dev`。
+- [x] 验证卸载/升级不会误删 app data；明确保留或清理策略。
 - [ ] Windows、macOS、Linux 分别执行安装后启动 smoke。
-- [ ] 在未完成 macOS/Linux smoke 前，发布文案不得宣称对应平台已支持。
+- [x] 在未完成 macOS/Linux smoke 前，发布文案不得宣称对应平台已支持。
+
+**执行记录（2026-07-17）**
+
+- Desktop 现在只在 Tauri `setup` 中解析 `app_data_dir` 与 `resource_dir`：SQLite 位于 `app_data_dir/data/encorehub.db`，日志位于 `app_data_dir/log/`，内置 skills 由 bundle 映射到只读 `resource_dir/skills`；`ENGINE_DB` 与 `ENCOREHUB_SKILLS_DIR` 显式覆盖仍保留。
+- Windows 首次启动会从 executable directory 的旧 `data/`、`log/` 递归复制普通文件，逐文件字节校验后原子落位并写 `.legacy-layout-v1.json`。已存在且内容不同的目标不会被覆盖，旧源目录不会在启动时删除；升级保留旧源和新 app data，显式卸载仅由现有 WiX/NSIS hook 清理安装目录下的旧副本，不触碰 app data。
+- Gateway 已移除 `.exe`/Windows target 搜索表和 `std::process::Command`，统一通过 `app.shell().sidecar("gateway")` 解析与启动；stdout/stderr/terminated 事件进入原有脱敏日志管线，进程状态由事件流维护。Tauri shell plugin 负责平台扩展名和 Windows 无控制台启动语义。
+- `scripts/build.sh` 使用 `TAURI_ARGS` 数组分别执行 `pnpm tauri build/dev`，从 `rustc -vV` 生成当前 target-triple sidecar 名称；Linux CI 增加 `bash -n`。Desktop CI 改为 Windows/macOS/Linux matrix，每个平台准备当前 target sidecar、执行 check/test，并运行 debug `--no-bundle` build。
+- README 与 `CLAUDE.md` 已删除未经安装 smoke 证明的跨平台支持声明，并记录运行目录、迁移、卸载保留和打包契约。macOS/Linux 安装包在 smoke 前不作为受支持发布物。
+- 本地已通过 9 项 workspace/desktop 契约测试、Tauri 16 项测试、Tauri check/clippy、`pnpm prepare:sidecar`、Windows `tauri build --debug --no-bundle --ci`、`pnpm check`、`pnpm test`、`pnpm lint` 与 `git diff --check`。构建输出已确认包含 `gateway.exe` 和 `resource_dir/skills`。
+- 尚未生成并安装 Windows installer，也未在 macOS/Linux runner 执行 bundle/安装后启动 smoke；远端三平台 matrix 也待首次运行。因此 Gate G3 仍未通过，状态保持 `In review`。
 
 ## 8. Milestone M4：维护成本收敛
 

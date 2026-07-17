@@ -1,9 +1,10 @@
 # EncoreHub
 
-跨平台 AI 聊天客户端 — 一个客户端聚合多家供应商，附带知识库、记忆、Skill、Plugin、MCP 能力。
+AI 聊天桌面客户端 — 一个客户端聚合多家供应商，附带知识库、记忆、Skill、Plugin、MCP 能力。
 
 > 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、模板化供应商、密钥加密、token 计数、端口协商、开发者模式），但 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。详见
 > [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md) 与 [`docs/IMPROVEMENT_REPORT.md`](docs/IMPROVEMENT_REPORT.md) 中按 P0/P1/P2 标注的差距清单。
+> 当前尚未声明正式平台支持：Windows 开发路径可用，Windows/macOS/Linux 均进入 CI 编译与 no-bundle smoke；各平台完成安装后启动验收前都视为预发布。
 
 ## 架构速览
 
@@ -84,7 +85,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 每个请求 gateway 会注入 `X-Request-ID`（如客户端已带则透传），并 reflect 到响应头；引擎下游调用同样透传，方便跨服务串联日志。
 
-**日志落盘**：桌面打包版下，Tauri 把 engine/gateway/desktop 三方日志（脱敏后）镜像写到安装目录的 `log/encorehub-YYYY-MM-DD.log`，按天切分、保留 7 天。开发者面板里可实时查看、过滤、导出。密钥/口令在落盘与展示前均脱敏。
+**桌面数据与日志**：Tauri 把数据库写到系统 `app_data_dir/data/encorehub.db`，把 engine/gateway/desktop 三方脱敏日志写到 `app_data_dir/log/encorehub-YYYY-MM-DD.log`，按天切分、保留 7 天。Windows 旧版 executable directory 下的 `data/`、`log/` 会先复制并逐文件校验，再写迁移 marker；旧副本不在应用启动时删除。升级和卸载不会删除新的 app data，旧安装目录副本只在显式卸载时由 installer hook 清理。
 
 ## 关键功能
 
@@ -151,16 +152,16 @@ pnpm docker:up
 pnpm docker:ps
 ```
 
-CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows Desktop 与 Data Services gate。
+CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。
 
-## 桌面打包（Windows）
+## 桌面打包
 
-```powershell
+```bash
 # 构建当前平台的 Gateway sidecar 与 Tauri 安装包
 pnpm build:desktop
 ```
 
-产物在 `frontend/src-tauri/target/release/bundle/`（`msi/` 与 `nsis/`）。脚本自动将 gateway 二进制拷入 `binaries/`（含 target-triple 别名），安装后无需单独启动服务；engine 已内嵌在 Tauri 进程中。日志写到安装目录 `log/`。
+产物在 `frontend/src-tauri/target/release/bundle/`；Windows 生成 `msi/` 与 `nsis/`。脚本会为当前 Rust host target 构建 Gateway sidecar，Tauri 运行时通过官方 sidecar resolver 启动；Engine 已内嵌在 Tauri 进程中。macOS/Linux 安装包在完成对应平台安装后 smoke 前不作为受支持发布物。
 
 ## 安全说明
 

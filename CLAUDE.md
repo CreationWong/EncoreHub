@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-EncoreHub is a cross-platform AI chat desktop app — one client aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, and auto-generated conversation titles are complete; RAG/vector DB and WASM sandbox are on the roadmap.
+EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, and auto-generated conversation titles are complete; RAG/vector DB and WASM sandbox are on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
 
 ```
 frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, axum)
@@ -136,8 +136,9 @@ cd engine   && cargo test test_name
 
 The Tauri v2 config is at `frontend/src-tauri/tauri.conf.json`. Key points when building the installer:
 
-- **External binaries**: `tauri.conf.json` → `bundle.externalBin` references only `binaries/gateway` (the engine now runs in-process, so it is no longer a sidecar). Tauri auto-appends `.exe` on Windows but does **not** append the Rust target triple. If the build produces `gateway-x86_64-pc-windows-msvc.exe`, you must copy it to `gateway.exe` before running `pnpm tauri build`.
-- **Build script**: `.\scripts\build.ps1 -Tauri` handles everything (engine check, gateway build, sidecar copy with target-triple alias, Tauri bundle). Supports `-Debug`, `-Parallel`, `-SkipInstall` flags.
+- **External binaries**: `tauri.conf.json` → `bundle.externalBin` references only `binaries/gateway` (the engine runs in-process). The build input is `gateway-<rust-host-target>[.exe]`; `pnpm prepare:sidecar` creates it. Runtime launch must use `app.shell().sidecar("gateway")`, which resolves the bundled platform name. Do not add executable filename search tables.
+- **Resources and mutable state**: built-in skills are mapped to `resource_dir/skills`; the database and logs live under `app_data_dir`. Windows legacy `data/` and `log/` are copy-verified with a marker and retained until explicit uninstall; upgrades and uninstall preserve current app data.
+- **Build script**: `pnpm build:desktop` is canonical and prepares the current-target sidecar before invoking Tauri. The PowerShell/Bash scripts remain compatibility tooling.
 - Build output: MSI at `src-tauri/target/release/bundle/msi/`, NSIS exe at `bundle/nsis/`.
 - The Tauri binary itself is at `src-tauri/target/release/encorehub-desktop.exe`.
 

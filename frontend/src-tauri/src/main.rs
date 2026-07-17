@@ -2,13 +2,11 @@
 
 mod log_layer;
 mod logs;
+mod runtime_paths;
 
 use std::fmt::Write as _;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Instant;
 
 use rand::{rngs::OsRng, RngCore};
@@ -20,14 +18,11 @@ use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
 use log_layer::LogBufferLayer;
 use logs::{Level, LogBuffer, LogEntry, Source};
-
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-/// Windows `CREATE_NO_WINDOW` flag — prevents a console window from popping up
-/// when spawning child processes.
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use runtime_paths::migrate_legacy_runtime;
+use runtime_paths::RuntimePaths;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 /// Default starting port for auto-negotiation in Tauri / client mode.
 const CLIENT_PORT_START: u16 = 10000;
@@ -36,9 +31,10 @@ const FILE_LOG_LEVEL_CONFIG_KEY: &str = "file_log_level";
 
 /// A spawned sidecar plus the metadata the developer panel reports.
 struct ServiceHandle {
-    child: Child,
+    child: CommandChild,
     pid: u32,
     started: Instant,
+    running: Arc<AtomicBool>,
 }
 
 struct ServiceState {
@@ -66,8 +62,8 @@ struct ServicePorts {
 struct ServiceStatus {
     name: String,
     pid: Option<u32>,
-    /// Whether the child is still alive (best-effort, via `try_wait`). The
-    /// desktop process reports itself as always running.
+    /// Whether the child is still alive according to the sidecar event stream.
+    /// The desktop process reports itself as always running.
     running: bool,
     uptime_secs: u64,
     /// Loopback port the service listens on (0 = the desktop app itself).
@@ -127,12 +123,12 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
 }
 
 fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> ServiceStatus {
-    let mut guard = slot.lock().unwrap();
-    match guard.as_mut() {
+    let guard = slot.lock().unwrap();
+    match guard.as_ref() {
         Some(h) => ServiceStatus {
             name: name.into(),
             pid: Some(h.pid),
-            running: matches!(h.child.try_wait(), Ok(None)),
+            running: h.running.load(Ordering::Acquire),
             uptime_secs: h.started.elapsed().as_secs(),
             port,
         },
@@ -209,74 +205,8 @@ fn persist_file_log_level(
 }
 
 fn main() {
-    // Resolve the directory containing the executable. The engine's data dir,
-    // skills, and the log mirror all live alongside it (e.g.
-    // %LOCALAPPDATA%\EncoreHub\). Computed up front so the shared LogBuffer can
-    // mirror lines to disk from the start.
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    let logs = Arc::new(LogBuffer::with_log_dir(exe_dir.join("log")));
-    let internal_auth_token: Arc<str> = generate_internal_auth_token().into();
-
-    // Install a global tracing subscriber so the in-process engine's events flow
-    // into the developer-panel buffer (and the terminal, for `pnpm tauri dev`).
-    // A reload layer lets `/api/config/log_level` switch levels at runtime, the
-    // same as the standalone binary. The initial level comes from RUST_LOG; the
-    // value persisted in the DB is applied once the DB is opened in `setup`.
-    let initial_filter =
-        EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
-    let (filter_layer, reload_handle) = reload::Layer::new(initial_filter);
-    tracing_subscriber::registry()
-        .with(filter_layer)
-        .with(fmt::layer().with_target(false))
-        .with(LogBufferLayer::new(logs.clone()))
-        .init();
-
-    let log_control = LogControl::new(move |level| {
-        let directive =
-            normalize_level(level).ok_or_else(|| format!("invalid log level: {level}"))?;
-        reload_handle
-            .reload(EnvFilter::new(directive))
-            .map_err(|e| e.to_string())
-    });
-
-    // --- port negotiation (client / Tauri mode) ---
-    // ENGINE_BIND / LISTEN_ADDR env vars override auto-negotiation so developers
-    // and headless deployments keep predictable ports.  When unset we scan from
-    // CLIENT_PORT_START, finding two adjacent free ports (engine then gateway).
-    let engine_port: u16 = std::env::var("ENGINE_BIND")
-        .ok()
-        .and_then(|v| v.rsplit(':').next()?.parse().ok())
-        .unwrap_or_else(|| find_free_port(CLIENT_PORT_START));
-    let gateway_port: u16 = std::env::var("LISTEN_ADDR")
-        .ok()
-        .and_then(|v| v.rsplit(':').next()?.parse().ok())
-        .unwrap_or_else(|| find_free_port(engine_port + 1));
-
-    tracing::info!("negotiated ports: engine={engine_port} gateway={gateway_port}");
-
-    // `setup` consumes these once; an Option lets us `take()` inside the FnMut.
-    let mut startup = Some((
-        exe_dir.clone(),
-        log_control,
-        engine_port,
-        gateway_port,
-        internal_auth_token.clone(),
-    ));
-
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(ServiceState {
-            engine_started: Instant::now(),
-            gateway: Mutex::new(None),
-            logs: logs.clone(),
-            engine_port,
-            gateway_port,
-            internal_auth_token,
-        })
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
             check_gateway_health,
@@ -289,18 +219,56 @@ fn main() {
             write_client_log,
             open_devtools,
         ])
-        .setup(move |app| {
-            let (exe_dir, log_control, engine_port, gateway_port, internal_auth_token) =
-                startup.take().expect("setup runs once");
-            tracing::info!("EncoreHub starting, exe dir: {:?}", exe_dir);
+        .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let resource_dir = app.path().resource_dir()?;
+
+            #[cfg(target_os = "windows")]
+            let migration_report = std::env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+                .map(|legacy_root| migrate_legacy_runtime(&legacy_root, &app_data_dir))
+                .transpose()?;
+
+            let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
+            let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
+            let log_control = install_logging(logs.clone());
+            let internal_auth_token: Arc<str> = generate_internal_auth_token().into();
+            let (engine_port, gateway_port) = negotiate_ports();
+
+            #[cfg(target_os = "windows")]
+            if let Some(report) = migration_report.filter(|report| report.marker_created) {
+                if report.preserved_conflicts > 0 {
+                    tracing::warn!(
+                        copied_files = report.copied_files,
+                        preserved_conflicts = report.preserved_conflicts,
+                        "legacy runtime conflicts preserved without overwriting app data"
+                    );
+                } else {
+                    tracing::info!(
+                        copied_files = report.copied_files,
+                        verified_existing_files = report.verified_existing_files,
+                        "legacy runtime migration recorded"
+                    );
+                }
+            }
+
+            tracing::info!("EncoreHub app data: {:?}", app_data_dir);
+            tracing::info!("EncoreHub resources: {:?}", resource_dir);
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 
-            let logs = app.state::<ServiceState>().logs.clone();
+            app.manage(ServiceState {
+                engine_started: Instant::now(),
+                gateway: Mutex::new(None),
+                logs: logs.clone(),
+                engine_port,
+                gateway_port,
+                internal_auth_token: internal_auth_token.clone(),
+            });
 
             // ---- Start engine in-process ----
             start_engine(
-                app,
-                &exe_dir,
+                &runtime_paths,
                 log_control,
                 engine_port,
                 logs.clone(),
@@ -308,14 +276,9 @@ fn main() {
             );
 
             // ---- Spawn gateway (still a sidecar) ----
-            if let Some(handle) = spawn_service(
-                &exe_dir,
-                "gateway",
-                &logs,
-                engine_port,
-                gateway_port,
-                &internal_auth_token,
-            ) {
+            if let Some(handle) =
+                spawn_gateway(app, &logs, engine_port, gateway_port, &internal_auth_token)
+            {
                 app.state::<ServiceState>()
                     .gateway
                     .lock()
@@ -335,9 +298,8 @@ fn main() {
                         .unwrap()
                         .take()
                 };
-                if let Some(mut h) = gateway {
+                if let Some(h) = gateway {
                     let _ = h.child.kill();
-                    let _ = h.child.wait();
                 }
             }
         })
@@ -345,29 +307,54 @@ fn main() {
         .expect("error while running EncoreHub");
 }
 
+fn install_logging(logs: Arc<LogBuffer>) -> LogControl {
+    let initial_filter =
+        EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
+    let (filter_layer, reload_handle) = reload::Layer::new(initial_filter);
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt::layer().with_target(false))
+        .with(LogBufferLayer::new(logs))
+        .init();
+
+    LogControl::new(move |level| {
+        let directive =
+            normalize_level(level).ok_or_else(|| format!("invalid log level: {level}"))?;
+        reload_handle
+            .reload(EnvFilter::new(directive))
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn negotiate_ports() -> (u16, u16) {
+    let engine_port = std::env::var("ENGINE_BIND")
+        .ok()
+        .and_then(|value| value.rsplit(':').next()?.parse().ok())
+        .unwrap_or_else(|| find_free_port(CLIENT_PORT_START));
+    let gateway_port = std::env::var("LISTEN_ADDR")
+        .ok()
+        .and_then(|value| value.rsplit(':').next()?.parse().ok())
+        .unwrap_or_else(|| find_free_port(engine_port + 1));
+    (engine_port, gateway_port)
+}
+
 /// Open the engine's database + skills and start its axum service on Tauri's
 /// tokio runtime. Replaces the old `spawn_service(.., "encorehub-engine", ..)`
 /// path — the engine is now a library task in this process, not a sidecar exe.
 fn start_engine(
-    app: &tauri::App,
-    exe_dir: &std::path::Path,
+    runtime_paths: &RuntimePaths,
     log_control: LogControl,
     port: u16,
     logs: Arc<LogBuffer>,
     internal_auth_token: Arc<str>,
 ) {
-    let db_path = std::env::var("ENGINE_DB")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| exe_dir.join("data").join("encorehub.db"));
-    let skills_dir = std::env::var("ENCOREHUB_SKILLS_DIR")
-        .map(PathBuf::from)
-        .or_else(|_| app.path().resource_dir().map(|d| d.join("skills")))
-        .unwrap_or_else(|_| exe_dir.join("skills"));
-
-    let db = match Database::open_and_return(&db_path) {
+    let db = match Database::open_and_return(&runtime_paths.database) {
         Ok(db) => db,
         Err(e) => {
-            tracing::error!("failed to open engine database at {db_path:?}: {e}");
+            tracing::error!(
+                "failed to open engine database at {:?}: {e}",
+                runtime_paths.database
+            );
             return;
         }
     };
@@ -396,7 +383,7 @@ fn start_engine(
         }
     }
 
-    let skill_registry = SkillRegistry::load(&skills_dir);
+    let skill_registry = SkillRegistry::load(&runtime_paths.skills);
     tracing::info!("Skills loaded: {} total", skill_registry.list().len());
 
     let bind_addr = format!("127.0.0.1:{port}");
@@ -417,54 +404,83 @@ fn start_engine(
     });
 }
 
-/// Spawn a bundled sidecar service, suppressing the console window on Windows
-/// and draining its stdout/stderr into the shared log buffer so the pipes can
-/// never fill up and deadlock the child. Returns the handle on success.
-fn spawn_service(
-    dir: &std::path::Path,
-    name: &str,
+/// Resolve and spawn the bundled Gateway through Tauri's platform-aware
+/// sidecar API, then forward its event stream into the shared log buffer.
+fn spawn_gateway(
+    app: &tauri::App,
     logs: &Arc<LogBuffer>,
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
 ) -> Option<ServiceHandle> {
-    let path = match find_binary(dir, name) {
-        Some(p) => p,
-        None => {
-            tracing::error!("{name} binary not found");
+    let command = match app.shell().sidecar("gateway") {
+        Ok(command) => command.envs(gateway_environment(
+            engine_port,
+            gateway_port,
+            internal_auth_token,
+        )),
+        Err(error) => {
+            tracing::error!("failed to resolve Gateway sidecar: {error}");
             return None;
         }
     };
-    tracing::info!("{name} path: {path:?}");
 
-    let mut cmd = Command::new(&path);
-    configure_gateway_command(&mut cmd, engine_port, gateway_port, internal_auth_token);
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    match command.spawn() {
+        Ok((mut events, child)) => {
+            let pid = child.pid();
+            let running = Arc::new(AtomicBool::new(true));
+            let event_running = running.clone();
+            let event_logs = logs.clone();
+            tracing::info!("Gateway started (pid: {pid})");
 
-    // Windows: don't flash a console window for the sidecar.
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+            tauri::async_runtime::spawn(async move {
+                let source = Source::from_service("gateway");
+                while let Some(event) = events.recv().await {
+                    match event {
+                        CommandEvent::Stdout(bytes) => {
+                            push_sidecar_line(&event_logs, source, "out", &bytes);
+                        }
+                        CommandEvent::Stderr(bytes) => {
+                            push_sidecar_line(&event_logs, source, "err", &bytes);
+                        }
+                        CommandEvent::Error(error) => {
+                            event_logs.push(
+                                source,
+                                "err",
+                                &format!("Gateway sidecar event error: {error}"),
+                            );
+                        }
+                        CommandEvent::Terminated(payload) => {
+                            event_running.store(false, Ordering::Release);
+                            let stream = if payload.code == Some(0) {
+                                "out"
+                            } else {
+                                "err"
+                            };
+                            event_logs.push(
+                                source,
+                                stream,
+                                &format!(
+                                    "Gateway exited: code={:?} signal={:?}",
+                                    payload.code, payload.signal
+                                ),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                event_running.store(false, Ordering::Release);
+            });
 
-    match cmd.spawn() {
-        Ok(mut child) => {
-            let pid = child.id();
-            tracing::info!("{name} started (pid: {pid})");
-            let source = Source::from_service(name);
-            if let Some(stdout) = child.stdout.take() {
-                drain(source, "out", stdout, logs.clone());
-            }
-            if let Some(stderr) = child.stderr.take() {
-                drain(source, "err", stderr, logs.clone());
-            }
             Some(ServiceHandle {
                 child,
                 pid,
                 started: Instant::now(),
+                running,
             })
         }
-        Err(e) => {
-            tracing::error!("Failed to start {name}: {e}");
+        Err(error) => {
+            tracing::error!("failed to start Gateway sidecar: {error}");
             None
         }
     }
@@ -481,59 +497,28 @@ fn generate_internal_auth_token() -> String {
     token
 }
 
-fn configure_gateway_command(
-    command: &mut Command,
+fn gateway_environment(
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
-) {
-    command
-        .env("ENGINE_URL", format!("http://127.0.0.1:{engine_port}"))
-        .env("LISTEN_ADDR", format!("127.0.0.1:{gateway_port}"))
-        .env("GIN_MODE", "release")
-        .env(ENGINE_AUTH_TOKEN_ENV, internal_auth_token);
+) -> [(String, String); 4] {
+    [
+        (
+            "ENGINE_URL".into(),
+            format!("http://127.0.0.1:{engine_port}"),
+        ),
+        ("LISTEN_ADDR".into(), format!("127.0.0.1:{gateway_port}")),
+        ("GIN_MODE".into(), "release".into()),
+        (ENGINE_AUTH_TOKEN_ENV.into(), internal_auth_token.into()),
+    ]
 }
 
-/// Continuously read a child stream line-by-line on a dedicated thread so the
-/// pipe buffer never blocks the child. Each line is redacted and appended to
-/// the shared log buffer (and echoed to our stderr for terminal-based dev).
-fn drain<R: std::io::Read + Send + 'static>(
-    source: Source,
-    stream: &'static str,
-    reader: R,
-    logs: Arc<LogBuffer>,
-) {
-    thread::spawn(move || {
-        let mut lines = BufReader::new(reader).lines();
-        while let Some(Ok(line)) = lines.next() {
-            eprintln!("[{source:?}/{stream}] {line}");
-            logs.push(source, stream, &line);
-        }
-    });
-}
-
-/// Find a binary in the given directory, trying multiple naming conventions.
-fn find_binary(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
-    let candidates = vec![
-        dir.join(format!("{name}.exe")),
-        dir.join("binaries").join(format!("{name}.exe")),
-        dir.join(format!("{name}-x86_64-pc-windows-msvc.exe")),
-        dir.join("binaries")
-            .join(format!("{name}-x86_64-pc-windows-msvc.exe")),
-    ];
-    for c in &candidates {
-        if c.exists() {
-            return Some(c.clone());
-        }
+fn push_sidecar_line(logs: &LogBuffer, source: Source, stream: &'static str, bytes: &[u8]) {
+    let line = String::from_utf8_lossy(bytes);
+    let line = line.trim_end_matches(['\r', '\n']);
+    if !line.is_empty() {
+        logs.push(source, stream, line);
     }
-    tracing::warn!(
-        "Tried paths: {:?}",
-        candidates
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-    );
-    None
 }
 
 #[cfg(test)]
@@ -554,22 +539,21 @@ mod tests {
     #[test]
     fn gateway_command_receives_internal_token_without_frontend_exposure() {
         const TOKEN: &str = "wf02-desktop-token-canary";
-        let mut command = Command::new("gateway");
-        configure_gateway_command(&mut command, 10000, 10001, TOKEN);
-
-        let env: HashMap<_, _> = command
-            .get_envs()
-            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+        let env: HashMap<_, _> = gateway_environment(10000, 10001, TOKEN)
+            .into_iter()
             .collect();
         assert_eq!(
-            env.get(std::ffi::OsStr::new(ENGINE_AUTH_TOKEN_ENV))
-                .map(|value| value.as_os_str()),
-            Some(std::ffi::OsStr::new(TOKEN))
+            env.get(ENGINE_AUTH_TOKEN_ENV).map(String::as_str),
+            Some(TOKEN)
+        );
+        assert_eq!(env.get("GIN_MODE").map(String::as_str), Some("release"));
+        assert_eq!(
+            env.get("ENGINE_URL").map(String::as_str),
+            Some("http://127.0.0.1:10000")
         );
         assert_eq!(
-            env.get(std::ffi::OsStr::new("GIN_MODE"))
-                .map(|value| value.as_os_str()),
-            Some(std::ffi::OsStr::new("release"))
+            env.get("LISTEN_ADDR").map(String::as_str),
+            Some("127.0.0.1:10001")
         );
 
         let ports = serde_json::to_string(&ServicePorts {
@@ -578,24 +562,5 @@ mod tests {
         .unwrap();
         assert!(!ports.contains(TOKEN));
         assert!(!ports.contains(ENGINE_AUTH_TOKEN_ENV));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_gateway_resolver_finds_target_sidecar() {
-        let root = std::env::temp_dir().join(format!(
-            "encorehub-sidecar-test-{}-{}",
-            std::process::id(),
-            generate_internal_auth_token()
-        ));
-        let binaries = root.join("binaries");
-        std::fs::create_dir_all(&binaries).unwrap();
-        let gateway = binaries.join("gateway-x86_64-pc-windows-msvc.exe");
-        std::fs::write(&gateway, b"sidecar-test").unwrap();
-
-        let found = find_binary(&root, "gateway");
-        std::fs::remove_dir_all(&root).unwrap();
-
-        assert_eq!(found, Some(gateway));
     }
 }
