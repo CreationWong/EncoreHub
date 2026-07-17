@@ -1,9 +1,25 @@
 package search
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+type panicReader struct{}
+
+func (panicReader) Read([]byte) (int, error) {
+	panic("provider body was read before status validation")
+}
 
 const sampleDDGHTML = `<!DOCTYPE html>
 <html>
@@ -81,6 +97,58 @@ func TestParseDDGHTML_MaxResults(t *testing.T) {
 	results := parseDDGHTML(sampleDDGHTML, 2)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results (maxResults=2), got %d", len(results))
+	}
+}
+
+func TestParseDDGHTML_InvalidMaxResultsDoesNotPanic(t *testing.T) {
+	if results := parseDDGHTML(sampleDDGHTML, -1); len(results) != 0 {
+		t.Fatalf("expected no results, got %d", len(results))
+	}
+}
+
+func TestProvidersRejectOversizedResponses(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Body:          io.NopCloser(strings.NewReader(strings.Repeat("x", MaxProviderResponseBytes+1))),
+			ContentLength: -1,
+			Header:        make(http.Header),
+		}, nil
+	})}
+	providers := []Provider{
+		&DuckDuckGo{client: client},
+		&Bing{client: client, apiKey: "key"},
+		&Google{client: client, apiKey: "key", cseCX: "cx"},
+	}
+	for _, provider := range providers {
+		t.Run(provider.Name(), func(t *testing.T) {
+			_, err := provider.Search(context.Background(), "go", 5)
+			if !errors.Is(err, ErrProviderResponseTooLarge) {
+				t.Fatalf("error = %v, want ErrProviderResponseTooLarge", err)
+			}
+		})
+	}
+}
+
+func TestProvidersCheckStatusBeforeReadingBody(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Body:       io.NopCloser(panicReader{}),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	providers := []Provider{
+		&DuckDuckGo{client: client},
+		&Bing{client: client, apiKey: "key"},
+		&Google{client: client, apiKey: "key", cseCX: "cx"},
+	}
+	for _, provider := range providers {
+		t.Run(provider.Name(), func(t *testing.T) {
+			if _, err := provider.Search(context.Background(), "go", 5); err == nil {
+				t.Fatal("expected upstream status error")
+			}
+		})
 	}
 }
 

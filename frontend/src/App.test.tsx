@@ -98,8 +98,24 @@ describe("App startup", () => {
 
 		await waitFor(() =>
 			expect(fetch).toHaveBeenCalledWith(
-				"http://127.0.0.1:10001/api/v1/health",
+				"http://127.0.0.1:10001/api/v1/health/ready",
 			),
 		);
+	});
+
+	it("does not load application data while Engine is not ready", async () => {
+		invoke.mockResolvedValue({ gateway_port: 10001 });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({ engine: { ok: false } }),
+			}),
+		);
+
+		render(<App />);
+		await waitFor(() => expect(fetch).toHaveBeenCalled());
+		expect(loadList).not.toHaveBeenCalled();
+		expect(loadProviders).not.toHaveBeenCalled();
 	});
 });

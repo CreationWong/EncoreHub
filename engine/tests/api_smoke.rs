@@ -13,6 +13,7 @@ use axum::{
 use encorehub_engine::api::build_router_with;
 use encorehub_skill::SkillRegistry;
 use encorehub_storage::Database;
+use rusqlite::Connection;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -67,7 +68,7 @@ async fn health_returns_json_with_db_ok() {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/health/ready")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -99,13 +100,37 @@ async fn liveness_is_public_but_readiness_requires_auth() {
     let readiness = app
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/health/ready")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(readiness.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn readiness_returns_503_when_database_probe_fails() {
+    let (_dir, app, db_path) = make_raw_app_with_path();
+    let connection = Connection::open(db_path).expect("open second connection");
+    connection
+        .execute_batch("DROP TABLE config;")
+        .expect("break readiness probe");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .header(header::AUTHORIZATION, format!("Bearer {TEST_AUTH_TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = body_json(response).await;
+    assert_eq!(body["status"], "not_ready");
+    assert_eq!(body["database"]["ok"], false);
 }
 
 #[tokio::test]

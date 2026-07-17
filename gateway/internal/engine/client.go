@@ -149,9 +149,31 @@ func (c *Client) SendMessage(ctx context.Context, convID, content string) (*Send
 	return &resp, nil
 }
 
-// Health checks if the engine is reachable.
+// Liveness checks only whether the Engine process is serving HTTP.
+func (c *Client) Liveness(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodGet, "/health/live", nil, nil)
+}
+
+// Readiness checks the Engine's authenticated database readiness contract.
+func (c *Client) Readiness(ctx context.Context) error {
+	var response struct {
+		Status   string `json:"status"`
+		Database struct {
+			OK bool `json:"ok"`
+		} `json:"database"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, "/health/ready", nil, &response); err != nil {
+		return err
+	}
+	if response.Status != "ok" || !response.Database.OK {
+		return fmt.Errorf("engine database is not ready")
+	}
+	return nil
+}
+
+// Health is the compatibility name for readiness used by older internal code.
 func (c *Client) Health(ctx context.Context) error {
-	return c.doJSON(ctx, "GET", "/health", nil, nil)
+	return c.Readiness(ctx)
 }
 
 // BaseURL returns the engine's base URL.

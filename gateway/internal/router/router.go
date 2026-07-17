@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/handler"
@@ -30,6 +30,9 @@ type Config struct {
 // Setup builds the Gin router with all middleware and routes.
 func Setup(cfg Config) *gin.Engine {
 	r := gin.New()
+	if err := r.SetTrustedProxies(trustedProxiesFromEnv()); err != nil {
+		panic("invalid ENCOREHUB_TRUSTED_PROXIES: " + err.Error())
+	}
 
 	// Middleware (order matters: request-id -> CORS -> rate limit -> metrics -> auth)
 	r.Use(requestIDMiddleware())
@@ -48,7 +51,9 @@ func Setup(cfg Config) *gin.Engine {
 	healthHandler := handler.NewHealthHandler(cfg.Engine)
 	logLevelHandler := handler.NewLogLevelHandler(cfg.Engine)
 
-	// Health is unauthenticated to support container probes.
+	// Health probes are unauthenticated to support container orchestration.
+	r.GET("/api/v1/health/live", healthHandler.Live)
+	r.GET("/api/v1/health/ready", healthHandler.Ready)
 	r.GET("/api/v1/health", healthHandler.Get)
 
 	// Prometheus exposition — public on purpose; same convention as kube /metrics.
@@ -189,30 +194,31 @@ func subtleEqual(a, b string) bool {
 func rateLimitMiddleware() gin.HandlerFunc {
 	rps := envFloat("ENCOREHUB_RATE_LIMIT_RPS", 30)
 	burst := envInt("ENCOREHUB_RATE_LIMIT_BURST", 60)
-
-	var (
-		mu       sync.Mutex
-		limiters = make(map[string]*rate.Limiter)
-	)
-
-	getLimiter := func(ip string) *rate.Limiter {
-		mu.Lock()
-		defer mu.Unlock()
-		l, ok := limiters[ip]
-		if !ok {
-			l = rate.NewLimiter(rate.Limit(rps), burst)
-			limiters[ip] = l
-		}
-		return l
-	}
+	ttl := time.Duration(envInt("ENCOREHUB_RATE_LIMIT_TTL_SECONDS", 600)) * time.Second
+	maxClients := envInt("ENCOREHUB_RATE_LIMIT_MAX_CLIENTS", 10_000)
+	store := newLimiterStore(rate.Limit(rps), burst, ttl, maxClients, time.Now)
 
 	return func(c *gin.Context) {
-		if !getLimiter(c.ClientIP()).Allow() {
+		if !store.allow(c.ClientIP()) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+func trustedProxiesFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("ENCOREHUB_TRUSTED_PROXIES"))
+	if raw == "" {
+		return nil
+	}
+	proxies := make([]string, 0, strings.Count(raw, ",")+1)
+	for _, value := range strings.Split(raw, ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			proxies = append(proxies, value)
+		}
+	}
+	return proxies
 }
 
 func envFloat(key string, def float64) float64 {

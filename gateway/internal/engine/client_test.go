@@ -23,6 +23,10 @@ func TestClientAddsInternalBearerToEveryRequestPath(t *testing.T) {
 		mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/health/ready" {
+			_, _ = io.WriteString(w, `{"status":"ok","database":{"ok":true}}`)
+			return
+		}
 		if r.URL.Path == "/api/secrets/openai" {
 			_, _ = io.WriteString(w, `{"key":"sk-test"}`)
 			return
@@ -32,7 +36,7 @@ func TestClientAddsInternalBearerToEveryRequestPath(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := NewClient(server.URL, "internal-engine-token")
-	if err := client.Health(context.Background()); err != nil {
+	if err := client.Readiness(context.Background()); err != nil {
 		t.Fatalf("health: %v", err)
 	}
 	key, ok, err := client.GetSecret(context.Background(), "openai")
@@ -63,11 +67,28 @@ func TestClientWithoutInternalTokenFailsClosedBeforeNetwork(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := NewClient(server.URL, "")
-	err := client.Health(context.Background())
+	err := client.Readiness(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("expected configuration error, got %v", err)
 	}
 	if hits != 0 {
 		t.Fatalf("request reached Engine without a token: hits=%d", hits)
+	}
+}
+
+func TestReadinessRejectsDatabaseFalseOnHTTP200(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/ready" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"not_ready","database":{"ok":false}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "internal-engine-token")
+	err := client.Readiness(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "database") {
+		t.Fatalf("expected database readiness error, got %v", err)
 	}
 }

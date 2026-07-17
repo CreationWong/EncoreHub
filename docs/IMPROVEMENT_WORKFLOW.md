@@ -112,7 +112,7 @@ flowchart LR
 | WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `In review`（本地验收完成） |
-| WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `Not started` |
+| WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker smoke） |
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `Not started` |
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `Not started` |
 | WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `Not started` |
@@ -186,7 +186,7 @@ cargo test logs::tests
 
 - 内部 token 只在 Tauri shell、gateway 和 engine 之间传递，绝不进入 React bundle、日志或 SQLite。
 - 推荐桌面启动时生成随机 token；standalone/Docker 从 secret/env 注入，不提供硬编码默认值。
-- `/health/live` 可公开；readiness 和所有业务路由默认强制认证。
+- `/health/live` 可公开；`/health/ready` 和所有业务路由默认强制认证。
 - Engine 不承担浏览器 API，默认移除 CORS；确有需求时使用严格 allowlist。
 
 **认证契约（2026-07-12）**
@@ -194,7 +194,7 @@ cargo test logs::tests
 - 配置名固定为 `ENCOREHUB_ENGINE_AUTH_TOKEN`，请求使用 `Authorization: Bearer <token>`。
 - Tauri 每次启动使用 OS CSPRNG 生成 256-bit token，只保存在 Rust 进程内存并注入 Gateway 子进程；不通过 Tauri command、React 配置、日志或 SQLite 暴露。
 - Standalone/Docker 由部署环境注入同一个至少 256-bit 随机值，不提供默认 token；缺失或空值时 Engine 与 Gateway 均在监听端口前退出。
-- `/health/live` 是唯一公开 Engine 路由；`/health` readiness 和所有 `/api/*` 路由默认强制认证。
+- `/health/live` 是唯一公开 Engine 路由；`/health/ready` readiness 和所有 `/api/*` 路由默认强制认证。
 - token 生命周期等于桌面进程或一次部署 secret 版本；轮换时 Engine 与 Gateway 必须作为一个部署单元同时重启。
 
 **建议 PR 切分**
@@ -398,13 +398,25 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] `max_results` 限制为明确区间，query 和 JSON body 设上限。
-- [ ] Provider response 使用 `io.LimitReader`，先检查 status 再解析。
-- [ ] Limiter store 增加 TTL、容量上限和清理测试。
-- [ ] 显式配置 trusted proxies；桌面/直连模式不信任转发头。
-- [ ] Engine 提供 `/health/live` 与 `/health/ready`。
-- [ ] Gateway readiness 解析 `database.ok`，依赖失败时返回 503。
-- [ ] Frontend 启动、Compose healthcheck 和监控使用正确 endpoint。
+- [x] `max_results` 限制为明确区间，query 和 JSON body 设上限。
+- [x] Provider response 使用 `io.LimitReader`，先检查 status 再解析。
+- [x] Limiter store 增加 TTL、容量上限和清理测试。
+- [x] 显式配置 trusted proxies；桌面/直连模式不信任转发头。
+- [x] Engine 提供 `/health/live` 与 `/health/ready`。
+- [x] Gateway readiness 解析 `database.ok`，依赖失败时返回 503。
+- [x] Frontend 启动、Compose healthcheck 和监控使用正确 endpoint。
+
+**执行记录（2026-07-17）**
+
+- Search HTTP body 上限为 8 KiB，query 上限为 500 Unicode code points，`max_results` 为 1-10（省略时默认 5）；校验失败不会调用 provider。
+- DuckDuckGo、Bing、Google 统一先检查 HTTP status，再用 `io.LimitReader` 将 response 限制为 2 MiB；provider 层也重复校验 query/results，覆盖 chat tool 等非 `/search` 调用方。
+- Per-client limiter store 增加 600 秒默认 TTL、10000 client 硬容量和 LRU 淘汰；惰性 GC 避免后台 goroutine，环境变量可调整 TTL/容量。
+- Gin trusted proxies 默认显式设为 `nil`，桌面/直连模式忽略 `X-Forwarded-For`；仅 `ENCOREHUB_TRUSTED_PROXIES` 指定的 IP/CIDR 可提供转发 client IP。
+- Engine 新增公开 `/health/live` 和受内部认证保护的 `/health/ready`；SQLite probe 失败时 ready 返回 503 与 `database.ok=false`，旧 `/health` 仅作内部兼容别名。
+- Gateway 新增公开 `/api/v1/health/live` 与 `/api/v1/health/ready`；live 不访问依赖，ready 解析 Engine status/database 并在依赖失败时返回 503。
+- Frontend 启动门禁、Tauri health commands、Gateway 启动探针、Compose healthcheck/dependency condition 和运维文档均迁移到明确的 readiness/liveness endpoint。
+- 已通过：Engine workspace 60 项测试、fmt、clippy；Gateway 全包测试与 vet；Frontend 137 项测试、lint、production build；Tauri 15 项测试、fmt、clippy；`git diff --check`。
+- 本机没有 Docker CLI，未运行 `docker compose config`/smoke；Compose healthcheck 仅完成静态审查，留待 WF-08 Docker gate 验证。Frontend build 的既有 >500 kB chunk warning仍归属 WF-11。
 
 ## 7. Milestone M3：可构建、可安装、可回滚
 

@@ -76,8 +76,9 @@ struct ServiceStatus {
 
 #[tauri::command]
 fn check_engine_health(state: State<ServiceState>) -> Result<String, String> {
-    let url = format!("http://127.0.0.1:{}/health/live", state.engine_port);
-    match ureq::get(&url).call() {
+    let url = format!("http://127.0.0.1:{}/health/ready", state.engine_port);
+    let authorization = format!("Bearer {}", state.internal_auth_token);
+    match ureq::get(&url).set("Authorization", &authorization).call() {
         Ok(r) => r.into_string().map_err(|e| format!("{e}")),
         Err(e) => Err(format!("Engine not ready: {e}")),
     }
@@ -85,7 +86,10 @@ fn check_engine_health(state: State<ServiceState>) -> Result<String, String> {
 
 #[tauri::command]
 fn check_gateway_health(state: State<ServiceState>) -> Result<String, String> {
-    let url = format!("http://127.0.0.1:{}/api/v1/health", state.gateway_port);
+    let url = format!(
+        "http://127.0.0.1:{}/api/v1/health/ready",
+        state.gateway_port
+    );
     match ureq::get(&url).call() {
         Ok(r) => r.into_string().map_err(|e| format!("{e}")),
         Err(e) => Err(format!("Gateway not ready: {e}")),

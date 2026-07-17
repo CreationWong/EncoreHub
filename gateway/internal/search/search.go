@@ -11,6 +11,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,9 +19,52 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
+
+const (
+	DefaultMaxResults        = 5
+	MaxResults               = 10
+	MaxQueryRunes            = 500
+	MaxProviderResponseBytes = 2 << 20
+)
+
+var ErrProviderResponseTooLarge = errors.New("search provider response exceeds size limit")
+
+// ValidateRequest bounds inputs for every caller, including chat tool calls
+// that do not pass through the standalone Search HTTP handler.
+func ValidateRequest(query string, maxResults int) error {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return fmt.Errorf("search query is required")
+	}
+	if utf8.RuneCountInString(query) > MaxQueryRunes {
+		return fmt.Errorf("search query exceeds %d characters", MaxQueryRunes)
+	}
+	if maxResults < 1 || maxResults > MaxResults {
+		return fmt.Errorf("max_results must be between 1 and %d", MaxResults)
+	}
+	return nil
+}
+
+func readProviderResponse(provider string, response *http.Response) ([]byte, error) {
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("%s returned status %d", provider, response.StatusCode)
+	}
+	if response.ContentLength > MaxProviderResponseBytes {
+		return nil, fmt.Errorf("%s: %w", provider, ErrProviderResponseTooLarge)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, MaxProviderResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("%s read: %w", provider, err)
+	}
+	if len(body) > MaxProviderResponseBytes {
+		return nil, fmt.Errorf("%s: %w", provider, ErrProviderResponseTooLarge)
+	}
+	return body, nil
+}
 
 // Result represents a single search result.
 type Result struct {
@@ -152,6 +196,10 @@ func collapseWS(s string) string {
 }
 
 func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
+	}
 	apiURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s",
 		url.QueryEscape(query))
 
@@ -167,9 +215,9 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readProviderResponse(d.Name(), resp)
 	if err != nil {
-		return nil, fmt.Errorf("duckduckgo read: %w", err)
+		return nil, err
 	}
 
 	results := parseDDGHTML(string(body), maxResults)
@@ -187,6 +235,12 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 // result__url (a). Each result block is a div.result__body containing all
 // three. We parse the token stream and track state with a small FSM.
 func parseDDGHTML(raw string, maxResults int) []Result {
+	if maxResults < 1 {
+		return nil
+	}
+	if maxResults > MaxResults {
+		maxResults = MaxResults
+	}
 	doc, err := html.Parse(strings.NewReader(raw))
 	if err != nil {
 		return nil
@@ -194,10 +248,10 @@ func parseDDGHTML(raw string, maxResults int) []Result {
 
 	type state int
 	const (
-		stIdle state = iota
-		stInBody    // inside a div.result__body
-		stInTitle   // inside h2.result__title
-		stInSnippet // inside a.result__snippet
+		stIdle      state = iota
+		stInBody          // inside a div.result__body
+		stInTitle         // inside h2.result__title
+		stInSnippet       // inside a.result__snippet
 	)
 
 	results := make([]Result, 0, maxResults)
@@ -326,14 +380,18 @@ type Bing struct {
 
 func NewBing(apiKey string) *Bing {
 	return &Bing{
-		client:  &http.Client{Timeout: 10 * time.Second},
-		apiKey:  apiKey,
+		client: &http.Client{Timeout: 10 * time.Second},
+		apiKey: apiKey,
 	}
 }
 
 func (b *Bing) Name() string { return "bing" }
 
 func (b *Bing) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
+	}
 	apiURL := fmt.Sprintf("https://api.bing.microsoft.com/v7.0/search?q=%s&count=%d&mkt=en-US",
 		url.QueryEscape(query), maxResults)
 
@@ -350,26 +408,30 @@ func (b *Bing) Search(ctx context.Context, query string, maxResults int) (*Searc
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bing API returned status %d", resp.StatusCode)
+	body, err := readProviderResponse(b.Name(), resp)
+	if err != nil {
+		return nil, err
 	}
 
 	var data struct {
 		WebPages struct {
 			Value []struct {
-				Name  string `json:"name"`
-				URL   string `json:"url"`
+				Name    string `json:"name"`
+				URL     string `json:"url"`
 				Snippet string `json:"snippet"`
 			} `json:"value"`
 		} `json:"webPages"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, fmt.Errorf("bing decode: %w", err)
 	}
 
 	results := make([]Result, 0, maxResults)
 	for _, wp := range data.WebPages.Value {
+		if len(results) >= maxResults {
+			break
+		}
 		results = append(results, Result{
 			Title:   wp.Name,
 			URL:     wp.URL,
@@ -398,6 +460,10 @@ type Google struct {
 func (g *Google) Name() string { return "google" }
 
 func (g *Google) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
+	}
 	apiURL := fmt.Sprintf(
 		"https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&num=%d",
 		url.QueryEscape(g.apiKey),
@@ -418,8 +484,9 @@ func (g *Google) Search(ctx context.Context, query string, maxResults int) (*Sea
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("google API returned status %d", resp.StatusCode)
+	body, err := readProviderResponse(g.Name(), resp)
+	if err != nil {
+		return nil, err
 	}
 
 	var data struct {
@@ -430,12 +497,15 @@ func (g *Google) Search(ctx context.Context, query string, maxResults int) (*Sea
 		} `json:"items"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, fmt.Errorf("google decode: %w", err)
 	}
 
 	results := make([]Result, 0, maxResults)
 	for _, item := range data.Items {
+		if len(results) >= maxResults {
+			break
+		}
 		results = append(results, Result{
 			Title:   item.Title,
 			URL:     item.Link,

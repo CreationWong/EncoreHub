@@ -31,29 +31,50 @@ type healthResponse struct {
 	Engine  engineStatus `json:"engine"`
 }
 
+type livenessResponse struct {
+	Status  string `json:"status"`
+	Service string `json:"service"`
+}
+
 const engineProbeTimeout = 1500 * time.Millisecond
 
-// Get returns 200 with detailed status. The endpoint stays 200 even if the
-// engine probe fails — container orchestrators usually want gateway liveness
-// (the process is up) separately from engine readiness (downstream is healthy).
-// Inspect `engine.ok` to react to the dependency state.
-func (h *HealthHandler) Get(c *gin.Context) {
+// Live reports only Gateway process liveness and never probes dependencies.
+func (h *HealthHandler) Live(c *gin.Context) {
+	c.JSON(http.StatusOK, livenessResponse{
+		Status:  "ok",
+		Service: "encorehub-gateway",
+	})
+}
+
+// Ready reports Gateway readiness and requires Engine database readiness.
+func (h *HealthHandler) Ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), engineProbeTimeout)
 	defer cancel()
 
 	es := engineStatus{URL: h.engine.BaseURL()}
 	start := time.Now()
-	if err := h.engine.Health(ctx); err != nil {
+	if err := h.engine.Readiness(ctx); err != nil {
 		es.OK = false
-		es.Error = err.Error()
+		es.Error = "engine readiness check failed"
 	} else {
 		es.OK = true
 	}
 	es.LatencyMs = time.Since(start).Milliseconds()
 
-	c.JSON(http.StatusOK, healthResponse{
-		Status:  "ok",
+	status := http.StatusOK
+	statusText := "ok"
+	if !es.OK {
+		status = http.StatusServiceUnavailable
+		statusText = "not_ready"
+	}
+	c.JSON(status, healthResponse{
+		Status:  statusText,
 		Service: "encorehub-gateway",
 		Engine:  es,
 	})
+}
+
+// Get preserves the former handler method as a readiness alias.
+func (h *HealthHandler) Get(c *gin.Context) {
+	h.Ready(c)
 }

@@ -101,14 +101,14 @@ graph TB
             W1["① Request-ID<br/>generate or pass through"]
             W2["② Logger + Recovery<br/>gin.Logger / gin.Recovery"]
             W3["③ CORS<br/>tauri://localhost + custom"]
-            W4["④ Rate Limit<br/>per-IP token bucket<br/>30 rps / burst 60"]
+            W4["④ Rate Limit<br/>bounded TTL per-IP store<br/>30 rps / burst 60"]
             W5["⑤ Metrics<br/>Prometheus counters + histogram"]
             W6["⑥ Auth<br/>Bearer token (optional)<br/>constant-time compare"]
         end
 
         subgraph HANDLERS["Handlers"]
             direction LR
-            H1["health.go<br/>GET /health → 200"]
+            H1["health.go<br/>/health/live → 200<br/>/health/ready → 200/503"]
             H2["chat.go<br/>POST /conversations/:id/chat<br/>→ SSE stream"]
             H3["conversation.go<br/>CRUD proxy → engine"]
             H4["engine_proxy.go<br/>/*skills,memories,knowledge*/"]
@@ -144,7 +144,7 @@ graph TB
         subgraph API["API Routes (src/api/)"]
             direction LR
             R0["GET /health/live → public liveness"]
-            R1["GET /health → authenticated DB readiness"]
+            R1["GET /health/ready → authenticated DB readiness"]
             R2["POST/GET /api/conversations"]
             R3["GET/PATCH/DELETE /api/conversations/:id"]
             R4["POST /api/conversations/:id/messages"]
@@ -229,7 +229,7 @@ graph TB
     subgraph CROSSCUT["🔧 Cross-Cutting Concerns"]
         direction LR
         X1["X-Request-ID<br/>generated at gateway<br/>propagated to engine"]
-        X2["Health Check<br/>Gateway /health always 200<br/>Engine /health/live public<br/>Engine /health authenticated"]
+        X2["Health Check<br/>Gateway live + ready<br/>Engine /health/live public<br/>Engine /health/ready authenticated"]
         X3["Prometheus /metrics<br/>public, no auth"]
         X4["Biome (frontend lint)"]
         X5["golangci-lint (gateway)"]

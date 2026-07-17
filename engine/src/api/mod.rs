@@ -168,8 +168,10 @@ pub fn build_router_with(
             "/api/secrets/:provider_id",
             get(secrets::get_key).delete(secrets::delete_key),
         )
-        // Readiness includes database state and is internal-only.
-        .route("/health", get(health_check))
+        // Readiness includes database state and is internal-only. `/health`
+        // remains a compatibility alias for older trusted callers.
+        .route("/health/ready", get(readiness_check))
+        .route("/health", get(readiness_check))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_internal_auth,
@@ -237,29 +239,38 @@ async fn liveness_check() -> Json<LivenessResponse> {
     })
 }
 
-async fn health_check(State(state): State<SharedState>) -> Json<HealthResponse> {
+async fn readiness_check(State(state): State<SharedState>) -> (StatusCode, Json<HealthResponse>) {
     // Cheap round-trip: read a config row that always exists post-migration.
     // Failure here means SQLite is unreachable / locked — the rest of the
-    // service is effectively dead but we still report 200 so the gateway can
-    // distinguish "engine process up but database broken" from "engine down".
     let start = Instant::now();
-    let db = match state.db.get_config("engine.version") {
-        Ok(_) => DatabaseStatus {
-            ok: true,
-            latency_ms: start.elapsed().as_millis(),
-            error: None,
-        },
-        Err(e) => DatabaseStatus {
-            ok: false,
-            latency_ms: start.elapsed().as_millis(),
-            error: Some(e.to_string()),
-        },
+    let (http_status, status, db) = match state.db.get_config("engine.version") {
+        Ok(_) => (
+            StatusCode::OK,
+            "ok",
+            DatabaseStatus {
+                ok: true,
+                latency_ms: start.elapsed().as_millis(),
+                error: None,
+            },
+        ),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "not_ready",
+            DatabaseStatus {
+                ok: false,
+                latency_ms: start.elapsed().as_millis(),
+                error: Some(e.to_string()),
+            },
+        ),
     };
 
-    Json(HealthResponse {
-        status: "ok",
-        service: "encorehub-engine",
-        version: env!("CARGO_PKG_VERSION"),
-        database: db,
-    })
+    (
+        http_status,
+        Json(HealthResponse {
+            status,
+            service: "encorehub-engine",
+            version: env!("CARGO_PKG_VERSION"),
+            database: db,
+        }),
+    )
 }

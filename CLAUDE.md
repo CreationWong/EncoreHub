@@ -134,7 +134,7 @@ cd engine   && cargo test test_name
 - **Tauri / client mode**: When `ENGINE_BIND` and `LISTEN_ADDR` are unset, the desktop app calls `find_free_port(10000)` from `engine/src/lib.rs` to find two free ports on `127.0.0.1` (engine first, gateway next). The gateway sidecar receives `ENGINE_URL` and `LISTEN_ADDR` as env vars. The frontend calls `invoke("get_service_ports")` at startup to resolve the actual ports.
 - **Headless / dev mode**: Ports always come from env vars (`ENGINE_BIND`, `LISTEN_ADDR`, `ENGINE_URL`) or their defaults (`127.0.0.1:3000`, `:8080`).
 - The Tauri `ServiceState` struct stores `engine_port` and `gateway_port`; `check_engine_health` and `check_gateway_health` use them instead of hardcoded ports.
-- Frontend `config.ts` exports `applyServicePorts(gwPort, engPort)` and getter functions (`apiBase()`, `gatewayUrl()`, `engineUrl()`, `healthGatewayUrl()`) — no hardcoded URLs downstream.
+- Frontend `config.ts` exports `applyServicePorts(gwPort)` and Gateway URL getters (`apiBase()`, `gatewayUrl()`, `gatewayLivenessUrl()`, `gatewayReadinessUrl()`) — React never connects directly to Engine.
 
 ## Tauri Desktop Packaging
 
@@ -249,6 +249,8 @@ Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative 
 - `ENCOREHUB_AUTH_TOKEN` — sets bearer auth on gateway (unset = no auth, fine for localhost)
 - `ENCOREHUB_CORS_ORIGINS` — comma-separated extra CORS origins
 - `ENCOREHUB_RATE_LIMIT_RPS` (30) / `ENCOREHUB_RATE_LIMIT_BURST` (60)
+- `ENCOREHUB_RATE_LIMIT_TTL_SECONDS` (600) / `ENCOREHUB_RATE_LIMIT_MAX_CLIENTS` (10000)
+- `ENCOREHUB_TRUSTED_PROXIES` — comma-separated proxy IPs/CIDRs; empty disables forwarded client IP trust
 - `ENCOREHUB_DEV_MOCK` — set to `1`/`true` to enable mock replies without an API key (dev only)
 
 **Frontend** (`.env.local` from `frontend/.env.example`):
@@ -265,7 +267,8 @@ GitHub Actions (`.github/workflows/ci.yml`): 4 parallel jobs — frontend (pnpm 
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/v1/health` | Gateway + engine liveness (always 200; check `engine.ok` for readiness) |
+| `GET /api/v1/health/live` | Gateway process liveness (always 200 while serving) |
+| `GET /api/v1/health/ready` | Gateway + Engine database readiness (200 or 503) |
 | `GET /metrics` | Prometheus metrics (public, no auth) |
 | `GET/POST /api/v1/log-level` | Runtime log level (read/set; persists to engine config) |
 | `POST /api/v1/conversations/:id/chat` | Send message, returns SSE stream when `stream: true` |

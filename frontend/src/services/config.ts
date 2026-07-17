@@ -28,6 +28,10 @@ export const AUTH_TOKEN: string = import.meta.env.VITE_AUTH_TOKEN ?? "";
 
 // ---- health endpoints ----
 
-export function healthGatewayUrl(): string {
-	return `${apiBase()}/health`;
+export function gatewayLivenessUrl(): string {
+	return `${apiBase()}/health/live`;
+}
+
+export function gatewayReadinessUrl(): string {
+	return `${apiBase()}/health/ready`;
 }

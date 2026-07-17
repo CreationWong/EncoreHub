@@ -42,11 +42,23 @@ func do(t *testing.T, r *gin.Engine, method, path string, headers map[string]str
 	return rec
 }
 
+func doFrom(t *testing.T, r *gin.Engine, path, remoteAddr, forwardedFor string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = remoteAddr
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
 func TestHealthIsUnauthenticated(t *testing.T) {
 	t.Setenv("ENCOREHUB_AUTH_TOKEN", "secret-xyz")
 	r := newRouter()
 
-	rec := do(t, r, http.MethodGet, "/api/v1/health", nil)
+	rec := do(t, r, http.MethodGet, "/api/v1/health/live", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("health status = %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -54,10 +66,10 @@ func TestHealthIsUnauthenticated(t *testing.T) {
 
 func TestHealthReportsEngineUnreachable(t *testing.T) {
 	// newRouter() points the engine client at 127.0.0.1:0, which always
-	// refuses TCP — health should still be 200 but flag engine.ok=false.
+	// refuses TCP — readiness must return 503 and flag engine.ok=false.
 	r := newRouter()
-	rec := do(t, r, http.MethodGet, "/api/v1/health", nil)
-	if rec.Code != http.StatusOK {
+	rec := do(t, r, http.MethodGet, "/api/v1/health/ready", nil)
+	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("health status = %d", rec.Code)
 	}
 	body := rec.Body.String()
@@ -165,7 +177,7 @@ func TestGatewayAuthSettingDoesNotChangeInternalEngineCredential(t *testing.T) {
 
 func TestCorsAllowedOriginEchoes(t *testing.T) {
 	r := newRouter()
-	rec := do(t, r, http.MethodGet, "/api/v1/health", map[string]string{
+	rec := do(t, r, http.MethodGet, "/api/v1/health/live", map[string]string{
 		"Origin": "http://localhost:1420",
 	})
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:1420" {
@@ -175,7 +187,7 @@ func TestCorsAllowedOriginEchoes(t *testing.T) {
 
 func TestCorsUnknownOriginNotEchoed(t *testing.T) {
 	r := newRouter()
-	rec := do(t, r, http.MethodGet, "/api/v1/health", map[string]string{
+	rec := do(t, r, http.MethodGet, "/api/v1/health/live", map[string]string{
 		"Origin": "https://evil.example.com",
 	})
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
@@ -188,7 +200,7 @@ func TestMetricsEndpointPublic(t *testing.T) {
 	r := newRouter()
 
 	// Trigger one health request so a counter sample exists.
-	_ = do(t, r, http.MethodGet, "/api/v1/health", nil)
+	_ = do(t, r, http.MethodGet, "/api/v1/health/live", nil)
 
 	rec := do(t, r, http.MethodGet, "/metrics", nil)
 	if rec.Code != http.StatusOK {
@@ -208,7 +220,7 @@ func TestMetricsEndpointPublic(t *testing.T) {
 
 func TestRequestIDGeneratedWhenAbsent(t *testing.T) {
 	r := newRouter()
-	rec := do(t, r, http.MethodGet, "/api/v1/health", nil)
+	rec := do(t, r, http.MethodGet, "/api/v1/health/live", nil)
 	got := rec.Header().Get("X-Request-ID")
 	if len(got) != 32 { // 16 random bytes hex-encoded
 		t.Fatalf("expected 32-char hex id, got %q (len=%d)", got, len(got))
@@ -217,10 +229,39 @@ func TestRequestIDGeneratedWhenAbsent(t *testing.T) {
 
 func TestRequestIDEchoedWhenSupplied(t *testing.T) {
 	r := newRouter()
-	rec := do(t, r, http.MethodGet, "/api/v1/health", map[string]string{
+	rec := do(t, r, http.MethodGet, "/api/v1/health/live", map[string]string{
 		"X-Request-ID": "my-trace-42",
 	})
 	if got := rec.Header().Get("X-Request-ID"); got != "my-trace-42" {
 		t.Fatalf("inbound id should be echoed; got %q", got)
+	}
+}
+
+func TestDirectModeIgnoresForwardedClientIP(t *testing.T) {
+	t.Setenv("ENCOREHUB_TRUSTED_PROXIES", "")
+	t.Setenv("ENCOREHUB_RATE_LIMIT_RPS", "0.01")
+	t.Setenv("ENCOREHUB_RATE_LIMIT_BURST", "1")
+	r := newRouter()
+
+	first := doFrom(t, r, "/metrics", "198.51.100.10:1234", "203.0.113.1")
+	second := doFrom(t, r, "/metrics", "198.51.100.10:1234", "203.0.113.2")
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status = %d", first.Code)
+	}
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("forged forwarded IP bypassed limiter: status = %d", second.Code)
+	}
+}
+
+func TestExplicitTrustedProxyUsesForwardedClientIP(t *testing.T) {
+	t.Setenv("ENCOREHUB_TRUSTED_PROXIES", "198.51.100.0/24")
+	t.Setenv("ENCOREHUB_RATE_LIMIT_RPS", "0.01")
+	t.Setenv("ENCOREHUB_RATE_LIMIT_BURST", "1")
+	r := newRouter()
+
+	first := doFrom(t, r, "/metrics", "198.51.100.10:1234", "203.0.113.1")
+	second := doFrom(t, r, "/metrics", "198.51.100.10:1234", "203.0.113.2")
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("trusted proxy client separation failed: first=%d second=%d", first.Code, second.Code)
 	}
 }

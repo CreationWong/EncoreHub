@@ -67,7 +67,7 @@ func main() {
 	engineReady := false
 	for attempt := 0; attempt < 10; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		err := engineClient.Health(ctx)
+		err := engineClient.Readiness(ctx)
 		cancel()
 		if err == nil {
 			engineReady = true

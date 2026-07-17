@@ -63,6 +63,9 @@ cd frontend && pnpm install && pnpm dev
 | `ENCOREHUB_CORS_ORIGINS` | _空_ | 追加 CORS 来源（逗号分隔） |
 | `ENCOREHUB_RATE_LIMIT_RPS` | `30` | 每 IP 限速 |
 | `ENCOREHUB_RATE_LIMIT_BURST` | `60` | 每 IP 突发上限 |
+| `ENCOREHUB_RATE_LIMIT_TTL_SECONDS` | `600` | 空闲 client limiter 回收时间 |
+| `ENCOREHUB_RATE_LIMIT_MAX_CLIENTS` | `10000` | limiter store 硬容量；满时淘汰最久未使用项 |
+| `ENCOREHUB_TRUSTED_PROXIES` | _空_ | 可提供转发 IP 的代理 IP/CIDR（逗号分隔）；桌面/直连模式保持为空 |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
 
 前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`。React 不配置或直连 Engine。
@@ -84,9 +87,12 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 | Endpoint | 用途 |
 |----------|------|
-| `GET /api/v1/health` | gateway + engine 反向探活；返回 `{status, service, engine: {url, ok, latency_ms}}`。**永远 200**——即使 engine 不可达也是 200，靠 `engine.ok` 区分 readiness |
+| `GET /api/v1/health/live` | Gateway 进程 liveness；不探测依赖，进程可响应即返回 200 |
+| `GET /api/v1/health/ready` | Gateway + Engine database readiness；返回 `{status, service, engine: {url, ok, latency_ms}}`，依赖失败返回 503 |
 | `GET/POST /api/v1/log-level` | 读取/设置运行时日志等级（`error\|warn\|info\|debug`）。POST 立即应用到 gateway(zerolog)与 engine(tracing reload)，并持久化到引擎 config，重启保留 |
 | `GET /metrics` | Prometheus 指标（公开，无 auth）。包含 `encorehub_gateway_requests_total{method,route,status}`、`encorehub_gateway_request_duration_seconds` 直方图、`encorehub_gateway_in_flight_requests` |
+
+监控与进程重启探针使用 `/health/live`；启动门禁、流量接入和 Compose dependency 使用 `/health/ready`。Search API 的 JSON body 上限为 8 KiB，query 最多 500 个 Unicode code point，`max_results` 为 1-10；任一远端搜索响应最多读取 2 MiB。
 
 每个请求 gateway 会注入 `X-Request-ID`（如客户端已带则透传），并 reflect 到响应头；引擎下游调用同样透传，方便跨服务串联日志。
 
@@ -172,7 +178,8 @@ CI 配置见 `.github/workflows/ci.yml`，4 个语言并行 job。
 ## 安全说明
 
 - Gateway 默认 CORS 只放 Tauri webview（`tauri://localhost`、`http(s)://tauri.localhost`）与 `localhost:1420`；扩展请用 `ENCOREHUB_CORS_ORIGINS`。
-- Engine 不提供浏览器 CORS；仅 `/health/live` 公开，readiness 和全部业务路由强制校验 `ENCOREHUB_ENGINE_AUTH_TOKEN`。Compose 不向宿主机发布 Engine 端口。
+- Engine 不提供浏览器 CORS；仅 `/health/live` 公开，`/health/ready` 和全部业务路由强制校验 `ENCOREHUB_ENGINE_AUTH_TOKEN`。Compose 不向宿主机发布 Engine 端口。
+- Gateway 默认不信任 `X-Forwarded-For`；仅部署在明确代理后方时配置 `ENCOREHUB_TRUSTED_PROXIES`。
 - `ENCOREHUB_AUTH_TOKEN` 不设时 gateway 不强制 auth（适合本机 sidecar），任何网络暴露的部署 **必须** 设。
 - **API key 存储**：默认仅会话内存，不入 localStorage。在 Security 标签开启加密后，key 以 AES-256-GCM 加密落引擎库（Argon2id 派生主密钥、随机 salt、verifier 校验口令），主密钥仅驻内存、关闭即清。此方案保护**静态磁盘泄露**，不防运行中已解锁会话或渲染层 XSS。忘记主密码不可恢复（只能清空重填）。
 - 密钥/口令全程作为不透明字符串处理，不进日志/落盘（日志写盘前统一脱敏）。
