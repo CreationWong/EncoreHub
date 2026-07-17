@@ -111,7 +111,7 @@ flowchart LR
 | WF-03 | P1 | P1-7 | 各模块维护者 | WF-00 | 1 天 | `In review`（四个本地 CI gate 绿色） |
 | WF-04 | P1 | P1-8 | CI + Rust/Desktop | WF-03 | 0.5-1 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `In review`（本地验收完成，待远端 CI） |
-| WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `Not started` |
+| WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `In review`（本地验收完成） |
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `Not started` |
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `Not started` |
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `Not started` |
@@ -296,6 +296,7 @@ host:3000 under docker compose           -> connection refused
 - Engine CI 现在分别执行 workspace clippy、standalone target clippy、workspace test 和 standalone target test；release build 显式构建两个 standalone binaries。
 - Frontend Linux job安装 Tauri 系统依赖并构建真实的 `gateway-x86_64-unknown-linux-gnu` sidecar，然后执行 Tauri check、test inventory 和 test。
 - 新增 `desktop-windows` job，构建真实的 `gateway-x86_64-pc-windows-msvc.exe`，编译 Windows `CREATE_NO_WINDOW` 进程路径，并执行 Windows 专属 target-sidecar 解析测试。
+- 2026-07-16 远端首次运行暴露 clean checkout 中缺少 `frontend/dist`，导致 `tauri::generate_context!()` panic。Frontend job 现在上传已通过 build 的 `frontend-dist` artifact，Windows job声明 `needs: frontend`、下载该 artifact，并在 Cargo 前显式校验 `dist/index.html`。
 - WF-04 建立 gate 时的清单显式输出 conversation 16、engine unit 7、engine API 19、skill 1、storage 7 和 Tauri 14 个跨平台测试；Windows 额外执行 1 个 sidecar 解析测试。当时 Engine workspace 基线为 50 个，后续工作项新增测试会由同一 workspace gate 自动纳入。
 - 本地五-job 等价 gate 已全部通过：Frontend lint/131 tests/build、Gateway tidy/vet/test/build、Engine workspace/standalone fmt/clippy/test/release binaries、Data Services ruff/mypy/pytest，以及 Tauri check/15 个 Windows tests。远端 GitHub Actions 尚未触发，状态保持 `In review`。
 
@@ -355,14 +356,26 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] Provider/key/参数校验先于 turn 创建。
-- [ ] Engine 写入失败时停止 provider 调用或进入明确的 failed 状态。
-- [ ] Assistant 与 tool calls 持久化被 await；成功前不发送 SSE `done`。
-- [ ] 所有 engine 调用继承 request context 和 timeout。
-- [ ] 前端用 server message ID 替换 optimistic ID。
-- [ ] Error、Stop、disconnect 后刷新，UI 与数据库保持一致。
-- [ ] Tool round content 和 usage 按定义累计，gateway 与 frontend 使用同一最终值。
-- [ ] SSE error payload 使用 JSON 编码，远端错误不能注入额外 SSE frame。
+- [x] Provider/key/参数校验先于 turn 创建。
+- [x] Engine 写入失败时停止 provider 调用或进入明确的 failed 状态。
+- [x] Assistant 与 tool calls 持久化被 await；成功前不发送 SSE `done`。
+- [x] 所有 engine 调用继承 request context 和 timeout。
+- [x] 前端用 server message ID 替换 optimistic ID。
+- [x] Error、Stop、disconnect 后刷新，UI 与数据库保持一致。
+- [x] Tool round content 和 usage 按定义累计，gateway 与 frontend 使用同一最终值。
+- [x] SSE error payload 使用 JSON 编码，远端错误不能注入额外 SSE frame。
+
+**执行记录（2026-07-16）**
+
+- ADR-0003 固定 user message 作为 turn ID、`pending -> completed | failed | stopped` 状态机、partial assistant 持久化和 SSE 权威边界。
+- Engine migration v008 为 message 增加受约束的 status；新增 begin/finalize turn API，并在单个 SQLite transaction 中提交 assistant、tool calls、user 终态和 conversation 时间戳。
+- Gateway 在 turn 写入前完成会话、provider、key 和参数校验；Begin 失败不调用 provider，Finalize 失败不发送 `done`，取消清理使用继承 request values 的短超时 context。
+- SSE 新增 `turn_started`；`done` 返回 Engine 回读的 user/assistant 和累计 usage；`error` 返回稳定 code、安全 message 及可用的权威消息，provider 原文不能构造额外 frame。
+- 多轮 tool content/reasoning/usage 改为累加，tool execution 结果在 finalize transaction 中一并持久化，合成 tool ID 包含 round 避免冲突。
+- Frontend 立即用 `turn_started` 的 server ID 替换 optimistic user；最终 assistant、status、token 和 tool calls 只接受 `done`/Engine 数据；Error、Stop 和不完整 stream 会重新读取 conversation 直到 turn 终止。
+- UI 显示 pending、failed、stopped 状态，刷新后的 partial response 不再伪装为正常完成消息。
+- 已通过：Engine workspace 59 项测试、fmt、clippy；Gateway 全包测试与 vet；Frontend 136 项测试、lint、production build；Tauri 15 项测试与 clippy；`git diff --check`。
+- Frontend build 仍有既有的 >500 kB chunk warning，归属 WF-11，不影响本项正确性验收。
 
 **场景矩阵**
 

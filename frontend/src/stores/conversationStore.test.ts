@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { StreamCallbacks } from "../services/chat";
+import type {
+	StreamCallbacks,
+	StreamDonePayload,
+	StreamErrorPayload,
+} from "../services/chat";
+import type { Message } from "../services/conversation";
 
 // chatApi is mocked per test so the store doesn't hit the network.
 const sendMessageStream = vi.fn();
@@ -102,6 +107,41 @@ function seedConversation(
 	});
 }
 
+function serverMessage(overrides: Partial<Message>): Message {
+	return {
+		id: "server-user",
+		role: "user",
+		content: "hi",
+		parent_id: null,
+		tool_calls: [],
+		status: "completed",
+		created_at: "2026-07-16T00:00:00Z",
+		...overrides,
+	};
+}
+
+function donePayload(
+	content: string,
+	assistantOverrides: Partial<Message> = {},
+): StreamDonePayload {
+	return {
+		user_message: serverMessage({}),
+		assistant_message: serverMessage({
+			id: "server-assistant",
+			role: "assistant",
+			content,
+			parent_id: "server-user",
+			token_count: 7,
+			...assistantOverrides,
+		}),
+		usage: { input_tokens: 3, output_tokens: 4 },
+	};
+}
+
+function streamError(message: string): StreamErrorPayload {
+	return { code: "provider_error", message };
+}
+
 // ---- tests ----
 
 describe("pushSystemMessage", () => {
@@ -181,7 +221,7 @@ describe("sendMessage", () => {
 				_key: string | undefined,
 				cb: StreamCallbacks,
 			) => {
-				cb.onError(`provider failed: ${canary}`);
+				cb.onError(streamError(`provider failed: ${canary}`));
 			},
 		);
 		useConversationStore.setState({ activeId: "c1" });
@@ -204,7 +244,7 @@ describe("sendMessage", () => {
 				_key: string | undefined,
 				cb: StreamCallbacks,
 			) => {
-				cb.onError("boom");
+				cb.onError(streamError("boom"));
 			},
 		);
 
@@ -217,6 +257,7 @@ describe("sendMessage", () => {
 		expect(s.streaming).toBe(false);
 		expect(s.error).toBe("boom");
 		expect(s.messages.find((m) => m.role === "user")).toBeUndefined();
+		expect(getConversationApi).toHaveBeenCalledWith("c1");
 	});
 
 	it("finalizes with assistant message on onDone", async () => {
@@ -229,7 +270,7 @@ describe("sendMessage", () => {
 			) => {
 				cb.onDelta("partial ");
 				cb.onDelta("rest");
-				cb.onDone("partial rest");
+				cb.onDone(donePayload("partial rest"));
 			},
 		);
 
@@ -242,6 +283,35 @@ describe("sendMessage", () => {
 		const roles = s.messages.map((m) => m.role);
 		expect(roles).toEqual(["user", "assistant"]);
 		expect(s.messages[1].content).toBe("partial rest");
+		expect(s.messages.map((message) => message.id)).toEqual([
+			"server-user",
+			"server-assistant",
+		]);
+		expect(s.messages[1].token_count).toBe(7);
+	});
+
+	it("replaces the optimistic user as soon as turn_started arrives", async () => {
+		let pendingID = "";
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onTurnStarted?.(serverMessage({ status: "pending" }));
+				pendingID = useConversationStore.getState().messages[0]?.id ?? "";
+				cb.onDone(donePayload("done"));
+			},
+		);
+
+		useConversationStore.setState({ activeId: "c1" });
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(pendingID).toBe("server-user");
+		expect(useConversationStore.getState().messages[0].status).toBe(
+			"completed",
+		);
 	});
 
 	it("accumulates reasoning and indexed tool-call fragments into the final message", async () => {
@@ -258,7 +328,20 @@ describe("sendMessage", () => {
 				cb.onToolCall?.({ index: 0, arguments: '{"q":' });
 				cb.onToolCall?.({ index: 0, arguments: '"cats"}' });
 				cb.onToolResult?.({ id: "t0", result: "found", status: "success" });
-				cb.onDone("here you go");
+				cb.onDone(
+					donePayload("here you go", {
+						reasoning: "step 1 step 2",
+						tool_calls: [
+							{
+								id: "t0",
+								name: "search",
+								arguments: '{"q":"cats"}',
+								result: "found",
+								status: "success",
+							},
+						],
+					}),
+				);
 			},
 		);
 
@@ -287,7 +370,7 @@ describe("sendMessage", () => {
 				cb: StreamCallbacks,
 			) => {
 				cb.onTitleUpdate?.({ conversation_id: "c1", title: "Stream Title" });
-				cb.onDone("done");
+				cb.onDone(donePayload("done"));
 			},
 		);
 
@@ -337,7 +420,7 @@ describe("sendMessage", () => {
 				_key: string | undefined,
 				cb: StreamCallbacks,
 			) => {
-				cb.onDone("done");
+				cb.onDone(donePayload("done"));
 			},
 		);
 
@@ -368,7 +451,7 @@ describe("sendMessage", () => {
 				_key: string | undefined,
 				cb: StreamCallbacks,
 			) => {
-				cb.onDone("done");
+				cb.onDone(donePayload("done"));
 			},
 		);
 
@@ -400,7 +483,7 @@ describe("sendMessage", () => {
 				cb: StreamCallbacks,
 			) => {
 				cb.onTitleError?.("Failed to generate title");
-				cb.onDone("done");
+				cb.onDone(donePayload("done"));
 			},
 		);
 
@@ -459,6 +542,7 @@ describe("stopStreaming", () => {
 				cb: StreamCallbacks,
 				signal: AbortSignal,
 			) => {
+				cb.onTurnStarted?.(serverMessage({ status: "pending" }));
 				cb.onDelta("hello");
 				// Don't call onDone — caller will abort.
 				await new Promise<void>((resolve, reject) => {
@@ -474,6 +558,20 @@ describe("stopStreaming", () => {
 				});
 			},
 		);
+		getConversationApi.mockResolvedValue({
+			id: "c1",
+			title: "Conversation c1",
+			messages: [
+				serverMessage({ status: "stopped" }),
+				serverMessage({
+					id: "server-assistant",
+					role: "assistant",
+					content: "hello",
+					parent_id: "server-user",
+					status: "stopped",
+				}),
+			],
+		});
 
 		useConversationStore.setState({ activeId: "c1" });
 		const send = useConversationStore.getState().sendMessage("hi");
@@ -487,8 +585,9 @@ describe("stopStreaming", () => {
 		expect(s.streaming).toBe(false);
 		const last = s.messages.at(-1);
 		expect(last?.role).toBe("assistant");
-		expect(last?.content).toContain("hello");
-		expect(last?.content).toContain("(stopped)");
+		expect(last?.id).toBe("server-assistant");
+		expect(last?.content).toBe("hello");
+		expect(last?.status).toBe("stopped");
 	});
 });
 
@@ -497,7 +596,7 @@ describe("stopStreaming", () => {
 /** A stream mock that never finishes on its own; aborts via the signal. */
 function hangingStream(impl: {
 	onDelta?: (d: string) => void;
-	onDone?: (c: string) => void;
+	onDone?: (result: StreamDonePayload) => void;
 	setup?: (cb: StreamCallbacks) => void;
 }) {
 	return async (
@@ -687,7 +786,7 @@ describe("multi-conversation streaming", () => {
 		// The assistant message must land in cache["a"].messages, not B's.
 		useConversationStore.setState({ activeId: "a", convCache: {} });
 
-		let doneCb: ((c: string) => void) | undefined;
+		let doneCb: ((result: StreamDonePayload) => void) | undefined;
 		let resolveStream: (() => void) | undefined;
 		sendMessageStream.mockImplementation(
 			async (
@@ -719,7 +818,7 @@ describe("multi-conversation streaming", () => {
 
 		// A's stream completes. finalize runs synchronously inside onDone,
 		// writing the assistant message to cache["a"].
-		doneCb?.("A final answer");
+		doneCb?.(donePayload("A final answer"));
 		await new Promise((r) => setTimeout(r, 0));
 
 		// B's view messages must NOT contain A's answer.

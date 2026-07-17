@@ -20,6 +20,8 @@ export interface Message {
 	tool_calls: ToolCall[];
 	/** Total input+output tokens from the provider response. 0 if unknown. */
 	token_count?: number;
+	/** Persisted chat-turn lifecycle state. */
+	status: "pending" | "completed" | "failed" | "stopped";
 	created_at: string;
 }
 

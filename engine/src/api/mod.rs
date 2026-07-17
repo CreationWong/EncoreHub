@@ -130,6 +130,14 @@ pub fn build_router_with(
             "/api/conversations/:id/messages",
             get(conversations::get_messages).post(conversations::send_message),
         )
+        .route(
+            "/api/conversations/:id/turns",
+            post(conversations::begin_turn),
+        )
+        .route(
+            "/api/conversations/:id/turns/:turn_id/finalize",
+            post(conversations::finalize_turn),
+        )
         // Conversations
         .route(
             "/api/conversations/:id",

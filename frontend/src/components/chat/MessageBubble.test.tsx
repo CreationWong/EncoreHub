@@ -12,6 +12,7 @@ function msg(
 		id: over.id ?? "m1",
 		parent_id: over.parent_id ?? null,
 		tool_calls: over.tool_calls ?? [],
+		status: over.status ?? "completed",
 		created_at: over.created_at ?? "2026-01-01T00:00:00Z",
 		...over,
 	};
@@ -29,6 +30,29 @@ describe("MessageBubble: user", () => {
 });
 
 describe("MessageBubble: assistant", () => {
+	it("labels failed and stopped persisted messages", () => {
+		const { rerender } = render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					status: "failed",
+				})}
+			/>,
+		);
+		expect(screen.getByText("Failed")).toBeTruthy();
+		rerender(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					status: "stopped",
+				})}
+			/>,
+		);
+		expect(screen.getByText("Stopped")).toBeTruthy();
+	});
+
 	it("renders markdown — fenced code becomes a CodeBlock with language label", () => {
 		const md = ["here is some code", "", "```ts", "const x = 1;", "```"].join(
 			"\n",

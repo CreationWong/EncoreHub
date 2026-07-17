@@ -89,6 +89,7 @@ export default function ChatView() {
 													result: tc.result,
 													status: tc.status ?? "pending",
 												})),
+											status: "pending",
 											created_at: new Date().toISOString(),
 										}}
 										isStreaming

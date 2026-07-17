@@ -170,6 +170,15 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tool_calls ADD COLUMN result TEXT NOT NULL DEFAULT '';
     ALTER TABLE tool_calls ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
     ",
+    // 008: Persisted chat-turn lifecycle.
+    //
+    // The user message is the turn root. Existing messages predate explicit
+    // lifecycle tracking and are therefore terminal completed records.
+    "
+    ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'
+        CHECK(status IN ('pending', 'completed', 'failed', 'stopped'));
+    CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {

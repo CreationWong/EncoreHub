@@ -51,6 +51,8 @@ pub struct Message {
     pub reasoning: String,
     pub parent_id: Option<String>,
     pub token_count: i32,
+    #[serde(default)]
+    pub status: MessageStatus,
     pub created_at: DateTime<Utc>,
 }
 
@@ -69,6 +71,7 @@ impl Message {
             reasoning: String::new(),
             parent_id,
             token_count: 0,
+            status: MessageStatus::Completed,
             created_at: Utc::now(),
         }
     }
@@ -77,6 +80,42 @@ impl Message {
     pub fn with_reasoning(mut self, reasoning: impl Into<String>) -> Self {
         self.reasoning = reasoning.into();
         self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageStatus {
+    Pending,
+    #[default]
+    Completed,
+    Failed,
+    Stopped,
+}
+
+impl MessageStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Stopped => "stopped",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "stopped" => Some(Self::Stopped),
+            _ => None,
+        }
+    }
+
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::Pending)
     }
 }
 

@@ -10,6 +10,25 @@ interface ChatResponse {
 	reply: string;
 	provider: string;
 	model: string;
+	usage?: StreamUsage;
+}
+
+export interface StreamUsage {
+	input_tokens: number;
+	output_tokens: number;
+}
+
+export interface StreamDonePayload {
+	user_message: Message;
+	assistant_message: Message | null;
+	usage: StreamUsage;
+}
+
+export interface StreamErrorPayload {
+	code: string;
+	message: string;
+	user_message?: Message;
+	assistant_message?: Message | null;
 }
 
 /** A tool call streamed from the gateway, identified by its fragment index. */
@@ -23,6 +42,7 @@ export interface StreamToolCall {
 }
 
 export interface StreamCallbacks {
+	onTurnStarted?: (userMessage: Message) => void;
 	onDelta: (content: string) => void;
 	onReasoning?: (content: string) => void;
 	onToolCall?: (call: {
@@ -40,8 +60,8 @@ export interface StreamCallbacks {
 	onWarning?: (message: string) => void;
 	onTitleUpdate?: (data: { conversation_id: string; title: string }) => void;
 	onTitleError?: (message: string) => void;
-	onDone: (fullContent: string) => void;
-	onError: (error: string) => void;
+	onDone: (result: StreamDonePayload) => void;
+	onError: (error: StreamErrorPayload) => void;
 }
 
 interface ParsedSseEvent {
@@ -117,13 +137,14 @@ export const chatApi = {
 
 			if (!res.ok) {
 				const text = await res.text();
-				let msg = text;
+				let message = `Request failed (${res.status})`;
 				try {
-					msg = JSON.parse(text).error || text;
+					const parsed = JSON.parse(text);
+					message = parsed.error ?? parsed.message ?? message;
 				} catch {
-					/* use raw */
+					/* keep the bounded status message */
 				}
-				callbacks.onError(msg);
+				callbacks.onError({ code: "http_error", message });
 				return;
 			}
 
@@ -131,25 +152,51 @@ export const chatApi = {
 			const contentType = res.headers.get("content-type") || "";
 			if (contentType.includes("application/json")) {
 				const data: ChatResponse = await res.json();
-				callbacks.onDone(data.reply);
+				if (!data.user_message || !data.assistant_message) {
+					callbacks.onError({
+						code: "invalid_response",
+						message: "Gateway response did not include persisted messages",
+					});
+					return;
+				}
+				callbacks.onTurnStarted?.(data.user_message);
+				callbacks.onDone({
+					user_message: data.user_message,
+					assistant_message: data.assistant_message,
+					usage: data.usage ?? { input_tokens: 0, output_tokens: 0 },
+				});
 				return;
 			}
 
 			const reader = res.body?.getReader();
 			if (!reader) {
-				callbacks.onError("No response body");
+				callbacks.onError({
+					code: "empty_stream",
+					message: "Gateway returned no response body",
+				});
 				return;
 			}
 
 			const decoder = new TextDecoder();
 			let buffer = "";
-			let fullContent = "";
+			let terminalReceived = false;
 
 			const handleEvent = (block: string) => {
 				const ev = parseEvent(block);
-				if (!ev) return;
+				if (!ev || terminalReceived) return;
 
 				switch (ev.event) {
+					case "turn_started": {
+						try {
+							const parsed = JSON.parse(ev.data);
+							if (parsed.user_message?.id) {
+								callbacks.onTurnStarted?.(parsed.user_message);
+							}
+						} catch {
+							/* final done/error reconciliation remains authoritative */
+						}
+						break;
+					}
 					case "delta": {
 						// Gateway emits {content:"..."}; tolerate legacy raw text
 						// and {text:"..."} wrappers for forward/backward compat.
@@ -163,7 +210,6 @@ export const chatApi = {
 							}
 						}
 						if (delta) {
-							fullContent += delta;
 							callbacks.onDelta(delta);
 						}
 						break;
@@ -241,12 +287,43 @@ export const chatApi = {
 						break;
 					}
 					case "error": {
-						callbacks.onError(ev.data);
+						terminalReceived = true;
+						try {
+							const parsed = JSON.parse(ev.data);
+							callbacks.onError({
+								code: parsed.code ?? "stream_error",
+								message: parsed.message ?? "Gateway stream failed",
+								user_message: parsed.user_message,
+								assistant_message: parsed.assistant_message,
+							});
+						} catch {
+							callbacks.onError({
+								code: "malformed_error",
+								message: "Gateway returned a malformed stream error",
+							});
+						}
 						break;
 					}
-					case "done":
-						// handled after loop
+					case "done": {
+						terminalReceived = true;
+						try {
+							const parsed = JSON.parse(ev.data);
+							if (!parsed.user_message?.id || !parsed.assistant_message?.id) {
+								throw new Error("persisted messages missing");
+							}
+							callbacks.onDone({
+								user_message: parsed.user_message,
+								assistant_message: parsed.assistant_message,
+								usage: parsed.usage ?? { input_tokens: 0, output_tokens: 0 },
+							});
+						} catch {
+							callbacks.onError({
+								code: "malformed_done",
+								message: "Gateway completion was not authoritative",
+							});
+						}
 						break;
+					}
 					default:
 						// Unknown event — ignore quietly.
 						break;
@@ -272,13 +349,21 @@ export const chatApi = {
 			// Flush any trailing partial event
 			if (buffer.trim()) handleEvent(buffer);
 
-			callbacks.onDone(fullContent);
+			if (!terminalReceived && !signal?.aborted) {
+				callbacks.onError({
+					code: "stream_incomplete",
+					message: "Stream ended before the turn was finalized",
+				});
+			}
 		} catch (err) {
 			if (err instanceof DOMException && err.name === "AbortError") {
-				// User cancelled — preserve whatever we already streamed.
+				// The store reloads the Engine state after a local Stop.
 				return;
 			}
-			callbacks.onError(err instanceof Error ? err.message : "Stream failed");
+			callbacks.onError({
+				code: "transport_error",
+				message: err instanceof Error ? err.message : "Stream failed",
+			});
 		}
 	},
 };

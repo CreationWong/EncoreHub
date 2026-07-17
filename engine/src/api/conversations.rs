@@ -6,7 +6,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use encorehub_core::{Conversation, Memory, MemoryScope, MemoryType, Message, Role, ToolCall};
+use encorehub_core::{
+    Conversation, Memory, MemoryScope, MemoryType, Message, MessageStatus, Role, ToolCall,
+};
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -69,6 +71,7 @@ pub struct MessageResponse {
     pub parent_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
     pub token_count: i32,
+    pub status: String,
     pub created_at: String,
 }
 
@@ -194,6 +197,7 @@ pub async fn get_one(
                 parent_id: m.parent_id,
                 tool_calls,
                 token_count: m.token_count,
+                status: m.status.as_str().to_string(),
                 created_at: m.created_at.to_rfc3339(),
             }
         })
@@ -331,6 +335,7 @@ pub async fn get_messages(
                 parent_id: m.parent_id,
                 tool_calls,
                 token_count: m.token_count,
+                status: m.status.as_str().to_string(),
                 created_at: m.created_at.to_rfc3339(),
             }
         })
@@ -355,6 +360,8 @@ pub struct AddMessageRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AddToolCall {
+    #[serde(default)]
+    pub id: String,
     pub name: String,
     #[serde(default)]
     pub arguments: String,
@@ -362,6 +369,123 @@ pub struct AddToolCall {
     pub result: String,
     #[serde(default)]
     pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BeginTurnRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FinalizeTurnRequest {
+    pub status: String,
+    #[serde(default)]
+    pub assistant: Option<FinalizeAssistantRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FinalizeAssistantRequest {
+    pub content: String,
+    #[serde(default)]
+    pub reasoning: String,
+    #[serde(default)]
+    pub token_count: i32,
+    #[serde(default)]
+    pub tool_calls: Vec<AddToolCall>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FinalizeTurnResponse {
+    pub user_message: MessageResponse,
+    pub assistant_message: Option<MessageResponse>,
+}
+
+pub async fn begin_turn(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+    Json(req): Json<BeginTurnRequest>,
+) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.db.get_conversation(&conv_id).map_err(not_found)?;
+    if req.content.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "message content required".into(),
+            }),
+        ));
+    }
+
+    let mut user = Message::new(&conv_id, Role::User, req.content, None);
+    user.status = MessageStatus::Pending;
+    state.db.begin_chat_turn(&user).map_err(internal_error)?;
+    Ok(Json(build_msg_response(&user, &[])))
+}
+
+pub async fn finalize_turn(
+    State(state): State<SharedState>,
+    Path((conv_id, turn_id)): Path<(String, String)>,
+    Json(req): Json<FinalizeTurnRequest>,
+) -> Result<Json<FinalizeTurnResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let status = MessageStatus::from_str(&req.status)
+        .filter(|status| status.is_terminal())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "terminal turn status required".into(),
+                }),
+            )
+        })?;
+
+    let (assistant, tool_calls) = if let Some(input) = req.assistant {
+        let mut message = Message::new(
+            &conv_id,
+            Role::Assistant,
+            input.content,
+            Some(turn_id.clone()),
+        )
+        .with_reasoning(input.reasoning);
+        message.token_count = input.token_count;
+        message.status = status;
+        let calls = input
+            .tool_calls
+            .into_iter()
+            .map(|input| {
+                let mut call = ToolCall::new(&message.id, input.name, input.arguments);
+                if !input.id.is_empty() {
+                    call.id = input.id;
+                }
+                call.result = input.result;
+                if let Some(status) = input.status {
+                    call.status = status;
+                }
+                call
+            })
+            .collect::<Vec<_>>();
+        (Some(message), calls)
+    } else {
+        (None, Vec::new())
+    };
+
+    state
+        .db
+        .finalize_chat_turn(&conv_id, &turn_id, status, assistant.as_ref(), &tool_calls)
+        .map_err(internal_error)?;
+    let user = state.db.get_message(&turn_id).map_err(internal_error)?;
+    let assistant_message = if let Some(message) = assistant {
+        let stored = state.db.get_message(&message.id).map_err(internal_error)?;
+        let stored_calls = state
+            .db
+            .get_tool_calls(&stored.id)
+            .map_err(internal_error)?;
+        Some(build_msg_response(&stored, &stored_calls))
+    } else {
+        None
+    };
+    Ok(Json(FinalizeTurnResponse {
+        user_message: build_msg_response(&user, &[]),
+        assistant_message,
+    }))
 }
 
 /// Store a message without generating a reply.
@@ -382,6 +506,9 @@ pub async fn add_message(
     let mut stored_calls = Vec::with_capacity(req.tool_calls.len());
     for tc in &req.tool_calls {
         let mut call = ToolCall::new(&msg.id, &tc.name, &tc.arguments);
+        if !tc.id.is_empty() {
+            call.id = tc.id.clone();
+        }
         call.result = tc.result.clone();
         if let Some(status) = &tc.status {
             call.status = status.clone();
@@ -584,6 +711,7 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
             })
             .collect(),
         token_count: msg.token_count,
+        status: msg.status.as_str().to_string(),
         created_at: msg.created_at.to_rfc3339(),
     }
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -71,12 +72,26 @@ type SendMessageRequest struct {
 }
 
 type ChatResponse struct {
-	ConversationID string               `json:"conversation_id"`
-	UserMessage    engine.Message       `json:"user_message,omitempty"`
-	Reply          string               `json:"reply"`
-	Provider       string               `json:"provider"`
-	Model          string               `json:"model"`
-	Usage          *provider.UsageEvent `json:"usage,omitempty"`
+	ConversationID   string               `json:"conversation_id"`
+	UserMessage      engine.Message       `json:"user_message,omitempty"`
+	AssistantMessage *engine.Message      `json:"assistant_message,omitempty"`
+	Reply            string               `json:"reply"`
+	Provider         string               `json:"provider"`
+	Model            string               `json:"model"`
+	Usage            *provider.UsageEvent `json:"usage,omitempty"`
+}
+
+type chatDonePayload struct {
+	UserMessage      engine.Message      `json:"user_message"`
+	AssistantMessage *engine.Message     `json:"assistant_message"`
+	Usage            provider.UsageEvent `json:"usage"`
+}
+
+type chatErrorPayload struct {
+	Code             string          `json:"code"`
+	Message          string          `json:"message"`
+	UserMessage      *engine.Message `json:"user_message,omitempty"`
+	AssistantMessage *engine.Message `json:"assistant_message,omitempty"`
 }
 
 // SendMessage handles POST /api/v1/conversations/:id/chat
@@ -87,16 +102,32 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := validateChatRequest(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	// Resolve provider/model from engine metadata if not specified
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 115*time.Second)
+	defer cancel()
+
+	convDetail, err := h.engine.GetConversation(ctx, convID)
+	if err != nil {
+		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to load conversation for chat")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load conversation"})
+		return
+	}
+
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Model = strings.TrimSpace(req.Model)
+	// Resolve provider/model from the authoritative conversation metadata.
 	if req.Provider == "" {
-		if conv, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-			req.Provider = conv.Provider
-			req.Model = conv.Model
-		}
+		req.Provider = convDetail.Provider
 	}
 	if req.Provider == "" {
 		req.Provider = "openai"
+	}
+	if req.Model == "" {
+		req.Model = convDetail.Model
 	}
 	if req.Model == "" {
 		req.Model = "gpt-4o"
@@ -110,10 +141,28 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// the DB is locked or no key is stored, GetSecret returns found=false and
 	// we proceed as if no key was supplied. Never log the key itself.
 	if apiKey == "" {
-		if k, found, err := h.engine.GetSecret(c.Request.Context(), req.Provider); err != nil {
+		if k, found, err := h.engine.GetSecret(ctx, req.Provider); err != nil {
 			log.Debug().Err(err).Msg("engine secret lookup failed (non-fatal)")
 		} else if found {
 			apiKey = k
+		}
+	}
+
+	mockEnabled := apiKey == "" && devMockEnabled()
+	if apiKey == "" && !mockEnabled {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "missing provider API key (X-Provider-Key header). " +
+				"Set ENCOREHUB_DEV_MOCK=1 to enable mock replies in development.",
+		})
+		return
+	}
+
+	var adapter provider.Adapter
+	if !mockEnabled {
+		adapter, err = h.registry.Get(req.Provider)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 	}
 
@@ -125,10 +174,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		Bool("has_key", apiKey != "").
 		Msg("chat request")
 
-	// Step 1: Always store the user message in the engine first.
-	userMsgID := h.storeUserMessage(convID, req.Content)
-
-	// Step 1.5: Register tools for the model to use
+	// Build provider inputs before creating a pending turn.
 	var searchTool, titleTool *provider.Tool
 
 	// Web search tool
@@ -141,18 +187,16 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		searchTool = &t
 	}
 
-	// Title update tool - enable for conversations with multiple messages
-	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-		if len(convDetail.Messages) >= 3 {
-			t := newTitleUpdateTool(req.Provider)
-			titleTool = &t
-		}
+	// Title update tool - enable for conversations with multiple messages.
+	if len(convDetail.Messages) >= 3 {
+		t := newTitleUpdateTool(req.Provider)
+		titleTool = &t
 	}
 
 	// Step 2: Pull relevant memories + knowledge chunks via the engine client
 	// (uses ENGINE_URL — no hardcoded localhost).
 	var memoryContext string
-	if hits, err := h.engine.SearchMemories(c.Request.Context(), req.Content, 3); err == nil && len(hits) > 0 {
+	if hits, err := h.engine.SearchMemories(ctx, req.Content, 3); err == nil && len(hits) > 0 {
 		memoryContext = "\n\n[Relevant Memories]\n"
 		for i, m := range hits {
 			memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, m.Scope, m.Content)
@@ -162,7 +206,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	var knowledgeContext string
-	if hits, err := h.engine.SearchKnowledge(c.Request.Context(), req.Content, 3); err == nil && len(hits) > 0 {
+	if hits, err := h.engine.SearchKnowledge(ctx, req.Content, 3); err == nil && len(hits) > 0 {
 		knowledgeContext = "\n\n[Knowledge Base]\n"
 		for i, k := range hits {
 			knowledgeContext += fmt.Sprintf("%d. (chunk %d, score %.2f) %s\n", i+1, k.ChunkIndex, k.Score, k.Content)
@@ -174,76 +218,34 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Step 3: Build chat request (includes messages + memory + knowledge context;
 	// web search is a tool the model invokes on its own initiative).
 	systemExtra := memoryContext + knowledgeContext
-	var chatReq *provider.ChatRequest
-	if convDetail, err := h.engine.GetConversation(c.Request.Context(), convID); err == nil {
-		chatReq = buildChatRequest(convDetail, req, systemExtra, searchTool, titleTool)
-	} else {
-		cr := &provider.ChatRequest{
-			Model:               req.Model,
-			Stream:              req.Stream,
-			Temperature:         req.Temperature,
-			TopP:                req.TopP,
-			MaxTokens:           req.MaxTokens,
-			MaxCompletionTokens: req.MaxCompletionTokens,
-			FrequencyPenalty:    req.FrequencyPenalty,
-			PresencePenalty:     req.PresencePenalty,
-			Stop:                req.Stop,
-			Seed:                req.Seed,
-			JSONMode:            req.JSONMode,
-			ReasoningEffort:     req.ReasoningEffort,
-			SystemPrompt: "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
-				"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra,
-			Messages: []provider.Message{
-				{Role: "user", Content: req.Content},
-			},
-		}
-		if searchTool != nil {
-			cr.Tools = []provider.Tool{*searchTool}
-		}
-		if cr.MaxTokens == 0 {
-			cr.MaxTokens = 4096
-		}
-		chatReq = cr
-	}
+	chatReq := buildChatRequest(convDetail, req, systemExtra, searchTool, titleTool)
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 115*time.Second)
-	defer cancel()
-
-	// Step 4: If no API key, refuse — unless ENCOREHUB_DEV_MOCK is set,
-	// in which case fall through to the canned replies below.
-	if apiKey == "" {
-		if !devMockEnabled() {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "missing provider API key (X-Provider-Key header). " +
-					"Set ENCOREHUB_DEV_MOCK=1 to enable mock replies in development.",
-			})
-			return
-		}
-		log.Warn().Msg("ENCOREHUB_DEV_MOCK active — serving mock reply")
-		if req.Stream {
-			h.mockStream(c, convID, userMsgID, req)
-		} else {
-			h.mockReply(c, convID, userMsgID, req)
-		}
+	userMessage, err := h.engine.BeginTurn(ctx, convID, req.Content)
+	if err != nil {
+		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to begin chat turn")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to persist chat turn"})
 		return
 	}
 
-	// Step 5: Call real AI provider
-	adapter, err := h.registry.Get(req.Provider)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if mockEnabled {
+		log.Warn().Msg("ENCOREHUB_DEV_MOCK active — serving mock reply")
+		if req.Stream {
+			h.mockStream(ctx, c, convID, *userMessage, req)
+		} else {
+			h.mockReply(ctx, c, convID, *userMessage, req)
+		}
 		return
 	}
 
 	if req.Stream {
-		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, userMsgID)
+		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, *userMessage)
 		return
 	}
 
 	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
 	requestID := c.GetString("request_id")
 	go func() {
-		titleCtx := withLogRequestID(context.Background(), requestID)
+		titleCtx := withLogRequestID(ctx, requestID)
 		h.generateTitle(titleCtx, convID, req.Provider, req.Model, apiKey)
 	}()
 
@@ -255,18 +257,41 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 			Str("provider", req.Provider).
 			Str("model", req.Model), err).
 			Msg("provider chat failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("provider error: %v", err)})
+		finalized, finalizeErr := h.finalizeTurn(ctx, convID, userMessage.ID, "failed", nil)
+		if finalizeErr != nil {
+			finalized = h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+		}
+		c.JSON(http.StatusBadGateway, newChatErrorPayload(
+			"provider_error",
+			"Provider request failed",
+			finalized,
+		))
 		return
 	}
 
-	// Store assistant reply in engine
-	h.storeAssistantMessage(convID, userMsgID, chatResp.Content, "", nil, chatResp.InputTokens+chatResp.OutputTokens)
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{
+		Content:    chatResp.Content,
+		Reasoning:  chatResp.ReasoningContent,
+		TokenCount: chatResp.InputTokens + chatResp.OutputTokens,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize chat turn")
+		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+		c.JSON(http.StatusBadGateway, newChatErrorPayload(
+			"persistence_error",
+			"Failed to persist provider response",
+			failed,
+		))
+		return
+	}
 
 	c.JSON(http.StatusOK, ChatResponse{
-		ConversationID: convID,
-		Reply:          chatResp.Content,
-		Provider:       req.Provider,
-		Model:          req.Model,
+		ConversationID:   convID,
+		UserMessage:      finalized.UserMessage,
+		AssistantMessage: finalized.AssistantMessage,
+		Reply:            chatResp.Content,
+		Provider:         req.Provider,
+		Model:            req.Model,
 		Usage: &provider.UsageEvent{
 			InputTokens:  chatResp.InputTokens,
 			OutputTokens: chatResp.OutputTokens,
@@ -277,7 +302,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 // ===== Streaming with optional tool-call loop =====
 
 func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
-	req *provider.ChatRequest, apiKey, convID, userMsgID string) {
+	req *provider.ChatRequest, apiKey, convID string, userMessage engine.Message) {
 
 	requestID := c.GetString("request_id")
 	c.Header("Content-Type", "text/event-stream")
@@ -291,7 +316,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	const maxToolRounds = 3
 	var fullContent string
 	var fullReasoning string
-	var totalTokens int
+	var totalUsage provider.UsageEvent
 	var allToolCalls []engine.ToolCallInput
 	flusher, _ := c.Writer.(http.Flusher)
 
@@ -309,7 +334,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		if closed && event != "done" {
+		if closed {
 			return
 		}
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
@@ -317,21 +342,40 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			flusher.Flush()
 		}
 	}
+	writeTerminalFrame := func(event string, payload any) {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if closed {
+			return
+		}
+		closed = true
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 
-	processOneStream := func(cr *provider.ChatRequest, round int) (content string, reasoning string, tokens int, toolCalls []engine.ToolCallInput, err error) {
+	writeFrame("turn_started", map[string]engine.Message{"user_message": userMessage})
+
+	processOneStream := func(cr *provider.ChatRequest, round int) (content string, reasoning string, usage provider.UsageEvent, toolCalls []engine.ToolCallInput, err error) {
 		if round > 0 {
 			logToolLoopFollowup(cr, round)
 		}
 		events, streamErr := adapter.ChatStream(ctx, cr, apiKey)
 		if streamErr != nil {
-			return "", "", 0, nil, streamErr
+			return "", "", provider.UsageEvent{}, nil, streamErr
 		}
 
-		agg := newToolCallAggregator()
+		agg := newToolCallAggregator(round)
+		usageSeen := false
 		for ev := range events {
 			switch {
 			case ev.Error != nil:
-				return "", "", 0, nil, ev.Error
+				return content, reasoning, usage, agg.toInputs(), ev.Error
 			case ev.Reasoning != nil:
 				reasoning += ev.Reasoning.Content
 				writeFrame("reasoning", map[string]string{"content": ev.Reasoning.Content})
@@ -347,17 +391,18 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 					writeFrame("delta", map[string]string{"content": ev.Delta.Content})
 				}
 			case ev.Usage != nil:
-				tokens = ev.Usage.InputTokens + ev.Usage.OutputTokens
-				writeFrame("usage", map[string]int{
-					"input_tokens":  ev.Usage.InputTokens,
-					"output_tokens": ev.Usage.OutputTokens,
-				})
+				usage = *ev.Usage
+				usageSeen = true
 			}
 		}
-		return content, reasoning, tokens, agg.toInputs(), nil
+		if usageSeen {
+			writeFrame("usage", usage)
+		}
+		if ctx.Err() != nil {
+			return content, reasoning, usage, agg.toInputs(), ctx.Err()
+		}
+		return content, reasoning, usage, agg.toInputs(), nil
 	}
-
-	var err error
 	cr := req // start with the original request
 
 	// AI-refined title (runs concurrently with streaming).
@@ -367,7 +412,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 	titleDone := make(chan asyncTitleResult, 1)
 	go func() {
-		baseTitleCtx := withLogRequestID(context.Background(), requestID)
+		baseTitleCtx := withLogRequestID(ctx, requestID)
 		titleCtx, cancel := context.WithTimeout(baseTitleCtx, titleGenerationTimeout)
 		defer cancel()
 		result, err := h.generateTitleSync(titleCtx, convID, adapter.ID(), req.Model, apiKey, false)
@@ -388,8 +433,26 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		})
 	}
 
+	finalizeError := func(status, code, message string) {
+		assistant := partialAssistant(fullContent, fullReasoning, allToolCalls,
+			totalUsage.InputTokens+totalUsage.OutputTokens)
+		finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, status, assistant)
+		if err != nil {
+			log.Warn().Err(err).Str("conv_id", convID).Str("status", status).
+				Msg("failed to finalize interrupted chat turn")
+			finalized = h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+			code = "persistence_error"
+			message = "Failed to persist interrupted chat turn"
+		}
+		writeTerminalFrame("error", newChatErrorPayload(code, message, finalized))
+	}
+
 	for round := 0; round < maxToolRounds; round++ {
-		content, reasoning, tokens, toolCalls, streamErr := processOneStream(cr, round)
+		content, reasoning, usage, toolCalls, streamErr := processOneStream(cr, round)
+		fullContent += content
+		fullReasoning += reasoning
+		totalUsage.InputTokens += usage.InputTokens
+		totalUsage.OutputTokens += usage.OutputTokens
 		if streamErr != nil {
 			safeExternalError(log.Error().
 				Str("request_id", requestID).
@@ -398,17 +461,14 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				Str("model", req.Model).
 				Int("round", round), streamErr).
 				Msg("stream error")
-			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", streamErr.Error())
-			if flusher != nil {
-				flusher.Flush()
+			allToolCalls = append(allToolCalls, toolCalls...)
+			if errors.Is(streamErr, context.Canceled) || ctx.Err() != nil {
+				finalizeError("stopped", "stopped", "Generation stopped")
+			} else {
+				finalizeError("failed", "provider_error", "Provider stream failed")
 			}
 			return
 		}
-
-		fullContent = content
-		fullReasoning = reasoning
-		totalTokens = tokens
-		allToolCalls = append(allToolCalls, toolCalls...)
 
 		// Check if any tool calls need the gateway to execute them.
 		hasGatewayTool := false
@@ -454,18 +514,28 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 					title := strings.TrimSpace(args.Title)
 					if title != "" {
 						// Execute title update
-						if err := h.executeTitleUpdate(ctx, c, convID, title); err != nil {
+						if err := h.executeTitleUpdate(ctx, convID, title); err != nil {
 							log.Warn().Err(err).Str("conv_id", convID).Msg("title update failed")
 							tc.Result = fmt.Sprintf("Title update failed: %v", err)
 							tc.Status = "error"
 						} else {
 							tc.Result = fmt.Sprintf("Title updated to: %s", title)
 							tc.Status = "success"
+							writeFrame("title_update", map[string]string{
+								"conversation_id": convID,
+								"title":           title,
+							})
 						}
 						hasGatewayTool = true
 					}
 				}
 			}
+		}
+
+		allToolCalls = append(allToolCalls, toolCalls...)
+		if ctx.Err() != nil {
+			finalizeError("stopped", "stopped", "Generation stopped")
+			return
 		}
 
 		if !hasGatewayTool || len(toolCalls) == 0 {
@@ -506,8 +576,22 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		cr = nextReq
 	}
 
-	// Store assistant message (fire-and-forget).
-	go h.storeAssistantMessage(convID, userMsgID, fullContent, fullReasoning, allToolCalls, totalTokens)
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{
+		Content:    fullContent,
+		Reasoning:  fullReasoning,
+		TokenCount: totalUsage.InputTokens + totalUsage.OutputTokens,
+		ToolCalls:  allToolCalls,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize streamed chat turn")
+		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+		writeTerminalFrame("error", newChatErrorPayload(
+			"persistence_error",
+			"Failed to persist provider response",
+			failed,
+		))
+		return
+	}
 
 	// Emit any hidden automatic-title result before done. The title request has
 	// its own 30s timeout and ran in parallel with the visible chat stream.
@@ -518,17 +602,11 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
 	}
 
-	// Emit done.
-	writeMu.Lock()
-	closed = true
-	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
-	if flusher != nil {
-		flusher.Flush()
-	}
-	writeMu.Unlock()
-
-	// Suppress unused error
-	_ = err
+	writeTerminalFrame("done", chatDonePayload{
+		UserMessage:      finalized.UserMessage,
+		AssistantMessage: finalized.AssistantMessage,
+		Usage:            totalUsage,
+	})
 }
 
 // cloneRequestForNextRound builds a new ChatRequest from the previous one,
@@ -610,10 +688,15 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 type toolCallAggregator struct {
 	order []int
 	calls map[int]*engine.ToolCallInput
+	round int
 }
 
-func newToolCallAggregator() *toolCallAggregator {
-	return &toolCallAggregator{calls: make(map[int]*engine.ToolCallInput)}
+func newToolCallAggregator(rounds ...int) *toolCallAggregator {
+	round := 0
+	if len(rounds) > 0 {
+		round = rounds[0]
+	}
+	return &toolCallAggregator{calls: make(map[int]*engine.ToolCallInput), round: round}
 }
 
 func (a *toolCallAggregator) add(ev *provider.ToolCallEvent) {
@@ -624,7 +707,7 @@ func (a *toolCallAggregator) add(ev *provider.ToolCallEvent) {
 		// one so the follow-up request always has a valid tool_call_id.
 		id := ev.ID
 		if id == "" {
-			id = fmt.Sprintf("call_%d", ev.Index)
+			id = fmt.Sprintf("call_%d_%d", a.round, ev.Index)
 		}
 		tc = &engine.ToolCallInput{ID: id, Status: "pending"}
 		a.calls[ev.Index] = tc
@@ -664,18 +747,29 @@ func (a *toolCallAggregator) toInputs() []engine.ToolCallInput {
 
 // ===== Mock mode =====
 
-func (h *ChatHandler) mockReply(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
+func (h *ChatHandler) mockReply(ctx context.Context, c *gin.Context, convID string, userMessage engine.Message, req SendMessageRequest) {
 	reply := generateMockReply(req.Content)
-	h.storeAssistantMessage(convID, userMsgID, reply, "", nil, 0)
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{Content: reply})
+	if err != nil {
+		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+		c.JSON(http.StatusBadGateway, newChatErrorPayload(
+			"persistence_error",
+			"Failed to persist mock response",
+			failed,
+		))
+		return
+	}
 	c.JSON(http.StatusOK, ChatResponse{
-		ConversationID: convID,
-		Reply:          reply,
-		Provider:       "mock (engine)",
-		Model:          req.Model,
+		ConversationID:   convID,
+		UserMessage:      finalized.UserMessage,
+		AssistantMessage: finalized.AssistantMessage,
+		Reply:            reply,
+		Provider:         "mock (engine)",
+		Model:            req.Model,
 	})
 }
 
-func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string, req SendMessageRequest) {
+func (h *ChatHandler) mockStream(ctx context.Context, c *gin.Context, convID string, userMessage engine.Message, req SendMessageRequest) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -683,56 +777,138 @@ func (h *ChatHandler) mockStream(c *gin.Context, convID string, userMsgID string
 
 	flusher, _ := c.Writer.(http.Flusher)
 	reply := generateMockReply(req.Content)
-
-	// Stream the mock reply character by character (simulated typing)
-	for i, ch := range reply {
-		data, _ := json.Marshal(map[string]string{"content": string(ch)})
-		fmt.Fprintf(c.Writer, "event: delta\ndata: %s\n\n", data)
+	writeFrame := func(event string, payload any) {
+		data, _ := json.Marshal(payload)
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, data)
 		if flusher != nil {
 			flusher.Flush()
 		}
+	}
+	writeFrame("turn_started", map[string]engine.Message{"user_message": userMessage})
+
+	var partial strings.Builder
+
+	// Stream the mock reply character by character (simulated typing)
+	for i, ch := range reply {
+		partial.WriteRune(ch)
+		writeFrame("delta", map[string]string{"content": string(ch)})
 		// Small delay for typing effect
 		if i%3 == 0 {
-			time.Sleep(15 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				assistant := partialAssistant(partial.String(), "", nil, 0)
+				finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "stopped", assistant)
+				if err != nil {
+					finalized = h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+				}
+				writeFrame("error", newChatErrorPayload("stopped", "Generation stopped", finalized))
+				return
+			case <-time.After(15 * time.Millisecond):
+			}
 		}
 	}
 
-	// Store assistant reply
-	go h.storeAssistantMessage(convID, userMsgID, reply, "", nil, 0)
-
-	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
-	if flusher != nil {
-		flusher.Flush()
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{Content: reply})
+	if err != nil {
+		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
+		writeFrame("error", newChatErrorPayload(
+			"persistence_error",
+			"Failed to persist mock response",
+			failed,
+		))
+		return
 	}
+	writeFrame("done", chatDonePayload{
+		UserMessage:      finalized.UserMessage,
+		AssistantMessage: finalized.AssistantMessage,
+		Usage:            provider.UsageEvent{},
+	})
 }
 
 // ===== Engine helpers =====
 
-func (h *ChatHandler) storeUserMessage(convID, content string) string {
-	msg, err := h.engine.AppendMessage(context.Background(), convID, content, "user", "")
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to store user message via engine")
-		return fmt.Sprintf("user-%d", time.Now().UnixNano())
-	}
-	return msg.ID
+const turnFinalizeTimeout = 5 * time.Second
+
+func (h *ChatHandler) finalizeTurn(ctx context.Context, convID, turnID, status string, assistant *engine.FinalizeAssistant) (*engine.FinalizeTurnResponse, error) {
+	finalizeCtx, cancel := boundedTurnContext(ctx, false)
+	defer cancel()
+	return h.engine.FinalizeTurn(finalizeCtx, convID, turnID, engine.FinalizeTurnRequest{
+		Status:    status,
+		Assistant: assistant,
+	})
 }
 
-func (h *ChatHandler) storeAssistantMessage(convID, userMsgID, content, reasoning string, toolCalls []engine.ToolCallInput, tokenCount int) {
-	_, err := h.engine.AppendMessageFull(context.Background(), convID, engine.AppendMessageRequest{
+func (h *ChatHandler) markTurnFailedBestEffort(ctx context.Context, convID, turnID string) *engine.FinalizeTurnResponse {
+	cleanupCtx, cancel := boundedTurnContext(ctx, true)
+	defer cancel()
+	response, err := h.engine.FinalizeTurn(cleanupCtx, convID, turnID, engine.FinalizeTurnRequest{Status: "failed"})
+	if err != nil {
+		log.Warn().Err(err).Str("conv_id", convID).Msg("best-effort turn failure finalization failed")
+		return nil
+	}
+	return response
+}
+
+func boundedTurnContext(ctx context.Context, detach bool) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if detach || ctx.Err() != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(ctx, turnFinalizeTimeout)
+}
+
+func partialAssistant(content, reasoning string, toolCalls []engine.ToolCallInput, tokenCount int) *engine.FinalizeAssistant {
+	if content == "" && reasoning == "" && len(toolCalls) == 0 && tokenCount == 0 {
+		return nil
+	}
+	return &engine.FinalizeAssistant{
 		Content:    content,
-		Role:       "assistant",
-		ParentID:   userMsgID,
 		Reasoning:  reasoning,
 		TokenCount: tokenCount,
 		ToolCalls:  toolCalls,
-	})
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to store assistant message via engine")
 	}
-	log.Debug().Str("conv_id", convID).Int("len", len(content)).Msg("assistant reply stored")
+}
+
+func newChatErrorPayload(code, message string, finalized *engine.FinalizeTurnResponse) chatErrorPayload {
+	payload := chatErrorPayload{Code: code, Message: message}
+	if finalized != nil {
+		payload.UserMessage = &finalized.UserMessage
+		payload.AssistantMessage = finalized.AssistantMessage
+	}
+	return payload
 }
 
 // ===== Helpers =====
+
+func validateChatRequest(req SendMessageRequest) error {
+	if strings.TrimSpace(req.Content) == "" {
+		return fmt.Errorf("message content required")
+	}
+	if req.Temperature < 0 || req.Temperature > 2 {
+		return fmt.Errorf("temperature must be between 0 and 2")
+	}
+	if req.TopP < 0 || req.TopP > 1 {
+		return fmt.Errorf("top_p must be between 0 and 1")
+	}
+	if req.MaxTokens < 0 || req.MaxCompletionTokens < 0 {
+		return fmt.Errorf("token limits cannot be negative")
+	}
+	if req.FrequencyPenalty < -2 || req.FrequencyPenalty > 2 ||
+		req.PresencePenalty < -2 || req.PresencePenalty > 2 {
+		return fmt.Errorf("penalties must be between -2 and 2")
+	}
+	if req.SearchProvider != "" && req.SearchProvider != "duckduckgo" &&
+		req.SearchProvider != "bing" && req.SearchProvider != "google" {
+		return fmt.Errorf("unsupported search_provider")
+	}
+	if req.ReasoningEffort != "" && req.ReasoningEffort != "low" &&
+		req.ReasoningEffort != "medium" && req.ReasoningEffort != "high" {
+		return fmt.Errorf("reasoning_effort must be low, medium, or high")
+	}
+	return nil
+}
 
 // buildChatRequest builds a provider ChatRequest from a stored conversation.
 // When searchTool or titleTool are non-nil they are registered as available tools.
@@ -771,6 +947,12 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 		cr.Messages = append(cr.Messages, provider.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
+		})
+	}
+	if req.Content != "" {
+		cr.Messages = append(cr.Messages, provider.Message{
+			Role:    "user",
+			Content: req.Content,
 		})
 	}
 	return cr
@@ -1111,7 +1293,7 @@ func newTitleUpdateTool(providerName string) provider.Tool {
 }
 
 // executeTitleUpdate handles the execution of a title update tool call.
-func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, convID, title string) error {
+func (h *ChatHandler) executeTitleUpdate(ctx context.Context, convID, title string) error {
 	title = cleanGeneratedTitle(title)
 	if title == "" {
 		return fmt.Errorf("title cannot be empty")
@@ -1121,12 +1303,6 @@ func (h *ChatHandler) executeTitleUpdate(ctx context.Context, c *gin.Context, co
 	if _, err := h.engine.RenameConversation(ctx, convID, title); err != nil {
 		return fmt.Errorf("failed to update title: %w", err)
 	}
-
-	// Send title update via SSE for real-time UI update
-	c.SSEvent("title_update", map[string]string{
-		"conversation_id": convID,
-		"title":           title,
-	})
 
 	return nil
 }

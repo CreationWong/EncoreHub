@@ -1082,3 +1082,143 @@ async fn append_message_persists_reasoning_and_tool_calls() {
     assert_eq!(msg["tool_calls"][0]["result"], "4");
     assert_eq!(msg["tool_calls"][0]["arguments"], "{\"a\":2,\"b\":2}");
 }
+
+#[tokio::test]
+async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
+    let (_dir, app) = make_app();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"turn","provider":"deepseek","model":"deepseek-chat"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/turns"),
+            json!({"content": "hello"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = body_json(response).await;
+    assert_eq!(user["role"], "user");
+    assert_eq!(user["status"], "pending");
+    let turn_id = user["id"].as_str().unwrap().to_string();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/turns/{turn_id}/finalize"),
+            json!({
+                "status": "completed",
+                "assistant": {
+                    "content": "world",
+                    "reasoning": "checked",
+                    "token_count": 42,
+                    "tool_calls": [{
+                        "id": "provider-call-1",
+                        "name": "web_search",
+                        "arguments": "{\"query\":\"hello\"}",
+                        "result": "found",
+                        "status": "success"
+                    }]
+                }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let finalized = body_json(response).await;
+    assert_eq!(finalized["user_message"]["id"], turn_id);
+    assert_eq!(finalized["user_message"]["status"], "completed");
+    assert_eq!(finalized["assistant_message"]["status"], "completed");
+    assert_eq!(finalized["assistant_message"]["parent_id"], turn_id);
+    assert_eq!(finalized["assistant_message"]["token_count"], 42);
+    assert_eq!(
+        finalized["assistant_message"]["tool_calls"][0]["id"],
+        "provider-call-1"
+    );
+
+    let (_, conversation) = get_text(&app, &format!("/api/conversations/{conversation_id}")).await;
+    assert_eq!(conversation["messages"][0], finalized["user_message"]);
+    assert_eq!(conversation["messages"][1], finalized["assistant_message"]);
+}
+
+#[tokio::test]
+async fn chat_turn_finalize_failure_keeps_pending_root_without_assistant() {
+    let (dir, app, db_path) = make_app_with_path();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"failure","provider":"deepseek","model":"deepseek-chat"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/turns"),
+            json!({"content": "hello"}),
+        ))
+        .await
+        .unwrap();
+    let turn_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER fail_assistant_insert
+             BEFORE INSERT ON messages WHEN NEW.role = 'assistant'
+             BEGIN SELECT RAISE(ABORT, 'injected assistant failure'); END;",
+        )
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/turns/{turn_id}/finalize"),
+            json!({
+                "status": "completed",
+                "assistant": {
+                    "content": "must roll back",
+                    "tool_calls": [{"name": "web_search", "arguments": "{}"}]
+                }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    drop(app);
+
+    let reopened = reopen_test_app(&db_path, &dir.path().join("nonexistent-skills"));
+    let (_, conversation) =
+        get_text(&reopened, &format!("/api/conversations/{conversation_id}")).await;
+    assert_eq!(conversation["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(conversation["messages"][0]["id"], turn_id);
+    assert_eq!(conversation["messages"][0]["status"], "pending");
+}

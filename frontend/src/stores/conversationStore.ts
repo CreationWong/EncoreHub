@@ -1,10 +1,14 @@
 import { create } from "zustand";
-import { type StreamToolCall, chatApi } from "../services/chat";
+import {
+	type StreamDonePayload,
+	type StreamErrorPayload,
+	type StreamToolCall,
+	chatApi,
+} from "../services/chat";
 import type {
 	Conversation,
 	ConversationDetail,
 	Message,
-	ToolCall,
 } from "../services/conversation";
 import * as convApi from "../services/conversation";
 import { useSettingsStore } from "./settingsStore";
@@ -91,6 +95,28 @@ function cacheUpdate(
 		view[key] = updated[key];
 	}
 	return view as Partial<ConversationState>;
+}
+
+function reconcileTurnMessages(
+	messages: Message[],
+	optimisticID: string,
+	userMessage: Message,
+	assistantMessage?: Message | null,
+): Message[] {
+	const withoutTurn = messages.filter(
+		(message) =>
+			message.id !== optimisticID &&
+			message.id !== userMessage.id &&
+			message.parent_id !== userMessage.id &&
+			message.id !== assistantMessage?.id,
+	);
+	return assistantMessage
+		? [...withoutTurn, userMessage, assistantMessage]
+		: [...withoutTurn, userMessage];
+}
+
+function isTerminalMessage(message: Message | undefined): boolean {
+	return Boolean(message && message.status !== "pending");
 }
 
 // ---- store ----
@@ -324,6 +350,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			content,
 			parent_id: null,
 			tool_calls: [],
+			status: "pending",
 			created_at: new Date().toISOString(),
 		};
 
@@ -345,43 +372,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			} as Partial<ConversationState>;
 		});
 
-		let streamTokenCount = 0;
+		let authoritativeTurnID: string | undefined;
+		let shouldReconcile = false;
+		let streamedTokenCount = 0;
 
-		const finalize = (final: string) => {
+		const applyDone = (result: StreamDonePayload) => {
+			authoritativeTurnID = result.user_message.id;
 			set((s) => {
 				const entry = s.convCache[convId];
 				if (!entry) return {};
-				const { streamingReasoning: reasoning, streamingToolCalls: toolCalls } =
-					entry;
-				const mapped: ToolCall[] = toolCalls
-					.filter((tc) => tc.name)
-					.map((tc) => ({
-						id: tc.id ?? `tc-${tc.index}`,
-						name: tc.name,
-						arguments: tc.arguments,
-						result: tc.result,
-						status: tc.status ?? "pending",
-					}));
-
-				const assistantMsg: Message = {
-					id: `asst-${Date.now()}`,
-					role: "assistant",
-					content: final,
-					reasoning: reasoning || undefined,
-					parent_id: userMsg.id,
-					tool_calls: mapped,
-					token_count: streamTokenCount || undefined,
-					created_at: new Date().toISOString(),
-				};
-
-				const updatedMessages = [
-					...entry.messages.filter((m) => m.id !== userMsg.id),
-					userMsg,
-					assistantMsg,
-				];
 
 				return cacheUpdate(s, convId, {
-					messages: updatedMessages,
+					messages: reconcileTurnMessages(
+						entry.messages,
+						userMsg.id,
+						result.user_message,
+						result.assistant_message,
+					),
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
@@ -392,11 +399,86 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			get().loadList();
 		};
 
+		const applyError = (error: StreamErrorPayload) => {
+			shouldReconcile = true;
+			if (error.user_message) authoritativeTurnID = error.user_message.id;
+			logStoreError("Stream error", error.message);
+			set((s) => {
+				const entry = s.convCache[convId];
+				if (!entry) return { error: error.message };
+				let nextMessages = entry.messages;
+				if (error.user_message) {
+					nextMessages = reconcileTurnMessages(
+						entry.messages,
+						userMsg.id,
+						error.user_message,
+						error.assistant_message,
+					);
+				} else if (!authoritativeTurnID) {
+					nextMessages = entry.messages.filter(
+						(message) => message.id !== userMsg.id,
+					);
+				}
+				const patch = cacheUpdate(s, convId, {
+					messages: nextMessages,
+					streaming: false,
+					streamingContent: "",
+					streamingReasoning: "",
+					streamingToolCalls: [],
+					abortController: null,
+				});
+				return { ...patch, error: error.message } as Partial<ConversationState>;
+			});
+			toast.error(error.message);
+		};
+
+		const reconcileFromEngine = async () => {
+			for (let attempt = 0; attempt < 4; attempt++) {
+				try {
+					const detail = await convApi.getConversation(convId);
+					set((s) =>
+						cacheUpdate(s, convId, {
+							messages: detail.messages,
+							streaming: false,
+							streamingContent: "",
+							streamingReasoning: "",
+							streamingToolCalls: [],
+							abortController: null,
+						}),
+					);
+					const turn = authoritativeTurnID
+						? detail.messages.find(
+								(message) => message.id === authoritativeTurnID,
+							)
+						: undefined;
+					if (!authoritativeTurnID || isTerminalMessage(turn)) return;
+				} catch (error) {
+					logStoreError("Failed to reconcile chat turn", error);
+					return;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+			}
+		};
+
 		await chatApi.sendMessageStream(
 			convId,
 			content,
 			providerKey,
 			{
+				onTurnStarted(persistedUser) {
+					authoritativeTurnID = persistedUser.id;
+					set((s) => {
+						const entry = s.convCache[convId];
+						if (!entry) return {};
+						return cacheUpdate(s, convId, {
+							messages: reconcileTurnMessages(
+								entry.messages,
+								userMsg.id,
+								persistedUser,
+							),
+						});
+					});
+				},
 				onDelta(delta) {
 					set((s) => {
 						const entry = s.convCache[convId];
@@ -455,7 +537,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					});
 				},
 				onUsage(input, output) {
-					streamTokenCount = input + output;
+					streamedTokenCount += input + output;
 				},
 				onWarning(msg) {
 					toast.warning(msg, 6000);
@@ -472,25 +554,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				onTitleError(msg) {
 					toast.error(msg);
 				},
-				onDone(fullContent) {
-					finalize(fullContent || "(empty response)");
+				onDone(result) {
+					applyDone(result);
+					streamedTokenCount = 0;
 				},
-				onError(errorMsg) {
-					logStoreError("Stream error", errorMsg);
-					set((s) => {
-						const patch = cacheUpdate(s, convId, {
-							messages: (s.convCache[convId]?.messages ?? []).filter(
-								(m) => m.id !== userMsg.id,
-							),
-							streaming: false,
-							streamingContent: "",
-							streamingReasoning: "",
-							streamingToolCalls: [],
-							abortController: null,
-						});
-						return { ...patch, error: errorMsg } as Partial<ConversationState>;
-					});
-					toast.error(errorMsg);
+				onError(error) {
+					applyError(error);
 				},
 			},
 			controller.signal,
@@ -498,26 +567,24 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			searchProvider,
 		);
 
-		// If aborted mid-stream, finalize with what we have so the user keeps the
-		// partial answer instead of losing it.
+		// Gateway persists Stop with a detached, bounded cleanup context. Reload
+		// until Engine exposes that terminal state; the renderer never uploads or
+		// manufactures a partial assistant message.
 		if (controller.signal.aborted) {
-			const entry = get().convCache[convId];
-			const partial = entry?.streamingContent;
-			if (partial) finalize(`${partial}\n\n_(stopped)_`);
-			else
-				set((s) => {
-					const patch = cacheUpdate(s, convId, {
-						messages: (s.convCache[convId]?.messages ?? []).filter(
-							(m) => m.id !== userMsg.id,
-						),
-						streaming: false,
-						streamingContent: "",
-						streamingReasoning: "",
-						streamingToolCalls: [],
-						abortController: null,
-					});
-					return patch;
-				});
+			shouldReconcile = true;
+			set((s) =>
+				cacheUpdate(s, convId, {
+					streaming: false,
+					streamingContent: "",
+					streamingReasoning: "",
+					streamingToolCalls: [],
+					abortController: null,
+				}),
+			);
+		}
+		if (shouldReconcile) {
+			await reconcileFromEngine();
+			get().loadList();
 		}
 	},
 
@@ -535,6 +602,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			content,
 			parent_id: null,
 			tool_calls: [],
+			status: "completed",
 			created_at: new Date().toISOString(),
 		};
 		set((s) => {

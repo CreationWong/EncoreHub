@@ -138,6 +138,7 @@ describe("command handlers", () => {
 					content: "hi",
 					parent_id: null,
 					tool_calls: [],
+					status: "completed",
 					created_at: "",
 				},
 				{
@@ -146,6 +147,7 @@ describe("command handlers", () => {
 					content: "hello",
 					parent_id: "u1",
 					tool_calls: [],
+					status: "completed",
 					created_at: "",
 				},
 			],

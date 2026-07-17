@@ -5,7 +5,9 @@
 //! (the production code path requires a real path; `:memory:` works but
 //! parent-dir handling differs across platforms).
 
-use encorehub_core::{CryptoMeta, Memory, MemoryScope, MemoryType, Message, Role, SecretRow};
+use encorehub_core::{
+    CryptoMeta, Memory, MemoryScope, MemoryType, Message, MessageStatus, Role, SecretRow,
+};
 use encorehub_storage::Database;
 use tempfile::TempDir;
 
@@ -87,7 +89,8 @@ fn message_append_and_retrieve_keeps_order() {
     let conv = encorehub_core::Conversation::new("c", "x", "y");
     db.create_conversation(&conv).unwrap();
 
-    let m1 = Message::new(&conv.id, Role::User, "hi", None);
+    let mut m1 = Message::new(&conv.id, Role::User, "hi", None);
+    m1.status = MessageStatus::Pending;
     let m2 = Message::new(&conv.id, Role::Assistant, "hello", Some(m1.id.clone()));
     let m3 = Message::new(&conv.id, Role::User, "again", Some(m2.id.clone()));
 
@@ -100,6 +103,46 @@ fn message_append_and_retrieve_keeps_order() {
     assert_eq!(fetched[0].content, "hi");
     assert_eq!(fetched[2].content, "again");
     assert_eq!(fetched[1].parent_id.as_deref(), Some(m1.id.as_str()));
+    assert_eq!(fetched[0].status, MessageStatus::Pending);
+    assert_eq!(fetched[1].status, MessageStatus::Completed);
+}
+
+#[test]
+fn message_status_schema_defaults_and_rejects_invalid_states() {
+    let (_dir, db, db_path) = fresh_db_with_path();
+    let conv = encorehub_core::Conversation::new("status", "openai", "gpt-4o");
+    db.create_conversation(&conv).unwrap();
+
+    let connection = rusqlite::Connection::open(db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO messages
+             (id, conversation_id, role, content, reasoning, parent_id, token_count, created_at)
+             VALUES ('legacy-message', ?1, 'user', 'hello', '', NULL, 0, 1)",
+            [&conv.id],
+        )
+        .unwrap();
+    let default_status: String = connection
+        .query_row(
+            "SELECT status FROM messages WHERE id = 'legacy-message'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(default_status, "completed");
+
+    connection
+        .execute(
+            "UPDATE messages SET status = 'pending' WHERE id = 'legacy-message'",
+            [],
+        )
+        .unwrap();
+    assert!(connection
+        .execute(
+            "UPDATE messages SET status = 'unknown' WHERE id = 'legacy-message'",
+            [],
+        )
+        .is_err());
 }
 
 #[test]

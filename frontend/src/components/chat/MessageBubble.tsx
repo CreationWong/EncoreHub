@@ -1,4 +1,13 @@
-import { ChevronRight, Info, Sparkles, User, Wrench } from "lucide-react";
+import {
+	ChevronRight,
+	CircleStop,
+	CircleX,
+	Info,
+	LoaderCircle,
+	Sparkles,
+	User,
+	Wrench,
+} from "lucide-react";
 import { useState } from "react";
 import type { Message, ToolCall } from "../../services/conversation";
 import CopyButton from "./CopyButton";
@@ -106,6 +115,28 @@ function tokenLabel(count: number): string {
 	return `${count} tokens`;
 }
 
+function MessageStatus({ status }: { status: Message["status"] }) {
+	if (status === "completed") return null;
+	const config = {
+		pending: { Icon: LoaderCircle, label: "Pending", color: "text-text-muted" },
+		failed: { Icon: CircleX, label: "Failed", color: "text-danger" },
+		stopped: { Icon: CircleStop, label: "Stopped", color: "text-warning" },
+	}[status];
+	const { Icon, label, color } = config;
+	return (
+		<span
+			className={`inline-flex items-center gap-1 text-[10px] font-medium ${color}`}
+			title={label}
+		>
+			<Icon
+				className={`h-3 w-3 ${status === "pending" ? "animate-spin" : ""}`}
+				aria-hidden="true"
+			/>
+			{label}
+		</span>
+	);
+}
+
 export default function MessageBubble({ message, isStreaming }: Props) {
 	const isUser = message.role === "user";
 	const isSystem = message.role === "system";
@@ -146,6 +177,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 		return (
 			<div className="group flex justify-end px-4 py-3">
 				<div className="flex max-w-[85%] items-end gap-2">
+					<MessageStatus status={message.status} />
 					<div className="opacity-0 transition-opacity group-hover:opacity-100">
 						<CopyButton text={message.content} />
 					</div>
@@ -167,7 +199,12 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 			</div>
 			<div className="min-w-0 flex-1 pt-0.5">
 				<div className="mb-1 flex items-center justify-between">
-					<span className="text-xs font-medium text-text-muted">Assistant</span>
+					<div className="flex items-center gap-2">
+						<span className="text-xs font-medium text-text-muted">
+							Assistant
+						</span>
+						<MessageStatus status={message.status} />
+					</div>
 					<div className="flex items-center gap-2">
 						{message.token_count ? (
 							<span className="select-none text-[10px] text-text-muted/50 tabular-nums">

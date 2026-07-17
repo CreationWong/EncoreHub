@@ -48,12 +48,15 @@ type ConversationDetail struct {
 
 // Message represents a single message.
 type Message struct {
-	ID         string  `json:"id"`
-	Role       string  `json:"role"`
-	Content    string  `json:"content"`
-	ParentID   *string `json:"parent_id"`
-	TokenCount int     `json:"token_count"`
-	CreatedAt  string  `json:"created_at"`
+	ID         string          `json:"id"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	Reasoning  string          `json:"reasoning,omitempty"`
+	ParentID   *string         `json:"parent_id"`
+	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
+	TokenCount int             `json:"token_count"`
+	Status     string          `json:"status"`
+	CreatedAt  string          `json:"created_at"`
 }
 
 // ToolCallInput is a tool call the gateway parsed from a provider stream,
@@ -181,6 +184,44 @@ func (c *Client) AppendMessageFull(ctx context.Context, convID string, body Appe
 		return nil, err
 	}
 	return &msg, nil
+}
+
+// BeginTurn persists the pending user message that identifies a chat turn.
+func (c *Client) BeginTurn(ctx context.Context, convID, content string) (*Message, error) {
+	body := map[string]string{"content": content}
+	var message Message
+	if err := c.doJSON(ctx, http.MethodPost, "/api/conversations/"+url.PathEscape(convID)+"/turns", body, &message); err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+// FinalizeTurnRequest atomically applies a terminal status and optional assistant.
+type FinalizeTurnRequest struct {
+	Status    string             `json:"status"`
+	Assistant *FinalizeAssistant `json:"assistant,omitempty"`
+}
+
+type FinalizeAssistant struct {
+	Content    string          `json:"content"`
+	Reasoning  string          `json:"reasoning,omitempty"`
+	TokenCount int             `json:"token_count,omitempty"`
+	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
+}
+
+type FinalizeTurnResponse struct {
+	UserMessage      Message  `json:"user_message"`
+	AssistantMessage *Message `json:"assistant_message"`
+}
+
+// FinalizeTurn persists the terminal turn state in one Engine transaction.
+func (c *Client) FinalizeTurn(ctx context.Context, convID, turnID string, body FinalizeTurnRequest) (*FinalizeTurnResponse, error) {
+	var response FinalizeTurnResponse
+	path := "/api/conversations/" + url.PathEscape(convID) + "/turns/" + url.PathEscape(turnID) + "/finalize"
+	if err := c.doJSON(ctx, http.MethodPost, path, body, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
 }
 
 // MemoryHit is a single result from memory search.
