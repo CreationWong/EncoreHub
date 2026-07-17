@@ -50,6 +50,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - name: Upload frontend assets for desktop jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 1
       - name: Check Tauri desktop
         run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: List Tauri desktop tests
@@ -101,12 +108,24 @@ jobs:
 
   # ===== Desktop (Windows-only process/sidecar paths) =====
   desktop-windows:
+    needs: frontend
     runs-on: windows-latest
     defaults:
       run:
         working-directory: frontend/src-tauri
     steps:
       - uses: actions/checkout@v4
+      - name: Download validated frontend assets
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Verify frontend assets required by Tauri macros
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ../dist/index.html)) {
+            throw "frontend/dist/index.html is required by tauri build.frontendDist"
+          }
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: actions/setup-go@v5
         with:
