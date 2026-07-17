@@ -55,30 +55,26 @@ Why this language split: see `docs/adr/0001-language-split.md`.
 
 ### Prerequisites
 
-Node 22+ / pnpm 9 / Go 1.25 / Rust stable / Python 3.12 (for data-services only).
+Node 22+ / pnpm 10 / Go 1.25 / Rust stable / Python 3.12 (for data-services only).
 
 ### Development (all from repo root)
 
 ```bash
-# Start everything (use three terminals for real dev)
-cd engine   && cargo run --features standalone --bin encorehub-engine  # listens :3000 (or ENGINE_BIND)
-cd gateway  && go run ./cmd/gateway                # listens :8080 (or LISTEN_ADDR)
-cd frontend && pnpm dev                            # Vite :1420
-# or Tauri desktop: cd frontend && pnpm tauri dev  (engine in-process, ports auto-negotiated from 10000)
+pnpm setup
+pnpm dev       # prepare the current-target Gateway sidecar and start Tauri
 ```
 
-Makefile shortcuts (from root):
+Root `package.json` scripts are the canonical workspace entrypoint:
 ```
-make dev           # docker-compose up redis + engine & gateway & frontend in parallel
-make build         # build all components
-make build-ci      # CI: engine+gateway parallel, then frontend
-make check         # fast static checks (cargo check + go vet + tsc --noEmit)
-make test          # run all tests
-make lint          # lint all
-make fmt           # format all (Biome + cargo fmt + gofmt)
-make tauri-build   # desktop installer (.msi + .exe)
-make dist          # alias for tauri-build
+pnpm check         # workspace contracts + static checks
+pnpm build         # standalone Engine + Gateway + Frontend
+pnpm test          # all component tests
+pnpm lint          # all component lint gates
+pnpm format        # Biome + rustfmt + gofmt
+pnpm build:desktop # current-platform Tauri bundle
 ```
+
+The Makefile is a compatibility shim that delegates to these scripts; do not add build logic there.
 
 ### Per-component commands
 

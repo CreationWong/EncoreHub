@@ -1,0 +1,11 @@
+**
+!engine/
+!engine/Cargo.toml
+!engine/Cargo.lock
+!engine/crates/
+!engine/crates/**
+!engine/src/
+!engine/src/**
+!skills/
+!skills/**
+**/target/

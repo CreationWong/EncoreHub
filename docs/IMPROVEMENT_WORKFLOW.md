@@ -113,7 +113,7 @@ flowchart LR
 | WF-05 | P1 | P1-1 | Engine storage/crypto | G0 + G1 | 1-2 天 | `In review`（本地验收完成，待远端 CI） |
 | WF-06 | P1 | P1-2 + P2-2 | Gateway + Engine + Frontend | G0 + G1 | 3-5 天 | `In review`（本地验收完成） |
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker smoke） |
-| WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `Not started` |
+| WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker CI smoke） |
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `Not started` |
 | WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `Not started` |
 | WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `Not started` |
@@ -424,13 +424,22 @@ host:3000 under docker compose           -> connection refused
 
 **任务**
 
-- [ ] Engine Docker build 使用 `--features standalone --bin encorehub-engine`。
-- [ ] Gateway builder 版本与 `go.mod` 对齐。
-- [ ] Runtime image 复制 skills 到固定只读目录。
-- [ ] 删除遗留 gRPC `EXPOSE` 和无效环境变量。
-- [ ] Compose 增加 readiness healthcheck 和 service dependency condition。
-- [ ] 根脚本移除未安装的 `concurrently`，修复 engine feature 参数和 pnpm 自选递归。
-- [ ] 选定 Makefile 或 package scripts 为唯一主入口，README 只推荐该入口。
+- [x] Engine Docker build 使用 `--features standalone --bin encorehub-engine`。
+- [x] Gateway builder 版本与 `go.mod` 对齐。
+- [x] Runtime image 复制 skills 到固定只读目录。
+- [x] 删除遗留 gRPC `EXPOSE` 和无效环境变量。
+- [x] Compose 增加 readiness healthcheck 和 service dependency condition。
+- [x] 根脚本移除未安装的 `concurrently`，修复 engine feature 参数和 pnpm 自选递归。
+- [x] 选定 Makefile 或 package scripts 为唯一主入口，README 只推荐该入口。
+
+**执行记录（2026-07-17）**
+
+- Engine image 从仓库根 context 精确复制 Cargo 源码与 `skills/`，以 standalone feature 构建指定 HTTP binary；runtime 使用固定的只读 `/opt/encorehub/skills`、可写 `/data`、`ENGINE_DB`/`ENCOREHUB_SKILLS_DIR` 契约和非 root 用户。根 `.dockerignore` 明确排除所有 `target/`，避免本地产物进入 clean build context。
+- Gateway builder 已与 `go.mod` 的 Go 1.25 对齐；两个 runtime image 都只暴露当前 HTTP 端口并以非 root 用户运行。Compose 删除无效 Engine/Gateway 环境变量和源码 bind mount，保留 Engine/Gateway readiness healthcheck 与健康依赖顺序。
+- 根 `package.json` 现为唯一规范入口，固定 pnpm 10.28.2，并提供 setup、dev、check、build、test、lint、format、Docker 与桌面命令；Makefile 仅作无业务逻辑的兼容转发。`pnpm dev` 会构建当前 target 的 Gateway sidecar 后启动 Tauri，README 与 `CLAUDE.md` 已只推荐根级 pnpm 命令。
+- 新增 4 项 Node 内置契约测试，覆盖 standalone Docker binary、只读 skills、Go toolchain/端口、Compose readiness 与根脚本无递归；CI 新增 clean Compose build、启动、Gateway readiness、Engine 不发布到宿主机及失败日志/清理 job。
+- 本地已通过 `pnpm prepare:sidecar`、`pnpm check`、`pnpm build`、`pnpm test`、`pnpm lint` 和 `pnpm test:contracts`。测试覆盖 Engine workspace 60 项及 standalone targets、Gateway 全包、Data Services 1 项和 Frontend 137 项；新增 standalone clippy 也已进入根 lint。
+- 当前机器没有 Docker CLI，无法本地执行下述 clean build/smoke，因此 Gate G3 尚未通过；状态保持 `In review`，以远端 containers job 的首次绿色结果作为容器运行时验收证据。
 
 **专项验证**
 

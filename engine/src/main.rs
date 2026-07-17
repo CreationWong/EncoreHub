@@ -18,7 +18,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Open the database first so we can read the persisted log level before the
     // subscriber is built.
-    let db = Database::open_and_return("data/encorehub.db")?;
+    let db_path = std::env::var("ENGINE_DB").unwrap_or_else(|_| "data/encorehub.db".into());
+    let db = Database::open_and_return(&db_path)?;
 
     // Resolve the initial log level: RUST_LOG (highest priority) > persisted
     // config `log_level` > "info" default.
@@ -56,7 +57,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Database ready");
 
     // Skills
-    let skill_registry = SkillRegistry::load("../skills");
+    let skills_dir = std::env::var("ENCOREHUB_SKILLS_DIR").unwrap_or_else(|_| "../skills".into());
+    let skill_registry = SkillRegistry::load(&skills_dir);
     tracing::info!("Skills loaded: {} total", skill_registry.list().len());
 
     // HTTP server — delegate to the shared in-process entrypoint.

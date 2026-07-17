@@ -27,26 +27,14 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 
 ## Quickstart（开发模式）
 
-需要：Node 22+ / pnpm 9 / Go 1.25 / Rust stable。
+需要：Node 22+ / pnpm 10 / Go 1.25 / Rust stable。
 
 ```bash
-# 在 Engine 与 Gateway 两个终端设置同一个随机值；不要使用固定示例值
-export ENCOREHUB_ENGINE_AUTH_TOKEN="$(openssl rand -hex 32)"
-
-# 1. 启动 engine（Rust，监听 127.0.0.1:3000）
-cd engine && cargo run --features standalone --bin encorehub-engine
-
-# 2. 在另一个带相同 ENCOREHUB_ENGINE_AUTH_TOKEN 的终端启动 gateway
-#    （Go，默认监听 127.0.0.1:8080）
-cd gateway && go run ./cmd/gateway
-
-# 3. 启动前端（Vite dev，1420）
-cd frontend && pnpm install && pnpm dev
-# 或 Tauri 桌面调试（engine 跑在进程内，gateway 为 sidecar）：
-# cd frontend && pnpm tauri dev
+pnpm setup
+pnpm dev
 ```
 
-打开 <http://localhost:1420>。在右下 Settings (`Ctrl/Cmd + ,`) → Providers 填一个 API key 即可对话。
+`pnpm dev` 会构建当前平台的 Gateway sidecar 并启动 Tauri；Engine 在桌面进程内运行，内部 token 自动生成。在右下 Settings (`Ctrl/Cmd + ,`) → Providers 填一个 API key 即可对话。只调试单个组件时使用 `pnpm dev:frontend`、`pnpm dev:gateway`、`pnpm dev:engine` 或 `pnpm dev:data`。
 
 ## 配置
 
@@ -132,13 +120,14 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 │   ├── src/logging.rs    运行时日志等级 reload
 │   ├── src/lib.rs        serve() + find_free_port() — Tauri 共用入口
 │   └── crates/           core / conversation(token 计数) / storage / skill
-├── scripts/              build.ps1 / build.sh（并行构建、端口协商、计时）
+├── scripts/              workspace contract、sidecar 准备及平台构建脚本
 ├── data-services/        Python（骨架）
 ├── docs/
 │   ├── REMAINING_WORK.md      剩余工作 + 最近完成
 │   ├── IMPROVEMENT_REPORT.md  审计 + P0/P1/P2 差距
 │   └── adr/                   架构决策记录
 ├── docker-compose.yml
+├── package.json          唯一规范的 workspace 命令入口
 └── DEVELOPMENT_PLAN.md   总体蓝图
 ```
 
@@ -146,31 +135,29 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 ```bash
 # 快速检查（不产构建产物）
-make check          # cargo check + go vet + tsc --noEmit
+pnpm check
 
-# 完整构建
-make build          # engine(standalone) + gateway + frontend
-make build-ci       # CI 并行构建（engine+gateway 并发）
-make tauri-build    # 桌面安装包（.msi + NSIS .exe）
+# Engine standalone + Gateway + Frontend
+pnpm build
 
 # 测试 & Lint
-make test           # 全量测试
-make lint           # 全量 lint
-make fmt            # 统一格式化（Biome + cargo fmt + gofmt）
+pnpm test
+pnpm lint
+pnpm format
+
+# Docker
+pnpm docker:build
+pnpm docker:up
+pnpm docker:ps
 ```
 
-CI 配置见 `.github/workflows/ci.yml`，4 个语言并行 job。
+CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows Desktop 与 Data Services gate。
 
 ## 桌面打包（Windows）
 
 ```powershell
-# 一键构建 + 生成安装包（.msi + NSIS .exe）
-.\scripts\build.ps1 -Tauri
-
-# 更多选项
-.\scripts\build.ps1 -Tauri -Debug          # 调试构建
-.\scripts\build.ps1 -Tauri -Parallel       # engine+gateway 并行编译
-.\scripts\build.ps1 -SkipEngine -Tauri     # 仅 gateway + 前端（engine 跑在进程内）
+# 构建当前平台的 Gateway sidecar 与 Tauri 安装包
+pnpm build:desktop
 ```
 
 产物在 `frontend/src-tauri/target/release/bundle/`（`msi/` 与 `nsis/`）。脚本自动将 gateway 二进制拷入 `binaries/`（含 target-triple 别名），安装后无需单独启动服务；engine 已内嵌在 Tauri 进程中。日志写到安装目录 `log/`。
