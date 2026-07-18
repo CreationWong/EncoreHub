@@ -78,14 +78,20 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 });
 
 test("Desktop keeps mutable state in app data and bundles readonly skills", async () => {
-	const [main, tauriConfig] = await Promise.all([
+	const [main, runtimePaths, tauriConfig] = await Promise.all([
 		read("frontend/src-tauri/src/main.rs"),
+		read("frontend/src-tauri/src/runtime_paths.rs"),
 		read("frontend/src-tauri/tauri.conf.json"),
 	]);
 	assert.match(main, /app\.path\(\)\.app_data_dir\(\)/);
 	assert.match(main, /app\.path\(\)\.resource_dir\(\)/);
 	assert.doesNotMatch(main, /with_log_dir\(exe_dir\.join\("log"\)\)/);
 	assert.doesNotMatch(main, /exe_dir\.join\("data"\)/);
+	assert.match(
+		runtimePaths,
+		/#\[cfg\(any\(target_os = "windows", test\)\)\]\s*pub\(crate\) mod legacy_migration/,
+	);
+	assert.doesNotMatch(runtimePaths, /allow\(dead_code\)/);
 	const config = JSON.parse(tauriConfig);
 	assert.equal(config.bundle.resources?.["../../skills/"], "skills/");
 });

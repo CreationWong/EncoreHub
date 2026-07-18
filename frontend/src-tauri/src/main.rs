@@ -19,7 +19,7 @@ use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKE
 use log_layer::LogBufferLayer;
 use logs::{Level, LogBuffer, LogEntry, Source};
 #[cfg(target_os = "windows")]
-use runtime_paths::migrate_legacy_runtime;
+use runtime_paths::legacy_migration::migrate_legacy_runtime;
 use runtime_paths::RuntimePaths;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;

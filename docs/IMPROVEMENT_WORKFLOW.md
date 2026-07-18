@@ -483,7 +483,8 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 - `scripts/build.sh` 使用 `TAURI_ARGS` 数组分别执行 `pnpm tauri build/dev`，从 `rustc -vV` 生成当前 target-triple sidecar 名称；Linux CI 增加 `bash -n`。Desktop CI 改为 Windows/macOS/Linux matrix，每个平台准备当前 target sidecar、执行 check/test，并运行 debug `--no-bundle` build。
 - README 与 `CLAUDE.md` 已删除未经安装 smoke 证明的跨平台支持声明，并记录运行目录、迁移、卸载保留和打包契约。macOS/Linux 安装包在 smoke 前不作为受支持发布物。
 - 本地已通过 9 项 workspace/desktop 契约测试、Tauri 16 项测试、Tauri check/clippy、`pnpm prepare:sidecar`、Windows `tauri build --debug --no-bundle --ci`、`pnpm check`、`pnpm test`、`pnpm lint` 与 `git diff --check`。构建输出已确认包含 `gateway.exe` 和 `resource_dir/skills`。
-- 尚未生成并安装 Windows installer，也未在 macOS/Linux runner 执行 bundle/安装后启动 smoke；远端三平台 matrix 也待首次运行。因此 Gate G3 仍未通过，状态保持 `In review`。
+- 三平台 matrix 首次运行在 macOS/Linux 暴露 Windows-only legacy migration helper 的 `dead_code`；迁移实现现以 `cfg(any(target_os = "windows", test))` 整体隔离，非 Windows 普通构建不再编译这些符号，非 Windows 测试仍执行迁移用例。matrix 同时增加显式 Desktop clippy，修复后的远端重跑待确认。
+- 尚未生成并安装 Windows installer，也未在 macOS/Linux runner 执行 bundle/安装后启动 smoke；修复后的远端三平台 matrix 待重跑。因此 Gate G3 仍未通过，状态保持 `In review`。
 
 ## 8. Milestone M4：维护成本收敛
 

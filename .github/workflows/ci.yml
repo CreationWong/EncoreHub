@@ -132,6 +132,8 @@ jobs:
         run: node scripts/prepare-gateway-sidecar.mjs
       - name: Check desktop integration
         run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
+      - name: Lint desktop integration
+        run: cargo clippy --manifest-path frontend/src-tauri/Cargo.toml --all-targets -- -D warnings
       - name: Test desktop integration
         run: cargo test --manifest-path frontend/src-tauri/Cargo.toml
       - name: Build current-platform desktop executable
