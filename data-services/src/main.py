@@ -1,15 +1,18 @@
-"""
-EncoreHub Data Services
+"""Contract-only HTTP surface for optional EncoreHub data capabilities."""
 
-Python backend for AI/ML data pipeline:
-- Document ingestion & parsing (PDF, Word, Markdown, HTML)
-- Embedding generation (local models + API-based)
-- RAG pipeline (retrieval-augmented generation)
-- Web scraping & content cleaning for search
-- Conversation analysis & summarization
-"""
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 
-from fastapi import FastAPI
+from src.contracts import (
+    CapabilityName,
+    CapabilityUnavailable,
+    ChunkRequest,
+    ChunkResponse,
+    EmbedRequest,
+    EmbedResponse,
+    ParseRequest,
+    ParseResponse,
+)
 
 app = FastAPI(
     title="EncoreHub Data Services",
@@ -23,8 +26,33 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "encorehub-data-services"}
 
 
-# TODO: Register ingestion endpoints
-# TODO: Register embedding endpoints
-# TODO: Register RAG query endpoints
-# TODO: Register web scraping endpoints
-# TODO: Connect to Rust engine via gRPC client
+def capability_unavailable(capability: CapabilityName) -> JSONResponse:
+    payload = CapabilityUnavailable(capability=capability)
+    return JSONResponse(status_code=status.HTTP_501_NOT_IMPLEMENTED, content=payload.model_dump())
+
+
+@app.post(
+    "/embed",
+    response_model=EmbedResponse,
+    responses={status.HTTP_501_NOT_IMPLEMENTED: {"model": CapabilityUnavailable}},
+)
+async def embed_contract(_: EmbedRequest) -> JSONResponse:
+    return capability_unavailable("embed")
+
+
+@app.post(
+    "/parse",
+    response_model=ParseResponse,
+    responses={status.HTTP_501_NOT_IMPLEMENTED: {"model": CapabilityUnavailable}},
+)
+async def parse_contract(_: ParseRequest) -> JSONResponse:
+    return capability_unavailable("parse")
+
+
+@app.post(
+    "/chunk",
+    response_model=ChunkResponse,
+    responses={status.HTTP_501_NOT_IMPLEMENTED: {"model": CapabilityUnavailable}},
+)
+async def chunk_contract(_: ChunkRequest) -> JSONResponse:
+    return capability_unavailable("chunk")

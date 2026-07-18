@@ -150,7 +150,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install uv
+      - run: pip install uv==0.11.7
+      - run: uv lock --check
       - run: uv sync --frozen --group dev
       - run: uv run --frozen ruff check src/ tests/
       - run: uv run --frozen mypy src/ tests/
@@ -169,8 +170,12 @@ jobs:
           node-version: 22
       - name: Verify workspace and container contracts
         run: node --test scripts/workspace-contract.test.mjs
+      - name: Verify Data Services profile is declared
+        run: docker compose config --profiles | grep -qx data
       - name: Build clean Compose images
         run: docker compose build --no-cache
+      - name: Build optional Data Services image
+        run: docker compose --profile data build --no-cache data-services
       - name: Start Compose stack
         run: docker compose up -d
       - name: Wait for Gateway readiness
@@ -191,9 +196,28 @@ jobs:
             echo "Engine must not be published to the host" >&2
             exit 1
           fi
+          if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+            echo "Data Services must not start without its profile" >&2
+            exit 1
+          fi
+          if docker compose ps --services | grep -qx data-services; then
+            echo "Data Services container must not start without its profile" >&2
+            exit 1
+          fi
+      - name: Smoke optional Data Services profile
+        run: |
+          docker compose --profile data up -d data-services
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --profile data ps
+          exit 1
       - name: Show container logs on failure
         if: failure()
-        run: docker compose logs --no-color
+        run: docker compose --profile data logs --no-color
       - name: Stop Compose stack
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose --profile data down --volumes --remove-orphans

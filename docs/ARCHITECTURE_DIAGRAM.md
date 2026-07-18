@@ -179,11 +179,11 @@ graph TB
     end
 
     %% ===== DATA SERVICES LAYER =====
-    subgraph DATASVC["🐍 Data Services — Python 3.12 + FastAPI (skeleton)"]
+    subgraph DATASVC["🐍 Data Services — Python 3.12 + FastAPI (optional profile)"]
         direction LR
-        D1["main.py<br/>FastAPI app :8000"]
-        D2["__init__.py"]
-        D3["Planned: RAG / embedding<br/>document parsing / chunking"]
+        D1["main.py<br/>Health + contract routes :8000"]
+        D2["contracts.py<br/>embed / parse / chunk schemas"]
+        D3["Implementations disabled<br/>structured 501 responses"]
     end
 
     %% ===== EXTERNAL =====
@@ -193,7 +193,6 @@ graph TB
         E2["Anthropic API<br/>api.anthropic.com"]
         E3["DeepSeek API<br/>api.deepseek.com"]
         E4["DuckDuckGo<br/>Web Search"]
-        E5["Redis<br/>Cache + Message Queue"]
     end
 
     %% ===== CONNECTIONS: Frontend → Gateway =====
@@ -213,7 +212,6 @@ graph TB
 
     %% ===== CONNECTIONS: Data Services =====
     DATASVC -.->|"planned"| ENGINE
-    DATASVC -.->|"planned"| E5
 
     %% ===== FLOW ANNOTATIONS =====
     subgraph FLOWS["📊 Key Data Flows"]
@@ -235,7 +233,7 @@ graph TB
         X5["golangci-lint (gateway)"]
         X6["clippy + rustfmt (engine)"]
         X7["ruff + mypy (data-services)"]
-        X8["GitHub Actions CI<br/>4 parallel jobs"]
+        X8["GitHub Actions CI<br/>6 job groups + platform matrix"]
     end
 ```
 

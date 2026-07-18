@@ -40,7 +40,7 @@
 
 - `gateway/go.mod`：已移除 `google.golang.org/grpc` 与 `protobuf`（前一次 `go mod tidy` 清掉了）。
 - `engine/Cargo.toml`：tonic/prost 仍在依赖里，但只编进 `encorehub-mcp` binary 用作 stdio MCP server——不是 gateway↔engine 通道。
-- `data-services/pyproject.toml`：`grpcio` / `grpcio-tools` 暂留，未来生成 stub 时直接用，没有运行时影响。
+- `data-services/pyproject.toml`：`grpcio` / `grpcio-tools` 已从当前 runtime 与 lock 移除；只有满足本 ADR 的迁移条件并完成 `DATA_SERVICES_CAPABILITIES.md` 准入记录后，才能以独立 extra 或模块重新引入。
 - `docker-compose.yml`：`50051` / `9090` 端口已经从 ports 列表移除（前一次提交修过），只暴露 `3000`/`8080`。
 
 ## 参考

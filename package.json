@@ -39,9 +39,11 @@
     "format:gateway": "go -C gateway fmt ./...",
     "format:frontend": "pnpm --dir frontend lint:fix",
     "docker:build": "docker compose build --no-cache",
+    "docker:build:data": "docker compose --profile data build --no-cache data-services",
     "docker:up": "docker compose up -d",
-    "docker:ps": "docker compose ps",
-    "docker:down": "docker compose down",
+    "docker:up:data": "docker compose --profile data up -d data-services",
+    "docker:ps": "docker compose --profile data ps",
+    "docker:down": "docker compose --profile data down",
     "proto:gen": "buf generate"
   },
   "engines": {

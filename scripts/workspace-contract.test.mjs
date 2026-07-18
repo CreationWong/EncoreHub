@@ -127,3 +127,29 @@ test("Windows uninstall hooks preserve app data outside the install directory", 
 	assert.match(wix, /NOT UPGRADINGPRODUCTCODE/);
 	assert.match(nsis, /\$UpdateMode <> 1/);
 });
+
+test("Data Services stays dependency-minimal and opt-in", async () => {
+	const [compose, dockerfile, pyproject, rootPackage, workflow] = await Promise.all([
+		read("docker-compose.yml"),
+		read("data-services/Dockerfile"),
+		read("data-services/pyproject.toml"),
+		read("package.json"),
+		read(".github/workflows/ci.yml"),
+	]);
+	assert.match(compose, /data-services:\s*\n\s*profiles: \["data"\]/);
+	assert.doesNotMatch(compose, /^\s{2}redis:/m);
+	assert.doesNotMatch(compose, /REDIS_URL=|DATA_SERVICE_URL=/);
+	assert.doesNotMatch(dockerfile, /build-essential|curl|uvicorn\[standard\]/);
+	assert.match(dockerfile, /uv sync --frozen --no-dev --no-install-project/);
+	assert.match(dockerfile, /"uv", "run", "--no-sync"/);
+	assert.match(dockerfile, /USER encorehub/);
+	assert.doesNotMatch(
+		pyproject,
+		/sentence-transformers|llama-index|pymupdf|celery|grpcio|pandas|redis>=/,
+	);
+	const scripts = JSON.parse(rootPackage).scripts;
+	assert.match(scripts["docker:up:data"], /--profile data/);
+	assert.match(scripts["docker:ps"], /--profile data/);
+	assert.match(scripts["docker:down"], /--profile data/);
+	assert.match(workflow, /Smoke optional Data Services profile/);
+});

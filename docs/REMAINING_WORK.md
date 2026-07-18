@@ -52,6 +52,7 @@
 ## 三、data-services 唤醒（阶段 7 / Sprint 2）
 
 > 目标：Python 承担 embedding / 文档解析 / 分块。使用 PyOxidizer 将 data-services 编译为原生模块，由 engine 侧通过 FFI 调用，无需用户安装 Python 运行时。
+> WF-10 已先固定 `/embed`、`/parse`、`/chunk` 的 request/response 与 `501` 契约；能力依赖、模型和打包方案必须通过 [`DATA_SERVICES_CAPABILITIES.md`](DATA_SERVICES_CAPABILITIES.md) 的准入记录后再实现本节。
 
 - [ ] **3.1** 定型：embedding 本地模型选型 + 维度 + 是否需 GPU（写进文档）
 - [ ] **3.2** 结构：建 `embedding/` / `parsing/` / `rag/` / `schemas.py`

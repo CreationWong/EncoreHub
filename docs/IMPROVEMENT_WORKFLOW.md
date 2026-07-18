@@ -115,7 +115,7 @@ flowchart LR
 | WF-07 | P1 | P1-3 + P1-4 + P1-9 | Gateway + Engine | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker smoke） |
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker CI smoke） |
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `In review`（Windows 本地 build 绿色，待三平台安装 smoke） |
-| WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `Not started` |
+| WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Data Services profile smoke） |
 | WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `Not started` |
 | WF-12 | P2 | P2-5 | Maintainer | G1；可随前序 PR 增量执行 | 1-2 天 | `Not started` |
 
@@ -492,11 +492,21 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 
 **任务**
 
-- [ ] 当前 runtime 只保留 FastAPI/uvicorn 和 health 所需依赖。
-- [ ] parsing、embedding、RAG、Celery、gRPC 按独立 extra 或后续模块引入。
-- [ ] Compose 用 profile 控制 data-services，默认不启动未接通模块。
-- [ ] 先定义 `/embed`、`/parse`、`/chunk` schema 和 contract test，再开始 `REMAINING_WORK` 3.x。
-- [ ] 每引入一组大型依赖都记录模型体积、CPU/GPU、许可证和打包影响。
+- [x] 当前 runtime 只保留 FastAPI/uvicorn 和 health 所需依赖。
+- [x] parsing、embedding、RAG、Celery、gRPC 按独立 extra 或后续模块引入。
+- [x] Compose 用 profile 控制 data-services，默认不启动未接通模块。
+- [x] 先定义 `/embed`、`/parse`、`/chunk` schema 和 contract test，再开始 `REMAINING_WORK` 3.x。
+- [x] 每引入一组大型依赖都记录模型体积、CPU/GPU、许可证和打包影响。
+
+**执行记录（2026-07-18）**
+
+- Data Services 直接 runtime 依赖只保留基础 `fastapi` 与 `uvicorn`；HTTPX 移入 dev group，解析、embedding、RAG、Celery/Redis、gRPC 及 CUDA/Torch 依赖全部从当前项目和 lock 移除。`uv.lock` 从 169 个解析包、760,769 bytes 降至 30 个包、86,068 bytes；同步后的 Windows dev 环境为 90.1 MiB（包含 Ruff、mypy、pytest、HTTPX，不代表 runtime image）。
+- 新增 `EmbedRequest/Response`、`ParseRequest/Response`、`ChunkRequest/Response` 与 `CapabilityUnavailable` schema。`POST /embed`、`/parse`、`/chunk` 的合法请求当前稳定返回结构化 `501`，非法请求返回 `422`，OpenAPI 同时声明未来成功模型；10 项 pytest 覆盖 health、三类接口、OpenAPI、校验与依赖排除契约。
+- Data Services image 移除 build-essential、curl 和 Uvicorn standard extra，固定 uv 0.11.7，以 `--no-dev --no-install-project` 构建 venv，并由非 root 用户通过 `uv run --no-sync` 启动。新增 `.dockerignore`，避免本地 venv/test cache 进入 context。
+- Compose 将 Data Services 放入显式 `data` profile，默认栈不再启动或发布它；未被任何运行代码使用的 Redis service、volume 与 Gateway dependency 已删除。规范入口新增 `pnpm docker:build:data` / `docker:up:data`，默认 `docker:up` 仍只启动当前有效链路。
+- Container CI 现在验证 profile 声明、默认容器集合与 8000 端口关闭，单独 clean-build 并启动 `data` profile 后探测 `/health`；失败日志和清理命令也包含 profile。Data Services CI 固定 uv 版本并显式执行 lock check。
+- [`DATA_SERVICES_CAPABILITIES.md`](DATA_SERVICES_CAPABILITIES.md) 记录当前 0-byte 模型、无 GPU runtime 的基线，并为 parsing、embedding、RAG/chunking、workers、gRPC 规定依赖尺寸、模型、CPU/GPU、许可证和镜像影响准入表；未完成这些记录不得重新引入大型依赖。ADR-0002 与路线图说明已同步。
+- 本地已通过 `uv lock --check`、frozen sync、Ruff、strict mypy、10 项 pytest、10 项 workspace contract tests 与 `git diff --check`。`uv run --no-sync uvicorn` HTTP smoke 验证 `/health`=200、合法 `/embed`=501、非法 `/chunk`=422。当前机器没有 Docker CLI，无法本地执行可选 image/profile smoke，因此状态保持 `In review`，等待远端 containers job 验证。
 
 ### WF-11 Frontend bundle budget
 

@@ -21,7 +21,7 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 | `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Security/Developer 面板、Slash 命令；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，认证/限流/CORS，引擎反向代理 |
 | `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill/密钥 存储与 API；AES-256-GCM 密钥加密；token 计数器（conversation crate）；桌面模式下 Tauri 在进程内启动 axum，无头模式编译为独立二进制 |
-| `data-services/` | Python 3.12 (FastAPI) | RAG/embedding/文档解析（**目前为骨架，未接通**） |
+| `data-services/` | Python 3.12 (FastAPI) | 可选 `data` profile；已定义 embed/parse/chunk 合约，当前统一返回 `501`，未加载 ML/解析依赖 |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
 为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)。
@@ -122,7 +122,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 │   ├── src/lib.rs        serve() + find_free_port() — Tauri 共用入口
 │   └── crates/           core / conversation(token 计数) / storage / skill
 ├── scripts/              workspace contract、sidecar 准备及平台构建脚本
-├── data-services/        Python（骨架）
+├── data-services/        Python contract service（可选 data profile）
 ├── docs/
 │   ├── REMAINING_WORK.md      剩余工作 + 最近完成
 │   ├── IMPROVEMENT_REPORT.md  审计 + P0/P1/P2 差距
@@ -150,6 +150,10 @@ pnpm format
 pnpm docker:build
 pnpm docker:up
 pnpm docker:ps
+
+# 可选的 contract-only Data Services profile
+pnpm docker:build:data
+pnpm docker:up:data
 ```
 
 CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。

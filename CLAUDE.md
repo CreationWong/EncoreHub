@@ -46,7 +46,7 @@ actual ports via the `get_service_ports` Tauri command.
 | `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, settings/skill/memory/knowledge panels, slash commands, auto-generated conversation titles, token counting display | ✅ Active development |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE entry, multi-provider adapter, auth/rate-limit/CORS, reverse proxy to engine, web search integration | ✅ Complete with provider adapters |
 | `engine/` | Rust (axum + tokio + rusqlite) | Conversations, memories, knowledge, skills storage & API, token counting, AES-256-GCM encryption, port negotiation | ✅ Core functionality complete |
-| `data-services/` | Python 3.12 (FastAPI) | RAG/embedding/doc parsing, vector database | ⏳ Skeleton, not wired up |
+| `data-services/` | Python 3.12 (FastAPI) | Optional contract service for embed/parse/chunk; no capability implementation or ML runtime dependencies yet | ⏳ Contract-only `data` profile |
 | `proto/` | protobuf | gRPC schema for inter-service communication | ⏳ Schema complete, gRPC not yet enabled |
 
 Why this language split: see `docs/adr/0001-language-split.md`.
@@ -258,7 +258,7 @@ API keys for providers go in `.env` (server-side). The frontend sends them via `
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`): 4 parallel jobs — frontend (pnpm lint → test → build), gateway (go vet → test → build), engine (fmt → clippy → test → build), data-services (ruff → mypy → pytest). Triggers on push/PR to `master`/`main`.
+GitHub Actions (`.github/workflows/ci.yml`) has six job groups: frontend, gateway, engine, three-platform desktop, data-services, and container/profile smoke. Triggers on push/PR to `master`/`main`.
 
 ## Key Endpoints
 

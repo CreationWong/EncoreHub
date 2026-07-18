@@ -15,8 +15,6 @@ services:
     depends_on:
       engine:
         condition: service_healthy
-      redis:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/v1/health/ready >/dev/null || exit 1"]
       interval: 10s
@@ -49,30 +47,19 @@ services:
 
   # ===== Data Services (Python) =====
   data-services:
+    profiles: ["data"]
     build:
       context: ./data-services
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
-    environment:
-      - ENGINE_URL=http://engine:3000
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      engine:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
-
-  # ===== Redis (cache + message queue) =====
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      - "${ENCOREHUB_DATA_HOST:-127.0.0.1}:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 volumes:
   engine_data:
-  redis_data:
