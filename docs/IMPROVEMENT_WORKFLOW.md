@@ -116,7 +116,7 @@ flowchart LR
 | WF-08 | P1 | P1-5 + P2-1 | Infra/Build | G0 + G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Docker CI smoke） |
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `In review`（Windows 本地 build 绿色，待三平台安装 smoke） |
 | WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Data Services profile smoke） |
-| WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `Not started` |
+| WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `In review`（首屏 gzip budget 本地通过，待远端 CI） |
 | WF-12 | P2 | P2-5 | Maintainer | G1；可随前序 PR 增量执行 | 1-2 天 | `Not started` |
 
 ## 4. Milestone M0：安全止血
@@ -512,11 +512,21 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 
 **任务**
 
-- [ ] 生成 chunk 分析，定位 syntax highlighter、Settings 和 Tauri API 占比。
-- [ ] Lazy-load 非首屏 settings、DeveloperPanel 和代码高亮。
-- [ ] 消除同一 module 的静态/动态 import 混用。
-- [ ] 建立主入口 gzip budget，建议初始阈值 300 kB，随后降至 250 kB。
-- [ ] CI 超过 budget 时失败，并保留产物统计。
+- [x] 生成 chunk 分析，定位 syntax highlighter、Settings 和 Tauri API 占比。
+- [x] Lazy-load 非首屏 settings、DeveloperPanel 和代码高亮。
+- [x] 消除同一 module 的静态/动态 import 混用。
+- [x] 建立主入口 gzip budget，建议初始阈值 300 kB，随后降至 250 kB。
+- [x] CI 超过 budget 时失败，并保留产物统计。
+
+**执行记录（2026-07-19）**
+
+- 修复前 production build 将 2,946 个 module 合并到 1,075.13 kB、gzip 358.29 kB 的主 chunk，并同时报告 Tauri core 与 `confirmStore` 的静态/动态 import 混用。
+- `SettingsModal` 只在 `settingsOpen` 时加载，`DeveloperPanel` 只在 developer tab 激活时加载；Prism/oneDark 移入带纯文本 fallback 的 `HighlightedCodeBlock` 异步边界。拆分后首屏 entry 为 372.17 kB、Vite gzip 114.21 kB（预算脚本按 1,024 bytes/KiB 计为 111.54 KiB），相对基线 raw 减少 65.4%、gzip 减少 68.1%。
+- 模块级统计确认主要按需 chunk 为 syntax highlighter 647.83 kB / gzip 231.75 kB、Settings 44.76 kB / gzip 11.04 kB、DeveloperPanel 8.36 kB / gzip 2.90 kB；Tauri core 2.44 kB / gzip 0.98 kB，shell bridge 2.22 kB / gzip 0.82 kB。语法高亮异步 chunk 仍触发 Vite 的单 chunk 500 kB 提示，但不属于首屏静态闭包。
+- `devtools.ts` 改为调用时动态加载 Tauri core；四个 confirm 调用点统一静态导入已经由全局 `ConfirmDialog` 使用的 store。production build 不再报告同 module 静态/动态混用。
+- Vite 每次 build 生成 manifest 和 `bundle-analysis.json`；`bundle:check` 从所有 `isEntry` 出发递归计算静态 `imports`、去重 gzip 文件并生成 `bundle-budget.json`，不会把仅有的 entry wrapper 当作完整首屏，也不会把 `dynamicImports` 误计入首屏。
+- Frontend build 默认执行 300 KiB gate，CI 显式固定 `BUNDLE_BUDGET_KIB=300`；超过预算时 job 失败，`if: always()` 仍保留两份 bundle 统计 artifact。阈值后续只允许计划性收紧到 250 KiB，不得通过提高环境变量绕过回归。
+- 本地已通过 Frontend Biome（66 files）、Vitest（19 files / 137 tests）、3 项 bundle budget 单测、12 项 workspace contract tests、production/analyze build、`pnpm check`、`pnpm test`、`pnpm lint` 与 `git diff --check`。远端 GitHub Actions 尚未触发，因此状态保持 `In review`。
 
 ### WF-12 文档与契约对齐
 

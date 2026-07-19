@@ -1,13 +1,20 @@
-import { Children, type ReactNode, isValidElement, memo } from "react";
+import {
+	Children,
+	type ReactNode,
+	Suspense,
+	isValidElement,
+	lazy,
+	memo,
+} from "react";
 import ReactMarkdown, {
 	defaultUrlTransform,
 	type Components,
 	type UrlTransform,
 } from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
 import CopyButton from "./CopyButton";
+
+const HighlightedCodeBlock = lazy(() => import("./HighlightedCodeBlock"));
 
 interface MarkdownRendererProps {
 	content: string;
@@ -82,20 +89,15 @@ function CodeBlock({ language, value }: CodeBlockProps) {
 				<span className="font-mono">{language}</span>
 				<CopyButton text={value} />
 			</div>
-			<SyntaxHighlighter
-				style={oneDark}
-				language={language}
-				PreTag="div"
-				customStyle={{
-					margin: 0,
-					padding: "0.75rem 1rem",
-					background: "transparent",
-					fontSize: "0.8125rem",
-					lineHeight: 1.55,
-				}}
+			<Suspense
+				fallback={
+					<pre className="markdown-code-fallback m-0 overflow-x-auto bg-transparent px-4 py-3 text-[13px] leading-relaxed">
+						<code>{value}</code>
+					</pre>
+				}
 			>
-				{value}
-			</SyntaxHighlighter>
+				<HighlightedCodeBlock language={language} value={value} />
+			</Suspense>
 		</div>
 	);
 }

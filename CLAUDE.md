@@ -82,11 +82,15 @@ The Makefile is a compatibility shim that delegates to these scripts; do not add
 | Command | What |
 |---------|------|
 | `pnpm dev` | Vite dev server (port 1420) |
-| `pnpm build` | `tsc && vite build` → `dist/` |
+| `pnpm check` | TypeScript type check without build output |
+| `pnpm build` | `tsc && vite build` → `dist/`, then enforce the 300 KiB initial-JS gzip budget |
+| `pnpm analyze:bundle` | Build and write chunk/module plus initial-load reports to `dist/` |
+| `pnpm bundle:check` | Recheck `dist/.vite/manifest.json` against `BUNDLE_BUDGET_KIB` (default 300) |
 | `pnpm tauri dev` | Tauri desktop dev |
 | `pnpm tauri build` | Tauri desktop production build — generates `.msi` and `.exe` installer |
 | `pnpm test` | Vitest (jsdom, `src/**/*.test.{ts,tsx}`) |
-| `pnpm lint` | Biome check `src/` |
+| `pnpm test:bundle` | Node contract tests for the static-closure budget calculation |
+| `pnpm lint` | Biome check `src/`, bundle scripts, and Vite config |
 | `pnpm lint:fix` | Biome auto-fix |
 
 **Gateway** (`cd gateway`):

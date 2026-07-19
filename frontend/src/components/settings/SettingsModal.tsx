@@ -2,21 +2,23 @@ import {
 	BookOpen,
 	Bot,
 	Database,
+	Loader2,
 	Palette,
 	ShieldCheck,
 	Sparkles,
 	Terminal,
 	X,
 } from "lucide-react";
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
-import DeveloperPanel from "./DeveloperPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ProvidersPanel from "./ProvidersPanel";
 import SecurityPanel from "./SecurityPanel";
 import SkillsPanel from "./SkillsPanel";
+
+const DeveloperPanel = lazy(() => import("./DeveloperPanel"));
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Bot }[] = [
 	{ id: "providers", label: "Providers", icon: Bot },
@@ -114,7 +116,20 @@ export default function SettingsModal() {
 						{tab === "memories" && <MemoryPanel />}
 						{tab === "security" && <SecurityPanel />}
 						{tab === "appearance" && <AppearancePanel />}
-						{tab === "developer" && <DeveloperPanel />}
+						{tab === "developer" && (
+							<Suspense
+								fallback={
+									<output
+										className="flex min-h-32 items-center justify-center"
+										aria-label="Loading developer tools"
+									>
+										<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+									</output>
+								}
+							>
+								<DeveloperPanel />
+							</Suspense>
+						)}
 					</div>
 				</div>
 			</dialog>

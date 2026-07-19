@@ -77,6 +77,70 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	assert.doesNotMatch(readme, /\bmake (dev|build|check|test|lint|fmt)\b/);
 });
 
+test("Frontend keeps non-critical features outside the initial module graph", async () => {
+	const [
+		app,
+		settingsModal,
+		markdownRenderer,
+		highlightedCodeBlock,
+		devtools,
+		confirmConsumers,
+	] = await Promise.all([
+		read("frontend/src/App.tsx"),
+		read("frontend/src/components/settings/SettingsModal.tsx"),
+		read("frontend/src/components/chat/MarkdownRenderer.tsx"),
+		read("frontend/src/components/chat/HighlightedCodeBlock.tsx"),
+		read("frontend/src/services/devtools.ts"),
+		Promise.all([
+			read("frontend/src/commands/slash.ts"),
+			read("frontend/src/components/sidebar/ConversationList.tsx"),
+			read("frontend/src/components/settings/ProvidersPanel.tsx"),
+			read("frontend/src/components/settings/SecurityPanel.tsx"),
+		]).then((files) => files.join("\n")),
+	]);
+
+	assert.match(app, /lazy\(\s*\(\) => import\("\.\/components\/settings\/SettingsModal"\)/);
+	assert.match(app, /settingsOpen &&/);
+	assert.doesNotMatch(app, /^import SettingsModal/m);
+	assert.match(settingsModal, /lazy\(\(\) => import\("\.\/DeveloperPanel"\)\)/);
+	assert.doesNotMatch(settingsModal, /^import DeveloperPanel/m);
+	assert.match(markdownRenderer, /lazy\(\(\) => import\("\.\/HighlightedCodeBlock"\)\)/);
+	assert.doesNotMatch(markdownRenderer, /from "react-syntax-highlighter/);
+	assert.match(highlightedCodeBlock, /from "react-syntax-highlighter"/);
+	assert.match(devtools, /await import\("@tauri-apps\/api\/core"\)/);
+	assert.doesNotMatch(devtools, /^import .*@tauri-apps\/api\/core/m);
+	assert.doesNotMatch(confirmConsumers, /import\([^)]*confirmStore/);
+});
+
+test("Frontend build enforces and retains its initial gzip budget", async () => {
+	const [frontendPackageText, rootPackageText, viteConfig, budgetCheck, workflow] =
+		await Promise.all([
+			read("frontend/package.json"),
+			read("package.json"),
+			read("frontend/vite.config.ts"),
+			read("frontend/scripts/check-bundle-budget.mjs"),
+			read(".github/workflows/ci.yml"),
+		]);
+	const frontendScripts = JSON.parse(frontendPackageText).scripts;
+	const rootScripts = JSON.parse(rootPackageText).scripts;
+
+	assert.match(frontendScripts.build, /bundle:check/);
+	assert.match(frontendScripts.check, /tsc --noEmit/);
+	assert.match(frontendScripts["analyze:bundle"], /vite build --mode analyze/);
+	assert.match(frontendScripts["bundle:check"], /check-bundle-budget\.mjs/);
+	assert.match(frontendScripts["test:bundle"], /node --test/);
+	assert.match(rootScripts["test:frontend"], /test:bundle/);
+	assert.match(rootScripts["check:frontend"], /--dir frontend check/);
+	assert.match(viteConfig, /manifest:\s*true/);
+	assert.match(viteConfig, /bundle-analysis\.json/);
+	assert.match(budgetCheck, /DEFAULT_BUDGET_KIB = 300/);
+	assert.match(budgetCheck, /record\.imports/);
+	assert.match(workflow, /Upload frontend bundle statistics/);
+	assert.match(workflow, /BUNDLE_BUDGET_KIB: "300"/);
+	assert.match(workflow, /if: always\(\)/);
+	assert.match(workflow, /frontend\/dist\/bundle-budget\.json/);
+});
+
 test("Desktop keeps mutable state in app data and bundles readonly skills", async () => {
 	const [main, runtimePaths, tauriConfig] = await Promise.all([
 		read("frontend/src-tauri/src/main.rs"),

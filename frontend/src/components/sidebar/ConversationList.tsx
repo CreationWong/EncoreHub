@@ -6,6 +6,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -119,7 +120,6 @@ export default function ConversationList() {
 							className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-surface-hover text-text-muted hover:text-danger transition-all"
 							onClick={async (e) => {
 								e.stopPropagation();
-								const { confirm } = await import("../../stores/confirmStore");
 								const ok = await confirm.ask(
 									"Delete Conversation",
 									`Delete "${conv.title}"? This cannot be undone.`,

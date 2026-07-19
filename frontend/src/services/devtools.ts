@@ -3,7 +3,6 @@
 // app still runs in a plain browser (Vite dev / vitest), where these commands
 // don't exist — callers get empty data instead of a thrown "not in Tauri".
 
-import { invoke } from "@tauri-apps/api/core";
 import { apiFetch } from "./api";
 
 export type LogSource = "engine" | "gateway" | "desktop" | "frontend";
@@ -29,27 +28,35 @@ export function inTauri(): boolean {
 	return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+async function invokeCommand<T>(
+	command: string,
+	args?: Record<string, unknown>,
+): Promise<T> {
+	const { invoke } = await import("@tauri-apps/api/core");
+	return invoke<T>(command, args);
+}
+
 export const devtools = {
 	async status(): Promise<ServiceStatus[]> {
 		if (!inTauri()) return [];
-		return invoke<ServiceStatus[]>("get_service_status");
+		return invokeCommand<ServiceStatus[]>("get_service_status");
 	},
 
 	/** Pull all log lines after `after` (0 = from the start of the buffer). */
 	async logs(after: number): Promise<LogEntry[]> {
 		if (!inTauri()) return [];
-		return invoke<LogEntry[]>("get_logs", { after });
+		return invokeCommand<LogEntry[]>("get_logs", { after });
 	},
 
 	async clear(): Promise<void> {
 		if (!inTauri()) return;
-		await invoke("clear_logs");
+		await invokeCommand("clear_logs");
 	},
 
 	/** Open the native webview DevTools (inspector). No-op outside Tauri. */
 	async openDevtools(): Promise<void> {
 		if (!inTauri()) return;
-		await invoke("open_devtools");
+		await invokeCommand("open_devtools");
 	},
 
 	/**
@@ -75,17 +82,17 @@ export const devtools = {
 
 	async getFileLogLevel(): Promise<LogLevel> {
 		if (!inTauri()) return "info";
-		return invoke<LogLevel>("get_file_log_level");
+		return invokeCommand<LogLevel>("get_file_log_level");
 	},
 
 	async setFileLogLevel(level: LogLevel): Promise<LogLevel> {
 		if (!inTauri()) return level;
-		return invoke<LogLevel>("set_file_log_level", { level });
+		return invokeCommand<LogLevel>("set_file_log_level", { level });
 	},
 
 	async clientLog(level: LogLevel, message: string): Promise<void> {
 		if (!inTauri() || !message) return;
-		await invoke("write_client_log", { level, message });
+		await invokeCommand("write_client_log", { level, message });
 	},
 };
 

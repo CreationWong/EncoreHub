@@ -30,7 +30,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
+      - run: pnpm test:bundle
+      - name: Build frontend and enforce bundle budget
+        run: pnpm build
+        env:
+          BUNDLE_BUDGET_KIB: "300"
+      - name: Upload frontend bundle statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-bundle-stats
+          path: |
+            frontend/dist/bundle-analysis.json
+            frontend/dist/bundle-budget.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload frontend assets for desktop jobs
         uses: actions/upload-artifact@v4
         with:

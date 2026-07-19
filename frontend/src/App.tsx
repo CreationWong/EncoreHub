@@ -1,7 +1,6 @@
 import { Loader2, Wifi, WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import ChatView from "./components/chat/ChatView";
-import SettingsModal from "./components/settings/SettingsModal";
 import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
@@ -18,12 +17,15 @@ type ServiceStatus = {
 	gateway: boolean;
 };
 
+const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
+
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
 	const loadProviders = useProviderStore((s) => s.load);
 	const refreshSecrets = useSecretsStore((s) => s.refresh);
 	const loadKeys = useSettingsStore((s) => s.loadKeys);
 	const openSettings = useSettingsStore((s) => s.openSettings);
+	const settingsOpen = useSettingsStore((s) => s.settingsOpen);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
 		gateway: false,
@@ -177,7 +179,11 @@ export default function App() {
 			<main className="flex-1 flex flex-col min-w-0">
 				<ChatView />
 			</main>
-			<SettingsModal />
+			{settingsOpen && (
+				<Suspense fallback={null}>
+					<SettingsModal />
+				</Suspense>
+			)}
 			<UnlockGate />
 			<ConfirmDialog />
 			<ToastHost />

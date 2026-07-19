@@ -2,6 +2,7 @@ import { Eye, EyeOff, Lock, LockOpen, Plus, Save, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { keyHintFor } from "../../constants/providers";
 import type { ProviderProfile } from "../../services/providers";
+import { confirm } from "../../stores/confirmStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -64,7 +65,6 @@ export default function ProvidersPanel() {
 			if (selectedId === p.id) setSelectedId(null);
 			return;
 		}
-		const { confirm } = await import("../../stores/confirmStore");
 		if (
 			!(await confirm.ask(
 				"Delete Provider",

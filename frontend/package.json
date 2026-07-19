@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "check": "tsc --noEmit",
+    "build": "tsc && vite build && pnpm run bundle:check",
+    "analyze:bundle": "tsc && vite build --mode analyze && pnpm run bundle:check",
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
-    "test": "vitest"
+    "lint": "biome check src/ scripts/ vite.config.ts",
+    "lint:fix": "biome check --write src/ scripts/ vite.config.ts",
+    "test": "vitest",
+    "test:bundle": "node --test scripts/check-bundle-budget.test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

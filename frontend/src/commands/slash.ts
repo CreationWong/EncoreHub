@@ -1,3 +1,4 @@
+import { confirm } from "../stores/confirmStore";
 import type { useConversationStore } from "../stores/conversationStore";
 import type { useSettingsStore } from "../stores/settingsStore";
 
@@ -34,7 +35,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		description: "Delete the current conversation",
 		run: async (_args, { conv }) => {
 			if (!conv.activeId) return;
-			const { confirm } = await import("../stores/confirmStore");
 			const ok = await confirm.ask(
 				"Delete Conversation",
 				"Delete this conversation and all its messages? This cannot be undone.",

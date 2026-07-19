@@ -158,6 +158,8 @@ pnpm docker:up:data
 
 CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。
 
+Frontend production build 会检查首屏静态 JavaScript 依赖闭包，默认 gzip budget 为 300 KiB。运行 `pnpm --dir frontend analyze:bundle` 可在 `frontend/dist/` 生成 `bundle-analysis.json`（chunk/module 明细）和 `bundle-budget.json`（首屏闭包与预算结果）；CI 始终保留这两份统计。只有在计划性收紧阈值时才设置 `BUNDLE_BUDGET_KIB`，不得用它放宽 CI gate。
+
 ## 桌面打包
 
 ```bash

@@ -6,6 +6,7 @@ import {
 	ShieldCheck,
 } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { confirm } from "../../stores/confirmStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
@@ -421,7 +422,6 @@ function DisableSection({
 function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
 	const [busy, setBusy] = useState(false);
 	const handle = async () => {
-		const { confirm } = await import("../../stores/confirmStore");
 		if (
 			!(await confirm.ask(
 				"Clear All Keys",

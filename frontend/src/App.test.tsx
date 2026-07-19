@@ -42,8 +42,9 @@ vi.mock("./stores/settingsStore", () => ({
 		selector: (state: {
 			loadKeys: typeof loadKeys;
 			openSettings: typeof openSettings;
+			settingsOpen: boolean;
 		}) => unknown,
-	) => selector({ loadKeys, openSettings }),
+	) => selector({ loadKeys, openSettings, settingsOpen: false }),
 }));
 
 import App from "./App";
