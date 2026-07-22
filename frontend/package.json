@@ -11,8 +11,8 @@
     "bundle:check": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "biome check src/ scripts/ vite.config.ts",
-    "lint:fix": "biome check --write src/ scripts/ vite.config.ts",
+    "lint": "biome check src/ scripts/ vite.config.ts ../scripts/docs-contract.test.mjs",
+    "lint:fix": "biome check --write src/ scripts/ vite.config.ts ../scripts/docs-contract.test.mjs",
     "test": "vitest",
     "test:bundle": "node --test scripts/check-bundle-budget.test.mjs"
   },

@@ -117,7 +117,7 @@ flowchart LR
 | WF-09 | P1 | P1-6 | Desktop/Release | G0 + G1 | 3-5 天 | `In review`（Windows 本地 build 绿色，待三平台安装 smoke） |
 | WF-10 | P2 | P2-3 | Python/Infra | G1 | 1-2 天 | `In review`（本地 gate 绿色，待 Data Services profile smoke） |
 | WF-11 | P2 | P2-4 | Frontend | G1 | 1-2 天 | `In review`（首屏 gzip budget 本地通过，待远端 CI） |
-| WF-12 | P2 | P2-5 | Maintainer | G1；可随前序 PR 增量执行 | 1-2 天 | `Not started` |
+| WF-12 | P2 | P2-5 | Maintainer | G1；可随前序 PR 增量执行 | 1-2 天 | `In review`（文档契约本地通过，待远端 CI） |
 
 ## 4. Milestone M0：安全止血
 
@@ -532,13 +532,21 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 
 **任务**
 
-- [ ] 新增 ADR：Engine 进程内化与内部认证。
-- [ ] 新增 ADR：Chat turn 状态与失败语义。
-- [ ] 修复 `CLAUDE.md` 的缺失链接和 slash command 列表。
-- [ ] 把 OpenAI 参考规范移到 `docs/vendor/` 并改名。
-- [ ] 为 EncoreHub 维护可校验的小型 OpenAPI。
-- [ ] CI 增加 Markdown 本地链接检查、OpenAPI validation 和关键命令 smoke。
-- [ ] 每个前序 PR 同步更新本文状态与相关报告，不把文档工作全部推迟到最后。
+- [x] 新增 ADR：Engine 进程内化与内部认证。
+- [x] 新增 ADR：Chat turn 状态与失败语义。
+- [x] 修复 `CLAUDE.md` 的缺失链接和 slash command 列表。
+- [x] 把 OpenAI 参考规范移到 `docs/vendor/` 并改名。
+- [x] 为 EncoreHub 维护可校验的小型 OpenAPI。
+- [x] CI 增加 Markdown 本地链接检查、OpenAPI validation 和关键命令 smoke。
+- [x] 每个前序 PR 同步更新本文状态与相关报告，不把文档工作全部推迟到最后。
+
+**执行记录（2026-07-19）**
+
+- 新增 ADR-0004，记录 Tauri 进程内 Engine、唯一 Gateway sidecar、256-bit 启动 token、Engine 路由认证边界和 standalone 共用契约；ADR-0001 保留语言决策并把旧打包后果链接为已被 ADR-0004 替代。Chat turn 状态与失败语义已由 WF-06 的 ADR-0003 建立，本项补齐可导航的关联链接。
+- 2,908,193-byte OpenAI snapshot 从项目契约位置迁到 `docs/vendor/openai-openapi-reference.yaml` 并记录来源边界；新的 `docs/openapi.json` 为 36,881 bytes，包含 31 个当前 Frontend 使用的 Gateway path，不混入 Engine 内部或第三方 provider API。
+- `scripts/docs-contract.test.mjs` 使用 Node 标准库完成 4 类 gate：维护 Markdown 本地链接存在；OpenAPI 3.1、`$ref`、operationId、path parameter 和 2xx response 合法；全部显式 Gin route 被记录且每个 OpenAPI operation 都能匹配实际 route/Any proxy；CLAUDE/README Slash 命令与 TypeScript 注册表一致。
+- `CLAUDE.md` 已移除不存在的 merge plan、`/export`、`VITE_ENGINE_URL`、config proxy 与 payload logging 描述，并链接 ADR-0001/0004 和规范契约；README、`.env.example`、审计报告同步更新。根 `test:contracts` 纳入 docs contract，CI 新增无依赖 Docs job 执行 `pnpm test:docs`。
+- 2026-07-22 本地最终复验已通过 `pnpm check`、`pnpm test`、`pnpm lint`、`pnpm test:docs` 和 `pnpm test:contracts`；Docs 4 项、合并契约 16 项均为绿色。远端 GitHub Actions 尚未触发，因此状态保持 `In review`。
 
 ## 9. 标准验证命令
 

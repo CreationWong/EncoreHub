@@ -11,6 +11,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ===== Documentation contracts =====
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check links, OpenAPI, ADRs, and documented commands
+        run: pnpm test:docs
+
   # ===== Frontend =====
   frontend:
     runs-on: ubuntu-latest

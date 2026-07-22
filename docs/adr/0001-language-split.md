@@ -4,6 +4,10 @@
 * **日期**：2026-06-16
 * **决策者**：项目主导
 
+> 本 ADR 的语言与模块边界继续有效；其中“Engine 与 Gateway 都作为
+> sidecar 打包”的部署后果已由
+> [ADR-0004](0004-engine-in-process-and-internal-auth.md) 替代。
+
 ## 背景
 
 EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
@@ -33,7 +37,7 @@ EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
 1. **CI 4 个 job、4 个 lint 配置**：用 GitHub Actions 并行跑，单语言失败不阻塞其他。
 2. **跨语言通信成本**：现阶段所有跨进程通信走 HTTP/JSON。蓝图是 gRPC，但 stub 生成与三端对齐属于另一笔投入，目前未启用（详见 `docs/IMPROVEMENT_REPORT.md` §三）。
 3. **类型重复**：`Conversation` / `Memory` / `Skill` 等结构在 TS/Go/Rust 各定义一份。当前手工同步可控；接 gRPC 后由 protoc 生成。
-4. **打包**：Tauri 把 engine 与 gateway 作为 sidecar 二进制内嵌，在 Windows MSI / macOS DMG / Linux deb 里一并发出。Python data-services 暂未纳入 sidecar（GB 级依赖不适合内嵌）。
+4. **打包（历史决策）**：Tauri 把 engine 与 gateway 作为 sidecar 二进制内嵌，在 Windows MSI / macOS DMG / Linux deb 里一并发出。Python data-services 暂未纳入 sidecar（GB 级依赖不适合内嵌）。桌面 Engine 后续改为进程内运行，当前打包与认证边界见 [ADR-0004](0004-engine-in-process-and-internal-auth.md)。
 
 **没接受的代价**
 
@@ -52,5 +56,6 @@ EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
 
 ## 相关链接
 
-- `docs/IMPROVEMENT_REPORT.md` — 当前实现深度对蓝图的差距
-- `DEVELOPMENT_PLAN.md` — 完整蓝图
+- [ADR-0004：Engine 进程内化与内部认证](0004-engine-in-process-and-internal-auth.md)
+- [改进报告](../IMPROVEMENT_REPORT.md) — 当前实现深度对蓝图的差距
+- [完整蓝图](../../DEVELOPMENT_PLAN.md)

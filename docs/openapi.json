@@ -1,0 +1,1197 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EncoreHub Gateway API",
+    "version": "0.1.0",
+    "description": "Browser-facing HTTP and SSE contract used by the EncoreHub frontend. Engine-only routes and third-party provider APIs are outside this contract. Every response includes X-Request-ID."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "Default headless development address; desktop ports are negotiated at runtime."
+    }
+  ],
+  "security": [
+    {},
+    {
+      "GatewayBearer": []
+    }
+  ],
+  "tags": [
+    { "name": "Health" },
+    { "name": "Conversations" },
+    { "name": "Providers" },
+    { "name": "Search" },
+    { "name": "Settings" },
+    { "name": "Skills" },
+    { "name": "Memories" },
+    { "name": "Knowledge" },
+    { "name": "Secrets" }
+  ],
+  "paths": {
+    "/api/v1/health/live": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getGatewayLiveness",
+        "security": [],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Liveness" }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getGatewayReadiness",
+        "security": [],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Readiness" },
+          "503": { "$ref": "#/components/responses/Readiness" }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getGatewayReadinessCompatibility",
+        "security": [],
+        "deprecated": true,
+        "responses": {
+          "200": { "$ref": "#/components/responses/Readiness" },
+          "503": { "$ref": "#/components/responses/Readiness" }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getPrometheusMetrics",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition",
+            "content": {
+              "text/plain": { "schema": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations": {
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "listConversations",
+        "responses": {
+          "200": { "$ref": "#/components/responses/ConversationList" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "createConversation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateConversationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Conversation" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "getConversation",
+        "responses": {
+          "200": { "$ref": "#/components/responses/ConversationDetail" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "patch": {
+        "tags": ["Conversations"],
+        "operationId": "renameConversation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RenameConversationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Conversation" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Conversations"],
+        "operationId": "deleteConversation",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/chat": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "sendChatMessage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON response when stream=false, otherwise an SSE stream ending in authoritative done or error data.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatResponse" }
+              },
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/generate-title": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "generateConversationTitle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenerateTitleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Conversation" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/title": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "patch": {
+        "tags": ["Conversations"],
+        "operationId": "updateConversationTitle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RenameConversationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Conversation" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "tags": ["Search"],
+        "operationId": "searchWeb",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SearchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SearchResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/log-level": {
+      "get": {
+        "tags": ["Settings"],
+        "operationId": "getLogLevel",
+        "responses": {
+          "200": {
+            "description": "Persisted runtime log level",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LogLevelResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Settings"],
+        "operationId": "setLogLevel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LogLevelRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Applied runtime log level",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LogLevelResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/providers": {
+      "get": {
+        "tags": ["Providers"],
+        "operationId": "listProviders",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Providers" }
+        }
+      },
+      "put": {
+        "tags": ["Providers"],
+        "operationId": "replaceProviders",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["providers"],
+                "properties": {
+                  "providers": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/ProviderProfile" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Providers" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/providers/{provider}/models": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ProviderId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "get": {
+        "tags": ["Providers"],
+        "operationId": "listProviderModels",
+        "responses": {
+          "200": {
+            "description": "Provider models",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelsResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/skills": {
+      "get": {
+        "tags": ["Skills"],
+        "operationId": "listSkills",
+        "responses": {
+          "200": {
+            "description": "Loaded skills",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SkillList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills/match": {
+      "get": {
+        "tags": ["Skills"],
+        "operationId": "matchSkills",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching skills",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SkillList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills/{id}/toggle": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" }
+      ],
+      "post": {
+        "tags": ["Skills"],
+        "operationId": "toggleSkill",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["enabled"],
+                "properties": { "enabled": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/memories": {
+      "get": {
+        "tags": ["Memories"],
+        "operationId": "listMemories",
+        "parameters": [
+          { "name": "scope", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persisted memories",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MemoryList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/search": {
+      "get": {
+        "tags": ["Memories"],
+        "operationId": "searchMemories",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "schema": { "type": "string" } },
+          { "name": "top_k", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked memories",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MemorySearchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" }
+      ],
+      "delete": {
+        "tags": ["Memories"],
+        "operationId": "deleteMemory",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/knowledge": {
+      "get": {
+        "tags": ["Knowledge"],
+        "operationId": "listKnowledgeDocuments",
+        "responses": {
+          "200": {
+            "description": "Knowledge documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/KnowledgeDocument" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Knowledge"],
+        "operationId": "ingestKnowledgeDocument",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/KnowledgeIngestRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created knowledge document",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgeDocument" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/knowledge/search": {
+      "get": {
+        "tags": ["Knowledge"],
+        "operationId": "searchKnowledge",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "top_k", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked knowledge chunks",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgeSearchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" }
+      ],
+      "delete": {
+        "tags": ["Knowledge"],
+        "operationId": "deleteKnowledgeDocument",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/status": {
+      "get": {
+        "tags": ["Secrets"],
+        "operationId": "getSecretsStatus",
+        "responses": {
+          "200": {
+            "description": "Encryption and unlock state",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SecretsStatus" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/secrets": {
+      "get": {
+        "tags": ["Secrets"],
+        "operationId": "listSecretProviders",
+        "responses": {
+          "200": {
+            "description": "Provider ids with stored keys",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SecretsList" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Secrets"],
+        "operationId": "putProviderSecret",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PutSecretRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "423": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/{provider_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/SecretProviderId" }
+      ],
+      "get": {
+        "tags": ["Secrets"],
+        "operationId": "getProviderSecret",
+        "responses": {
+          "200": {
+            "description": "Decrypted provider key",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SecretValue" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "423": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Secrets"],
+        "operationId": "deleteProviderSecret",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "423": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/enable": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "enableSecretsEncryption",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EnableSecretsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/disable": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "disableSecretsEncryption",
+        "requestBody": { "$ref": "#/components/requestBodies/Password" },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/unlock": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "unlockSecrets",
+        "requestBody": { "$ref": "#/components/requestBodies/Password" },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/lock": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "lockSecrets",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" }
+        }
+      }
+    },
+    "/api/v1/secrets/reset-password": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "resetSecretsPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResetPasswordRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/secrets/clear": {
+      "post": {
+        "tags": ["Secrets"],
+        "operationId": "clearSecrets",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "GatewayBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Required only when ENCOREHUB_AUTH_TOKEN is configured. Never reuse ENCOREHUB_ENGINE_AUTH_TOKEN."
+      }
+    },
+    "parameters": {
+      "ConversationId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "ResourceId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "ProviderId": {
+        "name": "provider",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "SecretProviderId": {
+        "name": "provider_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "ProviderKey": {
+        "name": "X-Provider-Key",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string" },
+        "description": "Optional when the provider key is available from the unlocked Engine vault."
+      }
+    },
+    "requestBodies": {
+      "Password": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/PasswordRequest" }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Error response",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NoContent": { "description": "Operation completed" },
+      "Liveness": {
+        "description": "Gateway process is serving",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Liveness" }
+          }
+        }
+      },
+      "Readiness": {
+        "description": "Gateway and Engine database readiness",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Readiness" }
+          }
+        }
+      },
+      "Conversation": {
+        "description": "Conversation summary",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Conversation" }
+          }
+        }
+      },
+      "ConversationDetail": {
+        "description": "Conversation and authoritative messages",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ConversationDetail" }
+          }
+        }
+      },
+      "ConversationList": {
+        "description": "Conversation summaries",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ConversationList" }
+          }
+        }
+      },
+      "Providers": {
+        "description": "Canonical provider profiles",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ProvidersResponse" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } }
+      },
+      "Liveness": {
+        "type": "object",
+        "required": ["status", "service"],
+        "properties": {
+          "status": { "const": "ok" },
+          "service": { "const": "encorehub-gateway" }
+        }
+      },
+      "EngineReadiness": {
+        "type": "object",
+        "required": ["url", "ok", "latency_ms"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "ok": { "type": "boolean" },
+          "latency_ms": { "type": "integer", "minimum": 0 },
+          "error": { "type": "string" }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "required": ["status", "service", "engine"],
+        "properties": {
+          "status": { "enum": ["ok", "not_ready"] },
+          "service": { "const": "encorehub-gateway" },
+          "engine": { "$ref": "#/components/schemas/EngineReadiness" }
+        }
+      },
+      "Conversation": {
+        "type": "object",
+        "required": ["id", "title", "provider", "model", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "message_count": { "type": "integer", "minimum": 0 },
+          "created_at": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "ToolCall": {
+        "type": "object",
+        "required": ["name", "arguments"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "arguments": { "type": "string" },
+          "result": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": ["id", "role", "content", "status", "token_count", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "role": { "enum": ["system", "user", "assistant", "tool"] },
+          "content": { "type": "string" },
+          "reasoning": { "type": "string" },
+          "parent_id": { "type": ["string", "null"] },
+          "tool_calls": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ToolCall" }
+          },
+          "token_count": { "type": "integer", "minimum": 0 },
+          "status": { "enum": ["pending", "completed", "failed", "stopped"] },
+          "created_at": { "type": "string" }
+        }
+      },
+      "ConversationDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Conversation" },
+          {
+            "type": "object",
+            "required": ["messages"],
+            "properties": {
+              "messages": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/Message" }
+              },
+              "summary": { "type": ["string", "null"] }
+            }
+          }
+        ]
+      },
+      "ConversationList": {
+        "type": "object",
+        "required": ["conversations", "total"],
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Conversation" }
+          },
+          "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CreateConversationRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      },
+      "RenameConversationRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": { "title": { "type": "string", "minLength": 1 } }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "stream": { "type": "boolean" },
+          "search": { "type": "boolean" },
+          "search_provider": { "enum": ["duckduckgo", "bing", "google"] },
+          "temperature": { "type": "number" },
+          "top_p": { "type": "number" },
+          "max_tokens": { "type": "integer" },
+          "max_completion_tokens": { "type": "integer" },
+          "frequency_penalty": { "type": "number" },
+          "presence_penalty": { "type": "number" },
+          "stop": { "type": "array", "items": { "type": "string" } },
+          "seed": { "type": ["integer", "null"] },
+          "json_mode": { "type": "boolean" },
+          "reasoning_effort": { "type": "string" }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "required": ["input_tokens", "output_tokens"],
+        "properties": {
+          "input_tokens": { "type": "integer", "minimum": 0 },
+          "output_tokens": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "required": ["conversation_id", "reply", "provider", "model"],
+        "properties": {
+          "conversation_id": { "type": "string", "format": "uuid" },
+          "user_message": { "$ref": "#/components/schemas/Message" },
+          "assistant_message": { "$ref": "#/components/schemas/Message" },
+          "reply": { "type": "string" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "usage": { "$ref": "#/components/schemas/Usage" }
+        }
+      },
+      "GenerateTitleRequest": {
+        "type": "object",
+        "properties": { "force": { "type": "boolean", "default": false } }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "max_results": { "type": "integer", "minimum": 1, "maximum": 10 }
+        }
+      },
+      "SearchResult": {
+        "type": "object",
+        "required": ["title", "url", "snippet"],
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "snippet": { "type": "string" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["query", "provider", "results"],
+        "properties": {
+          "query": { "type": "string" },
+          "provider": { "type": "string" },
+          "results": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SearchResult" }
+          }
+        }
+      },
+      "LogLevelRequest": {
+        "type": "object",
+        "required": ["level"],
+        "properties": {
+          "level": { "enum": ["error", "warn", "warning", "info", "debug", "trace"] }
+        }
+      },
+      "LogLevelResponse": {
+        "type": "object",
+        "required": ["level"],
+        "properties": {
+          "level": { "type": "string" },
+          "engine_applied": { "type": "boolean" }
+        }
+      },
+      "ProviderProfile": {
+        "type": "object",
+        "required": ["id", "name", "protocol", "base_url", "models", "enabled", "builtin"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "protocol": { "enum": ["openai", "anthropic"] },
+          "base_url": { "type": "string" },
+          "models": { "type": "array", "items": { "type": "string" } },
+          "enabled": { "type": "boolean" },
+          "builtin": { "type": "boolean" }
+        }
+      },
+      "ProvidersResponse": {
+        "type": "object",
+        "required": ["providers"],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProviderProfile" }
+          }
+        }
+      },
+      "ModelInfo": {
+        "type": "object",
+        "required": ["id", "name", "provider", "context_limit"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "provider": { "type": "string" },
+          "context_limit": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ModelsResponse": {
+        "type": "object",
+        "required": ["provider", "models"],
+        "properties": {
+          "provider": { "type": "string" },
+          "models": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModelInfo" }
+          }
+        }
+      },
+      "Skill": {
+        "type": "object",
+        "required": ["id", "name", "description", "version", "enabled", "builtin"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "string" },
+          "author": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "builtin": { "type": "boolean" },
+          "triggers": { "type": "array", "items": { "type": "string" } },
+          "tool_count": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "SkillList": {
+        "type": "object",
+        "required": ["skills"],
+        "properties": {
+          "skills": { "type": "array", "items": { "$ref": "#/components/schemas/Skill" } }
+        }
+      },
+      "Memory": {
+        "type": "object",
+        "required": ["id", "scope", "memory_type", "content", "importance", "created_at", "last_accessed_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "scope": { "type": "string" },
+          "memory_type": { "type": "string" },
+          "conversation_id": { "type": ["string", "null"] },
+          "content": { "type": "string" },
+          "importance": { "type": "number" },
+          "created_at": { "type": "string" },
+          "last_accessed_at": { "type": "string" }
+        }
+      },
+      "MemoryList": {
+        "type": "object",
+        "required": ["memories", "total"],
+        "properties": {
+          "memories": { "type": "array", "items": { "$ref": "#/components/schemas/Memory" } },
+          "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "MemorySearchResponse": {
+        "type": "object",
+        "required": ["results", "query"],
+        "properties": {
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/Memory" } },
+          "query": { "type": "string" }
+        }
+      },
+      "KnowledgeDocument": {
+        "type": "object",
+        "required": ["id", "title", "file_type", "chunk_count", "size_bytes", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "file_type": { "type": "string" },
+          "chunk_count": { "type": "integer", "minimum": 0 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "created_at": { "type": "string" }
+        }
+      },
+      "KnowledgeChunk": {
+        "type": "object",
+        "required": ["id", "document_id", "content", "chunk_index", "score"],
+        "properties": {
+          "id": { "type": "string" },
+          "document_id": { "type": "string" },
+          "content": { "type": "string" },
+          "chunk_index": { "type": "integer", "minimum": 0 },
+          "score": { "type": "number" }
+        }
+      },
+      "KnowledgeIngestRequest": {
+        "type": "object",
+        "required": ["title", "content"],
+        "properties": {
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "file_type": { "type": "string" }
+        }
+      },
+      "KnowledgeSearchResponse": {
+        "type": "object",
+        "required": ["results", "query"],
+        "properties": {
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgeChunk" } },
+          "query": { "type": "string" }
+        }
+      },
+      "SecretsStatus": {
+        "type": "object",
+        "required": ["encrypted", "unlocked"],
+        "properties": {
+          "encrypted": { "type": "boolean" },
+          "unlocked": { "type": "boolean" }
+        }
+      },
+      "SecretsList": {
+        "type": "object",
+        "required": ["provider_ids"],
+        "properties": {
+          "provider_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "SecretValue": {
+        "type": "object",
+        "required": ["key"],
+        "properties": { "key": { "type": "string" } }
+      },
+      "PutSecretRequest": {
+        "type": "object",
+        "required": ["provider_id", "key"],
+        "properties": {
+          "provider_id": { "type": "string" },
+          "key": { "type": "string" }
+        }
+      },
+      "PasswordRequest": {
+        "type": "object",
+        "required": ["password"],
+        "properties": { "password": { "type": "string" } }
+      },
+      "EnableSecretsRequest": {
+        "type": "object",
+        "required": ["password"],
+        "properties": {
+          "password": { "type": "string" },
+          "keys": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
+      "ResetPasswordRequest": {
+        "type": "object",
+        "required": ["old_password", "new_password"],
+        "properties": {
+          "old_password": { "type": "string" },
+          "new_password": { "type": "string" }
+        }
+      }
+    }
+  }
+}

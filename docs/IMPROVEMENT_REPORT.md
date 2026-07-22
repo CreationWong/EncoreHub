@@ -376,10 +376,10 @@ EncoreHub 的核心功能已经具备一定自动化测试基础：前端 128 �
 
 **证据**
 
-- `CLAUDE.md` 引用不存在的 `docs/ENGINE_TAURI_MERGE_PLAN.md`：[CLAUDE.md](../CLAUDE.md#L22)。
-- ADR-0001 仍描述 Tauri 同时打包 engine 与 gateway sidecar，但当前 engine 已进程内化：[docs/adr/0001-language-split.md](adr/0001-language-split.md#L32)。
-- `CLAUDE.md` 的 slash command 列表包含不存在的 `/export`，并遗漏当前多个命令；真实注册表见 [frontend/src/commands/slash.ts](../frontend/src/commands/slash.ts#L22)。
-- `docs/openapi.yaml` 实际是 OpenAI 官方 API 规范，title/server 都指向 OpenAI，而不是 EncoreHub：[docs/openapi.yaml](openapi.yaml#L1)。文件约 2.9 MB、73,854 行，命名容易让人误认为是本项目契约。
+- 修复前 `CLAUDE.md` 引用不存在的 `docs/ENGINE_TAURI_MERGE_PLAN.md`：[CLAUDE.md](../CLAUDE.md#L22)。
+- 修复前 ADR-0001 仍描述 Tauri 同时打包 engine 与 gateway sidecar，但当前 engine 已进程内化：[docs/adr/0001-language-split.md](adr/0001-language-split.md#L32)。
+- 修复前 `CLAUDE.md` 的 slash command 列表包含不存在的 `/export`，并遗漏当前多个命令；真实注册表见 [frontend/src/commands/slash.ts](../frontend/src/commands/slash.ts#L22)。
+- 修复前的 `docs/openapi.yaml` 实际是 OpenAI 官方 API 规范，title/server 都指向 OpenAI，而不是 EncoreHub；原始快照现归档为 [vendor reference](vendor/openai-openapi-reference.yaml#L1)。文件约 2.9 MB、73,854 行，原命名容易让人误认为是本项目契约。
 
 **影响**
 
@@ -392,6 +392,13 @@ EncoreHub 的核心功能已经具备一定自动化测试基础：前端 128 �
 - 为文档增加本地链接检查和关键命令 smoke test。
 - ADR 不直接覆盖历史；新增 ADR 记录 engine 进程内化，并把旧 ADR 的后果链接到新 ADR。
 - 从代码生成 endpoint/command 清单，减少手工同步。
+
+**处理记录（2026-07-19）**
+
+- ADR-0004 固定桌面 Engine 进程内化、唯一 Gateway sidecar、内部 token、公开 liveness 与 app data/resource 路径；ADR-0001 保留语言切分历史并明确只有旧打包后果被替代。WF-06 已建立的 ADR-0003 继续作为 Chat turn 状态与失败语义的权威决策。
+- OpenAI 2,908,193-byte 参考规范归档为 `docs/vendor/openai-openapi-reference.yaml`；项目契约改为 36,881-byte `docs/openapi.json`，覆盖 31 个浏览器侧 Gateway path，并与显式 Gin route 和资源 proxy 做自动比对。
+- `CLAUDE.md` 改为有效 ADR/OpenAPI 链接，11 个 Slash command 与 TypeScript 注册表逐项同步；同时清除 `/export`、`VITE_ENGINE_URL`、不存在的 config proxy 和 payload logging 等陈旧说明。README 与 `.env.example` 的命令和配置入口同步收敛。
+- 新增 4 项无第三方依赖的文档契约测试，检查维护文档本地链接、OpenAPI 结构/引用/路由、Slash 注册表、ADR 连接和 CI 命令。GitHub Actions 新增独立 Docs job 执行 `pnpm test:docs`，根 `test:contracts` 同时纳入该 gate。
 
 ## 6. 建议执行顺序
 

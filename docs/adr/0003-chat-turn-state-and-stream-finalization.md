@@ -98,6 +98,6 @@ is terminal, then replaces streaming scratch state with Engine state.
 
 ## Related work
 
-- `docs/IMPROVEMENT_REPORT.md` P1-2 and P2-2
-- `docs/IMPROVEMENT_WORKFLOW.md` WF-06
-- ADR-0002, HTTP/JSON remains the inter-service transport
+- [Improvement report](../IMPROVEMENT_REPORT.md) P1-2 and P2-2
+- [Improvement workflow](../IMPROVEMENT_WORKFLOW.md) WF-06
+- [ADR-0002](0002-http-first-grpc-later.md), HTTP/JSON remains the inter-service transport

@@ -24,7 +24,7 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 | `data-services/` | Python 3.12 (FastAPI) | 可选 `data` profile；已定义 embed/parse/chunk 合约，当前统一返回 `501`，未加载 ML/解析依赖 |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
-为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)。
+为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)；桌面 Engine 进程模型与内部认证见 [`docs/adr/0004-engine-in-process-and-internal-auth.md`](docs/adr/0004-engine-in-process-and-internal-auth.md)。
 
 ## Quickstart（开发模式）
 
@@ -68,7 +68,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 ### 端口协商
 
-- **Client / Tauri 模式**：`ENGINE_BIND` 与 `LISTEN_ADDR` 未设时，桌面壳从 10000 向上自动扫描可用端口（engine 先、gateway 后）。前端通过 `get_service_ports` Tauri command 获取端口并构建 API URL。
+- **Client / Tauri 模式**：`ENGINE_BIND` 与 `LISTEN_ADDR` 未设时，桌面壳从 10000 向上自动扫描可用端口（engine 先、gateway 后）。前端通过 `get_service_ports` Tauri command 只获取 Gateway 端口并构建 API URL。
 - **Headless / 开发模式**：端口始终走 env（`ENGINE_BIND`、`LISTEN_ADDR`），或使用 loopback 默认值 `127.0.0.1:3000` / `127.0.0.1:8080`。
 - 固定端口只需设上述 env 变量即可。
 
@@ -85,6 +85,8 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 每个请求 gateway 会注入 `X-Request-ID`（如客户端已带则透传），并 reflect 到响应头；引擎下游调用同样透传，方便跨服务串联日志。
 
+浏览器侧 Gateway API 的规范契约见 [`docs/openapi.json`](docs/openapi.json)；第三方 API 快照统一放在 [`docs/vendor/`](docs/vendor/README.md)，不代表 EncoreHub 路由。
+
 **桌面数据与日志**：Tauri 把数据库写到系统 `app_data_dir/data/encorehub.db`，把 engine/gateway/desktop 三方脱敏日志写到 `app_data_dir/log/encorehub-YYYY-MM-DD.log`，按天切分、保留 7 天。Windows 旧版 executable directory 下的 `data/`、`log/` 会先复制并逐文件校验，再写迁移 marker；旧副本不在应用启动时删除。升级和卸载不会删除新的 app data，旧安装目录副本只在显式卸载时由 installer hook 清理。
 
 ## 关键功能
@@ -93,7 +95,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 - **流式 SSE**：可中断（前端 InputBox 的 Stop 按钮 / Esc）；支持 reasoning（chain-of-thought）可见可折叠
 - **Token 计数**：每次对话后 assistant 消息右上角显示 input+output token 总数（如 `1.2k tokens`）；引擎 `conversation` crate 提供 char/4 近似估算 + API 用量追踪
 - **端口自动协商**：Tauri 桌面模式下从 10000 自动找可用端口，避免多实例冲突；headless 模式走 env 固定端口
-- **Slash 命令**：在输入框打 `/` 出补全 — `/new /clear /stop /model /settings /skills /knowledge /memory /help`
+- **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/retitle` `/help`
 - **设置面板**（`Ctrl/Cmd + ,`）：Providers / Skills / Knowledge / Memories / Security / Appearance（开启开发者模式后多一个 Developer 标签）
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
@@ -126,6 +128,8 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 ├── docs/
 │   ├── REMAINING_WORK.md      剩余工作 + 最近完成
 │   ├── IMPROVEMENT_REPORT.md  审计 + P0/P1/P2 差距
+│   ├── openapi.json           EncoreHub Gateway API 契约
+│   ├── vendor/                第三方 API 参考快照（非项目契约）
 │   └── adr/                   架构决策记录
 ├── docker-compose.yml
 ├── package.json          唯一规范的 workspace 命令入口
@@ -143,6 +147,7 @@ pnpm build
 
 # 测试 & Lint
 pnpm test
+pnpm test:docs
 pnpm lint
 pnpm format
 
@@ -156,7 +161,7 @@ pnpm docker:build:data
 pnpm docker:up:data
 ```
 
-CI 配置见 `.github/workflows/ci.yml`，包含 Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。
+CI 配置见 `.github/workflows/ci.yml`，包含 Docs、Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。
 
 Frontend production build 会检查首屏静态 JavaScript 依赖闭包，默认 gzip budget 为 300 KiB。运行 `pnpm --dir frontend analyze:bundle` 可在 `frontend/dist/` 生成 `bundle-analysis.json`（chunk/module 明细）和 `bundle-budget.json`（首屏闭包与预算结果）；CI 始终保留这两份统计。只有在计划性收紧阈值时才设置 `BUNDLE_BUDGET_KIB`，不得用它放宽 CI gate。
 

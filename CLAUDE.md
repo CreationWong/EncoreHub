@@ -19,12 +19,12 @@ depends on the `encorehub-engine` crate and starts its axum service in-process
 on Tauri's tokio runtime. The gateway is the **only sidecar** spawned as a child
 process. The engine also still builds as a **standalone binary** (gated by the
 `standalone` Cargo feature) for headless deployment, pure-web dev, and CI.
-See `docs/ENGINE_TAURI_MERGE_PLAN.md`.
+See [ADR-0004](docs/adr/0004-engine-in-process-and-internal-auth.md).
 
 Ports are negotiated at startup: in Tauri/client mode `find_free_port()` scans
 from 10000 upward; in headless/dev mode the env vars `ENGINE_BIND` / `LISTEN_ADDR`
-(or their defaults `:3000` / `:8080`) take precedence. The frontend receives the
-actual ports via the `get_service_ports` Tauri command.
+(or their defaults `:3000` / `:8080`) take precedence. The frontend receives
+only the actual Gateway port via the `get_service_ports` Tauri command.
 
 ## Conventions
 
@@ -49,7 +49,7 @@ actual ports via the `get_service_ports` Tauri command.
 | `data-services/` | Python 3.12 (FastAPI) | Optional contract service for embed/parse/chunk; no capability implementation or ML runtime dependencies yet | ⏳ Contract-only `data` profile |
 | `proto/` | protobuf | gRPC schema for inter-service communication | ⏳ Schema complete, gRPC not yet enabled |
 
-Why this language split: see `docs/adr/0001-language-split.md`.
+Why this language split: see [ADR-0001](docs/adr/0001-language-split.md).
 
 ## Essential Build & Test Commands
 
@@ -69,6 +69,7 @@ Root `package.json` scripts are the canonical workspace entrypoint:
 pnpm check         # workspace contracts + static checks
 pnpm build         # standalone Engine + Gateway + Frontend
 pnpm test          # all component tests
+pnpm test:docs     # Markdown links, OpenAPI/routes, ADR and command contracts
 pnpm lint          # all component lint gates
 pnpm format        # Biome + rustfmt + gofmt
 pnpm build:desktop # current-platform Tauri bundle
@@ -90,7 +91,7 @@ The Makefile is a compatibility shim that delegates to these scripts; do not add
 | `pnpm tauri build` | Tauri desktop production build — generates `.msi` and `.exe` installer |
 | `pnpm test` | Vitest (jsdom, `src/**/*.test.{ts,tsx}`) |
 | `pnpm test:bundle` | Node contract tests for the static-closure budget calculation |
-| `pnpm lint` | Biome check `src/`, bundle scripts, and Vite config |
+| `pnpm lint` | Biome check `src/`, bundle/docs contract scripts, and Vite config |
 | `pnpm lint:fix` | Biome auto-fix |
 
 **Gateway** (`cd gateway`):
@@ -131,7 +132,7 @@ cd engine   && cargo test test_name
 
 ## Port Negotiation
 
-- **Tauri / client mode**: When `ENGINE_BIND` and `LISTEN_ADDR` are unset, the desktop app calls `find_free_port(10000)` from `engine/src/lib.rs` to find two free ports on `127.0.0.1` (engine first, gateway next). The gateway sidecar receives `ENGINE_URL` and `LISTEN_ADDR` as env vars. The frontend calls `invoke("get_service_ports")` at startup to resolve the actual ports.
+- **Tauri / client mode**: When `ENGINE_BIND` and `LISTEN_ADDR` are unset, the desktop app calls `find_free_port(10000)` from `engine/src/lib.rs` to find two free ports on `127.0.0.1` (engine first, gateway next). The gateway sidecar receives `ENGINE_URL` and `LISTEN_ADDR` as env vars. The frontend calls `invoke("get_service_ports")` at startup to resolve only the Gateway port.
 - **Headless / dev mode**: Ports always come from env vars (`ENGINE_BIND`, `LISTEN_ADDR`, `ENGINE_URL`) or their defaults (`127.0.0.1:3000`, `:8080`).
 - The Tauri `ServiceState` struct stores `engine_port` and `gateway_port`; `check_engine_health` and `check_gateway_health` use them instead of hardcoded ports.
 - Frontend `config.ts` exports `applyServicePorts(gwPort)` and Gateway URL getters (`apiBase()`, `gatewayUrl()`, `gatewayLivenessUrl()`, `gatewayReadinessUrl()`) — React never connects directly to Engine.
@@ -199,7 +200,7 @@ When the user toggles search on (globe icon in the input box):
 - **Gateway** provides `POST /api/v1/conversations/:id/generate-title` for explicit `/retitle` requests (`force: true`) and guarded automatic requests (`force: false`)
 - **Engine** stores title updates via conversation PATCH/title update endpoints; it does not own AI title generation
 - Automatic generation uses the conversation's configured model and must not automatically switch to a non-reasoning or lighter model; provider-native reasoning disable flags are allowed for the hidden title request (DeepSeek V4 uses `thinking.type=disabled`)
-- Limits: Chinese-only ≤20 chars, English-only ≤15 words, mixed Chinese/English ≤15 chars; timeout 30s; 3 retries with full request/response/error logging
+- Limits: Chinese-only ≤20 chars, English-only ≤15 words, mixed Chinese/English ≤15 chars; timeout 30s; 3 retries with redacted metadata-only failure logging
 - Titles are displayed in the conversation list and conversation header with edit functionality
 
 ### Frontend State (Zustand)
@@ -216,11 +217,22 @@ When the user toggles search on (globe icon in the input box):
 Commands are declared in `frontend/src/commands/slash.ts` as a `SlashCommand[]` array. Each command has an `id`, `name`, `description`, and `run(args, ctx)` where `ctx` provides access to conversation and settings stores. Add new commands by appending to the array — they auto-register in the input box's `/` completion menu.
 
 **Current Commands**:
-- `/clear` - Clear conversation
-- `/model` - Switch model/provider
-- `/retitle` - Force AI title regeneration for the current conversation
-- `/export` - Export conversation
-- `/help` - Show available commands
+
+<!-- slash-commands:start -->
+| Command | Description |
+|---------|-------------|
+| `/new` | Start a new conversation |
+| `/clear` | Delete the current conversation |
+| `/stop` | Stop the current generation |
+| `/model` | Open settings to switch model |
+| `/settings` | Open settings panel |
+| `/skills` | Open skills panel |
+| `/memory` | Open memory panel |
+| `/knowledge` | Open knowledge base panel |
+| `/inspect` | Dump the current conversation state for debugging |
+| `/retitle` | Generate an AI title for this conversation |
+| `/help` | Show available commands |
+<!-- slash-commands:end -->
 
 ### Engine Crate Structure
 
@@ -235,7 +247,7 @@ The main binary (`src/main.rs`) wires: open SQLite → load skills → install a
 
 ### Skills Directory
 
-Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative to the engine binary). The engine ships with three built-in skills: `code-explainer`, `summarize`, `web-search`. The web-search skill supports dynamic tool calls for real-time web information retrieval.
+Skills are Markdown files with YAML frontmatter. Desktop loads bundled skills from Tauri `resource_dir/skills`; standalone mode uses `ENCOREHUB_SKILLS_DIR` or its local development default. The engine ships with three built-in skills: `code-explainer`, `summarize`, `web-search`. The web-search skill supports dynamic tool calls for real-time web information retrieval.
 
 ### Provider Enhancements
 
@@ -247,6 +259,7 @@ Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative 
 
 **Environment variables** (copy `.env.example` → `.env`):
 - `LISTEN_ADDR` / `ENGINE_URL` / `ENGINE_BIND` — service binding and port negotiation (see Port Negotiation section)
+- `ENCOREHUB_ENGINE_AUTH_TOKEN` — Gateway-to-Engine bearer token; required in standalone/Docker, generated in memory by Tauri
 - `ENCOREHUB_AUTH_TOKEN` — sets bearer auth on gateway (unset = no auth, fine for localhost)
 - `ENCOREHUB_CORS_ORIGINS` — comma-separated extra CORS origins
 - `ENCOREHUB_RATE_LIMIT_RPS` (30) / `ENCOREHUB_RATE_LIMIT_BURST` (60)
@@ -255,16 +268,19 @@ Skills are Markdown files with YAML frontmatter loaded from `skills/` (relative 
 - `ENCOREHUB_DEV_MOCK` — set to `1`/`true` to enable mock replies without an API key (dev only)
 
 **Frontend** (`.env.local` from `frontend/.env.example`):
-- `VITE_GATEWAY_URL` / `VITE_ENGINE_URL` / `VITE_AUTH_TOKEN`
+- `VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`
 - In Tauri/client mode these are overridden at runtime by `applyServicePorts()` after `get_service_ports` resolves.
 
-API keys for providers go in `.env` (server-side). The frontend sends them via `X-Provider-Key` header per-request; keys live in session memory only (or encrypted at rest in the engine DB when the secrets vault is enabled).
+AI provider API keys are entered through the frontend and sent via `X-Provider-Key` or loaded from the Engine vault; they are not read from root `.env`. Bing/Google web-search credentials remain server-side environment variables. Provider keys live in session memory only or encrypted at rest when the secrets vault is enabled.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) has six job groups: frontend, gateway, engine, three-platform desktop, data-services, and container/profile smoke. Triggers on push/PR to `master`/`main`.
+GitHub Actions (`.github/workflows/ci.yml`) has seven job groups: docs, frontend, gateway, engine, three-platform desktop, data-services, and container/profile smoke. Triggers on push/PR to `master`/`main`.
 
 ## Key Endpoints
+
+The canonical browser-facing contract is [docs/openapi.json](docs/openapi.json).
+The table below is only a quick index.
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -276,11 +292,9 @@ GitHub Actions (`.github/workflows/ci.yml`) has six job groups: frontend, gatewa
 | `GET/POST /api/v1/conversations` | List / create conversations |
 | `GET/PATCH/DELETE /api/v1/conversations/:id` | CRUD for a single conversation |
 | `POST /api/v1/conversations/:id/generate-title` | AI-generate conversation title (`force` controls manual vs guarded automatic behavior) |
-| `/retitle` command | Force AI title regeneration for the current conversation |
 | `GET/PUT /api/v1/providers` | List / update provider profiles |
 | `POST /api/v1/search` | Web search (DuckDuckGo, Bing, Google) |
 | `/api/v1/{skills,memories,knowledge,secrets}/*` | Proxied to engine |
-| `/api/v1/config/*` | Proxied to engine (runtime config) |
 
 All requests get an `X-Request-ID` header (generated if missing, propagated downstream).
 
