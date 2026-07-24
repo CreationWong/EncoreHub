@@ -4,6 +4,7 @@
 > 基线日期：2026-07-24
 > 目标参考：用户提供的布局、消息状态、Token 与供应商设置参考图
 > 范围：客户端主窗口、角色/对话侧栏、聊天上下文栏、消息流、输入区和供应商配置页
+> 执行工作流：[CLIENT_UI_OPTIMIZATION_WORKFLOW.md](CLIENT_UI_OPTIMIZATION_WORKFLOW.md)
 
 ## 一、修订结论
 
