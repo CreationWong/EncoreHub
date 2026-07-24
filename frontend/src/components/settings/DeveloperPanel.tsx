@@ -1,4 +1,4 @@
-import { Bug, Download, Trash2 } from "lucide-react";
+import { Bug, Download, FolderOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type LogEntry,
@@ -199,17 +199,17 @@ export default function DeveloperPanel() {
 		}
 	}, []);
 
-	const exportLogs = useCallback(() => {
-		const text = filtered
-			.map((l) => `[${l.source}/${l.level}] ${l.message}`)
-			.join("\n");
-		const blob = new Blob([text], { type: "text/plain" });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = "encorehub-logs.txt";
-		a.click();
-		URL.revokeObjectURL(url);
+	const exportLogs = useCallback(async () => {
+		if (filtered.length === 0) {
+			toast.info("No logs to export");
+			return;
+		}
+		try {
+			const path = await devtools.exportLogs(filtered);
+			if (path) toast.success(`Logs exported to ${path}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to export logs");
+		}
 	}, [filtered]);
 
 	if (!tauri) {
@@ -331,10 +331,28 @@ export default function DeveloperPanel() {
 				</button>
 				<button
 					type="button"
-					onClick={exportLogs}
+					onClick={() => {
+						devtools.openLogDirectory().catch((err) => {
+							toast.error(
+								err instanceof Error
+									? err.message
+									: "Failed to open log folder",
+							);
+						});
+					}}
+					aria-label="Open log folder"
+					title="Open log folder"
+					className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+				>
+					<FolderOpen className="h-4 w-4" />
+				</button>
+				<button
+					type="button"
+					onClick={() => void exportLogs()}
+					disabled={filtered.length === 0}
 					aria-label="Export logs"
 					title="Export"
-					className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+					className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					<Download className="h-4 w-4" />
 				</button>

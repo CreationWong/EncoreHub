@@ -5,6 +5,7 @@ mod logs;
 mod runtime_paths;
 
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -17,7 +18,7 @@ use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
 use log_layer::LogBufferLayer;
-use logs::{Level, LogBuffer, LogEntry, Source};
+use logs::{export_log_entries, Level, LogBuffer, LogEntry, Source};
 #[cfg(target_os = "windows")]
 use runtime_paths::legacy_migration::migrate_legacy_runtime;
 use runtime_paths::RuntimePaths;
@@ -43,6 +44,9 @@ struct ServiceState {
     engine_started: Instant,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
+    /// Actual file-log directory. Normally beside the executable; app data is
+    /// retained as a fallback for read-only system installations.
+    log_dir: PathBuf,
     /// Dynamically negotiated ports (filled during setup).
     engine_port: u16,
     gateway_port: u16,
@@ -155,6 +159,30 @@ fn clear_logs(state: State<ServiceState>) {
 }
 
 #[tauri::command]
+fn export_logs(
+    app: tauri::AppHandle,
+    state: State<ServiceState>,
+    entries: Vec<LogEntry>,
+) -> Result<String, String> {
+    let download_dir = app.path().download_dir().ok();
+    let path = export_log_entries(download_dir.as_deref(), &state.log_dir, &entries)
+        .map_err(|error| format!("failed to export logs: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+#[allow(deprecated)]
+fn open_log_directory(app: tauri::AppHandle, state: State<ServiceState>) -> Result<String, String> {
+    std::fs::create_dir_all(&state.log_dir)
+        .map_err(|error| format!("failed to prepare log directory: {error}"))?;
+    let path = state.log_dir.to_string_lossy().into_owned();
+    app.shell()
+        .open(path.clone(), None)
+        .map_err(|error| format!("failed to open log directory: {error}"))?;
+    Ok(path)
+}
+
+#[tauri::command]
 fn get_file_log_level(state: State<ServiceState>) -> String {
     state.logs.file_level().as_str().to_string()
 }
@@ -214,6 +242,8 @@ fn main() {
             get_service_status,
             get_logs,
             clear_logs,
+            export_logs,
+            open_log_directory,
             get_file_log_level,
             set_file_log_level,
             write_client_log,
@@ -222,15 +252,18 @@ fn main() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let resource_dir = app.path().resource_dir()?;
+            let executable_dir = std::env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
 
             #[cfg(target_os = "windows")]
-            let migration_report = std::env::current_exe()
-                .ok()
-                .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-                .map(|legacy_root| migrate_legacy_runtime(&legacy_root, &app_data_dir))
+            let migration_report = executable_dir
+                .as_deref()
+                .map(|legacy_root| migrate_legacy_runtime(legacy_root, &app_data_dir))
                 .transpose()?;
 
-            let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
+            let runtime_paths =
+                RuntimePaths::prepare(&app_data_dir, &resource_dir, executable_dir.as_deref())?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
             let log_control = install_logging(logs.clone());
             let internal_auth_token: Arc<str> = generate_internal_auth_token().into();
@@ -254,6 +287,7 @@ fn main() {
             }
 
             tracing::info!("EncoreHub app data: {:?}", app_data_dir);
+            tracing::info!("EncoreHub log directory: {:?}", runtime_paths.logs);
             tracing::info!("EncoreHub resources: {:?}", resource_dir);
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 
@@ -261,6 +295,7 @@ fn main() {
                 engine_started: Instant::now(),
                 gateway: Mutex::new(None),
                 logs: logs.clone(),
+                log_dir: runtime_paths.logs.clone(),
                 engine_port,
                 gateway_port,
                 internal_auth_token: internal_auth_token.clone(),
@@ -562,5 +597,26 @@ mod tests {
         .unwrap();
         assert!(!ports.contains(TOKEN));
         assert!(!ports.contains(ENGINE_AUTH_TOKEN_ENV));
+    }
+
+    #[test]
+    fn desktop_runtime_creates_daily_log_in_portable_install_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let install = temp.path().join("install");
+        let app_data = temp.path().join("app-data");
+        let resources = temp.path().join("resources");
+        std::fs::create_dir_all(&install).unwrap();
+        let paths = RuntimePaths::prepare(&app_data, &resources, Some(&install)).unwrap();
+        let logs = LogBuffer::with_log_dir(paths.logs.clone());
+
+        logs.push_event(Source::Desktop, Level::Info, "portable log initialized");
+
+        let day = chrono::Local::now().format("%Y-%m-%d");
+        let file = install.join("log").join(format!("encorehub-{day}.log"));
+        assert_eq!(paths.logs, install.join("log"));
+        assert!(file.is_file());
+        assert!(std::fs::read_to_string(file)
+            .unwrap()
+            .contains("portable log initialized"));
     }
 }

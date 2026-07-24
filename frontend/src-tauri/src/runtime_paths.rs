@@ -1,6 +1,7 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct RuntimePaths {
@@ -10,11 +11,14 @@ pub struct RuntimePaths {
 }
 
 impl RuntimePaths {
-    pub fn prepare(app_data_dir: &Path, resource_dir: &Path) -> io::Result<Self> {
+    pub fn prepare(
+        app_data_dir: &Path,
+        resource_dir: &Path,
+        portable_log_root: Option<&Path>,
+    ) -> io::Result<Self> {
         let data_dir = app_data_dir.join("data");
-        let logs = app_data_dir.join("log");
         fs::create_dir_all(&data_dir)?;
-        fs::create_dir_all(&logs)?;
+        let logs = select_log_directory(portable_log_root, &app_data_dir.join("log"))?;
 
         Ok(Self {
             database: std::env::var_os("ENGINE_DB")
@@ -25,6 +29,89 @@ impl RuntimePaths {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| resource_dir.join("skills")),
         })
+    }
+}
+
+/// Prefer a writable `log/` beside the desktop executable on every platform.
+/// System-managed installs may make that directory read-only, so retain the
+/// app-data location as a lossless fallback instead of disabling file logs.
+fn select_log_directory(portable_root: Option<&Path>, fallback: &Path) -> io::Result<PathBuf> {
+    if let Some(root) = portable_root {
+        let candidate = root.join("log");
+        if ensure_writable_directory(&candidate).is_ok() {
+            return Ok(candidate);
+        }
+    }
+
+    ensure_writable_directory(fallback)?;
+    Ok(fallback.to_path_buf())
+}
+
+fn ensure_writable_directory(directory: &Path) -> io::Result<()> {
+    fs::create_dir_all(directory)?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let probe = directory.join(format!(
+        ".encorehub-write-test-{}-{nonce}",
+        std::process::id()
+    ));
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)?;
+    let sync_result = file.sync_all();
+    drop(file);
+    let remove_result = fs::remove_file(probe);
+    sync_result?;
+    remove_result
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn prefers_explicit_writable_portable_log_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_data = temp.path().join("app-data");
+        let resources = temp.path().join("resources");
+        let install = temp.path().join("install");
+        fs::create_dir_all(&install).unwrap();
+
+        let paths = RuntimePaths::prepare(&app_data, &resources, Some(&install)).unwrap();
+
+        assert_eq!(paths.logs, install.join("log"));
+        assert!(paths.logs.is_dir());
+        assert_eq!(paths.database, app_data.join("data/encorehub.db"));
+    }
+
+    #[test]
+    fn falls_back_to_app_data_when_portable_log_directory_is_not_writable() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_data = temp.path().join("app-data");
+        let resources = temp.path().join("resources");
+        let install = temp.path().join("install");
+        fs::create_dir_all(&install).unwrap();
+        fs::write(install.join("log"), b"blocks directory creation").unwrap();
+
+        let paths = RuntimePaths::prepare(&app_data, &resources, Some(&install)).unwrap();
+
+        assert_eq!(paths.logs, app_data.join("log"));
+        assert!(paths.logs.is_dir());
+    }
+
+    #[test]
+    fn uses_app_data_when_no_portable_root_is_available() {
+        let temp = tempfile::tempdir().unwrap();
+        let app_data = temp.path().join("app-data");
+        let resources = temp.path().join("resources");
+
+        let paths = RuntimePaths::prepare(&app_data, &resources, None).unwrap();
+
+        assert_eq!(paths.logs, app_data.join("log"));
+        assert!(paths.logs.is_dir());
     }
 }
 

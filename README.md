@@ -87,7 +87,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 浏览器侧 Gateway API 的规范契约见 [`docs/openapi.json`](docs/openapi.json)；第三方 API 快照统一放在 [`docs/vendor/`](docs/vendor/README.md)，不代表 EncoreHub 路由。
 
-**桌面数据与日志**：Tauri 把数据库写到系统 `app_data_dir/data/encorehub.db`，把 engine/gateway/desktop 三方脱敏日志写到 `app_data_dir/log/encorehub-YYYY-MM-DD.log`，按天切分、保留 7 天。Windows 旧版 executable directory 下的 `data/`、`log/` 会先复制并逐文件校验，再写迁移 marker；旧副本不在应用启动时删除。升级和卸载不会删除新的 app data，旧安装目录副本只在显式卸载时由 installer hook 清理。
+**桌面数据与日志**：Tauri 把数据库写到系统 `app_data_dir/data/encorehub.db`。在所有桌面平台上，脱敏日志优先写到可执行文件同级的 `log/encorehub-YYYY-MM-DD.log`；若 macOS/Linux/Windows 的系统安装目录不可写，则自动回退到 `app_data_dir/log`。日志按天切分并保留 7 天。Developer 面板可打开当前实际日志目录，并通过原生 Tauri 命令把当前筛选结果导出到系统 Downloads；Downloads 不可用时回退到当前日志目录。Windows 旧版 `data/`、`log/` 仍执行一次性复制校验与 marker 迁移。
 
 ## 关键功能
 

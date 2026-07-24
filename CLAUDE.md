@@ -142,7 +142,7 @@ cd engine   && cargo test test_name
 The Tauri v2 config is at `frontend/src-tauri/tauri.conf.json`. Key points when building the installer:
 
 - **External binaries**: `tauri.conf.json` → `bundle.externalBin` references only `binaries/gateway` (the engine runs in-process). The build input is `gateway-<rust-host-target>[.exe]`; `pnpm prepare:sidecar` creates it. Runtime launch must use `app.shell().sidecar("gateway")`, which resolves the bundled platform name. Do not add executable filename search tables.
-- **Resources and mutable state**: built-in skills are mapped to `resource_dir/skills`; the database and logs live under `app_data_dir`. Windows legacy `data/` and `log/` are copy-verified with a marker and retained until explicit uninstall; upgrades and uninstall preserve current app data.
+- **Resources and mutable state**: built-in skills are mapped to `resource_dir/skills`; the database lives under `app_data_dir`. Desktop file logs prefer a writable `log/` beside the installed executable on every platform and fall back to `app_data_dir/log` for read-only system installs. Developer-panel exports use a native Tauri command, writing to the OS Downloads directory or the active log directory as fallback. Windows legacy `data/` and `log/` are copy-verified with a marker and retained until explicit uninstall.
 - **Build script**: `pnpm build:desktop` is canonical and prepares the current-target sidecar before invoking Tauri. The PowerShell/Bash scripts remain compatibility tooling.
 - Build output: MSI at `src-tauri/target/release/bundle/msi/`, NSIS exe at `bundle/nsis/`.
 - The Tauri binary itself is at `src-tauri/target/release/encorehub-desktop.exe`.
