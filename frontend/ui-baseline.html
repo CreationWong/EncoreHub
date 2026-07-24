@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>EncoreHub UI Baseline</title>
+    <style>
+      html[data-ui-baseline-ready="true"] *,
+      html[data-ui-baseline-ready="true"] *::before,
+      html[data-ui-baseline-ready="true"] *::after {
+        animation-duration: 0s !important;
+        transition-duration: 0s !important;
+      }
+    </style>
+  </head>
+  <body class="bg-surface text-text-primary antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/testing/uiBaselineEntry.tsx"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@
 > 输入计划：[CLIENT_UI_OPTIMIZATION_PLAN.md](CLIENT_UI_OPTIMIZATION_PLAN.md)
 > 集成分支：`UI`
 > 目标：把客户端页面优化计划转换为可独立提交、可验证、可回滚的实施单元
+> CUI-00 基线：[CLIENT_UI_BASELINE.md](CLIENT_UI_BASELINE.md)
 
 ## 1. 执行原则
 
@@ -92,8 +93,8 @@ flowchart LR
 
 | ID | 主要模块 | 依赖 | 交付物 | 初始状态 |
 |---|---|---|---|---|
-| CUI-00 | Frontend QA | 无 | 固定状态夹具、截图基线、现有行为清单 | `Ready` |
-| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Not started` |
+| CUI-00 | Frontend QA | 无 | 固定状态夹具、截图基线、现有行为清单 | `Done`（[证据](CLIENT_UI_BASELINE.md)） |
+| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Ready` |
 | CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Not started` |
 | CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Not started` |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Not started` |
@@ -114,12 +115,12 @@ flowchart LR
 
 **任务**
 
-- [ ] 固定 `1600x1120`、`1200x800`、`900x700`、`680x480` 四个视口。
-- [ ] 为亮色与暗色准备空对话、短对话、长 Markdown、长代码、reasoning、tool call、流式、停止和失败状态。
-- [ ] 准备超长对话标题、角色名、Provider 名、Model 名和 0/未知/大 token 数样本。
-- [ ] 记录当前新建、切换、删除、重命名、发送、停止、搜索和打开设置的 smoke 结果。
-- [ ] 确认视觉验收方式：优先使用可重复的浏览器截图脚本；暂未引入 Playwright 时保存 in-app Browser 的同视口截图和操作记录。
-- [ ] 将夹具限制在测试或开发环境，不把假角色、假模型和假 token 混入生产状态。
+- [x] 固定 `1600x1120`、`1200x800`、`900x700`、`680x480` 四个视口。
+- [x] 为亮色与暗色准备空对话、短对话、长 Markdown、长代码、reasoning、tool call、流式、停止和失败状态。
+- [x] 准备超长对话标题、角色名、Provider 名、Model 名和 0/未知/大 token 数样本。
+- [x] 记录当前新建、切换、删除、重命名、发送、停止、搜索和打开设置的 smoke 结果。
+- [x] 建立可重复的 headless Chrome/Edge/Chromium 截图脚本，并保存同视口截图、尺寸与 SHA-256 manifest。
+- [x] 将夹具限制在测试或开发环境，不把假角色、假模型和假 token 混入生产状态。
 
 **完成定义**
 
