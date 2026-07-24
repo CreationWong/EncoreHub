@@ -90,6 +90,8 @@
 
 ## 六、UI 打磨（提取自 UI_REDESIGN_PROPOSAL.md 剩余项）
 
+> 当前 UI 优化的设计方向、实施阶段和验收标准以 [客户端页面优化计划](CLIENT_UI_OPTIMIZATION_PLAN.md) 为准；以下条目保留用于历史编号映射。
+
 ### P1 — 提升「懂上下文」的友好感
 
 - [ ] **6.1** 聊天区顶部栏：显示对话标题（可点击重命名）+ 当前 provider·model 徽章 + 更多菜单
