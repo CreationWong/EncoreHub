@@ -481,6 +481,11 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 - Windows 首次启动会从 executable directory 的旧 `data/`、`log/` 递归复制普通文件，逐文件字节校验后原子落位并写 `.legacy-layout-v1.json`。已存在且内容不同的目标不会被覆盖，旧源目录不会在启动时删除；升级保留旧源和新 app data，显式卸载仅由现有 WiX/NSIS hook 清理安装目录下的旧副本，不触碰 app data。
 - Gateway 已移除 `.exe`/Windows target 搜索表和 `std::process::Command`，统一通过 `app.shell().sidecar("gateway")` 解析与启动；stdout/stderr/terminated 事件进入原有脱敏日志管线，进程状态由事件流维护。Tauri shell plugin 负责平台扩展名和 Windows 无控制台启动语义。
 - `scripts/build.sh` 使用 `TAURI_ARGS` 数组分别执行 `pnpm tauri build/dev`，从 `rustc -vV` 生成当前 target-triple sidecar 名称；Linux CI 增加 `bash -n`。Desktop CI 改为 Windows/macOS/Linux matrix，每个平台准备当前 target sidecar、执行 check/test，并运行 debug `--no-bundle` build。
+
+**后续修订（2026-07-24）**
+
+- 根据桌面产品需求，日志改为在所有平台优先写入可执行文件同级 `log/`；系统安装目录不可写时保留 `app_data_dir/log` 回退，数据库位置不变。
+- Developer 面板新增打开实际日志目录命令；日志导出改为 Rust 原生文件写入，优先 Downloads、失败时回退到当前日志目录。
 - README 与 `CLAUDE.md` 已删除未经安装 smoke 证明的跨平台支持声明，并记录运行目录、迁移、卸载保留和打包契约。macOS/Linux 安装包在 smoke 前不作为受支持发布物。
 - 本地已通过 9 项 workspace/desktop 契约测试、Tauri 16 项测试、Tauri check/clippy、`pnpm prepare:sidecar`、Windows `tauri build --debug --no-bundle --ci`、`pnpm check`、`pnpm test`、`pnpm lint` 与 `git diff --check`。构建输出已确认包含 `gateway.exe` 和 `resource_dir/skills`。
 - 三平台 matrix 首次运行在 macOS/Linux 暴露 Windows-only legacy migration helper 的 `dead_code`；迁移实现现以 `cfg(any(target_os = "windows", test))` 整体隔离，非 Windows 普通构建不再编译这些符号，非 Windows 测试仍执行迁移用例。matrix 同时增加显式 Desktop clippy，修复后的远端重跑待确认。

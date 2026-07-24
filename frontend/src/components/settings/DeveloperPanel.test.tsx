@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const status = vi.fn();
 const logs = vi.fn();
 const clear = vi.fn();
+const exportLogs = vi.fn();
+const openLogDirectory = vi.fn();
 const openDevtools = vi.fn();
 const getLogLevel = vi.fn();
 const setLogLevel = vi.fn();
@@ -24,6 +26,8 @@ vi.mock("../../services/devtools", () => ({
 		status: () => status(),
 		logs: (after: number) => logs(after),
 		clear: () => clear(),
+		exportLogs: (entries: unknown[]) => exportLogs(entries),
+		openLogDirectory: () => openLogDirectory(),
 		openDevtools: () => openDevtools(),
 		getLogLevel: () => getLogLevel(),
 		setLogLevel: (level: string) => setLogLevel(level),
@@ -55,6 +59,12 @@ beforeEach(() => {
 	status.mockReset().mockResolvedValue(statusFixture);
 	logs.mockReset().mockResolvedValue(logFixture);
 	clear.mockReset().mockResolvedValue(undefined);
+	exportLogs
+		.mockReset()
+		.mockResolvedValue("C:\\Users\\test\\Downloads\\encorehub-logs.txt");
+	openLogDirectory
+		.mockReset()
+		.mockResolvedValue("C:\\Users\\test\\EncoreHub\\log");
 	openDevtools.mockReset().mockResolvedValue(undefined);
 	getLogLevel.mockReset().mockResolvedValue("info");
 	setLogLevel.mockReset().mockResolvedValue(undefined);
@@ -135,6 +145,33 @@ describe("DeveloperPanel", () => {
 		await waitFor(() =>
 			expect(screen.queryByText("upstream timeout")).toBeNull(),
 		);
+	});
+
+	it("exports the filtered logs through the native desktop command", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() =>
+			expect(screen.getByText("upstream timeout")).toBeDefined(),
+		);
+
+		fireEvent.click(screen.getByLabelText("Export logs"));
+
+		await waitFor(() => expect(exportLogs).toHaveBeenCalledWith(logFixture));
+		await waitFor(() =>
+			expect(
+				useToastStore
+					.getState()
+					.toasts.some((toast) => toast.message.includes("encorehub-logs.txt")),
+			).toBe(true),
+		);
+	});
+
+	it("opens the active native log directory", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(status).toHaveBeenCalled());
+
+		fireEvent.click(screen.getByLabelText("Open log folder"));
+
+		await waitFor(() => expect(openLogDirectory).toHaveBeenCalledOnce());
 	});
 
 	it("loads and changes the runtime log level", async () => {

@@ -4,26 +4,27 @@
 //! the buffer nor anything the frontend pulls can contain an API key.
 //!
 //! Lines at or above the configured file level (Info by default) are mirrored
-//! to a daily file under the app data directory's `log/` so issues can be diagnosed
-//! after the app closes. Only the redacted message is written; raw key material
-//! never reaches disk.
+//! to a daily file under the active runtime `log/` directory so issues can be
+//! diagnosed after the app closes. Only the redacted message is written; raw
+//! key material never reaches disk.
 
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Max lines kept in memory. Older lines are dropped as new ones arrive.
 const MAX_LINES: usize = 2000;
+const MAX_EXPORT_BYTES: usize = 8 * 1024 * 1024;
 
 /// How many days of log files to keep; older files are pruned at startup.
 const LOG_RETENTION_DAYS: i64 = 7;
 
 /// Where a log line came from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Engine,
@@ -40,10 +41,19 @@ impl Source {
             _ => Source::Desktop,
         }
     }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Source::Engine => "engine",
+            Source::Gateway => "gateway",
+            Source::Desktop => "desktop",
+            Source::Frontend => "frontend",
+        }
+    }
 }
 
 /// Severity, parsed best-effort from the line text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
     Error,
@@ -87,7 +97,7 @@ impl Level {
 }
 
 /// One captured log line.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogEntry {
     /// Monotonic sequence number — the frontend pulls everything after the last
     /// seq it has seen, so polling never misses or duplicates a line.
@@ -202,6 +212,86 @@ fn prune_old_logs(dir: &PathBuf) {
             }
         }
     }
+}
+
+/// Export the visible (already redacted) developer-panel entries through the
+/// native filesystem. The messages are redacted again at this trust boundary
+/// so a forged webview invocation cannot write obvious key material.
+pub fn export_log_entries(
+    preferred_dir: Option<&Path>,
+    fallback_dir: &Path,
+    entries: &[LogEntry],
+) -> io::Result<PathBuf> {
+    if entries.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "there are no log entries to export",
+        ));
+    }
+    if entries.len() > MAX_LINES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "log export exceeds the in-memory limit",
+        ));
+    }
+    let export_bytes = entries.iter().fold(0_usize, |total, entry| {
+        total.saturating_add(entry.message.len())
+    });
+    if export_bytes > MAX_EXPORT_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "log export exceeds the byte limit",
+        ));
+    }
+
+    if let Some(directory) = preferred_dir {
+        if let Ok(path) = write_log_export(directory, entries) {
+            return Ok(path);
+        }
+    }
+    write_log_export(fallback_dir, entries)
+}
+
+fn write_log_export(directory: &Path, entries: &[LogEntry]) -> io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let now = chrono::Local::now();
+    let stem = format!(
+        "encorehub-logs-{}-{:03}",
+        now.format("%Y%m%d-%H%M%S"),
+        now.timestamp_subsec_millis()
+    );
+
+    for suffix in 0..100 {
+        let filename = if suffix == 0 {
+            format!("{stem}.txt")
+        } else {
+            format!("{stem}-{suffix}.txt")
+        };
+        let path = directory.join(filename);
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+
+        for entry in entries {
+            let message = redact(&strip_ansi(&entry.message));
+            writeln!(
+                file,
+                "[{}/{}] {}",
+                entry.source.as_str(),
+                entry.level.as_str(),
+                message
+            )?;
+        }
+        file.sync_all()?;
+        return Ok(path);
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate a unique log export filename",
+    ))
 }
 
 impl LogBuffer {
@@ -742,5 +832,46 @@ mod tests {
         assert_eq!(Level::parse(" info "), Some(Level::Info));
         assert_eq!(Level::parse("debug"), Some(Level::Debug));
         assert_eq!(Level::parse("trace"), None);
+    }
+
+    #[test]
+    fn native_export_writes_entries_and_redacts_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let preferred = temp.path().join("downloads");
+        let fallback = temp.path().join("log");
+        let entries = vec![LogEntry {
+            seq: 1,
+            source: Source::Gateway,
+            level: Level::Info,
+            message: "loaded key sk-export-canary-123456789".into(),
+        }];
+
+        let path = export_log_entries(Some(&preferred), &fallback, &entries).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+
+        assert_eq!(path.parent(), Some(preferred.as_path()));
+        assert!(text.contains("[gateway/info]"));
+        assert!(!text.contains("sk-export-canary"));
+    }
+
+    #[test]
+    fn native_export_falls_back_when_download_directory_is_unavailable() {
+        let temp = tempfile::tempdir().unwrap();
+        let blocked = temp.path().join("blocked");
+        let fallback = temp.path().join("log");
+        fs::write(&blocked, b"not a directory").unwrap();
+        let entries = vec![LogEntry {
+            seq: 1,
+            source: Source::Desktop,
+            level: Level::Warn,
+            message: "fallback export".into(),
+        }];
+
+        let path = export_log_entries(Some(&blocked), &fallback, &entries).unwrap();
+
+        assert_eq!(path.parent(), Some(fallback.as_path()));
+        assert!(fs::read_to_string(path)
+            .unwrap()
+            .contains("fallback export"));
     }
 }
