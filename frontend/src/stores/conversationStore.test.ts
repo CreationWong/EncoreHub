@@ -32,7 +32,10 @@ vi.mock("../services/conversation", () => ({
 }));
 
 // Force module evaluation order: import store after the mocks above.
-import { useConversationStore } from "./conversationStore";
+import {
+	NEW_CONVERSATION_DRAFT_KEY,
+	useConversationStore,
+} from "./conversationStore";
 import { useSettingsStore } from "./settingsStore";
 
 beforeEach(() => {
@@ -50,6 +53,8 @@ beforeEach(() => {
 		error: null,
 		abortController: null,
 		pendingDraft: null,
+		drafts: {},
+		scrollPositions: {},
 		convCache: {},
 	});
 	sendMessageStream.mockReset();
@@ -202,6 +207,38 @@ describe("draft mailbox", () => {
 		useConversationStore.getState().clearDraft();
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
 	});
+
+	it("stores independent drafts for conversations and the new-chat workspace", () => {
+		const store = useConversationStore.getState();
+		store.setConversationDraft("c1", "draft one");
+		store.setConversationDraft("c2", "draft two");
+		store.setConversationDraft(null, "new chat draft");
+
+		expect(useConversationStore.getState().drafts).toEqual({
+			c1: "draft one",
+			c2: "draft two",
+			[NEW_CONVERSATION_DRAFT_KEY]: "new chat draft",
+		});
+
+		store.clearConversationDraft("c1");
+		expect(useConversationStore.getState().drafts).toEqual({
+			c2: "draft two",
+			[NEW_CONVERSATION_DRAFT_KEY]: "new chat draft",
+		});
+	});
+
+	it("stores independent scroll positions without touching drafts", () => {
+		const store = useConversationStore.getState();
+		store.setConversationDraft("c1", "keep me");
+		store.setConversationScrollPosition("c1", 320);
+		store.setConversationScrollPosition("c2", 48);
+
+		expect(useConversationStore.getState().scrollPositions).toEqual({
+			c1: 320,
+			c2: 48,
+		});
+		expect(useConversationStore.getState().drafts.c1).toBe("keep me");
+	});
 });
 
 describe("newConversation", () => {
@@ -213,6 +250,32 @@ describe("newConversation", () => {
 			"openai",
 			"gpt-4o",
 		);
+	});
+
+	it("migrates the temporary draft after creating a conversation", async () => {
+		useConversationStore
+			.getState()
+			.setConversationDraft(null, "unfinished prompt");
+
+		const id = await useConversationStore.getState().newConversation();
+
+		expect(id).toBe("new-c1");
+		expect(useConversationStore.getState().drafts).toEqual({
+			"new-c1": "unfinished prompt",
+		});
+	});
+
+	it("does not move an existing conversation draft into a new chat", async () => {
+		useConversationStore.setState({ activeId: "existing" });
+		useConversationStore
+			.getState()
+			.setConversationDraft("existing", "keep with existing");
+
+		await useConversationStore.getState().newConversation();
+
+		expect(useConversationStore.getState().drafts).toEqual({
+			existing: "keep with existing",
+		});
 	});
 
 	it("creates with an explicit provider/model and retains authoritative metadata", async () => {

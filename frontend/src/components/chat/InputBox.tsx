@@ -1,19 +1,33 @@
-import { ChevronDown, Globe, Loader2, Send, Square } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	Command,
+	Globe,
+	Loader2,
+	Send,
+	Square,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	SLASH_COMMANDS,
 	type SlashCommand,
 	matchCommands,
 } from "../../commands/slash";
-import { useConversationStore } from "../../stores/conversationStore";
+import {
+	NEW_CONVERSATION_DRAFT_KEY,
+	useConversationStore,
+} from "../../stores/conversationStore";
 import {
 	type SearchProvider,
 	useSettingsStore,
 } from "../../stores/settingsStore";
-import SlashCommandMenu from "./SlashCommandMenu";
+import SlashCommandMenu, { slashCommandOptionId } from "./SlashCommandMenu";
 
 const MAX_CHARS = 8000;
-const WARN_AT = 7000;
+const WARN_AT = Math.ceil(MAX_CHARS * 0.85);
+const MAX_TEXTAREA_HEIGHT = 220;
+const SLASH_MENU_ID = "chat-slash-command-menu";
+const SEARCH_MENU_ID = "chat-search-menu";
 
 const SEARCH_PROVIDERS: { value: SearchProvider; label: string }[] = [
 	{ value: "duckduckgo", label: "DuckDuckGo" },
@@ -21,63 +35,106 @@ const SEARCH_PROVIDERS: { value: SearchProvider; label: string }[] = [
 	{ value: "google", label: "Google" },
 ];
 
+function draftKey(id: string | null): string {
+	return id ?? NEW_CONVERSATION_DRAFT_KEY;
+}
+
+function resizeTextarea(element: HTMLTextAreaElement | null) {
+	if (!element) return;
+	element.style.height = "auto";
+	if (element.scrollHeight > 0) {
+		element.style.height = `${Math.min(element.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+	}
+	element.style.overflowY =
+		element.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+}
+
+function resetTextarea(element: HTMLTextAreaElement | null) {
+	if (!element) return;
+	element.style.height = "auto";
+	element.style.overflowY = "hidden";
+}
+
 export default function InputBox() {
-	const [input, setInput] = useState("");
+	const [input, setInput] = useState(() => {
+		const state = useConversationStore.getState();
+		return state.drafts[draftKey(state.activeId)] ?? "";
+	});
 	const [menuIndex, setMenuIndex] = useState(0);
 	const [historyIdx, setHistoryIdx] = useState<number>(-1);
-	const [showProviderPicker, setShowProviderPicker] = useState(false);
-	const draftRef = useRef("");
+	const [slashDismissed, setSlashDismissed] = useState(false);
+	const [showSearchMenu, setShowSearchMenu] = useState(false);
+	const historyDraftRef = useRef("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const pickerRef = useRef<HTMLDivElement>(null);
-	const sendMessage = useConversationStore((s) => s.sendMessage);
-	const stopStreaming = useConversationStore((s) => s.stopStreaming);
-	const streaming = useConversationStore((s) => s.streaming);
-	const activeId = useConversationStore((s) => s.activeId);
-	const messages = useConversationStore((s) => s.messages);
-	const pendingDraft = useConversationStore((s) => s.pendingDraft);
-	const clearDraft = useConversationStore((s) => s.clearDraft);
-	const searchEnabled = useSettingsStore((s) => s.searchEnabled);
-	const searchProvider = useSettingsStore((s) => s.searchProvider);
-	const setSearchEnabled = useSettingsStore((s) => s.setSearchEnabled);
-	const setSearchProvider = useSettingsStore((s) => s.setSearchProvider);
+	const composerRef = useRef<HTMLFieldSetElement>(null);
+	const searchButtonRef = useRef<HTMLButtonElement>(null);
+	const sendMessage = useConversationStore((state) => state.sendMessage);
+	const stopStreaming = useConversationStore((state) => state.stopStreaming);
+	const streaming = useConversationStore((state) => state.streaming);
+	const activeId = useConversationStore((state) => state.activeId);
+	const messages = useConversationStore((state) => state.messages);
+	const pendingDraft = useConversationStore((state) => state.pendingDraft);
+	const clearDraft = useConversationStore((state) => state.clearDraft);
+	const setConversationDraft = useConversationStore(
+		(state) => state.setConversationDraft,
+	);
+	const clearConversationDraft = useConversationStore(
+		(state) => state.clearConversationDraft,
+	);
+	const searchEnabled = useSettingsStore((state) => state.searchEnabled);
+	const searchProvider = useSettingsStore((state) => state.searchProvider);
+	const setSearchEnabled = useSettingsStore((state) => state.setSearchEnabled);
+	const setSearchProvider = useSettingsStore(
+		(state) => state.setSearchProvider,
+	);
 
-	// External components (MemoryPanel "quote", future "edit-and-resend") push
-	// text into the input via store.setDraft. Pull it onto the local state and
-	// clear so we don't loop on the next render.
+	const updateInput = useCallback(
+		(next: string, conversationId: string | null = activeId) => {
+			setInput(next);
+			setConversationDraft(conversationId, next);
+		},
+		[activeId, setConversationDraft],
+	);
+
+	// Restore the conversation-local draft only when the conversation changes.
+	useEffect(() => {
+		const state = useConversationStore.getState();
+		setInput(state.drafts[draftKey(activeId)] ?? "");
+		setHistoryIdx(-1);
+		historyDraftRef.current = "";
+		setSlashDismissed(false);
+		setShowSearchMenu(false);
+		queueMicrotask(() => {
+			resizeTextarea(textareaRef.current);
+			textareaRef.current?.focus();
+		});
+	}, [activeId]);
+
+	// Memory quotes and future edit-and-resend actions use the pending mailbox.
 	useEffect(() => {
 		if (pendingDraft == null) return;
-		setInput((prev) => (prev ? `${prev}\n\n${pendingDraft}` : pendingDraft));
+		const state = useConversationStore.getState();
+		const current = state.drafts[draftKey(activeId)] ?? input;
+		const next = current ? `${current}\n\n${pendingDraft}` : pendingDraft;
+		updateInput(next);
 		clearDraft();
-		// Resize after the next paint.
 		queueMicrotask(() => {
-			const el = textareaRef.current;
-			if (el) {
-				el.style.height = "auto";
-				el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-				el.focus();
-			}
+			resizeTextarea(textareaRef.current);
+			textareaRef.current?.focus();
 		});
-	}, [pendingDraft, clearDraft]);
+	}, [activeId, clearDraft, input, pendingDraft, updateInput]);
 
-	// Most-recent-first list of user prompts in this conversation.
 	const userHistory = useMemo(
 		() =>
 			messages
-				.filter((m) => m.role === "user")
-				.map((m) => m.content)
+				.filter((message) => message.role === "user")
+				.map((message) => message.content)
 				.reverse(),
 		[messages],
 	);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: focus on intent
-	useEffect(() => {
-		textareaRef.current?.focus();
-		setHistoryIdx(-1);
-		draftRef.current = "";
-	}, [activeId, streaming]);
-
-	// Slash menu visibility: input begins with `/` and has no spaces yet.
-	const slashOpen = input.startsWith("/") && !input.includes(" ");
+	const slashCandidate = input.startsWith("/") && !/\s/.test(input);
+	const slashOpen = slashCandidate && !slashDismissed;
 	const slashMatches = useMemo<SlashCommand[]>(
 		() => (slashOpen ? matchCommands(input) : []),
 		[input, slashOpen],
@@ -87,258 +144,371 @@ export default function InputBox() {
 		if (menuIndex >= slashMatches.length) setMenuIndex(0);
 	}, [slashMatches.length, menuIndex]);
 
-	// Close provider picker on outside click
 	useEffect(() => {
-		const handleClick = (e: MouseEvent) => {
-			if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-				setShowProviderPicker(false);
+		if (!showSearchMenu) return;
+		const handlePointerDown = (event: MouseEvent) => {
+			if (!composerRef.current?.contains(event.target as Node)) {
+				setShowSearchMenu(false);
 			}
 		};
-		if (showProviderPicker) {
-			document.addEventListener("mousedown", handleClick);
-			return () => document.removeEventListener("mousedown", handleClick);
-		}
-	}, [showProviderPicker]);
+		document.addEventListener("mousedown", handlePointerDown);
+		return () => document.removeEventListener("mousedown", handlePointerDown);
+	}, [showSearchMenu]);
 
-	const runCommand = useCallback(async (cmd: SlashCommand, args: string) => {
-		const ctx = {
-			conv: useConversationStore.getState(),
-			settings: useSettingsStore.getState(),
-		};
-		const result = await cmd.run(args, ctx);
-		setInput("");
-		if (textareaRef.current) textareaRef.current.style.height = "auto";
-		if (typeof result === "string" && result) {
-			// /help and similar return text — push as a fake assistant message
-			// by routing through sendMessage with the result content. Simpler:
-			// just put it in the input so the user can edit before sending.
-			setInput(result);
+	const focusTextarea = useCallback(() => {
+		textareaRef.current?.focus();
+	}, []);
+
+	const closeSearchMenu = useCallback((returnFocus = false) => {
+		setShowSearchMenu(false);
+		if (returnFocus) {
+			queueMicrotask(() => searchButtonRef.current?.focus());
 		}
 	}, []);
+
+	const runCommand = useCallback(
+		async (command: SlashCommand, args: string) => {
+			const sourceId = activeId;
+			setInput("");
+			clearConversationDraft(sourceId);
+			setSlashDismissed(true);
+			resetTextarea(textareaRef.current);
+
+			const context = {
+				conv: useConversationStore.getState(),
+				settings: useSettingsStore.getState(),
+			};
+			const result = await command.run(args, context);
+			if (typeof result === "string" && result) {
+				const currentId = useConversationStore.getState().activeId;
+				setInput(result);
+				setConversationDraft(currentId, result);
+			}
+			queueMicrotask(() => {
+				resizeTextarea(textareaRef.current);
+				focusTextarea();
+			});
+		},
+		[activeId, clearConversationDraft, focusTextarea, setConversationDraft],
+	);
 
 	const handleSend = useCallback(async () => {
 		const raw = input.trim();
 		if (!raw || streaming) return;
 
-		// If the line is exactly "/cmd args...", run it instead of sending.
 		if (raw.startsWith("/")) {
 			const [head, ...rest] = raw.slice(1).split(/\s+/);
-			const cmd = SLASH_COMMANDS.find(
-				(c) => c.id === head || c.name === `/${head}`,
+			const command = SLASH_COMMANDS.find(
+				(item) => item.id === head || item.name === `/${head}`,
 			);
-			if (cmd) {
-				await runCommand(cmd, rest.join(" "));
+			if (command) {
+				await runCommand(command, rest.join(" "));
 				return;
 			}
 		}
 
-		setInput("");
-		if (textareaRef.current) textareaRef.current.style.height = "auto";
+		setSlashDismissed(true);
+		setShowSearchMenu(false);
+		if (activeId) {
+			setInput("");
+			clearConversationDraft(activeId);
+			resetTextarea(textareaRef.current);
+		}
 		await sendMessage(raw);
-	}, [input, streaming, sendMessage, runCommand]);
+	}, [
+		activeId,
+		clearConversationDraft,
+		input,
+		runCommand,
+		sendMessage,
+		streaming,
+	]);
 
-	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+	const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (slashOpen && slashMatches.length > 0) {
-			if (e.key === "ArrowDown") {
-				e.preventDefault();
-				setMenuIndex((i) => (i + 1) % slashMatches.length);
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				setMenuIndex((index) => (index + 1) % slashMatches.length);
 				return;
 			}
-			if (e.key === "ArrowUp") {
-				e.preventDefault();
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
 				setMenuIndex(
-					(i) => (i - 1 + slashMatches.length) % slashMatches.length,
+					(index) => (index - 1 + slashMatches.length) % slashMatches.length,
 				);
 				return;
 			}
-			if (e.key === "Tab") {
-				e.preventDefault();
-				const cmd = slashMatches[menuIndex];
-				if (cmd) setInput(`${cmd.name} `);
+			if (event.key === "Tab") {
+				event.preventDefault();
+				const command = slashMatches[menuIndex];
+				if (command) {
+					updateInput(`${command.name} `);
+					queueMicrotask(() => resizeTextarea(textareaRef.current));
+				}
 				return;
 			}
-			if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-				e.preventDefault();
-				const cmd = slashMatches[menuIndex];
-				if (cmd) runCommand(cmd, "");
+			if (
+				event.key === "Enter" &&
+				!event.shiftKey &&
+				!event.nativeEvent.isComposing
+			) {
+				event.preventDefault();
+				const command = slashMatches[menuIndex];
+				if (command) void runCommand(command, "");
 				return;
 			}
-			if (e.key === "Escape") {
-				e.preventDefault();
-				setInput("");
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setSlashDismissed(true);
+				focusTextarea();
 				return;
 			}
 		}
 
-		if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-			e.preventDefault();
-			handleSend();
+		if (
+			event.key === "Enter" &&
+			!event.shiftKey &&
+			!event.nativeEvent.isComposing
+		) {
+			event.preventDefault();
+			void handleSend();
 			return;
 		}
-		if (e.key === "Escape" && streaming) {
-			e.preventDefault();
+		if (event.key === "Escape" && streaming) {
+			event.preventDefault();
 			stopStreaming();
 			return;
 		}
 
-		// Bash-style history: empty caret + ArrowUp -> previous user message.
 		if (
-			e.key === "ArrowUp" &&
-			!e.nativeEvent.isComposing &&
+			event.key === "ArrowUp" &&
+			!event.nativeEvent.isComposing &&
 			userHistory.length > 0 &&
 			historyIdx + 1 < userHistory.length &&
 			(historyIdx >= 0 || textareaRef.current?.selectionStart === 0)
 		) {
-			e.preventDefault();
-			if (historyIdx === -1) draftRef.current = input;
+			event.preventDefault();
+			if (historyIdx === -1) historyDraftRef.current = input;
 			const next = historyIdx + 1;
 			setHistoryIdx(next);
-			setInput(userHistory[next]);
+			updateInput(userHistory[next]);
+			queueMicrotask(() => resizeTextarea(textareaRef.current));
 			return;
 		}
-		if (e.key === "ArrowDown" && historyIdx >= 0) {
-			e.preventDefault();
+		if (event.key === "ArrowDown" && historyIdx >= 0) {
+			event.preventDefault();
 			const next = historyIdx - 1;
 			setHistoryIdx(next);
-			setInput(next === -1 ? draftRef.current : userHistory[next]);
+			updateInput(next === -1 ? historyDraftRef.current : userHistory[next]);
+			queueMicrotask(() => resizeTextarea(textareaRef.current));
 		}
 	};
 
-	const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-		const next = e.target.value.slice(0, MAX_CHARS);
-		setInput(next);
-		const el = e.target;
-		el.style.height = "auto";
-		el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+	const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const next = event.target.value.slice(0, MAX_CHARS);
+		setSlashDismissed(false);
+		setHistoryIdx(-1);
+		updateInput(next);
+		resizeTextarea(event.target);
 	};
 
 	const charCount = input.length;
-	const warn = charCount >= WARN_AT;
+	const showCharacterStatus = charCount >= WARN_AT;
+	const selectedSearchProvider =
+		SEARCH_PROVIDERS.find((provider) => provider.value === searchProvider) ??
+		SEARCH_PROVIDERS[0];
+	const activeSlashCommand = slashMatches[menuIndex];
 
 	return (
-		<div className="border-t border-border bg-surface p-4">
-			<div className="mx-auto flex max-w-3xl items-end gap-3">
-				<div className="relative flex-1">
-					{slashOpen && (
-						<SlashCommandMenu
-							items={slashMatches}
-							activeIndex={menuIndex}
-							onHover={setMenuIndex}
-							onSelect={(cmd) => runCommand(cmd, "")}
-						/>
-					)}
-					<textarea
-						ref={textareaRef}
-						value={input}
-						onChange={handleInput}
-						onKeyDown={handleKeyDown}
-						placeholder="Type a message or / for commands"
-						rows={1}
-						maxLength={MAX_CHARS}
-						className="w-full resize-none rounded-xl border border-border bg-surface-alt px-4 py-3 pr-16 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-					/>
-					{charCount > 0 && (
-						<span
-							className={`pointer-events-none absolute bottom-1.5 right-3 text-[10px] tabular-nums ${
-								warn ? "text-warning" : "text-text-muted"
-							}`}
-						>
-							{charCount}/{MAX_CHARS}
-						</span>
-					)}
-				</div>
-				{/* Search toggle + provider picker */}
-				<div className="relative flex items-center" ref={pickerRef}>
-					<button
-						type="button"
-						onClick={() => {
-							if (!streaming) setSearchEnabled(!searchEnabled);
+		<div className="border-t border-border bg-surface px-3 py-3 sm:px-4">
+			<fieldset
+				ref={composerRef}
+				aria-label="Message composer"
+				className="relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent/60"
+			>
+				{showSearchMenu && (
+					<div
+						id={SEARCH_MENU_ID}
+						role="menu"
+						aria-label="Web search settings"
+						onKeyDown={(event) => {
+							if (event.key === "Escape") {
+								event.preventDefault();
+								closeSearchMenu(true);
+							}
 						}}
-						aria-label={
-							searchEnabled
-								? `Web search enabled (${searchProvider})`
-								: "Web search disabled"
-						}
-						title={
-							searchEnabled
-								? `Web search: ${searchProvider} — click to disable`
-								: "Enable web search"
-						}
-						className={`flex h-10 w-10 items-center justify-center rounded-l-xl border transition-colors ${
-							searchEnabled
-								? "border-accent bg-accent/10 text-accent"
-								: "border-border bg-surface-alt text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-						}`}
+						className="absolute bottom-full left-9 z-30 mb-2 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2xl"
 					>
-						<Globe className={`h-4 w-4 ${searchEnabled ? "" : "opacity-40"}`} />
-					</button>
-					{searchEnabled && (
 						<button
 							type="button"
-							onClick={() => setShowProviderPicker(!showProviderPicker)}
-							aria-label="Change search provider"
-							title={`Current: ${searchProvider}`}
-							className={`-ml-px flex h-10 w-5 items-center justify-center rounded-r-xl border border-l-0 transition-colors ${
-								showProviderPicker
-									? "border-accent bg-accent/10 text-accent"
-									: "border-border bg-surface-alt text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-							}`}
+							role="menuitemcheckbox"
+							aria-checked={searchEnabled}
+							onClick={() => setSearchEnabled(!searchEnabled)}
+							className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs text-text-primary hover:bg-surface-hover"
 						>
-							<ChevronDown className="h-3 w-3" />
+							<span>Enable web search</span>
+							<span
+								aria-hidden="true"
+								className={`flex h-4 w-7 items-center rounded-full px-0.5 transition-colors ${
+									searchEnabled ? "justify-end bg-accent" : "bg-border"
+								}`}
+							>
+								<span className="h-3 w-3 rounded-full bg-white shadow-sm" />
+							</span>
 						</button>
-					)}
-					{/* Provider dropdown */}
-					{showProviderPicker && searchEnabled && (
-						<div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-lg border border-border bg-surface p-1.5 shadow-lg">
-							{SEARCH_PROVIDERS.map((p) => (
+						<hr className="my-1 border-0 border-t border-border" />
+						<div className="px-2.5 py-1 text-[10px] font-semibold uppercase text-text-muted">
+							Search provider
+						</div>
+						{SEARCH_PROVIDERS.map((provider) => {
+							const selected = searchProvider === provider.value;
+							return (
 								<button
-									key={p.value}
+									key={provider.value}
 									type="button"
+									role="menuitemradio"
+									aria-checked={selected}
 									onClick={() => {
-										setSearchProvider(p.value);
-										setShowProviderPicker(false);
+										setSearchProvider(provider.value);
+										closeSearchMenu(true);
 									}}
-									className={`block w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors ${
-										searchProvider === p.value
+									className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs ${
+										selected
 											? "bg-accent/10 text-accent"
 											: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 									}`}
 								>
-									{p.label}
+									<span>{provider.label}</span>
+									{selected && (
+										<Check aria-hidden="true" className="h-3.5 w-3.5" />
+									)}
 								</button>
-							))}
-						</div>
-					)}
-				</div>
-				{streaming ? (
-					<button
-						type="button"
-						onClick={stopStreaming}
-						aria-label="Stop generating"
-						title="Stop generating"
-						className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-alt text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-					>
-						<Square className="h-3.5 w-3.5" fill="currentColor" />
-					</button>
-				) : (
-					<button
-						type="button"
-						onClick={handleSend}
-						disabled={!input.trim()}
-						aria-label="Send message"
-						title="Send (Enter)"
-						className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white transition-all hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
-					>
-						<Send className="h-4 w-4" />
-					</button>
+							);
+						})}
+					</div>
 				)}
-			</div>
-			{streaming && (
-				<div className="mx-auto mt-2 flex max-w-3xl items-center gap-2 text-xs text-text-muted">
-					<Loader2 className="h-3 w-3 animate-spin" />
-					<span>Generating... press Stop or Esc to cancel</span>
+
+				<div className="relative">
+					{slashOpen && (
+						<SlashCommandMenu
+							id={SLASH_MENU_ID}
+							items={slashMatches}
+							activeIndex={menuIndex}
+							onHover={setMenuIndex}
+							onSelect={(command) => void runCommand(command, "")}
+						/>
+					)}
+					<textarea
+						ref={textareaRef}
+						role="combobox"
+						aria-autocomplete="list"
+						aria-expanded={slashOpen}
+						aria-controls={slashOpen ? SLASH_MENU_ID : undefined}
+						aria-activedescendant={
+							slashOpen && activeSlashCommand
+								? slashCommandOptionId(activeSlashCommand.id)
+								: undefined
+						}
+						value={input}
+						onChange={handleInput}
+						onKeyDown={handleKeyDown}
+						placeholder="Type a message or / for commands"
+						rows={2}
+						maxLength={MAX_CHARS}
+						className="block max-h-[220px] min-h-[60px] w-full resize-none bg-transparent px-3.5 pb-1.5 pt-3 text-sm leading-5 text-text-primary placeholder:text-text-muted focus:outline-none"
+					/>
 				</div>
-			)}
+
+				<div className="flex min-h-11 items-center justify-between gap-2 px-2 pb-2 pt-1">
+					<div className="flex min-w-0 items-center gap-1">
+						<button
+							type="button"
+							onClick={() => {
+								setShowSearchMenu(false);
+								if (slashOpen) {
+									setSlashDismissed(true);
+								} else if (!input) {
+									setSlashDismissed(false);
+									updateInput("/");
+								}
+								focusTextarea();
+							}}
+							disabled={Boolean(input && !slashCandidate)}
+							aria-label="Open commands"
+							aria-expanded={slashOpen}
+							aria-controls={SLASH_MENU_ID}
+							title="Commands"
+							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-35"
+						>
+							<Command className="h-4 w-4" />
+						</button>
+						<button
+							ref={searchButtonRef}
+							type="button"
+							onClick={() => {
+								setSlashDismissed(true);
+								setShowSearchMenu((open) => !open);
+							}}
+							aria-label={
+								searchEnabled
+									? `Web search enabled: ${selectedSearchProvider.label}`
+									: "Web search disabled"
+							}
+							aria-haspopup="menu"
+							aria-expanded={showSearchMenu}
+							aria-controls={SEARCH_MENU_ID}
+							title={
+								searchEnabled
+									? `Web search: ${selectedSearchProvider.label}`
+									: "Web search"
+							}
+							className={`flex h-9 shrink-0 items-center justify-center gap-0.5 rounded-md px-2 transition-colors ${
+								searchEnabled
+									? "bg-accent/10 text-accent"
+									: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+							}`}
+						>
+							<Globe className="h-4 w-4" />
+							<ChevronDown className="h-3 w-3" />
+						</button>
+						{streaming && (
+							<output className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
+								<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+								<span className="truncate">Generating</span>
+							</output>
+						)}
+					</div>
+
+					<div className="flex shrink-0 items-center gap-2">
+						{showCharacterStatus && (
+							<output
+								aria-label="Character limit"
+								className="text-[11px] tabular-nums text-warning"
+							>
+								{charCount} / {MAX_CHARS}
+							</output>
+						)}
+						<button
+							type="button"
+							onClick={streaming ? stopStreaming : () => void handleSend()}
+							disabled={!streaming && !input.trim()}
+							aria-label={streaming ? "Stop generating" : "Send message"}
+							title={streaming ? "Stop generating" : "Send message"}
+							className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors ${
+								streaming
+									? "border border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+									: "bg-accent text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
+							}`}
+						>
+							{streaming ? (
+								<Square className="h-3.5 w-3.5" fill="currentColor" />
+							) : (
+								<Send className="h-4 w-4" />
+							)}
+						</button>
+					</div>
+				</div>
+			</fieldset>
 		</div>
 	);
 }

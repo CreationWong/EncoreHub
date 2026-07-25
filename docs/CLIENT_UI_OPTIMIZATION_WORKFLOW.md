@@ -353,15 +353,15 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 
 **任务**
 
-- [ ] 将 textarea、Slash、联网搜索、字符状态和发送/停止合并为单个 composer 容器。
-- [ ] textarea 默认两行，最大 220px；达到字符上限 85% 后才显示进度状态。
-- [ ] 搜索开关与 Provider 选择合并到同一菜单，未接通的附件、图片和 MCP 按钮不显示。
-- [ ] Slash 菜单向上展开并补齐 `listbox/option`、活动项关联、分组、Escape 和焦点返回。
-- [ ] 中文输入法组合态下 Enter 不发送；发送和停止图标切换不改变按钮尺寸。
-- [ ] 为每个 Conversation 保存独立草稿；新对话使用独立临时 key，创建成功后迁移草稿。
-- [ ] 用距离底部约 96px 的阈值判断自动跟随，使用 requestAnimationFrame 节流流式滚动。
-- [ ] 用户向上阅读时暂停跟随并显示“回到最新”图标按钮；每个对话保存独立滚动位置。
-- [ ] 侧栏切换、侧栏折叠和 CUI-04A 更正后的上下文栏不重置 composer 或滚动状态。
+- [x] 将 textarea、Slash、联网搜索、字符状态和发送/停止合并为单个 composer 容器。
+- [x] textarea 默认两行，最大 220px；达到字符上限 85% 后才显示进度状态。
+- [x] 搜索开关与 Provider 选择合并到同一菜单，未接通的附件、图片和 MCP 按钮不显示。
+- [x] Slash 菜单向上展开并补齐 `listbox/option`、活动项关联、分组、Escape 和焦点返回。
+- [x] 中文输入法组合态下 Enter 不发送；发送和停止图标切换不改变按钮尺寸。
+- [x] 为每个 Conversation 保存独立草稿；新对话使用独立临时 key，创建成功后迁移草稿。
+- [x] 用距离底部约 96px 的阈值判断自动跟随，使用 requestAnimationFrame 节流流式滚动。
+- [x] 用户向上阅读时暂停跟随并显示“回到最新”图标按钮；每个对话保存独立滚动位置。
+- [x] 侧栏切换、侧栏折叠和 CUI-04A 更正后的上下文栏不重置 composer 或滚动状态。
 
 **UG2 验收**
 
@@ -369,6 +369,17 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 流式时可以切换到其他对话编辑草稿，返回后两边状态均正确。
 - 680x480 下仍能看到上下文、消息和可操作的发送/停止按钮。
 - Frontend 类型检查、lint、全量 Vitest、production build 和截图矩阵通过。
+
+**执行记录（2026-07-25）**
+
+- `InputBox` 改为单个两段式 composer：两行 textarea 与底部工具栏共享边框容器，最大高度 220px；Slash、搜索、生成状态、6800/8000 起显示的字符状态和固定 36px 发送/停止按钮均位于容器内，长草稿发送后立即恢复默认高度。
+- 联网搜索改为一个 Globe 菜单，使用 `menuitemcheckbox` 管理启用状态、`menuitemradio` 管理 DuckDuckGo/Bing/Google；Slash 菜单按 Conversation、Workspace、Developer 分组，向上展开并实现 `combobox + listbox/option + aria-activedescendant`、方向键、Tab、Escape 和焦点返回。
+- `conversationStore` 新增内存态 `drafts` 与 `scrollPositions`；每个 Conversation 独立保存，未创建对话使用 `__new_conversation__`，创建成功后迁移，发送或删除时清理对应状态；Memory quote 继续追加到当前草稿，侧栏和上下文栏重渲染不清空输入。
+- `MessageFeed` 使用 96px 距底阈值和 requestAnimationFrame 分别节流流式跟随与滚动位置写入；向上阅读时停止跟随并显示固定 36px “Back to latest”按钮，Conversation 切换和加载卸载时保存、恢复各自位置。
+- 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
+- Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
+
+CUI-05 与 UG2 已完成；下一项为 CUI-06 ProviderDetail 基础表单重构。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 

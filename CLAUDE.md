@@ -224,13 +224,13 @@ Commands are declared in `frontend/src/commands/slash.ts` as a `SlashCommand[]` 
 | `/new` | Start a new conversation |
 | `/clear` | Delete the current conversation |
 | `/stop` | Stop the current generation |
+| `/retitle` | Generate an AI title for this conversation |
 | `/model` | Open settings to switch model |
 | `/settings` | Open settings panel |
 | `/skills` | Open skills panel |
 | `/memory` | Open memory panel |
 | `/knowledge` | Open knowledge base panel |
 | `/inspect` | Dump the current conversation state for debugging |
-| `/retitle` | Generate an AI title for this conversation |
 | `/help` | Show available commands |
 <!-- slash-commands:end -->
 

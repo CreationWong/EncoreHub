@@ -94,6 +94,8 @@ export function seedClientUiBaseline({
 		error: null,
 		abortController: null,
 		pendingDraft: null,
+		drafts: {},
+		scrollPositions: {},
 		convCache: {},
 		loadList: async () => {},
 		selectConversation: async () => {},

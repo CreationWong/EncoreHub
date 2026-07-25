@@ -14,6 +14,8 @@ import * as convApi from "../services/conversation";
 import { useSettingsStore } from "./settingsStore";
 import { toast } from "./toastStore";
 
+export const NEW_CONVERSATION_DRAFT_KEY = "__new_conversation__";
+
 // ---- per-conversation cache (supports concurrent background streams) ----
 
 interface ConvCacheEntry {
@@ -142,6 +144,8 @@ interface ConversationState {
 	error: string | null;
 	abortController: AbortController | null;
 	pendingDraft: string | null;
+	drafts: Record<string, string>;
+	scrollPositions: Record<string, number>;
 
 	// Per-conversation state pool.
 	convCache: Record<string, ConvCacheEntry>;
@@ -156,6 +160,9 @@ interface ConversationState {
 	pushSystemMessage: (content: string) => void;
 	setDraft: (content: string) => void;
 	clearDraft: () => void;
+	setConversationDraft: (id: string | null, content: string) => void;
+	clearConversationDraft: (id: string | null) => void;
+	setConversationScrollPosition: (id: string, scrollTop: number) => void;
 	clearError: () => void;
 	generateTitle: (id: string, force?: boolean) => Promise<void>;
 }
@@ -174,6 +181,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	error: null,
 	abortController: null,
 	pendingDraft: null,
+	drafts: {},
+	scrollPositions: {},
 	convCache: {},
 
 	loadList: async () => {
@@ -249,6 +258,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	},
 
 	newConversation: async (selection) => {
+		const shouldMigrateTemporaryDraft = get().activeId === null;
 		try {
 			const defaults = useSettingsStore.getState();
 			const provider = selection?.provider ?? defaults.provider ?? "";
@@ -260,21 +270,32 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			);
 			await get().loadList();
 			const entry = emptyCacheEntry([]);
-			set((s) => ({
-				conversations: s.conversations.some((item) => item.id === conv.id)
-					? s.conversations.map((item) => (item.id === conv.id ? conv : item))
-					: [conv, ...s.conversations],
-				activeId: conv.id,
-				messages: [],
-				loading: false,
-				streaming: false,
-				streamingContent: "",
-				streamingReasoning: "",
-				streamingToolCalls: [],
-				abortController: null,
-				error: null,
-				convCache: { ...saveActiveViewToCache(s), [conv.id]: entry },
-			}));
+			set((s) => {
+				const drafts = { ...s.drafts };
+				if (
+					shouldMigrateTemporaryDraft &&
+					Object.hasOwn(drafts, NEW_CONVERSATION_DRAFT_KEY)
+				) {
+					drafts[conv.id] = drafts[NEW_CONVERSATION_DRAFT_KEY];
+					delete drafts[NEW_CONVERSATION_DRAFT_KEY];
+				}
+				return {
+					conversations: s.conversations.some((item) => item.id === conv.id)
+						? s.conversations.map((item) => (item.id === conv.id ? conv : item))
+						: [conv, ...s.conversations],
+					activeId: conv.id,
+					messages: [],
+					loading: false,
+					streaming: false,
+					streamingContent: "",
+					streamingReasoning: "",
+					streamingToolCalls: [],
+					abortController: null,
+					error: null,
+					drafts,
+					convCache: { ...saveActiveViewToCache(s), [conv.id]: entry },
+				};
+			});
 			return conv.id;
 		} catch (err) {
 			logStoreError("Failed to create conversation", err);
@@ -287,9 +308,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	deleteConversation: async (id: string) => {
 		try {
 			await convApi.deleteConversation(id);
-			const { activeId, convCache } = get();
+			const { activeId, convCache, drafts, scrollPositions } = get();
 			const newCache = { ...convCache };
+			const nextDrafts = { ...drafts };
+			const nextScrollPositions = { ...scrollPositions };
 			delete newCache[id];
+			delete nextDrafts[id];
+			delete nextScrollPositions[id];
 			if (activeId === id) {
 				set({
 					activeId: null,
@@ -301,9 +326,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streamingToolCalls: [],
 					abortController: null,
 					convCache: newCache,
+					drafts: nextDrafts,
+					scrollPositions: nextScrollPositions,
 				});
 			} else {
-				set({ convCache: newCache });
+				set({
+					convCache: newCache,
+					drafts: nextDrafts,
+					scrollPositions: nextScrollPositions,
+				});
 			}
 			await get().loadList();
 		} catch (err) {
@@ -345,6 +376,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			convId = await get().newConversation();
 			if (!convId) return;
 		}
+
+		get().clearConversationDraft(convId);
 
 		// Ensure a cache entry exists for this conversation.
 		if (!get().convCache[convId]) {
@@ -636,6 +669,33 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
 	setDraft: (content: string) => set({ pendingDraft: content }),
 	clearDraft: () => set({ pendingDraft: null }),
+	setConversationDraft: (id, content) => {
+		const key = id ?? NEW_CONVERSATION_DRAFT_KEY;
+		set((s) => {
+			const drafts = { ...s.drafts };
+			if (content) drafts[key] = content;
+			else delete drafts[key];
+			return { drafts };
+		});
+	},
+	clearConversationDraft: (id) => {
+		const key = id ?? NEW_CONVERSATION_DRAFT_KEY;
+		set((s) => {
+			if (!Object.hasOwn(s.drafts, key)) return s;
+			const drafts = { ...s.drafts };
+			delete drafts[key];
+			return { drafts };
+		});
+	},
+	setConversationScrollPosition: (id, scrollTop) => {
+		if (!id || !Number.isFinite(scrollTop)) return;
+		set((s) => ({
+			scrollPositions: {
+				...s.scrollPositions,
+				[id]: Math.max(0, scrollTop),
+			},
+		}));
+	},
 
 	generateTitle: async (id: string, force = false) => {
 		try {

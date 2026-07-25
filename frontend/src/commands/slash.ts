@@ -9,6 +9,7 @@ export interface SlashCommand {
 	id: string;
 	name: string;
 	description: string;
+	group: "conversation" | "workspace" | "developer";
 	/**
 	 * Run the command. Return a string to insert into the input box, or void to
 	 * consume the input (the command handles itself).
@@ -25,6 +26,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "new",
 		name: "/new",
 		description: "Start a new conversation",
+		group: "conversation",
 		run: async (_args, { conv }) => {
 			await conv.newConversation();
 		},
@@ -33,6 +35,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "clear",
 		name: "/clear",
 		description: "Delete the current conversation",
+		group: "conversation",
 		run: async (_args, { conv }) => {
 			if (!conv.activeId) return;
 			const ok = await confirm.ask(
@@ -48,14 +51,26 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "stop",
 		name: "/stop",
 		description: "Stop the current generation",
+		group: "conversation",
 		run: (_args, { conv }) => {
 			conv.stopStreaming();
+		},
+	},
+	{
+		id: "retitle",
+		name: "/retitle",
+		description: "Generate an AI title for this conversation",
+		group: "conversation",
+		run: async (_args, { conv }) => {
+			if (!conv.activeId) return;
+			await conv.generateTitle(conv.activeId, true);
 		},
 	},
 	{
 		id: "model",
 		name: "/model",
 		description: "Open settings to switch model",
+		group: "workspace",
 		run: (_args, { settings }) => {
 			settings.openSettings("providers");
 		},
@@ -64,6 +79,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "settings",
 		name: "/settings",
 		description: "Open settings panel",
+		group: "workspace",
 		run: (_args, { settings }) => {
 			settings.openSettings();
 		},
@@ -72,6 +88,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "skills",
 		name: "/skills",
 		description: "Open skills panel",
+		group: "workspace",
 		run: (_args, { settings }) => {
 			settings.openSettings("skills");
 		},
@@ -80,6 +97,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "memory",
 		name: "/memory",
 		description: "Open memory panel",
+		group: "workspace",
 		run: (_args, { settings }) => {
 			settings.openSettings("memories");
 		},
@@ -88,6 +106,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "knowledge",
 		name: "/knowledge",
 		description: "Open knowledge base panel",
+		group: "workspace",
 		run: (_args, { settings }) => {
 			settings.openSettings("knowledge");
 		},
@@ -96,6 +115,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		id: "inspect",
 		name: "/inspect",
 		description: "Dump the current conversation state for debugging",
+		group: "developer",
 		run: (_args, { conv }) => {
 			const snapshot = {
 				activeId: conv.activeId,
@@ -114,18 +134,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		},
 	},
 	{
-		id: "retitle",
-		name: "/retitle",
-		description: "Generate an AI title for this conversation",
-		run: async (_args, { conv }) => {
-			if (!conv.activeId) return;
-			await conv.generateTitle(conv.activeId, true);
-		},
-	},
-	{
 		id: "help",
 		name: "/help",
 		description: "Show available commands",
+		group: "developer",
 		run: (_args, { conv }) => {
 			const lines = SLASH_COMMANDS.map(
 				(c) => `${c.name.padEnd(12)} ${c.description}`,

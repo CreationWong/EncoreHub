@@ -1,4 +1,5 @@
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -10,19 +11,49 @@ import type { StreamToolCall } from "../../services/chat";
 import type { Message } from "../../services/conversation";
 
 let feedState: {
+	activeId: string | null;
 	messages: Message[];
 	streaming: boolean;
 	streamingContent: string;
 	streamingReasoning: string;
 	streamingToolCalls: StreamToolCall[];
+	scrollPositions: Record<string, number>;
+	setConversationScrollPosition: (id: string, scrollTop: number) => void;
 };
 
-vi.mock("../../stores/conversationStore", () => ({
-	useConversationStore: <T,>(selector: (state: typeof feedState) => T): T =>
-		selector(feedState),
-}));
+vi.mock("../../stores/conversationStore", () => {
+	const hook = <T,>(selector: (state: typeof feedState) => T): T =>
+		selector(feedState);
+	hook.getState = () => feedState;
+	return { useConversationStore: hook };
+});
 
 import MessageFeed from "./MessageFeed";
+
+let animationFrames: FrameRequestCallback[];
+
+function flushAnimationFrames() {
+	act(() => {
+		while (animationFrames.length > 0) {
+			const callbacks = animationFrames.splice(0);
+			for (const callback of callbacks) callback(0);
+		}
+	});
+}
+
+function setScrollerMetrics(
+	scroller: HTMLElement,
+	metrics: { clientHeight: number; scrollHeight: () => number },
+) {
+	Object.defineProperty(scroller, "clientHeight", {
+		configurable: true,
+		get: () => metrics.clientHeight,
+	});
+	Object.defineProperty(scroller, "scrollHeight", {
+		configurable: true,
+		get: metrics.scrollHeight,
+	});
+}
 
 function message(
 	id: string,
@@ -43,20 +74,34 @@ function message(
 }
 
 beforeEach(() => {
+	animationFrames = [];
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		animationFrames.push(callback);
+		return animationFrames.length;
+	});
+	vi.stubGlobal("cancelAnimationFrame", vi.fn());
 	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 		configurable: true,
 		value: vi.fn(),
 	});
 	feedState = {
+		activeId: "c1",
 		messages: [],
 		streaming: false,
 		streamingContent: "",
 		streamingReasoning: "",
 		streamingToolCalls: [],
+		scrollPositions: {},
+		setConversationScrollPosition: vi.fn((id, scrollTop) => {
+			feedState.scrollPositions[id] = scrollTop;
+		}),
 	};
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
 describe("MessageFeed reasoning expansion", () => {
 	it("loads historical reasoning collapsed", () => {
@@ -149,5 +194,113 @@ describe("MessageFeed document layout", () => {
 		expect(container.querySelector(".max-w-\\[1080px\\]")).not.toBeNull();
 		expect(screen.getByText("Generating")).toBeDefined();
 		expect(screen.getByText("Generating response")).toBeDefined();
+	});
+});
+
+describe("MessageFeed scroll control", () => {
+	it("auto-follows streaming updates only while within 96px of the bottom", () => {
+		let scrollHeight = 1000;
+		feedState.streaming = true;
+		const { rerender } = render(<MessageFeed />);
+		const scroller = screen.getByTestId("message-feed-scroller");
+		setScrollerMetrics(scroller, {
+			clientHeight: 400,
+			scrollHeight: () => scrollHeight,
+		});
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(600);
+
+		scroller.scrollTop = 520;
+		fireEvent.scroll(scroller);
+		flushAnimationFrames();
+		scrollHeight = 1100;
+		feedState.streamingContent = "next token";
+		rerender(<MessageFeed />);
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(700);
+
+		scroller.scrollTop = 360;
+		fireEvent.scroll(scroller);
+		flushAnimationFrames();
+		expect(
+			screen.getByRole("button", { name: "Back to latest" }),
+		).toBeDefined();
+
+		scrollHeight = 1200;
+		feedState.streamingContent = "next token after reading upward";
+		rerender(<MessageFeed />);
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(360);
+	});
+
+	it("returns to the latest message with a fixed-size control", () => {
+		let scrollHeight = 1000;
+		const { rerender } = render(<MessageFeed />);
+		const scroller = screen.getByTestId("message-feed-scroller");
+		setScrollerMetrics(scroller, {
+			clientHeight: 400,
+			scrollHeight: () => scrollHeight,
+		});
+		flushAnimationFrames();
+
+		scroller.scrollTop = 240;
+		fireEvent.scroll(scroller);
+		flushAnimationFrames();
+		const button = screen.getByRole("button", { name: "Back to latest" });
+		expect(button.className).toContain("h-9");
+		expect(button.className).toContain("w-9");
+
+		scrollHeight = 1040;
+		rerender(<MessageFeed />);
+		fireEvent.click(button);
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(640);
+		expect(screen.queryByRole("button", { name: "Back to latest" })).toBeNull();
+	});
+
+	it("restores independent scroll positions when switching conversations", () => {
+		feedState.scrollPositions = { c1: 240, c2: 80 };
+		const { rerender } = render(<MessageFeed />);
+		const scroller = screen.getByTestId("message-feed-scroller");
+		setScrollerMetrics(scroller, {
+			clientHeight: 400,
+			scrollHeight: () => 1000,
+		});
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(240);
+
+		feedState.activeId = "c2";
+		rerender(<MessageFeed />);
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(80);
+
+		feedState.activeId = "c1";
+		rerender(<MessageFeed />);
+		flushAnimationFrames();
+		expect(scroller.scrollTop).toBe(240);
+	});
+
+	it("throttles repeated scroll position writes to one animation frame", () => {
+		render(<MessageFeed />);
+		const scroller = screen.getByTestId("message-feed-scroller");
+		setScrollerMetrics(scroller, {
+			clientHeight: 400,
+			scrollHeight: () => 1000,
+		});
+		flushAnimationFrames();
+		vi.mocked(feedState.setConversationScrollPosition).mockClear();
+
+		scroller.scrollTop = 300;
+		fireEvent.scroll(scroller);
+		scroller.scrollTop = 280;
+		fireEvent.scroll(scroller);
+		expect(feedState.setConversationScrollPosition).not.toHaveBeenCalled();
+
+		flushAnimationFrames();
+		expect(feedState.setConversationScrollPosition).toHaveBeenCalledTimes(1);
+		expect(feedState.setConversationScrollPosition).toHaveBeenLastCalledWith(
+			"c1",
+			280,
+		);
 	});
 });

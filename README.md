@@ -93,14 +93,14 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 
 - **多 provider（模板化）**：内置 OpenAI / Anthropic / DeepSeek，并支持新增/编辑/删除自定义供应商、改端节点(base_url)、编辑模型列表。档案持久化在引擎，网关运行时热加载
 - **流式 SSE**：可中断（前端 InputBox 的 Stop 按钮 / Esc）；支持 reasoning（chain-of-thought）可见可折叠
-- **Token 计数**：每次对话后 assistant 消息右上角显示 input+output token 总数（如 `1.2k tokens`）；引擎 `conversation` crate 提供 char/4 近似估算 + API 用量追踪
+- **Token 计数**：每次对话后 assistant 回复右下角显示 input+output token 总数（如 `1.2k tokens`）；引擎 `conversation` crate 提供 char/4 近似估算 + API 用量追踪
 - **端口自动协商**：Tauri 桌面模式下从 10000 自动找可用端口，避免多实例冲突；headless 模式走 env 固定端口
-- **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/retitle` `/help`
+- **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/retitle` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/help`
 - **设置面板**（`Ctrl/Cmd + ,`）：Providers / Skills / Knowledge / Memories / Security / Appearance（开启开发者模式后多一个 Developer 标签）
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
-- **联网搜索**：点击输入框地球图标开启后，模型获得 `web_search` 工具，可主动搜索网页（DuckDuckGo/Bing/Google）。搜索结果作为 tool result 返回模型，模型引用来源生成回复
+- **联网搜索**：输入区地球菜单统一管理启用开关与 DuckDuckGo/Bing/Google Provider；开启后模型获得 `web_search` 工具，可主动搜索网页。搜索结果作为 tool result 返回模型，模型引用来源生成回复
 
 ## 仓库导航
 
