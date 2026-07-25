@@ -1,5 +1,12 @@
-import { Loader2, MessageSquareText } from "lucide-react";
+import {
+	Loader2,
+	MessageSquareText,
+	PanelLeft,
+	PanelLeftClose,
+} from "lucide-react";
 import { useConversationStore } from "../../stores/conversationStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import ProviderSwitcher from "../sidebar/ProviderSwitcher";
 
 function messageCountLabel(count: number) {
 	return `${count} ${count === 1 ? "message" : "messages"}`;
@@ -11,6 +18,8 @@ export default function ContextHeader() {
 	const messages = useConversationStore((state) => state.messages);
 	const loading = useConversationStore((state) => state.loading);
 	const streaming = useConversationStore((state) => state.streaming);
+	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
+	const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
 	const conversation = conversations.find((item) => item.id === activeId);
 	const title =
 		conversation?.title ?? (activeId ? "Conversation" : "New conversation");
@@ -25,12 +34,25 @@ export default function ContextHeader() {
 	return (
 		<header
 			aria-label="Conversation context"
-			className="flex h-16 shrink-0 items-center border-b border-border bg-workspace px-5"
+			className="flex h-16 shrink-0 items-center border-b border-border bg-workspace px-3"
 		>
+			<button
+				type="button"
+				onClick={toggleSidebar}
+				aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+				title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+				className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
+			>
+				{sidebarOpen ? (
+					<PanelLeftClose className="h-4 w-4" />
+				) : (
+					<PanelLeft className="h-4 w-4" />
+				)}
+			</button>
 			<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-control text-text-secondary">
 				<MessageSquareText className="h-4 w-4" />
 			</div>
-			<div className="ml-3 min-w-0">
+			<div className="ml-3 min-w-0 flex-1">
 				<h1
 					className="truncate text-sm font-semibold text-text-primary"
 					title={title}
@@ -44,6 +66,9 @@ export default function ContextHeader() {
 					)}
 					<span>{status}</span>
 				</div>
+			</div>
+			<div className="ml-3 min-w-0 max-w-[45%] shrink-0">
+				<ProviderSwitcher />
 			</div>
 		</header>
 	);

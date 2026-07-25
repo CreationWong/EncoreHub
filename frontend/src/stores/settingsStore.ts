@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { secretsApi } from "../services/secrets";
 
 export type Theme = "system" | "dark" | "light";
+export type SidebarMode = "characters" | "conversations";
 export type SettingsTab =
 	| "providers"
 	| "skills"
@@ -20,6 +21,7 @@ interface SettingsState {
 	apiKeys: Record<string, string>;
 	sidebarOpen: boolean;
 	sidebarWidth: number;
+	sidebarMode: SidebarMode;
 	settingsOpen: boolean;
 	settingsTab: SettingsTab;
 	devMode: boolean;
@@ -35,6 +37,7 @@ interface SettingsState {
 	loadKeys: () => Promise<void>;
 	toggleSidebar: () => void;
 	setSidebarWidth: (width: number) => void;
+	setSidebarMode: (mode: SidebarMode) => void;
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
 	setDevMode: (on: boolean) => void;
@@ -58,9 +61,9 @@ function applyTheme(theme: Theme) {
 
 // Sidebar width is drag-resizable and persisted. Clamp to a sane range so a
 // stray drag can't make it unusably narrow or eat the whole window.
-export const SIDEBAR_MIN_WIDTH = 200;
-export const SIDEBAR_MAX_WIDTH = 480;
-const SIDEBAR_DEFAULT_WIDTH = 256; // matches the old fixed w-64
+export const SIDEBAR_MIN_WIDTH = 260;
+export const SIDEBAR_MAX_WIDTH = 380;
+const SIDEBAR_DEFAULT_WIDTH = 300;
 
 function clampSidebarWidth(w: number): number {
 	if (Number.isNaN(w)) return SIDEBAR_DEFAULT_WIDTH;
@@ -73,6 +76,13 @@ function loadSidebarWidth(): number {
 	return raw
 		? clampSidebarWidth(Number.parseInt(raw, 10))
 		: SIDEBAR_DEFAULT_WIDTH;
+}
+
+function loadSidebarMode(): SidebarMode {
+	if (typeof window === "undefined") return "conversations";
+	return localStorage.getItem("encorehub-sidebar-mode") === "characters"
+		? "characters"
+		: "conversations";
 }
 
 // API keys are always persisted to the engine DB (plaintext or encrypted
@@ -151,6 +161,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	apiKeys: {},
 	sidebarOpen: true,
 	sidebarWidth: loadSidebarWidth(),
+	sidebarMode: loadSidebarMode(),
 	settingsOpen: false,
 	settingsTab: "providers",
 	devMode:
@@ -246,6 +257,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		set({ sidebarWidth: clamped });
 		try {
 			localStorage.setItem("encorehub-sidebar-width", String(clamped));
+		} catch {
+			/* ignore */
+		}
+	},
+	setSidebarMode: (mode: SidebarMode) => {
+		set({ sidebarMode: mode });
+		try {
+			localStorage.setItem("encorehub-sidebar-mode", mode);
 		} catch {
 			/* ignore */
 		}

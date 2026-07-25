@@ -79,24 +79,24 @@ pnpm --dir frontend capture:ui-baseline
 
 ## 4. 截图证据
 
-完整尺寸、文件大小和 SHA-256 见 [manifest.json](ui-baseline/2026-07-24/manifest.json)。
+截图和 manifest 只作为本地验证产物生成在 `docs/ui-baseline/2026-07-24/`，该目录由 Git 忽略，不提交图片。完整尺寸、文件大小和 SHA-256 记录在本地 `manifest.json`。
 
 ### 4.1 长内容视口矩阵
 
 | 视口 | Light | Dark |
 |---|---|---|
-| 1600x1120 | [PNG](ui-baseline/2026-07-24/long-markdown-light-1600x1120.png) | [PNG](ui-baseline/2026-07-24/long-markdown-dark-1600x1120.png) |
-| 1200x800 | [PNG](ui-baseline/2026-07-24/long-markdown-light-1200x800.png) | [PNG](ui-baseline/2026-07-24/long-markdown-dark-1200x800.png) |
-| 900x700 | [PNG](ui-baseline/2026-07-24/long-markdown-light-900x700.png) | [PNG](ui-baseline/2026-07-24/long-markdown-dark-900x700.png) |
-| 680x480 | [PNG](ui-baseline/2026-07-24/long-markdown-light-680x480.png) | [PNG](ui-baseline/2026-07-24/long-markdown-dark-680x480.png) |
+| 1600x1120 | `long-markdown-light-1600x1120.png` | `long-markdown-dark-1600x1120.png` |
+| 1200x800 | `long-markdown-light-1200x800.png` | `long-markdown-dark-1200x800.png` |
+| 900x700 | `long-markdown-light-900x700.png` | `long-markdown-dark-900x700.png` |
+| 680x480 | `long-markdown-light-680x480.png` | `long-markdown-dark-680x480.png` |
 
 ### 4.2 关键状态
 
 | 状态 | 截图 |
 |---|---|
-| Streaming / dark / 1200x800 | [PNG](ui-baseline/2026-07-24/streaming-dark-1200x800.png) |
-| Failed / light / 1200x800 | [PNG](ui-baseline/2026-07-24/failed-light-1200x800.png) |
-| Providers locked / light / 1200x800 | [PNG](ui-baseline/2026-07-24/providers-locked-light-1200x800.png) |
+| Streaming / dark / 1200x800 | `streaming-dark-1200x800.png` |
+| Failed / light / 1200x800 | `failed-light-1200x800.png` |
+| Providers locked / light / 1200x800 | `providers-locked-light-1200x800.png` |
 
 其余状态通过第 3 节 URL 参数重复渲染，由夹具契约和组件测试覆盖；不为每个等价状态提交重复 PNG。
 
@@ -166,13 +166,25 @@ UG0 已通过；CUI-01 的完成证据见下一节。后续截图必须使用相
 
 ## 8. CUI-01 对比记录
 
-CUI-01 使用同一组 scenario、主题和视口生成了独立的 [manifest](ui-baseline/2026-07-24-cui-01/manifest.json)，没有覆盖本文件第 4 节的 CUI-00 原始基线。
+CUI-01 使用同一组 scenario、主题和视口在本地 `docs/ui-baseline/2026-07-24-cui-01/` 生成了独立 manifest，没有覆盖本文件第 4 节的 CUI-00 原始基线。图片和 manifest 均不进入 Git。
 
 关键证据：
 
-- [1600x1120 light](ui-baseline/2026-07-24-cui-01/long-markdown-light-1600x1120.png)：64px GlobalNav、独立 workspace 和 64px ContextHeader。
-- [680x480 light](ui-baseline/2026-07-24-cui-01/long-markdown-light-680x480.png)：顶部导航、上下文栏和 composer 无重叠；现有侧栏宽度问题保留给 CUI-02。
-- [1200x800 streaming dark](ui-baseline/2026-07-24-cui-01/streaming-dark-1200x800.png)：固定 header/feed/composer 槽位与现有 Stop 流程共存。
-- [1200x800 Providers locked](ui-baseline/2026-07-24-cui-01/providers-locked-light-1200x800.png)：Settings overlay、vault 锁定状态与新应用骨架无冲突。
+- `long-markdown-light-1600x1120.png`：64px GlobalNav、独立 workspace 和 64px ContextHeader。
+- `long-markdown-light-680x480.png`：顶部导航、上下文栏和 composer 无重叠；现有侧栏宽度问题保留给 CUI-02。
+- `streaming-dark-1200x800.png`：固定 header/feed/composer 槽位与现有 Stop 流程共存。
+- `providers-locked-light-1200x800.png`：Settings overlay、vault 锁定状态与新应用骨架无冲突。
 
 CUI-01 只建立结构和视觉层级，没有移动 Sidebar Provider、改变 MessageBubble、修改 InputBox 命令语义或关闭 Tauri 原生窗口装饰。
+
+## 9. CUI-02 对比记录
+
+CUI-02 使用相同矩阵在本地 `docs/ui-baseline/2026-07-25-cui-02/` 生成 13 张图片。该目录由 Git 忽略，仓库只保留下列文字结论：
+
+- `long-markdown-light-1600x1120.png`：300px Sidebar、Characters/Conversations tabs、日期分组和 ContextHeader ProviderSwitcher 层级稳定。
+- `long-markdown-light-680x480.png`：260px 最小侧栏、长标题和 Provider/Model 分别截断，无控件重叠；Composer 的窄窗换行留给 CUI-05。
+- `characters-light-1200x800.png`：Default character 投影可见，不显示未接通的添加、导入或删除入口。
+- `sidebar-closed-light-1200x800.png`：侧栏宽度归零，主工作区填满可用空间，PanelLeft 按钮可恢复侧栏。
+- `long-markdown-dark-1200x800.png`：暗色选中面、accent 标识、分组标签和模型元数据保持清晰层级。
+
+从 CUI-02 起，验证图片和 manifest 不再进入 Git；此前 CUI-00/CUI-01 已跟踪的视觉产物也从索引移除，但本机文件保留供当前工作区验收。

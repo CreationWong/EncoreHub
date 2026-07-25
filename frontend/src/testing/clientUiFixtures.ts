@@ -467,6 +467,7 @@ const scenarioMap: Record<ClientUiScenarioId, ClientUiScenario> = {
 export interface ClientUiBaselineOptions {
 	scenarioId: ClientUiScenarioId;
 	theme: (typeof CLIENT_UI_BASELINE_THEMES)[number];
+	sidebar: "characters" | "conversations" | "closed";
 }
 
 export function isClientUiScenarioId(
@@ -481,12 +482,17 @@ export function parseClientUiBaselineOptions(
 	const params = new URLSearchParams(search);
 	const requestedScenario = params.get("scenario");
 	const requestedTheme = params.get("theme");
+	const requestedSidebar = params.get("sidebar");
 
 	return {
 		scenarioId: isClientUiScenarioId(requestedScenario)
 			? requestedScenario
 			: "long-markdown",
 		theme: requestedTheme === "dark" ? "dark" : "light",
+		sidebar:
+			requestedSidebar === "characters" || requestedSidebar === "closed"
+				? requestedSidebar
+				: "conversations",
 	};
 }
 

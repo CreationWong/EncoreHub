@@ -94,9 +94,9 @@ flowchart LR
 | ID | 主要模块 | 依赖 | 交付物 | 初始状态 |
 |---|---|---|---|---|
 | CUI-00 | Frontend QA | 无 | 固定状态夹具、截图基线、现有行为清单 | `Done`（[证据](CLIENT_UI_BASELINE.md)） |
-| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Done`（[截图](ui-baseline/2026-07-24-cui-01/manifest.json)） |
-| CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Ready` |
-| CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Not started` |
+| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Done`（本地视觉验收） |
+| CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Done`（本地视觉验收） |
+| CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Ready` |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Not started` |
 | CUI-05 | Frontend composer/scroll | CUI-04 | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Not started` |
 | CUI-06 | Frontend settings | UG2 | ProviderDetail 纵向表单、手工模型管理、draft 保存 | `Not started` |
@@ -165,7 +165,7 @@ flowchart LR
 - `ChatView` 拆为 `ContextHeader`、`MessageFeed` 和 `Composer`。上下文栏只显示真实对话标题、消息数、加载或生成状态；Provider/Model 留给 CUI-03。
 - Loading 使用固定 header/feed/composer 槽位；消息映射、reasoning、tool call、token、流式占位和当前 smooth-scroll 行为原样迁移。
 - Sidebar 内现有 New Chat、Provider、Settings 和主题命令暂时保留，重复入口与长 Provider/Model 换行明确归属 CUI-02/CUI-03。
-- CUI-01 [视觉 manifest](ui-baseline/2026-07-24-cui-01/manifest.json) 包含四视口亮暗矩阵及 streaming、failed、Providers locked 状态；CUI-00 原始图片未覆盖。
+- CUI-01 本地视觉 manifest 包含四视口亮暗矩阵及 streaming、failed、Providers locked 状态；产物目录由 Git 忽略，CUI-00 原始图片未覆盖。
 - 已通过 Frontend check、79 文件 lint、23 个测试文件/154 项测试和 production build；初始 JavaScript gzip 为 112.93 KiB / 300 KiB。
 
 ### CUI-02 实现“角色 / 对话”侧栏
@@ -179,19 +179,31 @@ flowchart LR
 
 **任务**
 
-- [ ] 使用 `tablist/tab/tabpanel` 实现等宽“角色 / 对话”标签，并持久化上次选择；新安装默认“对话”。
-- [ ] 新建 `CharacterList`，只渲染从当前 Provider/Model 投影的默认角色；隐藏添加、导入和删除命令。
-- [ ] 对话列表按今天、昨天、过去 7 天和更早分组，保留现有标题更新和选中逻辑。
-- [ ] 将重命名、重新生成标题和删除放入更多菜单；双击重命名可以保留但不作为唯一入口。
-- [ ] 侧栏宽度限制为 260-380px；折叠后完全隐藏，不保留 48px 图标栏。
-- [ ] tabs 切换只替换侧栏 pane，不卸载 `ChatView`，不丢失流式状态、输入草稿或滚动位置。
-- [ ] 为加载、空、错误、单项、多项和超长文本补测试。
+- [x] 使用 `tablist/tab/tabpanel` 实现等宽“角色 / 对话”标签，并持久化上次选择；新安装默认“对话”。
+- [x] 新建 `CharacterList`，只渲染从当前 Provider/Model 投影的默认角色；隐藏添加、导入和删除命令。
+- [x] 对话列表按今天、昨天、过去 7 天和更早分组，保留现有标题更新和选中逻辑。
+- [x] 将重命名、重新生成标题和删除放入更多菜单；双击重命名可以保留但不作为唯一入口。
+- [x] 侧栏宽度限制为 260-380px；折叠后完全隐藏，不保留 48px 图标栏。
+- [x] tabs 切换只替换侧栏 pane，不卸载 `ChatView`，不丢失流式状态、输入草稿或滚动位置。
+- [x] 为加载、空、错误、单项、多项和超长文本补测试。
 
 **完成定义**
 
 - 默认角色可以选择并进入最近对话或空白对话。
 - 对话列表的创建、选择、重命名、重新生成标题和删除功能无回归。
 - 键盘可切换 tabs、列表项和更多菜单，Escape 后焦点返回触发按钮。
+
+**执行记录（2026-07-25）**
+
+- Sidebar 使用等宽 `Characters / Conversations` tabs，内部状态仍为 `characters/conversations`；选择持久化到 localStorage，新安装默认 Conversations。
+- 新增 Default character 投影，只显示当前全局 Provider/Model；点击后打开同配置的最近对话，没有历史时创建空白对话。添加、导入和删除命令保持隐藏。
+- 对话按本地日历日分为 Today、Yesterday、Previous 7 days 和 Older，并在组内按 `updated_at` 降序；无效时间稳定归入 Older。
+- 对话行显示标题和模型，选中行使用 accent 左标识；更多菜单提供 Rename、Regenerate title 和 Delete，支持 Escape 焦点返回，并根据剩余空间向上或向下展开。
+- Conversation store 增加独立 `listLoading/listError`，列表提供 skeleton、空状态和 Retry；已有列表在刷新失败时不会被清空。
+- Sidebar 宽度固定在 260-380px、默认 300px；折叠后完全不渲染，ContextHeader 的 PanelLeft 按钮是唯一恢复入口。
+- 为避免阶段性功能回归，现有全局 ProviderSwitcher 已无损迁到 ContextHeader 并完成长文本截断；Conversation 权威 Provider/Model 语义仍由 CUI-03 实现。
+- 本地 `docs/ui-baseline/2026-07-25-cui-02/` 生成 13 张验证图片，覆盖四视口亮暗、Characters、折叠、streaming、failed 和 Providers locked；目录由 Git 忽略，图片与 manifest 不提交。
+- 已通过 Frontend check、85 文件 lint、27 个测试文件/170 项测试和 production build；初始 JavaScript gzip 为 114.98 KiB / 300 KiB。
 
 ### CUI-03 迁移上下文栏与模型语义
 
@@ -507,7 +519,7 @@ flowchart LR
 3. 先增加失败测试或可重复的视觉/交互复现。
 4. 实现最小垂直改动，不夹带无关 store、service 或样式重构。
 5. 运行组件专项测试，再运行本节对应的模块 gate。
-6. 保存亮暗主题和目标视口截图；动态行为附操作记录或 Tauri smoke 结果。
+6. 在 Git 忽略目录保存亮暗主题和目标视口截图；仓库只记录结论、文件命名和动态行为/Tauri smoke 结果。
 7. 检查键盘、IME、焦点返回、长文本、加载、错误和 reduced motion。
 8. 更新计划、工作流状态、OpenAPI、ADR 或平台说明。
 9. 使用 `type(scope): description` 创建英文提交，合回 `UI` 后复跑 Gate。
@@ -586,7 +598,7 @@ git diff --check
 git status --short
 ```
 
-生成的截图、bundle 报告和安装包只有在仓库已有明确归档位置时才提交；临时产物不得污染工作区。
+验证/测试截图和截图 manifest 一律保留在 Git 忽略目录，不提交到仓库。bundle 报告和安装包只有在仓库已有明确归档位置时才提交；临时产物不得污染工作区。
 
 ## 10. 审查清单
 
@@ -634,7 +646,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批按顺序推进 CUI-00、CUI-01 和 CUI-02。CUI-00 与 CUI-01 已完成，下一项为 CUI-02；三项都会触碰主窗口或全局样式，不并行实施。
+第一批按顺序推进 CUI-00、CUI-01 和 CUI-02，现已全部完成。下一项为 CUI-03；前三项都会触碰主窗口或全局样式，因此未并行实施。
 
 建议首批提交顺序：
 

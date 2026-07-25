@@ -37,6 +37,7 @@ const captures = [
 			theme,
 			width,
 			height,
+			sidebar: "conversations",
 		})),
 	),
 	{
@@ -45,6 +46,7 @@ const captures = [
 		theme: "dark",
 		width: 1200,
 		height: 800,
+		sidebar: "conversations",
 	},
 	{
 		name: "failed-light-1200x800",
@@ -52,6 +54,7 @@ const captures = [
 		theme: "light",
 		width: 1200,
 		height: 800,
+		sidebar: "conversations",
 	},
 	{
 		name: "providers-locked-light-1200x800",
@@ -59,6 +62,23 @@ const captures = [
 		theme: "light",
 		width: 1200,
 		height: 800,
+		sidebar: "conversations",
+	},
+	{
+		name: "characters-light-1200x800",
+		scenario: "long-markdown",
+		theme: "light",
+		width: 1200,
+		height: 800,
+		sidebar: "characters",
+	},
+	{
+		name: "sidebar-closed-light-1200x800",
+		scenario: "long-markdown",
+		theme: "light",
+		width: 1200,
+		height: 800,
+		sidebar: "closed",
 	},
 ];
 
@@ -166,6 +186,7 @@ async function main() {
 		const url = new URL("/ui-baseline.html", baseUrl);
 		url.searchParams.set("scenario", capture.scenario);
 		url.searchParams.set("theme", capture.theme);
+		url.searchParams.set("sidebar", capture.sidebar);
 
 		try {
 			const command = spawnSync(

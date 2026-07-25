@@ -16,6 +16,7 @@ import {
 export function seedClientUiBaseline({
 	scenarioId,
 	theme,
+	sidebar,
 }: ClientUiBaselineOptions) {
 	const scenario = getClientUiScenario(scenarioId);
 	const selectedConversation = CLIENT_UI_BASELINE_CONVERSATIONS.find(
@@ -31,8 +32,9 @@ export function seedClientUiBaseline({
 		provider: selectedConversation?.provider ?? scenario.provider,
 		model: selectedConversation?.model ?? scenario.model,
 		apiKeys: {},
-		sidebarOpen: true,
-		sidebarWidth: 256,
+		sidebarOpen: sidebar !== "closed",
+		sidebarWidth: 300,
+		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
 		settingsOpen: scenario.settingsOpen,
 		settingsTab: "providers",
 		devMode: false,
@@ -77,6 +79,8 @@ export function seedClientUiBaseline({
 			...conversation,
 		})),
 		activeId: scenario.activeId,
+		listLoading: false,
+		listError: null,
 		messages: scenario.messages,
 		loading: false,
 		streaming: scenario.streaming,

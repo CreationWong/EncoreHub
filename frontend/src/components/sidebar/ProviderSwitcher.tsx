@@ -1,85 +1,116 @@
 import { ChevronDown, Cpu } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export default function ProviderSwitcher() {
-	const provider = useSettingsStore((s) => s.provider);
-	const model = useSettingsStore((s) => s.model);
-	const setProvider = useSettingsStore((s) => s.setProvider);
-	const profiles = useProviderStore((s) => s.profiles);
-
+	const provider = useSettingsStore((state) => state.provider);
+	const model = useSettingsStore((state) => state.model);
+	const setProvider = useSettingsStore((state) => state.setProvider);
+	const profiles = useProviderStore((state) => state.profiles);
+	const enabled = profiles.filter((profile) => profile.enabled);
+	const selectedProvider = profiles.find((profile) => profile.id === provider);
 	const [expanded, setExpanded] = useState(false);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const providerName = selectedProvider?.name ?? "Select provider";
+	const selection = model ? `${providerName} · ${model}` : providerName;
 
-	// Only enabled providers are selectable.
-	const enabled = profiles.filter((p) => p.enabled);
-	const selectedProvider = profiles.find((p) => p.id === provider);
-	const displayName = selectedProvider?.name || "Select Provider";
+	useEffect(() => {
+		if (!expanded) return;
+		const closeOutside = (event: PointerEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setExpanded(false);
+		};
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setExpanded(false);
+			triggerRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", closeOutside);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", closeOutside);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	}, [expanded]);
 
 	return (
-		<div className="border-t border-border p-3">
-			<div className="relative">
-				<button
-					type="button"
-					onClick={() => setExpanded(!expanded)}
-					className="flex items-center justify-between w-full rounded-lg px-3 py-2 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
-				>
-					<div className="flex items-center gap-2">
-						<Cpu className="h-3.5 w-3.5" />
-						<span>{displayName}</span>
-						{model && <span className="text-text-muted">/ {model}</span>}
-					</div>
-					<ChevronDown
-						className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
-					/>
-				</button>
+		<div ref={rootRef} className="relative min-w-0">
+			<button
+				ref={triggerRef}
+				type="button"
+				onClick={() => setExpanded((value) => !value)}
+				aria-label="Select provider and model"
+				aria-haspopup="menu"
+				aria-expanded={expanded}
+				title={selection}
+				className="flex h-8 max-w-full items-center gap-2 rounded-md border border-border bg-control px-2.5 text-xs text-text-secondary hover:text-text-primary"
+			>
+				<Cpu className="h-3.5 w-3.5 shrink-0" />
+				<span className="truncate">{selection}</span>
+				<ChevronDown
+					className={`h-3.5 w-3.5 shrink-0 transition-transform ${
+						expanded ? "rotate-180" : ""
+					}`}
+				/>
+			</button>
 
-				{expanded && (
-					<div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-border bg-surface shadow-lg p-1 z-50">
-						{enabled.length === 0 && (
-							<p className="px-3 py-2 text-xs text-text-muted">
-								No providers configured
-							</p>
-						)}
-						{enabled.map((p) => (
-							<div key={p.id}>
-								<button
-									type="button"
-									className={`w-full text-left px-3 py-1.5 rounded text-xs font-medium ${
-										provider === p.id
-											? "bg-accent/10 text-accent"
-											: "text-text-secondary hover:bg-surface-hover"
-									}`}
-									onClick={() => {
-										setProvider(p.id, p.models[0]);
-										setExpanded(false);
-									}}
-								>
-									{p.name}
-								</button>
-								{provider === p.id && (
-									<div className="ml-4 mb-1 space-y-0.5">
-										{p.models.map((m) => (
-											<button
-												key={m}
-												type="button"
-												className={`block w-full text-left px-3 py-1 rounded text-xs ${
-													model === m
-														? "text-accent font-medium"
-														: "text-text-muted hover:text-text-secondary"
-												}`}
-												onClick={() => setProvider(p.id, m)}
-											>
-												{m}
-											</button>
-										))}
-									</div>
-								)}
-							</div>
-						))}
-					</div>
-				)}
-			</div>
+			{expanded && (
+				<div
+					role="menu"
+					aria-label="Provider and model"
+					className="absolute right-0 top-full z-50 mt-2 max-h-80 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-border bg-workspace p-1 shadow-lg"
+				>
+					{enabled.length === 0 && (
+						<p className="px-3 py-3 text-xs text-text-muted">
+							No providers configured
+						</p>
+					)}
+					{enabled.map((profile) => (
+						<div key={profile.id} className="py-0.5">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setProvider(profile.id, profile.models[0]);
+									if (profile.models.length <= 1) setExpanded(false);
+								}}
+								className={`flex h-8 w-full items-center rounded px-2 text-left text-sm font-medium ${
+									provider === profile.id
+										? "bg-control text-text-primary"
+										: "text-text-secondary hover:bg-control hover:text-text-primary"
+								}`}
+							>
+								<span className="truncate">{profile.name}</span>
+							</button>
+							{provider === profile.id && profile.models.length > 0 && (
+								<div className="ml-5 border-l border-border pl-1">
+									{profile.models.map((profileModel) => (
+										<button
+											key={profileModel}
+											type="button"
+											role="menuitemradio"
+											aria-checked={model === profileModel}
+											onClick={() => {
+												setProvider(profile.id, profileModel);
+												setExpanded(false);
+											}}
+											className={`block h-7 w-full truncate rounded px-2 text-left text-xs ${
+												model === profileModel
+													? "text-accent"
+													: "text-text-muted hover:bg-control hover:text-text-secondary"
+											}`}
+											title={profileModel}
+										>
+											{profileModel}
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

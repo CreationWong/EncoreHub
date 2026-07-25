@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let conversationState: {
 	activeId: string | null;
@@ -9,13 +9,30 @@ let conversationState: {
 	streaming: boolean;
 };
 
+const toggleSidebar = vi.fn();
+let settingsState = { sidebarOpen: true, toggleSidebar };
+
 vi.mock("../../stores/conversationStore", () => ({
 	useConversationStore: (
 		selector: (state: typeof conversationState) => unknown,
 	) => selector(conversationState),
 }));
 
+vi.mock("../../stores/settingsStore", () => ({
+	useSettingsStore: (selector: (state: typeof settingsState) => unknown) =>
+		selector(settingsState),
+}));
+
+vi.mock("../sidebar/ProviderSwitcher", () => ({
+	default: () => <div data-testid="provider-switcher" />,
+}));
+
 import ContextHeader from "./ContextHeader";
+
+beforeEach(() => {
+	toggleSidebar.mockReset();
+	settingsState = { sidebarOpen: true, toggleSidebar };
+});
 
 afterEach(cleanup);
 
@@ -36,6 +53,9 @@ describe("ContextHeader", () => {
 			screen.getByRole("heading", { name: "A deliberately long conversation" }),
 		).toBeDefined();
 		expect(screen.getByText("2 messages")).toBeDefined();
+		expect(screen.getByTestId("provider-switcher")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
+		expect(toggleSidebar).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses truthful loading, streaming, and not-started states", () => {
@@ -69,5 +89,9 @@ describe("ContextHeader", () => {
 			screen.getByRole("heading", { name: "New conversation" }),
 		).toBeDefined();
 		expect(screen.getByText("Not started")).toBeDefined();
+
+		settingsState = { sidebarOpen: false, toggleSidebar };
+		rerender(<ContextHeader />);
+		expect(screen.getByRole("button", { name: "Open sidebar" })).toBeDefined();
 	});
 });

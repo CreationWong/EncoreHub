@@ -67,12 +67,28 @@ describe("client UI baseline fixtures", () => {
 		expect(parseClientUiBaselineOptions("")).toEqual({
 			scenarioId: "long-markdown",
 			theme: "light",
+			sidebar: "conversations",
 		});
 		expect(
-			parseClientUiBaselineOptions("?scenario=streaming&theme=dark"),
-		).toEqual({ scenarioId: "streaming", theme: "dark" });
+			parseClientUiBaselineOptions(
+				"?scenario=streaming&theme=dark&sidebar=characters",
+			),
+		).toEqual({
+			scenarioId: "streaming",
+			theme: "dark",
+			sidebar: "characters",
+		});
 		expect(
-			parseClientUiBaselineOptions("?scenario=unknown&theme=sepia"),
-		).toEqual({ scenarioId: "long-markdown", theme: "light" });
+			parseClientUiBaselineOptions(
+				"?scenario=unknown&theme=sepia&sidebar=unknown",
+			),
+		).toEqual({
+			scenarioId: "long-markdown",
+			theme: "light",
+			sidebar: "conversations",
+		});
+		expect(parseClientUiBaselineOptions("?sidebar=closed").sidebar).toBe(
+			"closed",
+		);
 	});
 });

@@ -39,6 +39,8 @@ beforeEach(() => {
 	useConversationStore.setState({
 		conversations: [],
 		activeId: null,
+		listLoading: false,
+		listError: null,
 		messages: [],
 		loading: false,
 		streaming: false,
@@ -143,6 +145,41 @@ function streamError(message: string): StreamErrorPayload {
 }
 
 // ---- tests ----
+
+describe("loadList", () => {
+	it("stores the canonical list and clears loading state", async () => {
+		listConversationsApi.mockResolvedValueOnce({
+			conversations: [
+				{
+					id: "c1",
+					title: "Loaded",
+					provider: "openai",
+					model: "gpt-4o",
+					message_count: 0,
+					created_at: "",
+					updated_at: "",
+				},
+			],
+		});
+
+		await useConversationStore.getState().loadList();
+		const state = useConversationStore.getState();
+		expect(state.conversations).toHaveLength(1);
+		expect(state.listLoading).toBe(false);
+		expect(state.listError).toBeNull();
+	});
+
+	it("exposes a recoverable error without clearing the existing list", async () => {
+		seedConversation("existing");
+		listConversationsApi.mockRejectedValueOnce(new Error("offline"));
+
+		await useConversationStore.getState().loadList();
+		const state = useConversationStore.getState();
+		expect(state.conversations).toHaveLength(1);
+		expect(state.listLoading).toBe(false);
+		expect(state.listError).toBe("Failed to load conversations");
+	});
+});
 
 describe("pushSystemMessage", () => {
 	it("appends a role:system message in place", () => {

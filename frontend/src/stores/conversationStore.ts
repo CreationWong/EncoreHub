@@ -124,6 +124,8 @@ function isTerminalMessage(message: Message | undefined): boolean {
 interface ConversationState {
 	conversations: Conversation[];
 	activeId: string | null;
+	listLoading: boolean;
+	listError: string | null;
 
 	// Top-level view fields — always mirror the active conversation's cache entry.
 	messages: Message[];
@@ -156,6 +158,8 @@ interface ConversationState {
 export const useConversationStore = create<ConversationState>((set, get) => ({
 	conversations: [],
 	activeId: null,
+	listLoading: false,
+	listError: null,
 	messages: [],
 	loading: false,
 	streaming: false,
@@ -168,11 +172,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	convCache: {},
 
 	loadList: async () => {
+		set({ listLoading: true, listError: null });
 		try {
 			const resp = await convApi.listConversations();
-			set({ conversations: resp.conversations });
+			set({
+				conversations: resp.conversations,
+				listLoading: false,
+				listError: null,
+			});
 		} catch (err) {
 			logStoreError("Failed to load conversations", err);
+			set({ listLoading: false, listError: "Failed to load conversations" });
 		}
 	},
 

@@ -1,46 +1,36 @@
-import { Moon, PanelLeft, Settings, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	SIDEBAR_MAX_WIDTH,
 	SIDEBAR_MIN_WIDTH,
+	type SidebarMode,
 	useSettingsStore,
 } from "../../stores/settingsStore";
+import CharacterList from "./CharacterList";
 import ConversationList from "./ConversationList";
-import ProviderSwitcher from "./ProviderSwitcher";
 
-// Cycle dark <-> light. We deliberately don't include "system" here —
-// it's behind Settings if the user wants OS-driven theming.
-function nextTheme(current: string): "dark" | "light" {
-	return current === "dark" ? "light" : "dark";
-}
+const TABS: { id: SidebarMode; label: string }[] = [
+	{ id: "characters", label: "Characters" },
+	{ id: "conversations", label: "Conversations" },
+];
 
-/**
- * Drag handle on the sidebar's right edge. Tracks pointer movement to resize
- * the panel live; the store clamps + persists the final width. While dragging
- * we set a body cursor + disable text selection so the drag feels solid.
- */
-function ResizeHandle({
-	onResize,
-}: {
-	onResize: (width: number) => void;
-}) {
+function ResizeHandle({ onResize }: { onResize: (width: number) => void }) {
 	const [dragging, setDragging] = useState(false);
 
 	useEffect(() => {
 		if (!dragging) return;
-		const onMove = (e: PointerEvent) => onResize(e.clientX);
+		const onMove = (event: PointerEvent) => onResize(event.clientX);
 		const onUp = () => setDragging(false);
 		window.addEventListener("pointermove", onMove);
 		window.addEventListener("pointerup", onUp);
-		const prevCursor = document.body.style.cursor;
-		const prevSelect = document.body.style.userSelect;
+		const previousCursor = document.body.style.cursor;
+		const previousSelection = document.body.style.userSelect;
 		document.body.style.cursor = "col-resize";
 		document.body.style.userSelect = "none";
 		return () => {
 			window.removeEventListener("pointermove", onMove);
 			window.removeEventListener("pointerup", onUp);
-			document.body.style.cursor = prevCursor;
-			document.body.style.userSelect = prevSelect;
+			document.body.style.cursor = previousCursor;
+			document.body.style.userSelect = previousSelection;
 		};
 	}, [dragging, onResize]);
 
@@ -48,8 +38,8 @@ function ResizeHandle({
 		<button
 			type="button"
 			aria-label="Resize sidebar"
-			onPointerDown={(e) => {
-				e.preventDefault();
+			onPointerDown={(event) => {
+				event.preventDefault();
 				setDragging(true);
 			}}
 			className={`absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 transition-colors hover:bg-accent/30 ${
@@ -60,17 +50,14 @@ function ResizeHandle({
 }
 
 export default function Sidebar() {
-	const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
-	const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
-	const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
-	const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
-	const openSettings = useSettingsStore((s) => s.openSettings);
-	const theme = useSettingsStore((s) => s.theme);
-	const setTheme = useSettingsStore((s) => s.setTheme);
-
-	// The sidebar's left edge sits at the window's left edge, so pointer clientX
-	// is the desired width directly.
+	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
+	const sidebarWidth = useSettingsStore((state) => state.sidebarWidth);
+	const setSidebarWidth = useSettingsStore((state) => state.setSidebarWidth);
+	const sidebarMode = useSettingsStore((state) => state.sidebarMode);
+	const setSidebarMode = useSettingsStore((state) => state.setSidebarMode);
 	const asideRef = useRef<HTMLElement>(null);
+	const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
 	const handleResize = useCallback(
 		(clientX: number) => {
 			const left = asideRef.current?.getBoundingClientRect().left ?? 0;
@@ -79,83 +66,86 @@ export default function Sidebar() {
 		[setSidebarWidth],
 	);
 
-	const isDark =
-		theme === "dark" ||
-		(theme === "system" &&
-			typeof window !== "undefined" &&
-			window.matchMedia?.("(prefers-color-scheme: dark)").matches);
-	const ThemeIcon = isDark ? Sun : Moon;
-	const themeLabel = isDark ? "Switch to light" : "Switch to dark";
-
-	if (!sidebarOpen) {
-		return (
-			<aside className="flex w-12 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface-alt py-3">
-				<button
-					type="button"
-					onClick={toggleSidebar}
-					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-					aria-label="Open sidebar"
-					title="Open sidebar"
-				>
-					<PanelLeft className="h-4 w-4" />
-				</button>
-				<div className="flex-1" />
-				<button
-					type="button"
-					onClick={() => setTheme(nextTheme(theme))}
-					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-					aria-label={themeLabel}
-					title={themeLabel}
-				>
-					<ThemeIcon className="h-4 w-4" />
-				</button>
-				<button
-					type="button"
-					onClick={() => openSettings()}
-					className="rounded-lg p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-					aria-label="Settings"
-					title="Settings (Ctrl+,)"
-				>
-					<Settings className="h-4 w-4" />
-				</button>
-			</aside>
-		);
-	}
+	if (!sidebarOpen) return null;
 
 	return (
 		<aside
 			ref={asideRef}
+			aria-label="Characters and conversations"
 			style={{
 				width: sidebarWidth,
 				minWidth: SIDEBAR_MIN_WIDTH,
 				maxWidth: SIDEBAR_MAX_WIDTH,
 			}}
-			className="relative flex shrink-0 flex-col border-r border-border bg-surface-alt"
+			className="relative flex shrink-0 flex-col overflow-hidden bg-app-canvas"
 		>
-			<ConversationList />
-			<ProviderSwitcher />
-			<div className="flex items-stretch border-t border-border">
-				<button
-					type="button"
-					onClick={() => openSettings()}
-					className="flex flex-1 items-center gap-2 px-4 py-2.5 text-xs text-text-secondary hover:bg-surface-hover"
-					title="Settings (Ctrl+,)"
-				>
-					<Settings className="h-3.5 w-3.5" />
-					<span>Settings</span>
-					<kbd className="ml-auto rounded bg-surface px-1.5 py-0.5 text-[10px] text-text-muted">
-						Ctrl ,
-					</kbd>
-				</button>
-				<button
-					type="button"
-					onClick={() => setTheme(nextTheme(theme))}
-					className="border-l border-border px-3 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-					aria-label={themeLabel}
-					title={themeLabel}
-				>
-					<ThemeIcon className="h-3.5 w-3.5" />
-				</button>
+			<div
+				role="tablist"
+				aria-label="Sidebar mode"
+				className="flex h-16 shrink-0 border-b border-border"
+			>
+				{TABS.map((tab, index) => {
+					const active = sidebarMode === tab.id;
+					return (
+						<button
+							key={tab.id}
+							ref={(element) => {
+								tabRefs.current[index] = element;
+							}}
+							type="button"
+							role="tab"
+							id={`sidebar-tab-${tab.id}`}
+							aria-selected={active}
+							aria-controls={`sidebar-panel-${tab.id}`}
+							tabIndex={active ? 0 : -1}
+							onClick={() => setSidebarMode(tab.id)}
+							onKeyDown={(event) => {
+								if (
+									event.key !== "ArrowLeft" &&
+									event.key !== "ArrowRight" &&
+									event.key !== "Home" &&
+									event.key !== "End"
+								)
+									return;
+								event.preventDefault();
+								const nextIndex =
+									event.key === "Home"
+										? 0
+										: event.key === "End"
+											? TABS.length - 1
+											: (index +
+													(event.key === "ArrowRight" ? 1 : -1) +
+													TABS.length) %
+												TABS.length;
+								setSidebarMode(TABS[nextIndex].id);
+								tabRefs.current[nextIndex]?.focus();
+							}}
+							className={`relative flex-1 text-sm font-medium transition-colors ${
+								active
+									? "text-text-primary"
+									: "text-text-muted hover:text-text-secondary"
+							}`}
+						>
+							{tab.label}
+							{active && (
+								<span className="absolute bottom-0 left-4 right-4 h-0.5 rounded-t bg-accent" />
+							)}
+						</button>
+					);
+				})}
+			</div>
+
+			<div
+				role="tabpanel"
+				id={`sidebar-panel-${sidebarMode}`}
+				aria-labelledby={`sidebar-tab-${sidebarMode}`}
+				className="min-h-0 flex-1"
+			>
+				{sidebarMode === "characters" ? (
+					<CharacterList />
+				) : (
+					<ConversationList />
+				)}
 			</div>
 			<ResizeHandle onResize={handleResize} />
 		</aside>
