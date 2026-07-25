@@ -1,6 +1,18 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Message } from "../../services/conversation";
 import { useConversationStore } from "../../stores/conversationStore";
 import MessageBubble from "./MessageBubble";
+
+function lastUserMessageId(messages: Message[]): string | null {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		if (messages[index]?.role === "user") return messages[index].id;
+	}
+	return null;
+}
+
+function reasoningKey(message: Message): string {
+	return message.parent_id ?? message.id;
+}
 
 export default function MessageFeed() {
 	const messages = useConversationStore((state) => state.messages);
@@ -15,6 +27,11 @@ export default function MessageFeed() {
 		(state) => state.streamingToolCalls,
 	);
 	const bottomRef = useRef<HTMLDivElement>(null);
+	const [reasoningExpansion, setReasoningExpansion] = useState<
+		Record<string, boolean>
+	>({});
+	const streamingParentId = lastUserMessageId(messages);
+	const streamingReasoningKey = streamingParentId ?? "streaming";
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: preserve current scroll behavior until CUI-05
 	useEffect(() => {
@@ -23,53 +40,60 @@ export default function MessageFeed() {
 
 	return (
 		<div className="h-full overflow-y-auto overscroll-contain">
-			<div className="mx-auto max-w-3xl">
+			<div className="mx-auto w-full max-w-[1080px]">
 				{messages.length === 0 && !streaming && (
 					<div className="flex items-center justify-center py-24">
 						<p className="text-sm text-text-muted">No messages yet.</p>
 					</div>
 				)}
 
-				{messages.map((message) => (
-					<MessageBubble key={message.id} message={message} />
-				))}
-
-				{streaming &&
-					(streamingContent ||
-						streamingReasoning ||
-						streamingToolCalls.length > 0) && (
+				{messages.map((message) => {
+					const expansionKey = reasoningKey(message);
+					return (
 						<MessageBubble
-							message={{
-								id: "streaming",
-								role: "assistant",
-								content: streamingContent,
-								reasoning: streamingReasoning || undefined,
-								parent_id: null,
-								tool_calls: streamingToolCalls
-									.filter((toolCall) => toolCall.name)
-									.map((toolCall) => ({
-										id: toolCall.id ?? `tc-${toolCall.index}`,
-										name: toolCall.name,
-										arguments: toolCall.arguments,
-										result: toolCall.result,
-										status: toolCall.status ?? "pending",
-									})),
-								status: "pending",
-								created_at: new Date().toISOString(),
-							}}
-							isStreaming
+							key={message.id}
+							message={message}
+							reasoningExpanded={reasoningExpansion[expansionKey]}
+							onReasoningExpandedChange={(expanded) =>
+								setReasoningExpansion((current) => ({
+									...current,
+									[expansionKey]: expanded,
+								}))
+							}
 						/>
-					)}
+					);
+				})}
 
-				{streaming &&
-					!streamingContent &&
-					!streamingReasoning &&
-					streamingToolCalls.length === 0 && (
-						<div className="flex items-center gap-2 px-4 py-4 text-sm text-text-muted">
-							<div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-							Thinking...
-						</div>
-					)}
+				{streaming && (
+					<MessageBubble
+						message={{
+							id: "streaming",
+							role: "assistant",
+							content: streamingContent,
+							reasoning: streamingReasoning || undefined,
+							parent_id: streamingParentId,
+							tool_calls: streamingToolCalls
+								.filter((toolCall) => toolCall.name)
+								.map((toolCall) => ({
+									id: toolCall.id ?? `tc-${toolCall.index}`,
+									name: toolCall.name,
+									arguments: toolCall.arguments,
+									result: toolCall.result,
+									status: toolCall.status ?? "pending",
+								})),
+							status: "pending",
+							created_at: "",
+						}}
+						isStreaming
+						reasoningExpanded={reasoningExpansion[streamingReasoningKey]}
+						onReasoningExpandedChange={(expanded) =>
+							setReasoningExpansion((current) => ({
+								...current,
+								[streamingReasoningKey]: expanded,
+							}))
+						}
+					/>
+				)}
 
 				<div ref={bottomRef} />
 			</div>

@@ -96,6 +96,30 @@ const captures = [
 		height: 800,
 		sidebar: "focus",
 	},
+	{
+		name: "reasoning-light-1200x800",
+		scenario: "reasoning",
+		theme: "light",
+		width: 1200,
+		height: 800,
+		sidebar: "conversations",
+	},
+	{
+		name: "tool-call-dark-1200x800",
+		scenario: "tool-call",
+		theme: "dark",
+		width: 1200,
+		height: 800,
+		sidebar: "conversations",
+	},
+	{
+		name: "stopped-light-900x700",
+		scenario: "stopped",
+		theme: "light",
+		width: 900,
+		height: 700,
+		sidebar: "conversations",
+	},
 ];
 
 function browserCandidates() {

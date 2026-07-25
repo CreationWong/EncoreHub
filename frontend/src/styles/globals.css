@@ -30,7 +30,7 @@
 		--color-info: #1971c2;
 		--color-info-bg: rgba(25, 113, 194, 0.1);
 		--color-info-border: rgba(25, 113, 194, 0.3);
-		--color-code-bg: #1e1e1e;
+		--color-code-bg: #f7f8fa;
 	}
 
 	.dark {
@@ -284,6 +284,19 @@ pre {
 
 	.markdown-body img {
 		@apply my-3 max-w-full rounded-lg border border-border;
+	}
+
+	.assistant-answer {
+		font-size: 0.9375rem;
+	}
+
+	.assistant-answer :where(p, ul, ol, blockquote, h1, h2, h3, h4) {
+		max-width: 78ch;
+	}
+
+	.assistant-answer
+		:where(.markdown-table-wrap, .markdown-codeblock, .markdown-raw-pre) {
+		max-width: 100%;
 	}
 }
 

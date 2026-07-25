@@ -1,5 +1,9 @@
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+	oneDark,
+	oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 interface HighlightedCodeBlockProps {
 	language: string;
@@ -10,9 +14,16 @@ export default function HighlightedCodeBlock({
 	language,
 	value,
 }: HighlightedCodeBlockProps) {
+	const theme = useSettingsStore((state) => state.theme);
+	const systemDark =
+		theme === "system" &&
+		typeof window !== "undefined" &&
+		window.matchMedia("(prefers-color-scheme: dark)").matches;
+	const syntaxTheme = theme === "dark" || systemDark ? oneDark : oneLight;
+
 	return (
 		<SyntaxHighlighter
-			style={oneDark}
+			style={syntaxTheme}
 			language={language}
 			PreTag="div"
 			customStyle={{

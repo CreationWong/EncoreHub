@@ -97,8 +97,8 @@ flowchart LR
 | CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Done`（本地视觉验收） |
 | CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Done`（本地视觉验收） |
 | CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Done`（本地视觉验收） |
-| CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Not started` |
-| CUI-05 | Frontend composer/scroll | CUI-04 | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Not started` |
+| CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Done`（本地视觉验收） |
+| CUI-05 | Frontend composer/scroll | CUI-04 | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Ready` |
 | CUI-06 | Frontend settings | UG2 | ProviderDetail 纵向表单、手工模型管理、draft 保存 | `Not started` |
 | CUI-07 | Gateway + Frontend | CUI-06 | key validation、remote model discovery 与差异确认 | `Not started` |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Not started` |
@@ -253,20 +253,33 @@ UG1 已通过；下一项为 CUI-04 消息分层与 ReplyFooter。
 
 **任务**
 
-- [ ] 将 `MessageBubble` 拆为 `UserBubble`、`ReasoningSection`、`ToolExecutionList`、`AnswerBody` 和 `ReplyFooter`。
-- [ ] 用户消息改为右侧紧凑中性气泡，模型回复改为左侧无卡片文档流。
-- [ ] reasoning 流式时默认展开；完成后保留当前展开状态；历史首次载入默认折叠。
-- [ ] 未持久化 duration 前，历史只显示“已处理”；不得伪造耗时。
-- [ ] 将现有 `Message.token_count` 移到每轮 assistant 回复右下角，0 或未知时不显示。
-- [ ] `ReplyFooter` 左侧先提供复制最终回复；重新生成、分享、分支和导出在真实 turn 语义完成前不显示。
-- [ ] 工具调用使用紧凑执行记录，保留 pending、completed 和 failed 状态。
-- [ ] 保持 Markdown、表格和代码块可横向容纳；复制代码按钮有 tooltip 和 `aria-label`。
+- [x] 将 `MessageBubble` 拆为 `UserBubble`、`ReasoningSection`、`ToolExecutionList`、`AnswerBody` 和 `ReplyFooter`。
+- [x] 用户消息改为右侧紧凑中性气泡，模型回复改为左侧无卡片文档流。
+- [x] reasoning 流式时默认展开；完成后保留当前展开状态；历史首次载入默认折叠。
+- [x] 未持久化 duration 前，历史只显示“已处理”；不得伪造耗时。
+- [x] 将现有 `Message.token_count` 移到每轮 assistant 回复右下角，0 或未知时不显示。
+- [x] `ReplyFooter` 左侧先提供复制最终回复；重新生成、分享、分支和导出在真实 turn 语义完成前不显示。
+- [x] 工具调用使用紧凑执行记录，保留 pending、completed 和 failed 状态。
+- [x] 保持 Markdown、表格和代码块可横向容纳；复制代码按钮有 tooltip 和 `aria-label`。
 
 **专项测试**
 
 - user/assistant/system/tool、reasoning、空答案、流式、停止、失败和 token 边界测试。
 - 复制最终回复只复制 answer，不混入 reasoning 或工具结果。
 - 窄窗 footer 换行后状态仍右对齐，按钮点击区不缩小。
+
+**执行记录（2026-07-25）**
+
+- `MessageBubble` 只负责按 role 编排，新增 `UserBubble`、`ReasoningSection`、`ToolExecutionList`、`AnswerBody` 和 `ReplyFooter` 独立组件；system/tool 继续使用紧凑语义记录。
+- 用户消息改为右侧 72% 上限的中性气泡，不再显示用户头像或 accent 实色；assistant 改为无头像、无标题卡片的 1080px 文档流，普通段落限制为 78ch，表格与代码使用完整宽度。
+- reasoning 使用 user turn id 保存当前会话内展开状态：流式默认展开，用户可手动折叠，`done` 后保持选择；历史首次加载默认折叠，只显示 Processed/Stopped/Processing failed，不伪造 duration。
+- 工具调用改为单一分组中的紧凑行，使用 semantic success/danger tokens 展示 Pending/Completed/Failed；参数和结果仅在展开后显示。
+- `ReplyFooter` 左侧只有复制最终 answer 的图标命令，右侧显示精确合计 token 与真实 pending/stopped/failed 状态；0 或未知 token 不渲染，未接通的 tokens/s、duration 和 finish reason 保持隐藏。
+- 代码块使用亮暗主题匹配的高亮方案；复制按钮统一为 28px Lucide 图标、tooltip、`aria-label` 和全局 toast 反馈。
+- 本地 `docs/ui-baseline/2026-07-25-cui-04/` 生成 18 张验证图片，覆盖四视口亮暗、reasoning、tool call、streaming、stopped、failed、专注、Provider unavailable 和 Providers locked；图片与 manifest 均由 Git 忽略。
+- 已通过 Frontend check、92 文件 lint、29 个测试文件/199 项测试和 production build；初始 JavaScript gzip 为 117.25 KiB / 300 KiB。
+
+CUI-04 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。
 
 ### CUI-05 完成 Composer、草稿与滚动控制
 
@@ -657,7 +670,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批按顺序推进 CUI-00 至 CUI-03，现已全部完成并通过 UG1。下一项为 CUI-04；前四项都会触碰主窗口或全局样式，因此未并行实施。
+第一批按顺序推进 CUI-00 至 CUI-04，现已完成消息分层。下一项为 CUI-05；前五项都会触碰主窗口或全局样式，因此未并行实施。
 
 建议首批提交顺序：
 
@@ -666,5 +679,6 @@ git status --short
 3. `feat(frontend): add top navigation and workspace shell`
 4. `feat(frontend): add character and conversation sidebar tabs`
 5. `feat(frontend): enforce conversation model context`
+6. `refactor(frontend): layer chat messages and reply status`
 
 UG1 已通过。继续按依赖推进 CUI-04 和 CUI-05；UG2 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile。

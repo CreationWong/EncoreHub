@@ -1,9 +1,23 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../../services/conversation";
-import MessageBubble from "./MessageBubble";
 
-afterEach(cleanup);
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+vi.mock("../../stores/toastStore", () => ({
+	toast: {
+		success: (...args: unknown[]) => toastSuccess(...args),
+		error: (...args: unknown[]) => toastError(...args),
+	},
+}));
+
+import MessageBubble from "./MessageBubble";
 
 function msg(
 	over: Partial<Message> & { content: string; role: Message["role"] },
@@ -18,81 +32,85 @@ function msg(
 	};
 }
 
-describe("MessageBubble: user", () => {
-	it("renders content as plain text and is right-aligned via flex justify-end", () => {
+beforeEach(() => {
+	toastSuccess.mockReset();
+	toastError.mockReset();
+});
+
+afterEach(cleanup);
+
+describe("MessageBubble user presentation", () => {
+	it("renders a compact, right-aligned neutral bubble without an avatar", () => {
 		const { container } = render(
 			<MessageBubble message={msg({ role: "user", content: "hi there" })} />,
 		);
-		expect(container.textContent).toContain("hi there");
-		// User branch wraps everything in a div with justify-end
-		expect(container.querySelector(".justify-end")).not.toBeNull();
+
+		const article = screen.getByLabelText("User message");
+		expect(article.className).toContain("justify-end");
+		expect(container.querySelector(".bg-control")?.textContent).toContain(
+			"hi there",
+		);
+		expect(container.querySelector(".max-w-\\[72\\%\\]")).not.toBeNull();
+		expect(screen.queryByText("User")).toBeNull();
 	});
 });
 
-describe("MessageBubble: assistant", () => {
-	it("labels failed and stopped persisted messages", () => {
-		const { rerender } = render(
+describe("MessageBubble assistant document flow", () => {
+	it("renders an unframed answer without assistant avatar or heading", () => {
+		render(
 			<MessageBubble
-				message={msg({
-					role: "assistant",
-					content: "partial",
-					status: "failed",
-				})}
+				message={msg({ role: "assistant", content: "Document answer" })}
 			/>,
 		);
-		expect(screen.getByText("Failed")).toBeTruthy();
-		rerender(
-			<MessageBubble
-				message={msg({
-					role: "assistant",
-					content: "partial",
-					status: "stopped",
-				})}
-			/>,
-		);
-		expect(screen.getByText("Stopped")).toBeTruthy();
+
+		expect(screen.getByLabelText("Assistant message")).toBeDefined();
+		expect(screen.getByText("Document answer")).toBeDefined();
+		expect(screen.queryByText("Assistant")).toBeNull();
 	});
 
-	it("renders markdown — fenced code becomes a CodeBlock with language label", () => {
-		const md = ["here is some code", "", "```ts", "const x = 1;", "```"].join(
-			"\n",
-		);
+	it("renders Markdown code with a language label and accessible copy button", () => {
+		const fence = String.fromCharCode(96).repeat(3);
+		const markdown = [
+			"here is some code",
+			"",
+			`${fence}ts`,
+			"const x = 1;",
+			fence,
+		].join("\n");
 		const { container } = render(
-			<MessageBubble message={msg({ role: "assistant", content: md })} />,
+			<MessageBubble message={msg({ role: "assistant", content: markdown })} />,
 		);
-		// language label appears in the CodeBlock header
+
 		expect(container.textContent).toContain("ts");
-		// the actual code is rendered (syntax highlighter splits it into spans,
-		// so we look for substring rather than an exact match)
 		expect(container.textContent).toContain("const x = 1");
+		expect(screen.getByRole("button", { name: "Copy" })).toBeDefined();
 	});
 
-	it("shows a blinking cursor while streaming", () => {
+	it("uses a stable streaming cursor and suppresses copy until completion", () => {
 		const { container } = render(
 			<MessageBubble
-				message={msg({ role: "assistant", content: "partial" })}
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					status: "pending",
+				})}
 				isStreaming
 			/>,
 		);
+
 		expect(container.querySelector(".animate-cursor-blink")).not.toBeNull();
+		expect(screen.getByText("Generating")).toBeDefined();
+		expect(screen.queryByRole("button", { name: "Copy reply" })).toBeNull();
+	});
+
+	it("renders a truthful empty-answer state", () => {
+		render(<MessageBubble message={msg({ role: "assistant", content: "" })} />);
+		expect(screen.getByText("No response content")).toBeDefined();
 	});
 });
 
-describe("MessageBubble: system", () => {
-	it("renders fenced JSON via markdown — /inspect output is now readable", () => {
-		const body = `Conversation state:\n\`\`\`json\n${JSON.stringify({ activeId: "c1", messageCount: 2 }, null, 2)}\n\`\`\``;
-		const { container } = render(
-			<MessageBubble message={msg({ role: "system", content: body })} />,
-		);
-		expect(container.textContent).toContain("json"); // language label
-		expect(container.textContent).toContain('"activeId"');
-		// Must NOT fall back to a literal <pre> with raw backticks
-		expect(container.querySelector("pre.font-sans")).toBeNull();
-	});
-});
-
-describe("MessageBubble: reasoning", () => {
-	it("renders a collapsed reasoning toggle that expands on click", () => {
+describe("MessageBubble reasoning", () => {
+	it("loads historical reasoning collapsed and labels it without fake duration", () => {
 		render(
 			<MessageBubble
 				message={msg({
@@ -102,32 +120,64 @@ describe("MessageBubble: reasoning", () => {
 				})}
 			/>,
 		);
-		// Collapsed: toggle label shows, but reasoning text is hidden.
-		const toggle = screen.getByText("Thought process");
+
+		const toggle = screen.getByRole("button", { name: "Processed" });
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
 		expect(screen.queryByText(/first I considered X/)).toBeNull();
+		expect(screen.queryByText(/\d+s/)).toBeNull();
 		fireEvent.click(toggle);
-		expect(screen.getByText(/first I considered X/)).not.toBeNull();
+		expect(screen.getByText(/first I considered X/)).toBeDefined();
 	});
 
-	it("auto-expands reasoning while streaming with no content yet", () => {
+	it("keeps reasoning expanded while answer content streams", () => {
 		render(
 			<MessageBubble
 				message={msg({
 					role: "assistant",
-					content: "",
-					reasoning: "thinking out loud",
+					content: "answer has started",
+					reasoning: "streamed reasoning",
+					status: "pending",
 				})}
 				isStreaming
 			/>,
 		);
-		// No click needed — streaming pre-content shows the reasoning live.
-		expect(screen.getByText("thinking out loud")).not.toBeNull();
-		expect(screen.getByText("Thinking…")).not.toBeNull();
+
+		expect(screen.getByRole("button", { name: "Thinking" })).toBeDefined();
+		expect(screen.getByText("streamed reasoning")).toBeDefined();
+		expect(screen.getByText("answer has started")).toBeDefined();
+	});
+
+	it("uses stopped and failed reasoning labels from persisted state", () => {
+		const { rerender } = render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					reasoning: "reasoning",
+					status: "stopped",
+				})}
+			/>,
+		);
+		expect(screen.getByRole("button", { name: "Stopped" })).toBeDefined();
+
+		rerender(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					reasoning: "reasoning",
+					status: "failed",
+				})}
+			/>,
+		);
+		expect(
+			screen.getByRole("button", { name: "Processing failed" }),
+		).toBeDefined();
 	});
 });
 
-describe("MessageBubble: tool calls", () => {
-	it("renders a tool-call card with name and status, expandable to args", () => {
+describe("MessageBubble tool execution", () => {
+	it("renders compact pending, completed, and failed tool states", () => {
 		render(
 			<MessageBubble
 				message={msg({
@@ -135,42 +185,161 @@ describe("MessageBubble: tool calls", () => {
 					content: "done",
 					tool_calls: [
 						{
-							id: "t1",
+							id: "pending",
+							name: "pending_tool",
+							arguments: "{}",
+							status: "pending",
+						},
+						{
+							id: "success",
 							name: "get_weather",
 							arguments: '{"city":"NYC"}',
 							status: "success",
 							result: "72F",
 						},
+						{
+							id: "error",
+							name: "failed_tool",
+							arguments: "{}",
+							status: "error",
+						},
 					],
 				})}
 			/>,
 		);
-		expect(screen.getByText("get_weather")).not.toBeNull();
-		expect(screen.getByText("success")).not.toBeNull();
-		// Args/result hidden until expanded.
+
+		expect(screen.getByText("Pending")).toBeDefined();
+		expect(screen.getByText("Completed")).toBeDefined();
+		expect(screen.getByText("Failed")).toBeDefined();
 		expect(screen.queryByText(/"city":"NYC"/)).toBeNull();
 		fireEvent.click(screen.getByText("get_weather"));
-		expect(screen.getByText(/"city":"NYC"/)).not.toBeNull();
-		expect(screen.getByText("72F")).not.toBeNull();
+		expect(screen.getByText(/"city":"NYC"/)).toBeDefined();
+		expect(screen.getByText("72F")).toBeDefined();
 	});
 });
 
-describe("MessageBubble: copy button", () => {
-	it("clicking the assistant copy button writes the message to clipboard", async () => {
-		const writeText = vi.fn().mockResolvedValue(undefined);
-		Object.assign(navigator, { clipboard: { writeText } });
-
+describe("MessageBubble reply footer", () => {
+	it("places exact non-zero token usage in the reply footer", () => {
 		render(
 			<MessageBubble
-				message={msg({ role: "assistant", content: "hello world" })}
+				message={msg({
+					role: "assistant",
+					content: "answer",
+					token_count: 13126,
+				})}
 			/>,
 		);
 
-		// There may be multiple "Copy" buttons (message + per-codeblock); the
-		// assistant message-level one is the first match.
-		const copyBtns = screen.getAllByTitle("Copy");
-		fireEvent.click(copyBtns[0]);
+		const footer = screen.getByLabelText("Reply actions and status");
+		expect(footer.textContent).toContain("13,126 tokens");
+		expect(
+			screen.getByTitle("Total input and output tokens").closest("footer"),
+		).toBe(footer);
+	});
 
-		expect(writeText).toHaveBeenCalledWith("hello world");
+	it("does not render unknown or zero token placeholders", () => {
+		const { rerender } = render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "answer",
+					token_count: 0,
+				})}
+			/>,
+		);
+		expect(screen.queryByText(/tokens/)).toBeNull();
+
+		rerender(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "answer",
+				})}
+			/>,
+		);
+		expect(screen.queryByText(/tokens/)).toBeNull();
+	});
+
+	it("copies only final answer content, excluding reasoning and tools", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.assign(navigator, { clipboard: { writeText } });
+		render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "final answer only",
+					reasoning: "reasoning must stay private",
+					tool_calls: [
+						{
+							id: "tool",
+							name: "inspect",
+							arguments: '{"private":true}',
+							result: "tool result",
+							status: "success",
+						},
+					],
+				})}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Copy reply" }));
+		await waitFor(() =>
+			expect(writeText).toHaveBeenCalledWith("final answer only"),
+		);
+		expect(toastSuccess).toHaveBeenCalledWith("Copied to clipboard");
+		expect(writeText).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows failed and stopped lifecycle states beside footer metrics", () => {
+		const { rerender } = render(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					status: "failed",
+					token_count: 12,
+				})}
+			/>,
+		);
+		expect(screen.getByTitle("Message status: Failed")).toBeDefined();
+
+		rerender(
+			<MessageBubble
+				message={msg({
+					role: "assistant",
+					content: "partial",
+					status: "stopped",
+					token_count: 12,
+				})}
+			/>,
+		);
+		expect(screen.getByTitle("Message status: Stopped")).toBeDefined();
+	});
+});
+
+describe("MessageBubble system and tool roles", () => {
+	it("renders system Markdown and standalone tool content without chat bubbles", () => {
+		const fence = String.fromCharCode(96).repeat(3);
+		const body = [
+			"Conversation state:",
+			`${fence}json`,
+			JSON.stringify({ activeId: "c1" }, null, 2),
+			fence,
+		].join("\n");
+		const { rerender } = render(
+			<MessageBubble message={msg({ role: "system", content: body })} />,
+		);
+		expect(screen.getByLabelText("System message").textContent).toContain(
+			'"activeId"',
+		);
+
+		rerender(
+			<MessageBubble
+				message={msg({ role: "tool", content: "standalone result" })}
+			/>,
+		);
+		expect(screen.getByLabelText("Tool message").textContent).toContain(
+			"standalone result",
+		);
 	});
 });

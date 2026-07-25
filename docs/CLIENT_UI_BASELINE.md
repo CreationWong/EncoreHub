@@ -204,3 +204,18 @@ CUI-03 在本地 `docs/ui-baseline/2026-07-25-cui-03/` 生成 15 张图片和 ma
 专项测试覆盖无活动对话默认值、已有对话权威模型、确认创建、取消切换、Provider 不可用、专注模式和会话菜单；6 个相关测试文件、59 项测试通过。完整 Frontend gate 为 27 个测试文件、187 项测试，lint 检查 85 个文件，production build 初始 JavaScript gzip 为 116.78 KiB / 300 KiB。
 
 UG1 已通过。主窗口当前只显示真实可用的首页、新建、外观、设置、角色/对话、Provider/Model、侧栏、专注、标题再生成和删除命令；对话内搜索与会话参数继续隐藏。
+
+## 11. CUI-04 对比记录
+
+CUI-04 在本地 `docs/ui-baseline/2026-07-25-cui-04/` 生成 18 张图片和 manifest。该目录由 Git 忽略，仓库只保留下列文字结论：
+
+- `long-markdown-light-1600x1120.png`：用户消息为右侧紧凑中性气泡，assistant 使用宽幅无卡片文档流；亮色代码块与页面明度一致，复制操作位于 footer 左侧，13,126 tokens 位于右下角。
+- `long-markdown-light-680x480.png`：代码与表格保持内部横向滚动，footer 在窄主区换行后仍右对齐且不遮挡 Composer。
+- `streaming-dark-1200x800.png`：reasoning 在 answer 已出现时继续展开，tool、answer、Generating footer 顺序稳定，流式光标不改变布局宽度。
+- `reasoning-light-1200x800.png`：历史 reasoning 首次加载折叠，只显示 Processed，不显示虚构耗时。
+- `tool-call-dark-1200x800.png`：工具调用使用分组执行行，Completed 状态使用 semantic token；160 tokens 位于同一回复 footer 右侧。
+- `stopped-light-900x700.png`：部分 answer 可复制，74 tokens 与 Stopped 状态在右下角并列，未显示不存在的 finish reason。
+
+专项测试覆盖 user/assistant/system/tool、空 answer、reasoning 完成状态继承、工具三态、复制边界、token 0/未知/大值、停止、失败和 footer 窄窗约束；4 个相关测试文件、24 项测试通过。完整 Frontend gate 为 29 个测试文件、199 项测试，lint 检查 92 个文件，production build 初始 JavaScript gzip 为 117.25 KiB / 300 KiB。
+
+CUI-04 已通过本地视觉验收；CUI-05 将继续处理 Composer、分会话草稿、自动跟随与“回到最新”。
