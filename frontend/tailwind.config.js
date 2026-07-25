@@ -5,6 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
+        app: {
+          canvas: "var(--color-app-canvas)",
+        },
+        workspace: "var(--color-workspace)",
+        control: "var(--color-control-surface)",
+        selected: "var(--color-selected-surface)",
         surface: {
           DEFAULT: "var(--color-surface)",
           alt: "var(--color-surface-alt)",
@@ -47,7 +53,14 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Inter"', "system-ui", "sans-serif"],
+        sans: [
+          '"Segoe UI Variable"',
+          '"Segoe UI"',
+          '"Microsoft YaHei UI"',
+          '"PingFang SC"',
+          '"Noto Sans CJK SC"',
+          "sans-serif",
+        ],
         mono: ['"JetBrains Mono"', '"Fira Code"', "monospace"],
       },
       animation: {

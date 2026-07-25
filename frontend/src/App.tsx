@@ -1,6 +1,7 @@
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import ChatView from "./components/chat/ChatView";
+import GlobalNav from "./components/layout/GlobalNav";
 import UnlockGate from "./components/settings/UnlockGate";
 import Sidebar from "./components/sidebar/Sidebar";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
@@ -137,10 +138,10 @@ export default function App() {
 	// Splash screen while waiting for backend
 	if (checking) {
 		return (
-			<div className="flex h-screen items-center justify-center bg-surface">
+			<div className="flex h-screen items-center justify-center bg-app-canvas">
 				<div className="text-center space-y-6">
 					<div className="flex justify-center">
-						<div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/10">
+						<div className="flex h-16 w-16 items-center justify-center rounded-lg bg-accent/10">
 							<Loader2 className="h-8 w-8 text-accent animate-spin" />
 						</div>
 					</div>
@@ -174,11 +175,14 @@ export default function App() {
 	}
 
 	return (
-		<div className="flex h-screen overflow-hidden bg-surface text-text-primary">
-			<Sidebar />
-			<main className="flex-1 flex flex-col min-w-0">
-				<ChatView />
-			</main>
+		<div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-canvas text-text-primary">
+			<GlobalNav />
+			<div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
+				<Sidebar />
+				<main className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace">
+					<ChatView />
+				</main>
+			</div>
 			{settingsOpen && (
 				<Suspense fallback={null}>
 					<SettingsModal />

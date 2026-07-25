@@ -94,8 +94,8 @@ flowchart LR
 | ID | 主要模块 | 依赖 | 交付物 | 初始状态 |
 |---|---|---|---|---|
 | CUI-00 | Frontend QA | 无 | 固定状态夹具、截图基线、现有行为清单 | `Done`（[证据](CLIENT_UI_BASELINE.md)） |
-| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Ready` |
-| CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Not started` |
+| CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Done`（[截图](ui-baseline/2026-07-24-cui-01/manifest.json)） |
+| CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Ready` |
 | CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Not started` |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Not started` |
 | CUI-05 | Frontend composer/scroll | CUI-04 | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Not started` |
@@ -139,13 +139,13 @@ flowchart LR
 
 **任务**
 
-- [ ] 在 `globals.css` 和 `tailwind.config.js` 增加 app canvas、workspace、control surface、selected surface 与文字层级 token。
-- [ ] 将 `App.tsx` 调整为固定顶部导航和下方“侧栏 + 主工作区”结构。
-- [ ] 新建顶部导航组件；Web 模式不渲染窗口按钮，Tauri 窗口按钮在 CUI-09 前保持未启用。
-- [ ] 本阶段只显示已接通的首页、新对话、外观和设置命令；完整“角色”管理入口延后到 CUI-11。
-- [ ] 保留 Settings 懒加载、UnlockGate、ConfirmDialog、ToastHost 和服务启动门禁。
-- [ ] 将 `ChatView` 拆出 `ContextHeader`、`MessageFeed`、`Composer` 布局槽；本项只迁移现有行为。
-- [ ] 使用稳定的 grid/flex 约束固定 64px 顶栏、主区 header 和 composer，不让加载状态改变整体尺寸。
+- [x] 在 `globals.css` 和 `tailwind.config.js` 增加 app canvas、workspace、control surface、selected surface 与文字层级 token。
+- [x] 将 `App.tsx` 调整为固定顶部导航和下方“侧栏 + 主工作区”结构。
+- [x] 新建顶部导航组件；Web 模式不渲染窗口按钮，Tauri 窗口按钮在 CUI-09 前保持未启用。
+- [x] 本阶段只显示已接通的首页、新对话、外观和设置命令；完整“角色”管理入口延后到 CUI-11。
+- [x] 保留 Settings 懒加载、UnlockGate、ConfirmDialog、ToastHost 和服务启动门禁。
+- [x] 将 `ChatView` 拆出 `ContextHeader`、`MessageFeed`、`Composer` 布局槽；本项只迁移现有行为。
+- [x] 使用稳定的 grid/flex 约束固定 64px 顶栏、主区 header 和 composer，不让加载状态改变整体尺寸。
 
 **专项验证**
 
@@ -156,6 +156,17 @@ flowchart LR
 **回滚条件**
 
 - 新骨架阻断服务启动、Settings 或聊天时，整体回滚结构提交；视觉 token 可单独保留。
+
+**执行记录（2026-07-24）**
+
+- 新增 app canvas、workspace、control、selected 四层 surface token，并统一亮暗主题的边框、文字层级、平台 UI 字体和 reduced-motion 降级。
+- `GlobalNav` 固定为 64px，只显示已接通的 Home、新建对话、Light/Dark/System 外观菜单和 Settings；未显示角色或窗口控制占位。
+- `App` 使用顶部导航和下方“侧栏 + 独立工作面”骨架；Settings lazy boundary、UnlockGate、ConfirmDialog、ToastHost 与服务 readiness 门禁保持不变。
+- `ChatView` 拆为 `ContextHeader`、`MessageFeed` 和 `Composer`。上下文栏只显示真实对话标题、消息数、加载或生成状态；Provider/Model 留给 CUI-03。
+- Loading 使用固定 header/feed/composer 槽位；消息映射、reasoning、tool call、token、流式占位和当前 smooth-scroll 行为原样迁移。
+- Sidebar 内现有 New Chat、Provider、Settings 和主题命令暂时保留，重复入口与长 Provider/Model 换行明确归属 CUI-02/CUI-03。
+- CUI-01 [视觉 manifest](ui-baseline/2026-07-24-cui-01/manifest.json) 包含四视口亮暗矩阵及 streaming、failed、Providers locked 状态；CUI-00 原始图片未覆盖。
+- 已通过 Frontend check、79 文件 lint、23 个测试文件/154 项测试和 production build；初始 JavaScript gzip 为 112.93 KiB / 300 KiB。
 
 ### CUI-02 实现“角色 / 对话”侧栏
 
@@ -623,7 +634,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批只启动 CUI-00，完成基线后顺序推进 CUI-01 和 CUI-02。三项都会触碰主窗口或全局样式，不并行实施。
+第一批按顺序推进 CUI-00、CUI-01 和 CUI-02。CUI-00 与 CUI-01 已完成，下一项为 CUI-02；三项都会触碰主窗口或全局样式，不并行实施。
 
 建议首批提交顺序：
 

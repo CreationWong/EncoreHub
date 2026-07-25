@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 vi.mock("./components/chat/ChatView", () => ({ default: () => null }));
+vi.mock("./components/layout/GlobalNav", () => ({ default: () => null }));
 vi.mock("./components/settings/SettingsModal", () => ({ default: () => null }));
 vi.mock("./components/settings/UnlockGate", () => ({ default: () => null }));
 vi.mock("./components/sidebar/Sidebar", () => ({ default: () => null }));

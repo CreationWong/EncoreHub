@@ -1,118 +1,63 @@
-import { MessageSquare } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Loader2, MessageSquare } from "lucide-react";
 import { useConversationStore } from "../../stores/conversationStore";
-import InputBox from "./InputBox";
-import MessageBubble from "./MessageBubble";
+import Composer from "./Composer";
+import ContextHeader from "./ContextHeader";
+import MessageFeed from "./MessageFeed";
+
+function WelcomeState() {
+	return (
+		<div className="flex h-full items-center justify-center px-6">
+			<div className="space-y-3 text-center">
+				<div className="flex justify-center">
+					<div className="flex h-12 w-12 items-center justify-center rounded-lg bg-control text-accent">
+						<MessageSquare className="h-6 w-6" />
+					</div>
+				</div>
+				<h2 className="text-base font-semibold text-text-primary">EncoreHub</h2>
+				<p className="text-sm text-text-muted">New conversation</p>
+			</div>
+		</div>
+	);
+}
+
+function LoadingState() {
+	return (
+		<output
+			aria-label="Loading conversation"
+			className="flex h-full items-center justify-center"
+		>
+			<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+		</output>
+	);
+}
+
+function LoadingComposer() {
+	return (
+		<div
+			aria-hidden="true"
+			className="h-[77px] shrink-0 border-t border-border p-4"
+		>
+			<div className="mx-auto h-11 max-w-3xl rounded-lg bg-control" />
+		</div>
+	);
+}
 
 export default function ChatView() {
-	const messages = useConversationStore((s) => s.messages);
-	const streaming = useConversationStore((s) => s.streaming);
-	const streamingContent = useConversationStore((s) => s.streamingContent);
-	const streamingReasoning = useConversationStore((s) => s.streamingReasoning);
-	const streamingToolCalls = useConversationStore((s) => s.streamingToolCalls);
-	const loading = useConversationStore((s) => s.loading);
-	const activeId = useConversationStore((s) => s.activeId);
-	const bottomRef = useRef<HTMLDivElement>(null);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new content
-	useEffect(() => {
-		bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages, streamingContent, streamingReasoning]);
+	const loading = useConversationStore((state) => state.loading);
+	const activeId = useConversationStore((state) => state.activeId);
 
 	return (
-		<div className="flex flex-col h-full">
-			{/* Empty state */}
-			{!activeId && (
-				<div className="flex-1 flex flex-col">
-					<div className="flex-1 flex items-center justify-center">
-						<div className="text-center space-y-4">
-							<div className="flex justify-center">
-								<div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/10">
-									<MessageSquare className="h-8 w-8 text-accent" />
-								</div>
-							</div>
-							<h2 className="text-xl font-semibold text-text-primary">
-								EncoreHub
-							</h2>
-							<p className="text-sm text-text-muted max-w-sm">
-								Start a new conversation or select one from the sidebar.
-								<br />
-								Supports OpenAI, Anthropic, Gemini, and more.
-							</p>
-						</div>
-					</div>
-					<InputBox />
-				</div>
-			)}
-
-			{/* Loading */}
-			{activeId && loading && (
-				<div className="flex-1 flex items-center justify-center">
-					<div className="h-5 w-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-				</div>
-			)}
-
-			{/* Chat */}
-			{activeId && !loading && (
-				<>
-					<div className="flex-1 overflow-y-auto">
-						<div className="mx-auto max-w-3xl">
-							{messages.length === 0 && !streaming && (
-								<div className="flex items-center justify-center py-24">
-									<p className="text-sm text-text-muted">
-										Send a message to start the conversation.
-									</p>
-								</div>
-							)}
-
-							{messages.map((msg) => (
-								<MessageBubble key={msg.id} message={msg} />
-							))}
-
-							{streaming &&
-								(streamingContent ||
-									streamingReasoning ||
-									streamingToolCalls.length > 0) && (
-									<MessageBubble
-										message={{
-											id: "streaming",
-											role: "assistant",
-											content: streamingContent,
-											reasoning: streamingReasoning || undefined,
-											parent_id: null,
-											tool_calls: streamingToolCalls
-												.filter((tc) => tc.name)
-												.map((tc) => ({
-													id: tc.id ?? `tc-${tc.index}`,
-													name: tc.name,
-													arguments: tc.arguments,
-													result: tc.result,
-													status: tc.status ?? "pending",
-												})),
-											status: "pending",
-											created_at: new Date().toISOString(),
-										}}
-										isStreaming
-									/>
-								)}
-
-							{streaming &&
-								!streamingContent &&
-								!streamingReasoning &&
-								streamingToolCalls.length === 0 && (
-									<div className="flex items-center gap-2 px-4 py-4 text-sm text-text-muted">
-										<div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-										Thinking...
-									</div>
-								)}
-
-							<div ref={bottomRef} />
-						</div>
-					</div>
-
-					<InputBox />
-				</>
-			)}
-		</div>
+		<section
+			aria-label="Chat workspace"
+			className="flex h-full min-h-0 flex-col bg-workspace"
+		>
+			<ContextHeader />
+			<div className="min-h-0 flex-1">
+				{!activeId && <WelcomeState />}
+				{activeId && loading && <LoadingState />}
+				{activeId && !loading && <MessageFeed />}
+			</div>
+			{activeId && loading ? <LoadingComposer /> : <Composer />}
+		</section>
 	);
 }

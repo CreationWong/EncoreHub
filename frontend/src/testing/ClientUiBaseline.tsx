@@ -1,4 +1,5 @@
 import ChatView from "../components/chat/ChatView";
+import GlobalNav from "../components/layout/GlobalNav";
 import SettingsModal from "../components/settings/SettingsModal";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useConversationStore } from "../stores/conversationStore";
@@ -114,11 +115,14 @@ export function seedClientUiBaseline({
 export default function ClientUiBaseline() {
 	return (
 		<>
-			<div className="flex h-screen overflow-hidden bg-surface text-text-primary">
-				<Sidebar />
-				<main className="flex min-w-0 flex-1 flex-col">
-					<ChatView />
-				</main>
+			<div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-canvas text-text-primary">
+				<GlobalNav />
+				<div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
+					<Sidebar />
+					<main className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace">
+						<ChatView />
+					</main>
+				</div>
 			</div>
 			<SettingsModal />
 		</>

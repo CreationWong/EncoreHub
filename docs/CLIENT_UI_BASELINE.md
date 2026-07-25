@@ -162,4 +162,17 @@ pnpm --dir frontend capture:ui-baseline
 - [x] 截图脚本验证 PNG、尺寸并生成 SHA-256 manifest。
 - [x] 当前问题已映射到 CUI-01 至 CUI-12，没有在 CUI-00 修改生产 UI 行为。
 
-UG0 通过，CUI-01 可以开始。后续截图必须使用相同 scenario、主题和视口；若目标布局有意改变可见内容，应在对比记录中说明，而不是覆盖本基线。
+UG0 已通过；CUI-01 的完成证据见下一节。后续截图必须使用相同 scenario、主题和视口；若目标布局有意改变可见内容，应在对比记录中说明，而不是覆盖本基线。
+
+## 8. CUI-01 对比记录
+
+CUI-01 使用同一组 scenario、主题和视口生成了独立的 [manifest](ui-baseline/2026-07-24-cui-01/manifest.json)，没有覆盖本文件第 4 节的 CUI-00 原始基线。
+
+关键证据：
+
+- [1600x1120 light](ui-baseline/2026-07-24-cui-01/long-markdown-light-1600x1120.png)：64px GlobalNav、独立 workspace 和 64px ContextHeader。
+- [680x480 light](ui-baseline/2026-07-24-cui-01/long-markdown-light-680x480.png)：顶部导航、上下文栏和 composer 无重叠；现有侧栏宽度问题保留给 CUI-02。
+- [1200x800 streaming dark](ui-baseline/2026-07-24-cui-01/streaming-dark-1200x800.png)：固定 header/feed/composer 槽位与现有 Stop 流程共存。
+- [1200x800 Providers locked](ui-baseline/2026-07-24-cui-01/providers-locked-light-1200x800.png)：Settings overlay、vault 锁定状态与新应用骨架无冲突。
+
+CUI-01 只建立结构和视觉层级，没有移动 Sidebar Provider、改变 MessageBubble、修改 InputBox 命令语义或关闭 Tauri 原生窗口装饰。
