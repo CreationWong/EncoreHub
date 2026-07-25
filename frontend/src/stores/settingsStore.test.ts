@@ -5,25 +5,20 @@ beforeEach(() => {
 	localStorage.clear();
 	useSettingsStore.setState({
 		sidebarOpen: true,
-		focusMode: false,
 		sidebarMode: "conversations",
 		sidebarWidth: 300,
 	});
 });
 
-describe("settingsStore focus mode", () => {
-	it("hides the sidebar independently and restores it through the sidebar command", () => {
-		useSettingsStore.getState().toggleFocusMode();
-		expect(useSettingsStore.getState().focusMode).toBe(true);
-		expect(useSettingsStore.getState().sidebarOpen).toBe(true);
+describe("settingsStore sidebar preferences", () => {
+	it("toggles the sidebar directly", () => {
+		useSettingsStore.getState().toggleSidebar();
+		expect(useSettingsStore.getState().sidebarOpen).toBe(false);
 
 		useSettingsStore.getState().toggleSidebar();
-		expect(useSettingsStore.getState().focusMode).toBe(false);
 		expect(useSettingsStore.getState().sidebarOpen).toBe(true);
 	});
-});
 
-describe("settingsStore sidebar preferences", () => {
 	it("persists the selected sidebar mode", () => {
 		useSettingsStore.getState().setSidebarMode("characters");
 

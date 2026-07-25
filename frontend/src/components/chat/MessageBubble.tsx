@@ -1,6 +1,7 @@
 import { Info, Wrench } from "lucide-react";
 import type { Message } from "../../services/conversation";
 import AnswerBody from "./AnswerBody";
+import AssistantIdentity from "./AssistantIdentity";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ReasoningSection from "./ReasoningSection";
 import ReplyFooter from "./ReplyFooter";
@@ -63,6 +64,7 @@ export default function MessageBubble({
 
 	return (
 		<article aria-label="Assistant message" className="px-4 py-5">
+			<AssistantIdentity />
 			{message.reasoning && (
 				<ReasoningSection
 					reasoning={message.reasoning}

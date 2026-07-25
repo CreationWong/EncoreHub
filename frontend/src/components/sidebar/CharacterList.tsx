@@ -1,7 +1,10 @@
-import { Bot } from "lucide-react";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	DEFAULT_CHARACTER_NAME,
+	DefaultCharacterAvatar,
+} from "../character/DefaultCharacter";
 
 function newestConversation<T extends { updated_at: string }>(
 	items: T[],
@@ -68,12 +71,10 @@ export default function CharacterList() {
 						: "border-transparent hover:bg-control"
 				}`}
 			>
-				<span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-control text-text-secondary">
-					<Bot className="h-4 w-4" />
-				</span>
+				<DefaultCharacterAvatar size="large" />
 				<span className="min-w-0 flex-1">
 					<span className="block truncate text-sm font-medium text-text-primary">
-						Default character
+						{DEFAULT_CHARACTER_NAME}
 					</span>
 					<span
 						className="mt-0.5 block truncate text-[11px] text-text-muted"

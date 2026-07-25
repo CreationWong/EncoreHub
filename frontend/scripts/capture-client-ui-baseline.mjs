@@ -89,14 +89,6 @@ const captures = [
 		sidebar: "conversations",
 	},
 	{
-		name: "focus-mode-dark-1200x800",
-		scenario: "long-markdown",
-		theme: "dark",
-		width: 1200,
-		height: 800,
-		sidebar: "focus",
-	},
-	{
 		name: "reasoning-light-1200x800",
 		scenario: "reasoning",
 		theme: "light",

@@ -164,8 +164,13 @@ export default function ProviderSwitcher() {
 				) : (
 					<Cpu className="h-3.5 w-3.5 shrink-0" />
 				)}
-				<span className="min-w-0 max-w-[42%] truncate">{providerName}</span>
-				<span aria-hidden="true" className="shrink-0 text-text-muted">
+				<span className="hidden min-w-0 max-w-[42%] truncate min-[1200px]:block">
+					{providerName}
+				</span>
+				<span
+					aria-hidden="true"
+					className="hidden shrink-0 text-text-muted min-[1200px]:block"
+				>
 					·
 				</span>
 				<span className="min-w-0 flex-1 truncate font-medium text-text-primary">

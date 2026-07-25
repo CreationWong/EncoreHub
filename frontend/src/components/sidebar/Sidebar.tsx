@@ -13,12 +13,22 @@ const TABS: { id: SidebarMode; label: string }[] = [
 	{ id: "conversations", label: "Conversations" },
 ];
 
-function ResizeHandle({ onResize }: { onResize: (width: number) => void }) {
+const SIDEBAR_KEYBOARD_STEP = 8;
+
+function ResizeHandle({
+	width,
+	onPointerResize,
+	onResize,
+}: {
+	width: number;
+	onPointerResize: (clientX: number) => void;
+	onResize: (width: number) => void;
+}) {
 	const [dragging, setDragging] = useState(false);
 
 	useEffect(() => {
 		if (!dragging) return;
-		const onMove = (event: PointerEvent) => onResize(event.clientX);
+		const onMove = (event: PointerEvent) => onPointerResize(event.clientX);
 		const onUp = () => setDragging(false);
 		window.addEventListener("pointermove", onMove);
 		window.addEventListener("pointerup", onUp);
@@ -32,18 +42,41 @@ function ResizeHandle({ onResize }: { onResize: (width: number) => void }) {
 			document.body.style.cursor = previousCursor;
 			document.body.style.userSelect = previousSelection;
 		};
-	}, [dragging, onResize]);
+	}, [dragging, onPointerResize]);
 
 	return (
-		<button
-			type="button"
+		<hr
 			aria-label="Resize sidebar"
+			aria-orientation="vertical"
+			aria-valuemin={SIDEBAR_MIN_WIDTH}
+			aria-valuemax={SIDEBAR_MAX_WIDTH}
+			aria-valuenow={Math.round(width)}
+			aria-valuetext={`${Math.round(width)} pixels`}
+			tabIndex={0}
 			onPointerDown={(event) => {
+				if (event.button > 0) return;
 				event.preventDefault();
 				setDragging(true);
 			}}
-			className={`absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 transition-colors hover:bg-accent/30 ${
-				dragging ? "bg-accent/40" : ""
+			onKeyDown={(event) => {
+				let nextWidth: number | null = null;
+				if (event.key === "ArrowLeft") {
+					nextWidth = width - SIDEBAR_KEYBOARD_STEP;
+				} else if (event.key === "ArrowRight") {
+					nextWidth = width + SIDEBAR_KEYBOARD_STEP;
+				} else if (event.key === "Home") {
+					nextWidth = SIDEBAR_MIN_WIDTH;
+				} else if (event.key === "End") {
+					nextWidth = SIDEBAR_MAX_WIDTH;
+				}
+				if (nextWidth === null) return;
+				event.preventDefault();
+				onResize(nextWidth);
+			}}
+			className={`absolute -right-1 top-0 z-20 m-0 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 focus:outline-none after:pointer-events-none after:absolute after:left-1/2 after:top-1/2 after:h-8 after:w-px after:-translate-x-1/2 after:-translate-y-1/2 after:bg-text-muted/60 after:transition-opacity ${
+				dragging
+					? "after:opacity-100"
+					: "after:opacity-0 hover:after:opacity-100 focus-visible:after:opacity-100"
 			}`}
 		/>
 	);
@@ -51,7 +84,6 @@ function ResizeHandle({ onResize }: { onResize: (width: number) => void }) {
 
 export default function Sidebar() {
 	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
-	const focusMode = useSettingsStore((state) => state.focusMode);
 	const sidebarWidth = useSettingsStore((state) => state.sidebarWidth);
 	const setSidebarWidth = useSettingsStore((state) => state.setSidebarWidth);
 	const sidebarMode = useSettingsStore((state) => state.sidebarMode);
@@ -67,7 +99,7 @@ export default function Sidebar() {
 		[setSidebarWidth],
 	);
 
-	if (!sidebarOpen || focusMode) return null;
+	if (!sidebarOpen) return null;
 
 	return (
 		<aside
@@ -78,7 +110,7 @@ export default function Sidebar() {
 				minWidth: SIDEBAR_MIN_WIDTH,
 				maxWidth: SIDEBAR_MAX_WIDTH,
 			}}
-			className="relative flex shrink-0 flex-col overflow-hidden bg-app-canvas"
+			className="relative flex shrink-0 flex-col overflow-hidden border-r border-border bg-app-canvas"
 		>
 			<div
 				role="tablist"
@@ -148,7 +180,11 @@ export default function Sidebar() {
 					<ConversationList />
 				)}
 			</div>
-			<ResizeHandle onResize={handleResize} />
+			<ResizeHandle
+				width={sidebarWidth}
+				onPointerResize={handleResize}
+				onResize={setSidebarWidth}
+			/>
 		</aside>
 	);
 }

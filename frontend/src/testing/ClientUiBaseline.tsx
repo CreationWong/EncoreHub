@@ -33,7 +33,6 @@ export function seedClientUiBaseline({
 		model: selectedConversation?.model ?? scenario.model,
 		apiKeys: {},
 		sidebarOpen: sidebar !== "closed",
-		focusMode: sidebar === "focus",
 		sidebarWidth: 300,
 		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
 		settingsOpen: scenario.settingsOpen,

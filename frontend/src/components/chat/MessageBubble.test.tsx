@@ -68,7 +68,7 @@ describe("MessageBubble assistant document flow", () => {
 		expect(screen.queryByLabelText("Tool executions")).toBeNull();
 	});
 
-	it("renders an unframed answer without assistant avatar or heading", () => {
+	it("starts every assistant turn with the current character identity", () => {
 		render(
 			<MessageBubble
 				message={msg({ role: "assistant", content: "Document answer" })}
@@ -76,8 +76,13 @@ describe("MessageBubble assistant document flow", () => {
 		);
 
 		expect(screen.getByLabelText("Assistant message")).toBeDefined();
+		const identity = screen.getByLabelText("Response from Default character");
+		const answer = screen.getByText("Document answer");
+		expect(identity.textContent).toContain("Default character");
+		expect(identity.compareDocumentPosition(answer)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
 		expect(screen.getByText("Document answer")).toBeDefined();
-		expect(screen.queryByText("Assistant")).toBeNull();
 	});
 
 	it("renders Markdown code with a language label and accessible copy button", () => {
@@ -220,6 +225,9 @@ describe("MessageBubble tool execution", () => {
 			/>,
 		);
 
+		const executions = screen.getByLabelText("Tool executions");
+		expect(executions.className).toContain("max-w-fit");
+		expect(executions.className).not.toContain("border-y");
 		expect(screen.getByText("Pending")).toBeDefined();
 		expect(screen.getByText("Completed")).toBeDefined();
 		expect(screen.getByText("Failed")).toBeDefined();

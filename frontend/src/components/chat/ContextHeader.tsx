@@ -1,9 +1,6 @@
 import {
-	Bot,
 	ChevronRight,
 	Loader2,
-	Maximize2,
-	Minimize2,
 	MoreHorizontal,
 	PanelLeft,
 	PanelLeftClose,
@@ -15,6 +12,10 @@ import type { Conversation } from "../../services/conversation";
 import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	DEFAULT_CHARACTER_NAME,
+	DefaultCharacterAvatar,
+} from "../character/DefaultCharacter";
 import ProviderSwitcher from "./ProviderSwitcher";
 
 function ConversationActions({
@@ -159,13 +160,10 @@ export default function ContextHeader() {
 	const loading = useConversationStore((state) => state.loading);
 	const streaming = useConversationStore((state) => state.streaming);
 	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
-	const focusMode = useSettingsStore((state) => state.focusMode);
 	const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
-	const toggleFocusMode = useSettingsStore((state) => state.toggleFocusMode);
 	const conversation = conversations.find((item) => item.id === activeId);
 	const title =
 		conversation?.title ?? (activeId ? "Conversation" : "New conversation");
-	const sidebarVisible = sidebarOpen && !focusMode;
 	const status = loading
 		? "Loading conversation"
 		: streaming
@@ -177,15 +175,14 @@ export default function ContextHeader() {
 			aria-label="Conversation context"
 			className="flex h-16 shrink-0 items-center gap-1 border-b border-border bg-workspace px-2"
 		>
-			<h1 className="sr-only">{title}</h1>
 			<button
 				type="button"
 				onClick={toggleSidebar}
-				aria-label={sidebarVisible ? "Close sidebar" : "Open sidebar"}
-				title={sidebarVisible ? "Close sidebar" : "Open sidebar"}
+				aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+				title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
 				className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 			>
-				{sidebarVisible ? (
+				{sidebarOpen ? (
 					<PanelLeftClose className="h-4 w-4" />
 				) : (
 					<PanelLeft className="h-4 w-4" />
@@ -193,56 +190,48 @@ export default function ContextHeader() {
 			</button>
 
 			<div
-				className="flex min-w-0 shrink-[2] items-center gap-2 px-1"
-				title="Default character"
+				aria-label={`Current character: ${DEFAULT_CHARACTER_NAME}`}
+				className="flex min-w-24 max-w-40 flex-[0_3_auto] items-center gap-2 px-1"
+				title={DEFAULT_CHARACTER_NAME}
 			>
-				<span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-control text-text-secondary">
-					<Bot className="h-4 w-4" />
-				</span>
-				<span className="hidden max-w-32 truncate text-sm font-medium text-text-primary min-[900px]:block">
-					Default character
+				<DefaultCharacterAvatar />
+				<span className="min-w-0 max-w-32 truncate text-sm font-medium text-text-primary">
+					{DEFAULT_CHARACTER_NAME}
 				</span>
 			</div>
 
-			<ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-text-muted min-[900px]:block" />
+			<ChevronRight
+				aria-hidden="true"
+				className="h-3.5 w-3.5 shrink-0 text-text-muted"
+			/>
 
-			<div className="min-w-0 max-w-xl flex-1">
+			<h1
+				title={title}
+				className="min-w-8 max-w-72 flex-1 truncate text-sm font-medium text-text-primary"
+			>
+				{title}
+			</h1>
+
+			{status && (
+				<output
+					aria-label={status}
+					title={status}
+					className="hidden h-8 shrink-0 items-center gap-1.5 px-1 text-[11px] text-text-muted min-[1200px]:flex"
+				>
+					{loading ? (
+						<Loader2 className="h-3.5 w-3.5 animate-spin" />
+					) : (
+						<span className="h-1.5 w-1.5 rounded-full bg-accent" />
+					)}
+					<span className="hidden min-[1200px]:inline">{status}</span>
+				</output>
+			)}
+
+			<div className="ml-auto w-[32%] min-w-24 max-w-xl shrink-0 min-[900px]:w-[40%] min-[1200px]:w-auto min-[1200px]:flex-[0_2_34rem]">
 				<ProviderSwitcher />
 			</div>
 
-			<div className="ml-1 flex shrink-0 items-center gap-1">
-				{status && (
-					<output
-						aria-label={status}
-						title={status}
-						className="flex h-8 items-center gap-1.5 px-1 text-[11px] text-text-muted"
-					>
-						{loading ? (
-							<Loader2 className="h-3.5 w-3.5 animate-spin" />
-						) : (
-							<span className="h-1.5 w-1.5 rounded-full bg-accent" />
-						)}
-						<span className="hidden min-[1200px]:inline">{status}</span>
-					</output>
-				)}
-				<button
-					type="button"
-					onClick={toggleFocusMode}
-					aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"}
-					aria-pressed={focusMode}
-					title={focusMode ? "Exit focus mode" : "Enter focus mode"}
-					className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-						focusMode
-							? "bg-control text-accent"
-							: "text-text-muted hover:bg-control hover:text-text-primary"
-					}`}
-				>
-					{focusMode ? (
-						<Minimize2 className="h-4 w-4" />
-					) : (
-						<Maximize2 className="h-4 w-4" />
-					)}
-				</button>
+			<div className="flex shrink-0 items-center">
 				{conversation && <ConversationActions conversation={conversation} />}
 			</div>
 		</header>

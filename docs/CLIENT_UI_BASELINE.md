@@ -38,7 +38,7 @@ http://127.0.0.1:1420/ui-baseline.html?scenario=long-markdown&theme=light
 
 - `scenario` 使用第 3 节中的稳定 ID；未知值降级为 `long-markdown`。
 - `theme` 只接受 `light` 或 `dark`；未知值降级为 `light`。
-- `sidebar` 接受 `characters`、`conversations`、`closed` 或 `focus`，用于复现侧栏与专注模式。
+- `sidebar` 接受 `characters`、`conversations` 或 `closed`，用于复现侧栏标签与普通折叠；CUI-04A 已移除专注模式。
 - 页面根元素设置 `data-ui-baseline-ready="true"` 后才视为完成首帧。
 - ready 后关闭动画和 transition，避免流式光标造成无意义的像素差异。
 
@@ -203,7 +203,7 @@ CUI-03 在本地 `docs/ui-baseline/2026-07-25-cui-03/` 生成 15 张图片和 ma
 
 专项测试覆盖无活动对话默认值、已有对话权威模型、确认创建、取消切换、Provider 不可用、专注模式和会话菜单；6 个相关测试文件、59 项测试通过。完整 Frontend gate 为 27 个测试文件、187 项测试，lint 检查 85 个文件，production build 初始 JavaScript gzip 为 116.78 KiB / 300 KiB。
 
-UG1 已通过。主窗口当前只显示真实可用的首页、新建、外观、设置、角色/对话、Provider/Model、侧栏、专注、标题再生成和删除命令；对话内搜索与会话参数继续隐藏。
+UG1 已通过。CUI-03 完成时，主窗口只显示真实可用的首页、新建、外观、设置、角色/对话、Provider/Model、侧栏、专注、标题再生成和删除命令；其中专注入口随后由 CUI-04A 删除，对话内搜索与会话参数继续隐藏。
 
 ## 11. CUI-04 对比记录
 
@@ -218,4 +218,20 @@ CUI-04 在本地 `docs/ui-baseline/2026-07-25-cui-04/` 生成 18 张图片和 ma
 
 专项测试覆盖 user/assistant/system/tool、空 answer、reasoning 完成状态继承、工具三态、复制边界、token 0/未知/大值、停止、失败和 footer 窄窗约束；4 个相关测试文件、24 项测试通过。完整 Frontend gate 为 29 个测试文件、199 项测试，lint 检查 92 个文件，production build 初始 JavaScript gzip 为 117.25 KiB / 300 KiB。
 
-CUI-04 已通过本地视觉验收；CUI-05 将继续处理 Composer、分会话草稿、自动跟随与“回到最新”。
+CUI-04 已通过本地视觉验收；其“assistant 无头像”和全宽工具分组结论由后续 CUI-04A 覆盖。
+
+## 12. CUI-04A 对比记录
+
+CUI-04A 在本地 `docs/ui-baseline/2026-07-25-cui-04a/` 生成 17 张图片和 manifest。该目录由 Git 忽略，仓库只保留下列文字结论：
+
+- `long-markdown-light-1600x1120.png`：顶部依次显示 Default character、对话标题与右侧 Provider/Model；assistant 回合先显示角色头像和名称，token 继续位于右下角。
+- `long-markdown-light-900x700.png`：完整角色名优先显示，标题与模型独立截断；900-1199px 隐藏 Provider 次要文字，模型菜单和更多命令没有重叠。
+- `long-markdown-light-680x480.png`：角色名、对话标题和模型名都保留可辨识的截断文本；PanelLeft、模型下拉和更多菜单点击区保持稳定。
+- `tool-call-dark-1200x800.png`：工具调用变为按内容宽度的左对齐紧凑行，不再出现横跨工作区的粗边框分组；Completed 状态、展开箭头和 160 tokens 层级清晰。
+- 所有默认侧栏截图只显示 1px 中性边界，没有常驻 accent 拖拽长条；`sidebar-closed-light-1200x800.png` 继续证明普通折叠可以恢复。
+
+专注模式及 `sidebar=focus` fixture 已从当前产品和截图脚本移除；第 10 节中的 focus 截图仅保留为 CUI-03 当时实现的历史记录。应用内 Browser 的本机 Node 运行时不可用，本次视觉验收改用仓库既有 headless Chrome/Edge 基线脚本。
+
+专项测试覆盖上下文 DOM 顺序、无专注命令、assistant 身份顺序、紧凑工具记录、鼠标/键盘调宽和 baseline 参数降级；5 个相关测试文件、37 项测试通过。完整 Frontend gate 为 29 个测试文件、202 项测试，lint 检查 94 个文件，production build 初始 JavaScript gzip 为 117.51 KiB / 300 KiB。
+
+CUI-04A 已通过本地视觉验收；CUI-05 将继续处理 Composer、分会话草稿、自动跟随与“回到最新”。

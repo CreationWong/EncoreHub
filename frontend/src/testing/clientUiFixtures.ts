@@ -495,7 +495,7 @@ const scenarioMap: Record<ClientUiScenarioId, ClientUiScenario> = {
 export interface ClientUiBaselineOptions {
 	scenarioId: ClientUiScenarioId;
 	theme: (typeof CLIENT_UI_BASELINE_THEMES)[number];
-	sidebar: "characters" | "conversations" | "closed" | "focus";
+	sidebar: "characters" | "conversations" | "closed";
 }
 
 export function isClientUiScenarioId(
@@ -518,9 +518,7 @@ export function parseClientUiBaselineOptions(
 			: "long-markdown",
 		theme: requestedTheme === "dark" ? "dark" : "light",
 		sidebar:
-			requestedSidebar === "characters" ||
-			requestedSidebar === "closed" ||
-			requestedSidebar === "focus"
+			requestedSidebar === "characters" || requestedSidebar === "closed"
 				? requestedSidebar
 				: "conversations",
 	};

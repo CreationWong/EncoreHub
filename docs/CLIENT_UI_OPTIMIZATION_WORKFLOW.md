@@ -102,8 +102,8 @@ flowchart LR
 | CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Done`（本地视觉验收） |
 | CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Done`（本地视觉验收） |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Done`（本地视觉验收） |
-| CUI-04A | Frontend sidebar/context/messages | CUI-04 | 上下文层级、角色身份、中性拖拽边界、紧凑工具记录 | `Ready` |
-| CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Not started` |
+| CUI-04A | Frontend sidebar/context/messages | CUI-04 | 上下文层级、角色身份、中性拖拽边界、紧凑工具记录 | `Done`（本地视觉验收） |
+| CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Ready` |
 | CUI-06 | Frontend settings | UG2 | ProviderDetail 纵向表单、手工模型管理、draft 保存 | `Not started` |
 | CUI-07 | Gateway + Frontend | CUI-06 | key validation、remote model discovery 与差异确认 | `Not started` |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Not started` |
@@ -302,17 +302,17 @@ CUI-04 已完成；Image #1 的新增标注作为 CUI-04A 纠正项，不改写�
 
 **任务**
 
-- [ ] 将 `ContextHeader` 左侧固定为 PanelLeft、当前角色头像与名称、`>` 分隔符、当前 `Conversation.title`；空白新对话使用稳定回退标题。
-- [ ] 将 `ProviderSwitcher` 整体移到右侧并保留已有对话权威 Provider/Model、不可用状态和“使用该模型新建对话”确认语义。
-- [ ] 删除专注/扩大按钮及仅服务该入口的 UI 状态和测试；保留 PanelLeft 侧栏折叠与更多菜单。
-- [ ] 为每个 assistant turn 增加紧凑角色身份行，显示当前角色头像与名称，并放在 `ReasoningSection`、`ToolExecutionList` 和 `AnswerBody` 之前。
-- [ ] 独立角色实体落地前使用 Default Character 投影；头像缺失时显示稳定回退图标，不用 Provider 图标冒充角色头像。
-- [ ] 保持用户气泡无头像、ReplyFooter token 右下角、复制行为和 reasoning 展开语义不变。
-- [ ] 为角色名、对话标题、Provider 和 Model 分配独立截断边界；680px 下右侧模型选择器与更多菜单不得被挤出或重叠。
-- [ ] 保留侧栏 260-380px 调宽与持久化，但把可见边界收敛为 1px 主题中性分隔线；以透明命中区提供鼠标拖拽，不显示常驻或贯穿工作区的 accent 长条。
-- [ ] 调宽命中区不得拦截 header、feed 或 composer 操作，并保留键盘可调的 `separator`、`aria-orientation` 和当前宽度语义。
-- [ ] 将 `ToolExecutionList` 的折叠触发器改为按内容宽度、左对齐的 28-32px 紧凑行；移除包裹整组调用或横跨工作区的粗边框容器。
-- [ ] 工具参数/结果只在展开后显示于触发行下方；长内容可滚动，pending/completed/failed 状态与调用顺序保持不变。
+- [x] 将 `ContextHeader` 左侧固定为 PanelLeft、当前角色头像与名称、`>` 分隔符、当前 `Conversation.title`；空白新对话使用稳定回退标题。
+- [x] 将 `ProviderSwitcher` 整体移到右侧并保留已有对话权威 Provider/Model、不可用状态和“使用该模型新建对话”确认语义。
+- [x] 删除专注/扩大按钮及仅服务该入口的 UI 状态和测试；保留 PanelLeft 侧栏折叠与更多菜单。
+- [x] 为每个 assistant turn 增加紧凑角色身份行，显示当前角色头像与名称，并放在 `ReasoningSection`、`ToolExecutionList` 和 `AnswerBody` 之前。
+- [x] 独立角色实体落地前使用 Default Character 投影；头像缺失时显示稳定回退图标，不用 Provider 图标冒充角色头像。
+- [x] 保持用户气泡无头像、ReplyFooter token 右下角、复制行为和 reasoning 展开语义不变。
+- [x] 为角色名、对话标题、Provider 和 Model 分配独立截断边界；680px 下右侧模型选择器与更多菜单不得被挤出或重叠。
+- [x] 保留侧栏 260-380px 调宽与持久化，但把可见边界收敛为 1px 主题中性分隔线；以透明命中区提供鼠标拖拽，不显示常驻或贯穿工作区的 accent 长条。
+- [x] 调宽命中区不得拦截 header、feed 或 composer 操作，并保留键盘可调的 `separator`、`aria-orientation` 和当前宽度语义。
+- [x] 将 `ToolExecutionList` 的折叠触发器改为按内容宽度、左对齐的 28-32px 紧凑行；移除包裹整组调用或横跨工作区的粗边框容器。
+- [x] 工具参数/结果只在展开后显示于触发行下方；长内容可滚动，pending/completed/failed 状态与调用顺序保持不变。
 
 **专项测试**
 
@@ -330,7 +330,17 @@ CUI-04 已完成；Image #1 的新增标注作为 CUI-04A 纠正项，不改写�
 - 侧栏调宽能力保留，但没有常驻 accent 拖拽长条；工具记录以紧凑行融入文档流，不再显示全宽粗边框分组条。
 - Frontend 类型检查、lint、全量 Vitest、production build 和新截图矩阵通过；图片与 manifest 保持 Git 忽略。
 
-CUI-04A 完成前不开始 CUI-05，也不判定 UG2 通过。
+**执行记录（2026-07-25）**
+
+- `ContextHeader` 现在按 PanelLeft、Default character、`>`、Conversation title 的顺序显示上下文，Provider/Model 选择器靠右；900-1199px 隐藏 Provider 次要文字，680-899px 继续保留截断后的角色名、标题和模型名。
+- 删除 `focusMode`、`toggleFocusMode`、专注按钮及 baseline `sidebar=focus` 分支；普通侧栏折叠、Conversation actions 和模型切换确认语义保持不变。
+- 新增共享 Default character 头像和 `AssistantIdentity`，每个 assistant turn 在 reasoning、tool 和 answer 前显示一次角色身份；用户、system 和独立 tool 消息不增加该身份行。
+- Sidebar 保留 260-380px 持久化调宽，边界改为 1px 中性分隔与透明 `<hr>` separator 命中区；鼠标、方向键、Home/End 均可操作，视觉反馈限制在边界中部 32px。
+- `ToolExecutionList` 移除全宽 `border-y` 分组，折叠态改为按内容宽度的 32px 左对齐行；展开参数/结果、调用顺序和 pending/completed/failed 语义保持不变。
+- 本地 `docs/ui-baseline/2026-07-25-cui-04a/` 生成 17 张图片和 manifest，覆盖四视口亮暗、Characters、折叠、streaming、failed、reasoning、tool call、Provider unavailable 和 Providers locked；图片与 manifest 均由 Git 忽略。应用内 Browser 的本机 Node 运行时不可用，因此视觉验收使用仓库既有 headless Chrome/Edge 基线脚本完成。
+- 5 个专项测试文件共 37 项通过；完整 Frontend gate 为 29 个测试文件/202 项测试，lint 检查 94 个文件，类型检查和 production build 通过，初始 JavaScript gzip 为 117.51 KiB / 300 KiB。
+
+CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 仍需等待 CUI-05 完成。
 
 ### CUI-05 完成 Composer、草稿与滚动控制
 
@@ -721,7 +731,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批已按顺序完成 CUI-00 至 CUI-04。用户对 Image #1 的新增标注形成 CUI-04A，必须先纠正上下文层级和 assistant 角色身份，再开始 CUI-05；这些工作都会触碰主窗口，因此不并行实施。
+第一批已按顺序完成 CUI-00 至 CUI-04A。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；下一项 CUI-05 继续处理 Composer 与滚动，这些工作都会触碰主窗口，因此不并行实施。
 
 建议首批提交顺序：
 
@@ -733,4 +743,4 @@ git status --short
 6. `refactor(frontend): layer chat messages and reply status`
 7. `fix(frontend): align conversation workspace details`
 
-UG1 已按原范围通过。当前下一项为 CUI-04A，随后推进 CUI-05；UG2 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile。
+UG1 已按原范围通过，CUI-04A 参考图纠正也已完成。当前下一项为 CUI-05；UG2 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile。

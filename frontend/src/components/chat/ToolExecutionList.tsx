@@ -40,16 +40,16 @@ function ToolExecution({ call }: { call: ToolCall }) {
 	const StateIcon = state.Icon;
 
 	return (
-		<div>
+		<div className="min-w-0 max-w-full">
 			<button
 				type="button"
 				onClick={() => setOpen((value) => !value)}
 				aria-expanded={open}
 				aria-controls={detailsId}
-				className="flex h-9 w-full min-w-0 items-center gap-2 px-1 text-left text-xs transition-colors hover:bg-control"
+				className="flex h-8 w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors hover:bg-control"
 			>
-				<Wrench className="h-3.5 w-3.5 shrink-0 text-accent" />
-				<span className="min-w-0 flex-1 truncate font-mono font-medium text-text-primary">
+				<Wrench className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+				<span className="min-w-0 max-w-80 truncate font-mono font-medium text-text-primary">
 					{call.name}
 				</span>
 				<span
@@ -67,7 +67,7 @@ function ToolExecution({ call }: { call: ToolCall }) {
 			{open && (
 				<div
 					id={detailsId}
-					className="border-t border-border bg-control/40 px-3 py-2"
+					className="mt-1 max-w-3xl rounded-md bg-control/50 px-3 py-2"
 				>
 					<p className="mb-1 text-[10px] font-medium uppercase text-text-muted">
 						Arguments
@@ -100,12 +100,13 @@ export default function ToolExecutionList({
 	if (toolCalls.length === 0) return null;
 
 	return (
-		<section aria-label="Tool executions" className="my-4">
-			<div className="divide-y divide-border border-y border-border">
-				{toolCalls.map((call) => (
-					<ToolExecution key={call.id} call={call} />
-				))}
-			</div>
+		<section
+			aria-label="Tool executions"
+			className="my-3 flex w-fit max-w-fit max-w-full flex-col items-start gap-1.5"
+		>
+			{toolCalls.map((call) => (
+				<ToolExecution key={call.id} call={call} />
+			))}
 		</section>
 	);
 }

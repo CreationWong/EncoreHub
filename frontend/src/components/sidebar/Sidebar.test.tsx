@@ -6,7 +6,6 @@ const setSidebarWidth = vi.fn();
 
 const settingsState = {
 	sidebarOpen: true,
-	focusMode: false,
 	sidebarWidth: 300,
 	sidebarMode: "conversations" as "characters" | "conversations",
 	setSidebarMode,
@@ -33,7 +32,6 @@ beforeEach(() => {
 	setSidebarMode.mockReset();
 	setSidebarWidth.mockReset();
 	settingsState.sidebarOpen = true;
-	settingsState.focusMode = false;
 	settingsState.sidebarWidth = 300;
 	settingsState.sidebarMode = "conversations";
 });
@@ -76,10 +74,25 @@ describe("Sidebar sizing", () => {
 
 	it("dragging the resize handle updates the sidebar width", () => {
 		render(<Sidebar />);
-		const handle = screen.getByLabelText("Resize sidebar");
+		const handle = screen.getByRole("separator", { name: "Resize sidebar" });
+		expect(handle.getAttribute("aria-orientation")).toBe("vertical");
+		expect(handle.getAttribute("aria-valuenow")).toBe("300");
+		expect(handle.className).not.toContain("hover:bg-accent");
 		fireEvent.pointerDown(handle);
 		window.dispatchEvent(new MouseEvent("pointermove", { clientX: 320 }));
 		expect(setSidebarWidth).toHaveBeenLastCalledWith(320);
+	});
+
+	it("supports bounded keyboard resizing without a full-height accent state", () => {
+		render(<Sidebar />);
+		const handle = screen.getByLabelText("Resize sidebar");
+
+		fireEvent.keyDown(handle, { key: "ArrowRight" });
+		expect(setSidebarWidth).toHaveBeenLastCalledWith(308);
+		fireEvent.keyDown(handle, { key: "Home" });
+		expect(setSidebarWidth).toHaveBeenLastCalledWith(260);
+		fireEvent.keyDown(handle, { key: "End" });
+		expect(setSidebarWidth).toHaveBeenLastCalledWith(380);
 	});
 
 	it("renders no icon rail or resize handle when collapsed", () => {
@@ -87,11 +100,5 @@ describe("Sidebar sizing", () => {
 		const { container } = render(<Sidebar />);
 		expect(container.innerHTML).toBe("");
 		expect(screen.queryByLabelText("Resize sidebar")).toBeNull();
-	});
-
-	it("hides while focus mode is active", () => {
-		settingsState.focusMode = true;
-		const { container } = render(<Sidebar />);
-		expect(container.innerHTML).toBe("");
 	});
 });

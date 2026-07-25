@@ -14,7 +14,6 @@ vi.mock("../../stores/confirmStore", () => ({
 }));
 
 const toggleSidebar = vi.fn();
-const toggleFocusMode = vi.fn();
 const generateTitle = vi.fn();
 const deleteConversation = vi.fn();
 
@@ -29,9 +28,7 @@ let conversationState: {
 
 let settingsState: {
 	sidebarOpen: boolean;
-	focusMode: boolean;
 	toggleSidebar: typeof toggleSidebar;
-	toggleFocusMode: typeof toggleFocusMode;
 };
 
 vi.mock("../../stores/conversationStore", () => ({
@@ -66,7 +63,6 @@ function conversation(): Conversation {
 beforeEach(() => {
 	confirmAsk.mockReset().mockResolvedValue(true);
 	toggleSidebar.mockReset();
-	toggleFocusMode.mockReset();
 	generateTitle.mockReset().mockResolvedValue(undefined);
 	deleteConversation.mockReset().mockResolvedValue(undefined);
 	conversationState = {
@@ -79,45 +75,42 @@ beforeEach(() => {
 	};
 	settingsState = {
 		sidebarOpen: true,
-		focusMode: false,
 		toggleSidebar,
-		toggleFocusMode,
 	};
 });
 
 afterEach(cleanup);
 
 describe("ContextHeader context and layout commands", () => {
-	it("shows the conversation context, default character, and model switcher", () => {
+	it("shows character, conversation title, then the right-aligned model switcher", () => {
 		render(<ContextHeader />);
 
-		expect(
-			screen.getByRole("heading", {
-				name: "A deliberately long conversation",
-			}),
-		).toBeDefined();
+		const header = screen.getByLabelText("Conversation context");
+		const character = screen.getByText("Default character");
+		const title = screen.getByRole("heading", {
+			name: "A deliberately long conversation",
+		});
+		const provider = screen.getByTestId("provider-switcher");
+		expect(character.compareDocumentPosition(title)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(title.compareDocumentPosition(provider)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(provider.parentElement?.className).toContain("ml-auto");
+		expect(header.textContent).toContain(
+			"Default characterA deliberately long conversation",
+		);
 		expect(screen.getByText("Default character")).toBeDefined();
-		expect(screen.getByTestId("provider-switcher")).toBeDefined();
 
 		fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
 		expect(toggleSidebar).toHaveBeenCalledTimes(1);
 	});
 
-	it("enters focus mode and exposes truthful restoration commands", () => {
-		const { rerender } = render(<ContextHeader />);
-		const focus = screen.getByRole("button", { name: "Enter focus mode" });
-		expect(focus.getAttribute("aria-pressed")).toBe("false");
-		fireEvent.click(focus);
-		expect(toggleFocusMode).toHaveBeenCalledTimes(1);
+	it("does not expose the removed focus mode command", () => {
+		render(<ContextHeader />);
 
-		settingsState.focusMode = true;
-		rerender(<ContextHeader />);
-		expect(
-			screen
-				.getByRole("button", { name: "Exit focus mode" })
-				.getAttribute("aria-pressed"),
-		).toBe("true");
-		expect(screen.getByRole("button", { name: "Open sidebar" })).toBeDefined();
+		expect(screen.queryByRole("button", { name: /focus mode/i })).toBeNull();
 	});
 
 	it("shows only real loading and generation states", () => {

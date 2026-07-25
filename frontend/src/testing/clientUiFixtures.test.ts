@@ -95,7 +95,7 @@ describe("client UI baseline fixtures", () => {
 			"closed",
 		);
 		expect(parseClientUiBaselineOptions("?sidebar=focus").sidebar).toBe(
-			"focus",
+			"conversations",
 		);
 	});
 });
