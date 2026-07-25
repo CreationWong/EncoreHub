@@ -1,16 +1,26 @@
 import type { SearchProvider } from "../stores/settingsStore";
 import { apiFetch, buildHeaders } from "./api";
 import { apiBase } from "./config";
-import type { Message } from "./conversation";
+import {
+	type Message,
+	type MessagePayload,
+	normalizeMessage,
+} from "./conversation";
 
-interface ChatResponse {
+interface ChatResponsePayload {
 	conversation_id: string;
-	user_message?: Message;
-	assistant_message?: Message;
+	user_message?: MessagePayload;
+	assistant_message?: MessagePayload;
 	reply: string;
 	provider: string;
 	model: string;
 	usage?: StreamUsage;
+}
+
+interface ChatResponse
+	extends Omit<ChatResponsePayload, "user_message" | "assistant_message"> {
+	user_message?: Message;
+	assistant_message?: Message;
 }
 
 export interface StreamUsage {
@@ -100,14 +110,26 @@ export const chatApi = {
 		const headers: Record<string, string> = {};
 		if (providerKey) headers["X-Provider-Key"] = providerKey;
 
-		return apiFetch<ChatResponse>(`/conversations/${convId}/chat`, {
-			method: "POST",
-			headers,
-			body: JSON.stringify({
-				content,
-				...(search && { search: true, search_provider: searchProvider }),
-			}),
-		});
+		const response = await apiFetch<ChatResponsePayload>(
+			`/conversations/${convId}/chat`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					content,
+					...(search && { search: true, search_provider: searchProvider }),
+				}),
+			},
+		);
+		return {
+			...response,
+			user_message: response.user_message
+				? normalizeMessage(response.user_message)
+				: undefined,
+			assistant_message: response.assistant_message
+				? normalizeMessage(response.assistant_message)
+				: undefined,
+		};
 	},
 
 	/** Send a message and consume the SSE stream with callbacks. */
@@ -151,7 +173,7 @@ export const chatApi = {
 			// Non-streaming fallback (gateway may downgrade to JSON).
 			const contentType = res.headers.get("content-type") || "";
 			if (contentType.includes("application/json")) {
-				const data: ChatResponse = await res.json();
+				const data: ChatResponsePayload = await res.json();
 				if (!data.user_message || !data.assistant_message) {
 					callbacks.onError({
 						code: "invalid_response",
@@ -159,10 +181,12 @@ export const chatApi = {
 					});
 					return;
 				}
-				callbacks.onTurnStarted?.(data.user_message);
+				const userMessage = normalizeMessage(data.user_message);
+				const assistantMessage = normalizeMessage(data.assistant_message);
+				callbacks.onTurnStarted?.(userMessage);
 				callbacks.onDone({
-					user_message: data.user_message,
-					assistant_message: data.assistant_message,
+					user_message: userMessage,
+					assistant_message: assistantMessage,
 					usage: data.usage ?? { input_tokens: 0, output_tokens: 0 },
 				});
 				return;
@@ -190,7 +214,9 @@ export const chatApi = {
 						try {
 							const parsed = JSON.parse(ev.data);
 							if (parsed.user_message?.id) {
-								callbacks.onTurnStarted?.(parsed.user_message);
+								callbacks.onTurnStarted?.(
+									normalizeMessage(parsed.user_message as MessagePayload),
+								);
 							}
 						} catch {
 							/* final done/error reconciliation remains authoritative */
@@ -290,11 +316,20 @@ export const chatApi = {
 						terminalReceived = true;
 						try {
 							const parsed = JSON.parse(ev.data);
+							const userMessage = parsed.user_message
+								? normalizeMessage(parsed.user_message as MessagePayload)
+								: undefined;
+							const assistantMessage =
+								parsed.assistant_message == null
+									? parsed.assistant_message
+									: normalizeMessage(
+											parsed.assistant_message as MessagePayload,
+										);
 							callbacks.onError({
 								code: parsed.code ?? "stream_error",
 								message: parsed.message ?? "Gateway stream failed",
-								user_message: parsed.user_message,
-								assistant_message: parsed.assistant_message,
+								user_message: userMessage,
+								assistant_message: assistantMessage,
 							});
 						} catch {
 							callbacks.onError({
@@ -312,8 +347,12 @@ export const chatApi = {
 								throw new Error("persisted messages missing");
 							}
 							callbacks.onDone({
-								user_message: parsed.user_message,
-								assistant_message: parsed.assistant_message,
+								user_message: normalizeMessage(
+									parsed.user_message as MessagePayload,
+								),
+								assistant_message: normalizeMessage(
+									parsed.assistant_message as MessagePayload,
+								),
 								usage: parsed.usage ?? { input_tokens: 0, output_tokens: 0 },
 							});
 						} catch {

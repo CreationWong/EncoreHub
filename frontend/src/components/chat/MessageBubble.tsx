@@ -32,6 +32,7 @@ function SystemMessage({ message }: { message: Message }) {
 }
 
 function ToolMessage({ message }: { message: Message }) {
+	const toolCalls = message.tool_calls ?? [];
 	return (
 		<article
 			aria-label="Tool message"
@@ -39,8 +40,8 @@ function ToolMessage({ message }: { message: Message }) {
 		>
 			<Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 			<div className="min-w-0 flex-1">
-				{message.tool_calls.length > 0 ? (
-					<ToolExecutionList calls={message.tool_calls} />
+				{toolCalls.length > 0 ? (
+					<ToolExecutionList calls={toolCalls} />
 				) : (
 					<MarkdownRenderer content={message.content} size="xs" muted />
 				)}
@@ -55,6 +56,7 @@ export default function MessageBubble({
 	reasoningExpanded,
 	onReasoningExpandedChange,
 }: MessageBubbleProps) {
+	const toolCalls = message.tool_calls ?? [];
 	if (message.role === "user") return <UserBubble message={message} />;
 	if (message.role === "system") return <SystemMessage message={message} />;
 	if (message.role === "tool") return <ToolMessage message={message} />;
@@ -70,7 +72,7 @@ export default function MessageBubble({
 					onExpandedChange={onReasoningExpandedChange}
 				/>
 			)}
-			<ToolExecutionList calls={message.tool_calls} />
+			<ToolExecutionList calls={toolCalls} />
 			<AnswerBody content={message.content} streaming={isStreaming} />
 			<ReplyFooter
 				content={message.content}

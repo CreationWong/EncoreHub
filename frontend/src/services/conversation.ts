@@ -35,6 +35,22 @@ export interface ToolCall {
 	status?: "pending" | "success" | "error";
 }
 
+/** Gateway SSE payloads may omit empty tool_calls through Go omitempty. */
+export type MessagePayload = Omit<Message, "tool_calls"> & {
+	tool_calls?: ToolCall[] | null;
+};
+
+export function normalizeMessage(message: MessagePayload): Message {
+	return {
+		...message,
+		tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+	};
+}
+
+type ConversationDetailPayload = Omit<ConversationDetail, "messages"> & {
+	messages: MessagePayload[];
+};
+
 export interface ConversationDetail extends Conversation {
 	messages: Message[];
 	summary: string | null;
@@ -65,7 +81,13 @@ export async function createConversation(
 }
 
 export async function getConversation(id: string): Promise<ConversationDetail> {
-	return apiFetch<ConversationDetail>(`/conversations/${id}`);
+	const detail = await apiFetch<ConversationDetailPayload>(
+		`/conversations/${id}`,
+	);
+	return {
+		...detail,
+		messages: (detail.messages ?? []).map(normalizeMessage),
+	};
 }
 
 export async function deleteConversation(id: string): Promise<void> {

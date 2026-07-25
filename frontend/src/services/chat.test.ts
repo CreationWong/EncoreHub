@@ -34,6 +34,61 @@ afterEach(() => {
 });
 
 describe("chatApi.sendMessageStream", () => {
+	it("normalizes omitted tool calls in persisted SSE messages", async () => {
+		const wireUser = {
+			id: "turn-omitted-tools",
+			role: "user",
+			content: "hello",
+			parent_id: null,
+			status: "completed",
+			created_at: "2026-07-16T00:00:00Z",
+		};
+		const wireAssistant = {
+			id: "assistant-omitted-tools",
+			role: "assistant",
+			content: "answer",
+			parent_id: "turn-omitted-tools",
+			status: "completed",
+			created_at: "2026-07-16T00:00:01Z",
+			tool_calls: null,
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				sseResponse([
+					{ event: "turn_started", data: { user_message: wireUser } },
+					{
+						event: "done",
+						data: {
+							user_message: wireUser,
+							assistant_message: wireAssistant,
+							usage: { input_tokens: 1, output_tokens: 1 },
+						},
+					},
+				]),
+			),
+		);
+		const onTurnStarted = vi.fn();
+		const onDone = vi.fn();
+
+		await chatApi.sendMessageStream("c1", "hello", "key", {
+			onTurnStarted,
+			onDelta: vi.fn(),
+			onDone,
+			onError: vi.fn(),
+		});
+
+		expect(onTurnStarted).toHaveBeenCalledWith({
+			...wireUser,
+			tool_calls: [],
+		});
+		expect(onDone).toHaveBeenCalledWith({
+			user_message: { ...wireUser, tool_calls: [] },
+			assistant_message: { ...wireAssistant, tool_calls: [] },
+			usage: { input_tokens: 1, output_tokens: 1 },
+		});
+	});
+
 	it("reconciles the persisted turn and authoritative done payload", async () => {
 		const pendingUser = message({});
 		const completedUser = message({ status: "completed" });

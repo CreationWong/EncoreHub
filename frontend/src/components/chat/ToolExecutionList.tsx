@@ -91,13 +91,18 @@ function ToolExecution({ call }: { call: ToolCall }) {
 	);
 }
 
-export default function ToolExecutionList({ calls }: { calls: ToolCall[] }) {
-	if (calls.length === 0) return null;
+export default function ToolExecutionList({
+	calls,
+}: {
+	calls?: ToolCall[] | null;
+}) {
+	const toolCalls = calls ?? [];
+	if (toolCalls.length === 0) return null;
 
 	return (
 		<section aria-label="Tool executions" className="my-4">
 			<div className="divide-y divide-border border-y border-border">
-				{calls.map((call) => (
+				{toolCalls.map((call) => (
 					<ToolExecution key={call.id} call={call} />
 				))}
 			</div>

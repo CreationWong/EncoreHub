@@ -56,6 +56,18 @@ describe("MessageBubble user presentation", () => {
 });
 
 describe("MessageBubble assistant document flow", () => {
+	it("renders legacy messages that omit tool_calls without crashing", () => {
+		const legacyMessage = {
+			...msg({ role: "assistant", content: "Legacy answer" }),
+			tool_calls: undefined,
+		} as unknown as Message;
+
+		render(<MessageBubble message={legacyMessage} />);
+
+		expect(screen.getByText("Legacy answer")).toBeDefined();
+		expect(screen.queryByLabelText("Tool executions")).toBeNull();
+	});
+
 	it("renders an unframed answer without assistant avatar or heading", () => {
 		render(
 			<MessageBubble

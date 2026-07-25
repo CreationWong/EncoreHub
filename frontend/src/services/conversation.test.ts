@@ -21,8 +21,47 @@ describe("conversation service", () => {
 	});
 
 	it("getConversation interpolates the id", async () => {
+		apiFetch.mockResolvedValueOnce({ messages: [] });
 		await getConversation("abc-123");
 		expect(apiFetch).toHaveBeenCalledWith("/conversations/abc-123");
+	});
+
+	it("normalizes omitted and null tool calls in conversation messages", async () => {
+		apiFetch.mockResolvedValueOnce({
+			id: "c1",
+			title: "Legacy conversation",
+			provider: "openai",
+			model: "gpt-4o",
+			messages: [
+				{
+					id: "m1",
+					role: "assistant",
+					content: "omitted",
+					parent_id: null,
+					status: "completed",
+					created_at: "",
+				},
+				{
+					id: "m2",
+					role: "assistant",
+					content: "null",
+					parent_id: null,
+					tool_calls: null,
+					status: "completed",
+					created_at: "",
+				},
+			],
+			summary: null,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const detail = await getConversation("c1");
+
+		expect(detail.messages.map((message) => message.tool_calls)).toEqual([
+			[],
+			[],
+		]);
 	});
 
 	it("createConversation defaults to 'New Chat'", async () => {
