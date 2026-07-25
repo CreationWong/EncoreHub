@@ -38,6 +38,7 @@ http://127.0.0.1:1420/ui-baseline.html?scenario=long-markdown&theme=light
 
 - `scenario` 使用第 3 节中的稳定 ID；未知值降级为 `long-markdown`。
 - `theme` 只接受 `light` 或 `dark`；未知值降级为 `light`。
+- `sidebar` 接受 `characters`、`conversations`、`closed` 或 `focus`，用于复现侧栏与专注模式。
 - 页面根元素设置 `data-ui-baseline-ready="true"` 后才视为完成首帧。
 - ready 后关闭动画和 transition，避免流式光标造成无意义的像素差异。
 
@@ -73,6 +74,7 @@ pnpm --dir frontend capture:ui-baseline
 | `streaming` | reasoning + tool + answer 增量 | Stop、Generating、流式光标 |
 | `stopped` | 持久化部分回复 | stopped 标签、74 tokens |
 | `failed` | provider 失败后的部分回复 | failed 标签、未知 token |
+| `provider-unavailable` | 对话保存的 Provider 已不可用 | 权威 provider/model、warning 与恢复入口 |
 | `providers-locked` | Providers Settings | DeepSeek、已保存加密 key、vault locked |
 
 夹具定义位于 `frontend/src/testing/clientUiFixtures.ts`；契约测试固定 scenario ID、视口、主题、可变数据克隆和不含 API key。
@@ -188,3 +190,17 @@ CUI-02 使用相同矩阵在本地 `docs/ui-baseline/2026-07-25-cui-02/` 生成 
 - `long-markdown-dark-1200x800.png`：暗色选中面、accent 标识、分组标签和模型元数据保持清晰层级。
 
 从 CUI-02 起，验证图片和 manifest 不再进入 Git；此前 CUI-00/CUI-01 已跟踪的视觉产物也从索引移除，但本机文件保留供当前工作区验收。
+
+## 10. CUI-03 对比记录
+
+CUI-03 在本地 `docs/ui-baseline/2026-07-25-cui-03/` 生成 15 张图片和 manifest。该目录由 Git 忽略，仓库只保留下列文字结论：
+
+- `long-markdown-light-680x480.png`：Default character 在最窄主区收敛为固定头像，Provider、Model、专注和会话命令保持固定尺寸且互不重叠。
+- `long-markdown-dark-900x700.png`：Default character、Provider 与 Model 各自截断，活动对话显示其保存的长名称，不读取全局默认值替换标签。
+- `provider-unavailable-light-900x700.png`：已不存在的 Provider 仍显示对话保存的 id/model，并使用 warning 图标表达不可用状态。
+- `focus-mode-dark-1200x800.png`：专注模式完全隐藏侧栏、扩展工作区并显示明确的退出状态；ChatView、消息与 Composer 没有卸载。
+- `sidebar-closed-light-1200x800.png`：普通折叠与专注模式保持独立，PanelLeft 命令可以恢复侧栏。
+
+专项测试覆盖无活动对话默认值、已有对话权威模型、确认创建、取消切换、Provider 不可用、专注模式和会话菜单；6 个相关测试文件、59 项测试通过。完整 Frontend gate 为 27 个测试文件、187 项测试，lint 检查 85 个文件，production build 初始 JavaScript gzip 为 116.78 KiB / 300 KiB。
+
+UG1 已通过。主窗口当前只显示真实可用的首页、新建、外观、设置、角色/对话、Provider/Model、侧栏、专注、标题再生成和删除命令；对话内搜索与会话参数继续隐藏。

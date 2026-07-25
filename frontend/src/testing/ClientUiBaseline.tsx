@@ -33,6 +33,7 @@ export function seedClientUiBaseline({
 		model: selectedConversation?.model ?? scenario.model,
 		apiKeys: {},
 		sidebarOpen: sidebar !== "closed",
+		focusMode: sidebar === "focus",
 		sidebarWidth: 300,
 		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
 		settingsOpen: scenario.settingsOpen,
@@ -46,7 +47,11 @@ export function seedClientUiBaseline({
 	});
 
 	useProviderStore.setState({
-		profiles: CLIENT_UI_BASELINE_PROVIDERS.map((profile) => ({
+		profiles: CLIENT_UI_BASELINE_PROVIDERS.filter(
+			(profile) =>
+				!scenario.unavailableProvider ||
+				profile.id !== selectedConversation?.provider,
+		).map((profile) => ({
 			...profile,
 			models: [...profile.models],
 		})),

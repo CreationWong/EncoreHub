@@ -80,6 +80,22 @@ const captures = [
 		height: 800,
 		sidebar: "closed",
 	},
+	{
+		name: "provider-unavailable-light-900x700",
+		scenario: "provider-unavailable",
+		theme: "light",
+		width: 900,
+		height: 700,
+		sidebar: "conversations",
+	},
+	{
+		name: "focus-mode-dark-1200x800",
+		scenario: "long-markdown",
+		theme: "dark",
+		width: 1200,
+		height: 800,
+		sidebar: "focus",
+	},
 ];
 
 function browserCandidates() {

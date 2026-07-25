@@ -96,7 +96,7 @@ flowchart LR
 | CUI-00 | Frontend QA | 无 | 固定状态夹具、截图基线、现有行为清单 | `Done`（[证据](CLIENT_UI_BASELINE.md)） |
 | CUI-01 | Frontend shell/styles | CUI-00 | 视觉 tokens、顶部导航结构、三段主工作区 | `Done`（本地视觉验收） |
 | CUI-02 | Frontend sidebar/store | CUI-01 | 角色/对话 tabs、默认角色、列表分组与折叠 | `Done`（本地视觉验收） |
-| CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Ready` |
+| CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Done`（本地视觉验收） |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Not started` |
 | CUI-05 | Frontend composer/scroll | CUI-04 | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Not started` |
 | CUI-06 | Frontend settings | UG2 | ProviderDetail 纵向表单、手工模型管理、draft 保存 | `Not started` |
@@ -211,13 +211,13 @@ flowchart LR
 
 **任务**
 
-- [ ] 将 `ProviderSwitcher` 从侧栏移入 `ContextHeader`，显示默认角色、Provider 和 Model。
-- [ ] 无活动对话时，选择器修改新对话默认值。
-- [ ] 有活动对话时，显示 `Conversation.provider/model`，不直接显示 `settingsStore` 当前值。
-- [ ] 在已有对话选择其他模型时，明确确认“使用该模型新建对话”；不得只改界面标签。
-- [ ] 将收起侧栏、专注模式和现有低频会话命令接入真实行为。
-- [ ] 对话内搜索、会话参数等未实现能力不显示。
-- [ ] 对角色名、Provider 名和 Model 名分别设置收缩与截断边界。
+- [x] 将 `ProviderSwitcher` 从侧栏移入 `ContextHeader`，显示默认角色、Provider 和 Model。
+- [x] 无活动对话时，选择器修改新对话默认值。
+- [x] 有活动对话时，显示 `Conversation.provider/model`，不直接显示 `settingsStore` 当前值。
+- [x] 在已有对话选择其他模型时，明确确认“使用该模型新建对话”；不得只改界面标签。
+- [x] 将收起侧栏、专注模式和现有低频会话命令接入真实行为。
+- [x] 对话内搜索、会话参数等未实现能力不显示。
+- [x] 对角色名、Provider 名和 Model 名分别设置收缩与截断边界。
 
 **专项测试**
 
@@ -230,6 +230,17 @@ flowchart LR
 - 顶部导航、侧栏、上下文栏、消息区和输入区边界与计划一致。
 - 使用默认角色和现有 Conversation 可以完成新建、发送、停止、切换和重载。
 - 主聊天区没有不可用的假按钮。
+
+**执行记录（2026-07-25）**
+
+- `ProviderSwitcher` 迁入 chat 模块并始终从活动 `Conversation.provider/model` 读取已有对话上下文；没有活动对话时才读取和更新 `settingsStore` 默认值。
+- `newConversation` 接受显式 provider/model 选择，并立即把创建响应合并到本地列表；已有对话选择其他模型需确认，确认后创建新对话，取消不修改任何权威状态。
+- 已禁用或已删除的 Provider 继续显示对话保存的 provider/model，并给出 warning 状态；菜单只提供已启用的真实模型和现有 Provider Settings 入口。
+- ContextHeader 显示 Default character、Provider 和 Model，分别设置收缩/截断边界；接入可恢复的专注模式、重新生成标题和删除对话，未显示搜索或会话参数假按钮。
+- 本地 `docs/ui-baseline/2026-07-25-cui-03/` 生成 15 张验证图片，覆盖四视口亮暗、Characters、侧栏折叠、专注模式、streaming、failed、Provider unavailable 和 Providers locked；图片与 manifest 均由 Git 忽略。
+- 已通过 Frontend check、85 文件 lint、27 个测试文件/187 项测试和 production build；初始 JavaScript gzip 为 116.78 KiB / 300 KiB。
+
+UG1 已通过；下一项为 CUI-04 消息分层与 ReplyFooter。
 
 ### CUI-04 重构消息层级与 ReplyFooter
 
@@ -646,7 +657,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批按顺序推进 CUI-00、CUI-01 和 CUI-02，现已全部完成。下一项为 CUI-03；前三项都会触碰主窗口或全局样式，因此未并行实施。
+第一批按顺序推进 CUI-00 至 CUI-03，现已全部完成并通过 UG1。下一项为 CUI-04；前四项都会触碰主窗口或全局样式，因此未并行实施。
 
 建议首批提交顺序：
 
@@ -654,5 +665,6 @@ git status --short
 2. `style(frontend): add client workspace design tokens`
 3. `feat(frontend): add top navigation and workspace shell`
 4. `feat(frontend): add character and conversation sidebar tabs`
+5. `feat(frontend): enforce conversation model context`
 
-UG1 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile，确保每次结构变化都能在完整聊天链路中单独验证。
+UG1 已通过。继续按依赖推进 CUI-04 和 CUI-05；UG2 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile。

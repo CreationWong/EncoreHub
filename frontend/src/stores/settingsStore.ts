@@ -20,6 +20,7 @@ interface SettingsState {
 	model: string;
 	apiKeys: Record<string, string>;
 	sidebarOpen: boolean;
+	focusMode: boolean;
 	sidebarWidth: number;
 	sidebarMode: SidebarMode;
 	settingsOpen: boolean;
@@ -36,6 +37,7 @@ interface SettingsState {
 	/** Pull saved API keys from the engine (call once on startup). */
 	loadKeys: () => Promise<void>;
 	toggleSidebar: () => void;
+	toggleFocusMode: () => void;
 	setSidebarWidth: (width: number) => void;
 	setSidebarMode: (mode: SidebarMode) => void;
 	openSettings: (tab?: SettingsTab) => void;
@@ -160,6 +162,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	// Keys start empty; loadKeys() populates them from the engine once it's ready.
 	apiKeys: {},
 	sidebarOpen: true,
+	focusMode: false,
 	sidebarWidth: loadSidebarWidth(),
 	sidebarMode: loadSidebarMode(),
 	settingsOpen: false,
@@ -251,7 +254,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		}));
 	},
 
-	toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+	toggleSidebar: () =>
+		set((s) =>
+			s.focusMode
+				? { focusMode: false, sidebarOpen: true }
+				: { sidebarOpen: !s.sidebarOpen },
+		),
+	toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 	setSidebarWidth: (width: number) => {
 		const clamped = clampSidebarWidth(width);
 		set({ sidebarWidth: clamped });

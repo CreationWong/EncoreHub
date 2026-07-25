@@ -51,6 +51,7 @@ function ResizeHandle({ onResize }: { onResize: (width: number) => void }) {
 
 export default function Sidebar() {
 	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
+	const focusMode = useSettingsStore((state) => state.focusMode);
 	const sidebarWidth = useSettingsStore((state) => state.sidebarWidth);
 	const setSidebarWidth = useSettingsStore((state) => state.setSidebarWidth);
 	const sidebarMode = useSettingsStore((state) => state.sidebarMode);
@@ -66,7 +67,7 @@ export default function Sidebar() {
 		[setSidebarWidth],
 	);
 
-	if (!sidebarOpen) return null;
+	if (!sidebarOpen || focusMode) return null;
 
 	return (
 		<aside

@@ -6,6 +6,7 @@ const setSidebarWidth = vi.fn();
 
 const settingsState = {
 	sidebarOpen: true,
+	focusMode: false,
 	sidebarWidth: 300,
 	sidebarMode: "conversations" as "characters" | "conversations",
 	setSidebarMode,
@@ -32,6 +33,7 @@ beforeEach(() => {
 	setSidebarMode.mockReset();
 	setSidebarWidth.mockReset();
 	settingsState.sidebarOpen = true;
+	settingsState.focusMode = false;
 	settingsState.sidebarWidth = 300;
 	settingsState.sidebarMode = "conversations";
 });
@@ -85,5 +87,11 @@ describe("Sidebar sizing", () => {
 		const { container } = render(<Sidebar />);
 		expect(container.innerHTML).toBe("");
 		expect(screen.queryByLabelText("Resize sidebar")).toBeNull();
+	});
+
+	it("hides while focus mode is active", () => {
+		settingsState.focusMode = true;
+		const { container } = render(<Sidebar />);
+		expect(container.innerHTML).toBe("");
 	});
 });

@@ -26,6 +26,7 @@ export const CLIENT_UI_SCENARIO_IDS = [
 	"streaming",
 	"stopped",
 	"failed",
+	"provider-unavailable",
 	"providers-locked",
 ] as const;
 
@@ -45,6 +46,7 @@ export interface ClientUiScenario {
 	searchEnabled: boolean;
 	settingsOpen: boolean;
 	vaultLocked: boolean;
+	unavailableProvider?: boolean;
 }
 
 const CREATED_AT = "2026-07-24T08:00:00.000Z";
@@ -446,6 +448,32 @@ const scenarioMap: Record<ClientUiScenarioId, ClientUiScenario> = {
 		settingsOpen: false,
 		vaultLocked: false,
 	},
+	"provider-unavailable": {
+		id: "provider-unavailable",
+		description:
+			"Persisted conversation whose provider profile is no longer available",
+		activeId: "conv-long",
+		messages: [
+			commonUser,
+			message(
+				"m-unavailable-assistant",
+				"assistant",
+				"The conversation retains its saved provider and model metadata.",
+				{ parent_id: commonUser.id },
+			),
+		],
+		streaming: false,
+		streamingContent: "",
+		streamingReasoning: "",
+		streamingToolCalls: [],
+		provider: "long-provider",
+		model:
+			"reasoning-preview-with-an-intentionally-long-context-name-2026-07-24",
+		searchEnabled: false,
+		settingsOpen: false,
+		vaultLocked: false,
+		unavailableProvider: true,
+	},
 	"providers-locked": {
 		id: "providers-locked",
 		description:
@@ -467,7 +495,7 @@ const scenarioMap: Record<ClientUiScenarioId, ClientUiScenario> = {
 export interface ClientUiBaselineOptions {
 	scenarioId: ClientUiScenarioId;
 	theme: (typeof CLIENT_UI_BASELINE_THEMES)[number];
-	sidebar: "characters" | "conversations" | "closed";
+	sidebar: "characters" | "conversations" | "closed" | "focus";
 }
 
 export function isClientUiScenarioId(
@@ -490,7 +518,9 @@ export function parseClientUiBaselineOptions(
 			: "long-markdown",
 		theme: requestedTheme === "dark" ? "dark" : "light",
 		sidebar:
-			requestedSidebar === "characters" || requestedSidebar === "closed"
+			requestedSidebar === "characters" ||
+			requestedSidebar === "closed" ||
+			requestedSidebar === "focus"
 				? requestedSidebar
 				: "conversations",
 	};

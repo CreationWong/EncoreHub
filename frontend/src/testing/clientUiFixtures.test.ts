@@ -31,6 +31,7 @@ describe("client UI baseline fixtures", () => {
 			"streaming",
 			"stopped",
 			"failed",
+			"provider-unavailable",
 			"providers-locked",
 		]);
 
@@ -43,6 +44,9 @@ describe("client UI baseline fixtures", () => {
 		expect(getClientUiScenario("streaming").streaming).toBe(true);
 		expect(getClientUiScenario("stopped").messages[1]?.status).toBe("stopped");
 		expect(getClientUiScenario("failed").messages[1]?.status).toBe("failed");
+		expect(
+			getClientUiScenario("provider-unavailable").unavailableProvider,
+		).toBe(true);
 	});
 
 	it("keeps synthetic providers free of API keys", () => {
@@ -89,6 +93,9 @@ describe("client UI baseline fixtures", () => {
 		});
 		expect(parseClientUiBaselineOptions("?sidebar=closed").sidebar).toBe(
 			"closed",
+		);
+		expect(parseClientUiBaselineOptions("?sidebar=focus").sidebar).toBe(
+			"focus",
 		);
 	});
 });

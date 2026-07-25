@@ -204,6 +204,47 @@ describe("draft mailbox", () => {
 	});
 });
 
+describe("newConversation", () => {
+	it("uses global provider defaults when no explicit selection is supplied", async () => {
+		await useConversationStore.getState().newConversation();
+
+		expect(createConversationApi).toHaveBeenCalledWith(
+			"New Chat",
+			"openai",
+			"gpt-4o",
+		);
+	});
+
+	it("creates with an explicit provider/model and retains authoritative metadata", async () => {
+		createConversationApi.mockResolvedValueOnce({
+			id: "selected-model-chat",
+			title: "New Chat",
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+			message_count: 0,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const id = await useConversationStore.getState().newConversation({
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+		});
+
+		expect(createConversationApi).toHaveBeenCalledWith(
+			"New Chat",
+			"anthropic",
+			"claude-sonnet-4",
+		);
+		expect(id).toBe("selected-model-chat");
+		expect(useConversationStore.getState().conversations[0]).toMatchObject({
+			id: "selected-model-chat",
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+		});
+	});
+});
+
 describe("renameConversation", () => {
 	const seed = (title: string) =>
 		useConversationStore.setState({

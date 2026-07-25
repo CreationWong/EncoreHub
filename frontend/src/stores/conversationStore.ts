@@ -25,6 +25,11 @@ interface ConvCacheEntry {
 	abortController: AbortController | null;
 }
 
+export interface NewConversationSelection {
+	provider: string;
+	model: string;
+}
+
 function emptyCacheEntry(messages: Message[] = []): ConvCacheEntry {
 	return {
 		messages,
@@ -143,7 +148,7 @@ interface ConversationState {
 
 	loadList: () => Promise<void>;
 	selectConversation: (id: string) => Promise<void>;
-	newConversation: () => Promise<string>;
+	newConversation: (selection?: NewConversationSelection) => Promise<string>;
 	deleteConversation: (id: string) => Promise<void>;
 	renameConversation: (id: string, title: string) => Promise<void>;
 	sendMessage: (content: string) => Promise<void>;
@@ -243,17 +248,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 	},
 
-	newConversation: async () => {
+	newConversation: async (selection) => {
 		try {
-			const { provider, model } = useSettingsStore.getState();
+			const defaults = useSettingsStore.getState();
+			const provider = selection?.provider ?? defaults.provider ?? "";
+			const model = selection?.model ?? defaults.model ?? "";
 			const conv = await convApi.createConversation(
 				"New Chat",
-				provider || "",
-				model || "",
+				provider,
+				model,
 			);
 			await get().loadList();
 			const entry = emptyCacheEntry([]);
 			set((s) => ({
+				conversations: s.conversations.some((item) => item.id === conv.id)
+					? s.conversations.map((item) => (item.id === conv.id ? conv : item))
+					: [conv, ...s.conversations],
 				activeId: conv.id,
 				messages: [],
 				loading: false,
