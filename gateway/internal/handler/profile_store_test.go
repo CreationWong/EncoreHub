@@ -55,6 +55,57 @@ func TestValidateProfiles_RequiresBaseURLForCustom(t *testing.T) {
 	}
 }
 
+func TestValidateProfiles_AcceptsMultipleSameProtocolEndpoints(t *testing.T) {
+	p := validProfile()
+	p.BaseURL = ""
+	p.RoutingStrategy = provider.RoutingRoundRobin
+	p.Endpoints = []provider.ProviderEndpoint{
+		{ID: "primary", BaseURL: "https://primary.example.com/v1", Enabled: true},
+		{ID: "backup", BaseURL: "https://backup.example.com/custom/v1", Enabled: true},
+	}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("expected multi-endpoint profile to be valid, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RejectsUnsafeEndpointURL(t *testing.T) {
+	p := validProfile()
+	p.Endpoints = []provider.ProviderEndpoint{{
+		ID: "primary", BaseURL: "https://user:secret@example.com/v1?token=secret", Enabled: true,
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected endpoint URL rejection")
+	}
+}
+
+func TestValidateProfiles_RejectsDisabledEndpointSet(t *testing.T) {
+	p := validProfile()
+	p.Endpoints = []provider.ProviderEndpoint{{
+		ID: "primary", BaseURL: "https://api.example.com/v1", Enabled: false,
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected at least one enabled endpoint")
+	}
+}
+
+func TestValidateProfiles_AcceptsModelMetadata(t *testing.T) {
+	p := validProfile()
+	p.ModelConfigs = []provider.ProviderModelConfig{{
+		ID: "model-a", Name: "Model A", Group: "General", Streaming: true, Currency: "USD", InputPrice: 1.5,
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("expected model metadata to be valid, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RejectsUnknownAPIKeyRoutingStrategy(t *testing.T) {
+	p := validProfile()
+	p.KeyRoutingStrategy = "random"
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected unknown API key routing strategy rejection")
+	}
+}
+
 func TestValidateProfiles_AllowsEmptyBaseURLForBuiltinOpenAI(t *testing.T) {
 	p := validProfile()
 	p.ID = "openai"

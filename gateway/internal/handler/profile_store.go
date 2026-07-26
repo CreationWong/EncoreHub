@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -142,15 +143,94 @@ func validateProfiles(list []provider.ProviderProfile) error {
 		default:
 			return fmt.Errorf("provider %q: unknown protocol %q", id, p.Protocol)
 		}
-		// Builtins (openai/anthropic) may leave base_url empty — their adapters
-		// fall back to the provider's default endpoint. Custom providers must
-		// give an explicit endpoint, since there's no default to fall back to.
-		if strings.TrimSpace(p.BaseURL) == "" && !p.Builtin {
+		if p.KeyRoutingStrategy != "" &&
+			p.KeyRoutingStrategy != provider.RoutingFailover &&
+			p.KeyRoutingStrategy != provider.RoutingRoundRobin {
+			return fmt.Errorf("provider %q: unknown API key routing strategy %q", id, p.KeyRoutingStrategy)
+		}
+		if len(p.Endpoints) > 16 {
+			return fmt.Errorf("provider %q: at most 16 endpoints are allowed", id)
+		}
+		if len(p.Endpoints) > 0 {
+			if p.RoutingStrategy != "" &&
+				p.RoutingStrategy != provider.RoutingFailover &&
+				p.RoutingStrategy != provider.RoutingRoundRobin {
+				return fmt.Errorf("provider %q: unknown routing strategy %q", id, p.RoutingStrategy)
+			}
+			seenEndpoints := make(map[string]struct{}, len(p.Endpoints))
+			seenEndpointURLs := make(map[string]struct{}, len(p.Endpoints))
+			enabledEndpoints := 0
+			for _, endpoint := range p.Endpoints {
+				endpointID := strings.TrimSpace(endpoint.ID)
+				if endpointID == "" {
+					return fmt.Errorf("provider %q: endpoint id must not be empty", id)
+				}
+				if _, duplicate := seenEndpoints[endpointID]; duplicate {
+					return fmt.Errorf("provider %q: duplicate endpoint id %q", id, endpointID)
+				}
+				seenEndpoints[endpointID] = struct{}{}
+				if err := validateProviderBaseURL(endpoint.BaseURL); err != nil {
+					return fmt.Errorf("provider %q endpoint %q: %w", id, endpointID, err)
+				}
+				normalizedURL := strings.ToLower(strings.TrimRight(strings.TrimSpace(endpoint.BaseURL), "/"))
+				if _, duplicate := seenEndpointURLs[normalizedURL]; duplicate {
+					return fmt.Errorf("provider %q: duplicate endpoint URL", id)
+				}
+				seenEndpointURLs[normalizedURL] = struct{}{}
+				if endpoint.Enabled {
+					enabledEndpoints++
+				}
+			}
+			if enabledEndpoints == 0 {
+				return fmt.Errorf("provider %q: at least one endpoint must be enabled", id)
+			}
+		} else if strings.TrimSpace(p.BaseURL) == "" && !p.Builtin {
+			// Builtins may leave base_url empty and use their SDK default.
 			return fmt.Errorf("provider %q: base_url must not be empty", id)
+		} else if strings.TrimSpace(p.BaseURL) != "" {
+			if err := validateProviderBaseURL(p.BaseURL); err != nil {
+				return fmt.Errorf("provider %q: %w", id, err)
+			}
 		}
 		if len(p.Models) == 0 {
 			return fmt.Errorf("provider %q: at least one model is required", id)
 		}
+		modelIDs := make(map[string]struct{}, len(p.Models))
+		for _, model := range p.Models {
+			modelID := strings.TrimSpace(model)
+			if modelID == "" {
+				return fmt.Errorf("provider %q: model id must not be empty", id)
+			}
+			if _, duplicate := modelIDs[modelID]; duplicate {
+				return fmt.Errorf("provider %q: duplicate model id %q", id, modelID)
+			}
+			modelIDs[modelID] = struct{}{}
+		}
+		seenConfigs := make(map[string]struct{}, len(p.ModelConfigs))
+		for _, config := range p.ModelConfigs {
+			modelID := strings.TrimSpace(config.ID)
+			if _, ok := modelIDs[modelID]; !ok {
+				return fmt.Errorf("provider %q: model config %q has no matching model", id, modelID)
+			}
+			if _, duplicate := seenConfigs[modelID]; duplicate {
+				return fmt.Errorf("provider %q: duplicate model config %q", id, modelID)
+			}
+			seenConfigs[modelID] = struct{}{}
+			if config.InputPrice < 0 || config.OutputPrice < 0 {
+				return fmt.Errorf("provider %q model %q: prices must not be negative", id, modelID)
+			}
+		}
+	}
+	return nil
+}
+
+func validateProviderBaseURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("base_url must be an absolute HTTP(S) URL")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("base_url must not contain credentials, query, or fragment")
 	}
 	return nil
 }

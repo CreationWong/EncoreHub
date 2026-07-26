@@ -92,6 +92,7 @@ func Setup(cfg Config) *gin.Engine {
 			prov.GET("", providerHandler.ListProviders)
 			prov.PUT("", providerHandler.UpdateProviders)
 			prov.GET("/:provider/models", providerHandler.ListModels)
+			prov.POST("/:provider/models/discover", providerHandler.DiscoverModels)
 		}
 
 		// Engine resources (skills / memories / knowledge / secrets): transparent

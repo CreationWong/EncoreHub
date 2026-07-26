@@ -1,5 +1,6 @@
-import { X } from "lucide-react";
+import { Braces, MessageSquareText, Plus, X } from "lucide-react";
 import { useState } from "react";
+import { API_FORMATS } from "../../constants/providers";
 import type {
 	ProviderProfile,
 	ProviderProtocol,
@@ -11,11 +12,6 @@ interface Props {
 	onCreated: (draft: ProviderProfile) => void;
 	onClose: () => void;
 }
-
-const PROTOCOLS: { value: ProviderProtocol; label: string }[] = [
-	{ value: "openai", label: "OpenAI-compatible" },
-	{ value: "anthropic", label: "Anthropic" },
-];
 
 // Slugify a display name into a stable id (lowercase, dashes). ids are immutable
 // once created so chat history keeps resolving.
@@ -66,6 +62,9 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 			models: [],
 			enabled: false,
 			builtin: false,
+			routing_strategy: "failover",
+			key_routing_strategy: "failover",
+			model_configs: [],
 		});
 	};
 
@@ -81,23 +80,26 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 			<dialog
 				open
 				aria-modal="true"
-				className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 text-text-primary shadow-2xl"
+				aria-labelledby="add-provider-title"
+				className="w-full max-w-xl rounded-lg border border-border bg-surface p-0 text-text-primary shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 			>
-				<div className="mb-4 flex items-center justify-between">
-					<h3 className="text-sm font-semibold">Add provider</h3>
+				<header className="flex items-center justify-between border-b border-border px-5 py-4">
+					<h3 id="add-provider-title" className="text-base font-semibold">
+						Add provider
+					</h3>
 					<button
 						type="button"
 						onClick={onClose}
 						aria-label="Close"
-						className="rounded-lg p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+						className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 					>
 						<X className="h-4 w-4" />
 					</button>
-				</div>
+				</header>
 
-				<div className="space-y-3">
+				<div className="space-y-5 px-5 py-5">
 					<div>
 						<label
 							htmlFor="prov-name"
@@ -115,7 +117,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 							placeholder="My Provider"
 							// biome-ignore lint/a11y/noAutofocus: single-field dialog, keyboard-first
 							autoFocus
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+							className="mt-1.5 w-full rounded-md border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
 						/>
 						{name.trim() && (
 							<p className="mt-1 text-[11px] text-text-muted">
@@ -124,54 +126,74 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 						)}
 					</div>
 
-					<div>
-						<label
-							htmlFor="prov-protocol"
-							className="text-xs font-medium text-text-secondary"
-						>
+					<fieldset className="m-0 border-0 p-0">
+						<legend className="text-xs font-medium text-text-secondary">
 							API format
-						</label>
-						<select
-							id="prov-protocol"
-							value={protocol}
-							onChange={(e) => setProtocol(e.target.value as ProviderProtocol)}
-							className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
-						>
-							{PROTOCOLS.map((p) => (
-								<option key={p.value} value={p.value}>
-									{p.label}
-								</option>
-							))}
-						</select>
-						<p className="mt-1 text-[11px] text-text-muted">
-							The wire protocol used to talk to this provider. Most custom
-							endpoints are OpenAI-compatible.
+						</legend>
+						<div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+							{API_FORMATS.map((format) => {
+								const selected = protocol === format.value;
+								const Icon =
+									format.value === "anthropic" ? MessageSquareText : Braces;
+								return (
+									<button
+										key={format.value}
+										type="button"
+										aria-pressed={selected}
+										onClick={() =>
+											setProtocol(format.value as ProviderProtocol)
+										}
+										className={`flex min-h-24 items-start gap-3 rounded-md border p-3 text-left transition-colors ${
+											selected
+												? "border-accent bg-surface-hover"
+												: "border-border hover:bg-surface-hover"
+										}`}
+									>
+										<Icon
+											className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? "text-accent" : "text-text-muted"}`}
+										/>
+										<span className="min-w-0">
+											<span className="block text-sm font-medium text-text-primary">
+												{format.label}
+											</span>
+											<span className="mt-1 block text-xs leading-4 text-text-muted">
+												{format.description}
+											</span>
+										</span>
+									</button>
+								);
+							})}
+						</div>
+						<p className="mt-2 text-xs text-text-muted">
+							All endpoints added later must belong to this provider and use
+							this API format.
 						</p>
-					</div>
+					</fieldset>
 
 					{error && (
-						<p className="rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">
+						<p className="rounded-md bg-danger-bg px-3 py-2 text-xs text-danger">
 							{error}
 						</p>
 					)}
 				</div>
 
-				<div className="mt-5 flex justify-end gap-2">
+				<footer className="flex justify-end gap-2 border-t border-border px-5 py-4">
 					<button
 						type="button"
 						onClick={onClose}
-						className="rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover"
+						className="rounded-md border border-border px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
 					>
 						Cancel
 					</button>
 					<button
 						type="button"
 						onClick={handleSubmit}
-						className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90"
+						className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
 					>
+						<Plus className="h-4 w-4" />
 						Create
 					</button>
-				</div>
+				</footer>
 			</dialog>
 		</div>
 	);

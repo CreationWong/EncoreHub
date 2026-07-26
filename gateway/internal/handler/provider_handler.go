@@ -2,6 +2,8 @@ package handler
 
 import (
 	"net/http"
+	"sync/atomic"
+	"time"
 
 	"github.com/encorehub/gateway/internal/provider"
 	"github.com/gin-gonic/gin"
@@ -11,10 +13,17 @@ import (
 type ProviderHandler struct {
 	registry *provider.Registry
 	store    *ProfileStore
+	client   *http.Client
+	// discoveryKeyNext rotates draft key pools without persisting state.
+	discoveryKeyNext atomic.Uint64
 }
 
 func NewProviderHandler(registry *provider.Registry, store *ProfileStore) *ProviderHandler {
-	return &ProviderHandler{registry: registry, store: store}
+	return &ProviderHandler{
+		registry: registry,
+		store:    store,
+		client:   &http.Client{Timeout: 15 * time.Second},
+	}
 }
 
 // updateProvidersRequest is the PUT body: the full desired profile list.

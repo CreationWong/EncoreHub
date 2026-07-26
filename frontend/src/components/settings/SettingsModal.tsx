@@ -66,14 +66,14 @@ export default function SettingsModal() {
 		>
 			<dialog
 				open
-				className="flex h-[720px] max-h-full w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface text-text-primary shadow-2xl"
+				className="flex h-[780px] max-h-full w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-surface text-text-primary shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 				aria-modal="true"
 			>
 				{/* Sidebar */}
-				<aside className="flex w-48 flex-col border-r border-border bg-surface-alt p-3">
-					<div className="mb-4 px-2 text-sm font-semibold text-text-primary">
+				<aside className="flex w-48 flex-col border-r border-border bg-surface-alt p-3 max-[760px]:w-14 max-[760px]:px-2">
+					<div className="mb-4 px-2 text-sm font-semibold text-text-primary max-[760px]:hidden">
 						Settings
 					</div>
 					{tabs.map((t) => (
@@ -81,14 +81,15 @@ export default function SettingsModal() {
 							key={t.id}
 							type="button"
 							onClick={() => setTab(t.id)}
-							className={`mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+							title={t.label}
+							className={`mb-1 flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors max-[760px]:justify-center max-[760px]:px-2 ${
 								tab === t.id
 									? "bg-accent/10 text-accent"
 									: "text-text-secondary hover:bg-surface-hover"
 							}`}
 						>
 							<t.icon className="h-4 w-4" />
-							{t.label}
+							<span className="max-[760px]:hidden">{t.label}</span>
 						</button>
 					))}
 				</aside>
@@ -109,7 +110,13 @@ export default function SettingsModal() {
 							<X className="h-4 w-4" />
 						</button>
 					</header>
-					<div className="flex-1 overflow-y-auto p-5">
+					<div
+						className={
+							tab === "providers"
+								? "min-h-0 flex-1 overflow-hidden"
+								: "flex-1 overflow-y-auto p-5"
+						}
+					>
 						{tab === "providers" && <ProvidersPanel />}
 						{tab === "skills" && <SkillsPanel />}
 						{tab === "knowledge" && <KnowledgePanel />}

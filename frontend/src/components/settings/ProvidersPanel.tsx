@@ -1,101 +1,113 @@
-import { Eye, EyeOff, Lock, LockOpen, Plus, Save, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
-import { keyHintFor } from "../../constants/providers";
+import { Plus, Search, Server } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProviderProfile } from "../../services/providers";
 import { confirm } from "../../stores/confirmStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
+import ProviderDetail from "./ProviderDetail";
 import ProviderFormModal from "./ProviderFormModal";
 
+function providerInitial(name: string): string {
+	return name.trim().charAt(0).toUpperCase() || "P";
+}
+
 export default function ProvidersPanel() {
-	const apiKeys = useSettingsStore((s) => s.apiKeys);
-	const setApiKey = useSettingsStore((s) => s.setApiKey);
-	const clearApiKey = useSettingsStore((s) => s.clearApiKey);
-	const loadKeys = useSettingsStore((s) => s.loadKeys);
+	const apiKeys = useSettingsStore((state) => state.apiKeys);
+	const setApiKey = useSettingsStore((state) => state.setApiKey);
+	const clearApiKey = useSettingsStore((state) => state.clearApiKey);
+	const loadKeys = useSettingsStore((state) => state.loadKeys);
 
-	const profiles = useProviderStore((s) => s.profiles);
-	const loading = useProviderStore((s) => s.loading);
-	const upsert = useProviderStore((s) => s.upsert);
-	const removeProfile = useProviderStore((s) => s.remove);
+	const profiles = useProviderStore((state) => state.profiles);
+	const loading = useProviderStore((state) => state.loading);
+	const upsert = useProviderStore((state) => state.upsert);
+	const removeProfile = useProviderStore((state) => state.remove);
 
-	const encrypted = useSecretsStore((s) => s.encrypted);
-	const unlocked = useSecretsStore((s) => s.unlocked);
-	const storedIds = useSecretsStore((s) => s.storedIds);
-	const refreshSecrets = useSecretsStore((s) => s.refresh);
+	const encrypted = useSecretsStore((state) => state.encrypted);
+	const unlocked = useSecretsStore((state) => state.unlocked);
+	const storedIds = useSecretsStore((state) => state.storedIds);
+	const refreshSecrets = useSecretsStore((state) => state.refresh);
 
-	// Re-pull keys + encryption state whenever the panel opens. The startup
-	// load (App.tsx) can race the engine's in-process warmup and come back
-	// empty; by the time the user reaches Settings the engine is ready, so this
-	// reliably populates the stored key even if the startup attempt missed.
 	useEffect(() => {
-		loadKeys();
-		refreshSecrets();
+		void loadKeys();
+		void refreshSecrets();
 	}, [loadKeys, refreshSecrets]);
 
-	// Local drafts: providers created via the Add dialog but not yet persisted
-	// (they lack a base_url/models, which the gateway requires). They live here
-	// until their first successful save.
 	const [drafts, setDrafts] = useState<ProviderProfile[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
+	const [query, setQuery] = useState("");
 
-	// The list shown in the left column: persisted profiles plus pending drafts.
-	const list = [
-		...profiles,
-		...drafts.filter((d) => !profiles.some((p) => p.id === d.id)),
-	];
-	const selected = list.find((p) => p.id === selectedId) ?? null;
+	const list = useMemo(
+		() => [
+			...profiles,
+			...drafts.filter(
+				(draft) => !profiles.some((profile) => profile.id === draft.id),
+			),
+		],
+		[profiles, drafts],
+	);
+
+	useEffect(() => {
+		if (selectedId && list.some((profile) => profile.id === selectedId)) return;
+		setSelectedId(list[0]?.id ?? null);
+	}, [list, selectedId]);
+
+	const filtered = useMemo(() => {
+		const normalizedQuery = query.trim().toLowerCase();
+		if (!normalizedQuery) return list;
+		return list.filter((profile) =>
+			[profile.name, profile.id, profile.protocol].some((value) =>
+				value.toLowerCase().includes(normalizedQuery),
+			),
+		);
+	}, [list, query]);
+
+	const selected = list.find((profile) => profile.id === selectedId) ?? null;
 	const isDraft =
-		selected !== null && !profiles.some((p) => p.id === selected.id);
-
+		selected !== null &&
+		!profiles.some((profile) => profile.id === selected.id);
 	const vaultLocked = encrypted && !unlocked;
-
-	const handleCreated = (draft: ProviderProfile) => {
-		setDrafts((d) => [...d, draft]);
-		setSelectedId(draft.id);
-		setCreating(false);
-	};
-
-	const handleDelete = async (p: ProviderProfile) => {
-		// Drafts only exist locally — drop without touching the gateway.
-		if (!profiles.some((pp) => pp.id === p.id)) {
-			setDrafts((d) => d.filter((x) => x.id !== p.id));
-			if (selectedId === p.id) setSelectedId(null);
-			return;
-		}
-		if (
-			!(await confirm.ask(
-				"Delete Provider",
-				`Delete provider "${p.name}"? This cannot be undone.`,
-				true,
-			))
-		)
-			return;
-		try {
-			await removeProfile(p.id);
-			if (selectedId === p.id) setSelectedId(null);
-			toast.success(`Removed ${p.name}`);
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : "Failed to delete provider");
-		}
-	};
-
-	const handleSaved = (saved: ProviderProfile) => {
-		// Once persisted, the draft is gone — it now lives in the store.
-		setDrafts((d) => d.filter((x) => x.id !== saved.id));
-	};
-
-	// A key is "stored" if the engine lists it (works even while locked) or we
-	// already hold it in session memory.
 	const keyStored =
 		selected !== null &&
 		(storedIds.includes(selected.id) ||
 			(apiKeys[selected.id]?.length ?? 0) > 0);
 
+	const handleCreated = (draft: ProviderProfile) => {
+		setDrafts((current) => [...current, draft]);
+		setSelectedId(draft.id);
+		setCreating(false);
+	};
+
+	const handleDelete = async (profile: ProviderProfile) => {
+		if (!profiles.some((item) => item.id === profile.id)) {
+			setDrafts((current) => current.filter((item) => item.id !== profile.id));
+			if (selectedId === profile.id) setSelectedId(null);
+			return;
+		}
+		if (
+			!(await confirm.ask(
+				"Delete provider",
+				`Delete provider "${profile.name}"? This cannot be undone.`,
+				true,
+			))
+		) {
+			return;
+		}
+		try {
+			await removeProfile(profile.id);
+			if (selectedId === profile.id) setSelectedId(null);
+			toast.success(`Removed ${profile.name}`);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to delete provider",
+			);
+		}
+	};
+
 	return (
-		<div className="flex h-full min-h-0 gap-4">
+		<div className="flex h-full min-h-0 bg-surface">
 			{creating && (
 				<ProviderFormModal
 					onCreated={handleCreated}
@@ -103,77 +115,92 @@ export default function ProvidersPanel() {
 				/>
 			)}
 
-			{/* Left: provider list + add */}
-			<div className="flex w-56 shrink-0 flex-col">
-				<div className="mb-2 flex items-center justify-between">
-					<h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-						Providers
-					</h3>
-					<button
-						type="button"
-						onClick={() => setCreating(true)}
-						aria-label="Add provider"
-						title="Add provider"
-						className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-					>
-						<Plus className="h-3.5 w-3.5" />
-						Add
-					</button>
+			<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[900px]:w-48">
+				<div className="border-b border-border p-3">
+					<div className="relative">
+						<Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+						<input
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder="Search providers"
+							aria-label="Search providers"
+							className="w-full rounded-md border border-border bg-surface py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted"
+						/>
+					</div>
 				</div>
-				<div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+
+				<div className="min-h-0 flex-1 overflow-y-auto p-2">
 					{loading && list.length === 0 ? (
-						<p className="px-2 text-xs text-text-muted">Loading…</p>
-					) : list.length === 0 ? (
-						<p className="px-2 text-xs text-text-muted">
-							No providers. Add one to get started.
-						</p>
+						<p className="px-2 py-4 text-xs text-text-muted">Loading...</p>
+					) : filtered.length === 0 ? (
+						<div className="flex min-h-32 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-text-muted">
+							<Server className="h-5 w-5" />
+							{list.length === 0
+								? "No providers configured"
+								: "No providers match your search"}
+						</div>
 					) : (
-						list.map((p) => {
-							const draft = !profiles.some((pp) => pp.id === p.id);
+						filtered.map((profile) => {
+							const draft = !profiles.some((item) => item.id === profile.id);
+							const selectedProfile = selectedId === profile.id;
 							return (
 								<button
-									key={p.id}
+									key={profile.id}
 									type="button"
-									onClick={() => setSelectedId(p.id)}
-									className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-										selectedId === p.id
-											? "border-accent bg-accent/10"
-											: "border-transparent hover:bg-surface-hover"
+									onClick={() => setSelectedId(profile.id)}
+									aria-current={selectedProfile ? "page" : undefined}
+									className={`mb-1 flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors ${
+										selectedProfile
+											? "border-border bg-surface text-text-primary shadow-sm"
+											: "border-transparent text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 									}`}
 								>
-									<div className="flex items-center gap-1.5">
-										<span className="truncate text-sm text-text-primary">
-											{p.name}
+									<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-hover text-xs font-semibold text-text-secondary">
+										{providerInitial(profile.name)}
+									</span>
+									<span className="min-w-0 flex-1">
+										<span className="flex min-w-0 items-center gap-1.5">
+											<span className="truncate text-sm font-medium">
+												{profile.name}
+											</span>
+											{draft && (
+												<span className="shrink-0 rounded bg-warning-bg px-1 py-0.5 text-[9px] uppercase text-warning">
+													draft
+												</span>
+											)}
 										</span>
-										{p.builtin && (
-											<span className="rounded bg-surface px-1 py-0.5 text-[9px] uppercase text-text-muted">
-												builtin
-											</span>
-										)}
-										{draft && (
-											<span className="rounded bg-warning-bg px-1 py-0.5 text-[9px] uppercase text-warning">
-												draft
-											</span>
-										)}
-										{!draft && !p.enabled && (
-											<span className="rounded bg-surface px-1 py-0.5 text-[9px] uppercase text-text-muted">
-												off
-											</span>
-										)}
-									</div>
-									<p className="truncate text-[11px] text-text-muted">
-										{p.protocol} · {p.models.length} model
-										{p.models.length === 1 ? "" : "s"}
-									</p>
+										<span className="block truncate text-[11px] text-text-muted">
+											{profile.protocol === "anthropic"
+												? "Anthropic Messages"
+												: "OpenAI compatible"}{" "}
+											/ {profile.models.length} models
+										</span>
+									</span>
+									<span
+										className={`h-2 w-2 shrink-0 rounded-full ${
+											profile.enabled ? "bg-success" : "bg-border"
+										}`}
+										title={profile.enabled ? "Enabled" : "Disabled"}
+									/>
 								</button>
 							);
 						})
 					)}
 				</div>
-			</div>
 
-			{/* Right: detail / config */}
-			<div className="min-w-0 flex-1 border-l border-border pl-4">
+				<div className="border-t border-border p-2">
+					<button
+						type="button"
+						onClick={() => setCreating(true)}
+						className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+					>
+						<Plus className="h-4 w-4" />
+						Add provider
+					</button>
+				</div>
+			</aside>
+
+			<div className="min-w-0 flex-1">
 				{selected ? (
 					<ProviderDetail
 						key={selected.id}
@@ -182,347 +209,22 @@ export default function ProvidersPanel() {
 						apiKey={apiKeys[selected.id] ?? ""}
 						vaultLocked={vaultLocked}
 						keyStored={keyStored}
-						onSetKey={(v) => setApiKey(selected.id, v)}
-						onClearKey={async () => {
-							await clearApiKey(selected.id);
-							// Refresh stored-key ids so the masked indicator clears too.
-							refreshSecrets();
-						}}
+						onSetKey={(value) => setApiKey(selected.id, value)}
+						onClearKey={() => clearApiKey(selected.id)}
 						onSave={async (next) => {
 							await upsert(next);
-							handleSaved(next);
+							setDrafts((current) =>
+								current.filter((draft) => draft.id !== next.id),
+							);
 						}}
-						onDelete={() => handleDelete(selected)}
+						onDelete={() => void handleDelete(selected)}
 					/>
 				) : (
-					<div className="flex h-full items-center justify-center text-sm text-text-muted">
-						Select a provider to configure it, or add a new one.
+					<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-text-muted">
+						<Server className="h-6 w-6" />
+						<span>Select a provider to configure it</span>
 					</div>
 				)}
-			</div>
-		</div>
-	);
-}
-
-interface DetailProps {
-	profile: ProviderProfile;
-	isDraft: boolean;
-	apiKey: string;
-	vaultLocked: boolean;
-	keyStored: boolean;
-	onSetKey: (value: string) => void;
-	onClearKey: () => void;
-	onSave: (next: ProviderProfile) => Promise<void>;
-	onDelete: () => void;
-}
-
-/** Config form for one provider: endpoint, API key, and model list. */
-function ProviderDetail({
-	profile,
-	isDraft,
-	apiKey,
-	vaultLocked,
-	keyStored,
-	onSetKey,
-	onClearKey,
-	onSave,
-	onDelete,
-}: DetailProps) {
-	const [baseUrl, setBaseUrl] = useState(profile.base_url);
-	const [modelsText, setModelsText] = useState(profile.models.join("\n"));
-	const [enabled, setEnabled] = useState(profile.enabled);
-	const [reveal, setReveal] = useState(false);
-	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	// Inline unlock prompt: shown when the user asks to reveal a key that's
-	// stored encrypted while the vault is locked.
-	const unlock = useSecretsStore((s) => s.unlock);
-	const loadKeys = useSettingsStore((s) => s.loadKeys);
-	const [unlocking, setUnlocking] = useState(false);
-	const [pw, setPw] = useState("");
-	const [unlockBusy, setUnlockBusy] = useState(false);
-
-	// Builtins fall back to the SDK default endpoint, so an empty base_url is fine.
-	const allowEmptyBase = profile.protocol === "openai" && profile.builtin;
-
-	// The key is stored encrypted and we can't read it yet — show a masked
-	// placeholder instead of an empty field, and gate reveal behind the password.
-	const lockedStored = vaultLocked && keyStored;
-
-	const submitUnlock = async (e: FormEvent) => {
-		e.preventDefault();
-		setUnlockBusy(true);
-		try {
-			await unlock(pw);
-			// Now unlocked — pull the decrypted keys back into the store so this
-			// field can show the plaintext.
-			await loadKeys();
-			setReveal(true);
-			setPw("");
-			setUnlocking(false);
-			toast.success("Unlocked — key revealed");
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Incorrect password");
-		} finally {
-			setUnlockBusy(false);
-		}
-	};
-
-	const handleSave = async () => {
-		const models = modelsText
-			.split(/[\n,]/)
-			.map((m) => m.trim())
-			.filter(Boolean);
-		if (!baseUrl.trim() && !allowEmptyBase) {
-			setError("API endpoint is required");
-			return;
-		}
-		if (models.length === 0) {
-			setError("At least one model is required");
-			return;
-		}
-
-		setSaving(true);
-		setError(null);
-		try {
-			await onSave({
-				...profile,
-				base_url: baseUrl.trim(),
-				models,
-				enabled,
-			});
-			toast.success(`Saved ${profile.name}`);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed to save provider");
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	return (
-		<div className="flex h-full min-h-0 flex-col">
-			<div className="mb-4 flex items-center justify-between">
-				<div className="min-w-0">
-					<div className="flex items-center gap-2">
-						<h3 className="truncate text-sm font-semibold text-text-primary">
-							{profile.name}
-						</h3>
-						{profile.builtin && (
-							<span className="rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
-								builtin
-							</span>
-						)}
-					</div>
-					<p className="text-xs text-text-muted">
-						{profile.protocol === "anthropic"
-							? "Anthropic"
-							: "OpenAI-compatible"}{" "}
-						· id: {profile.id}
-					</p>
-				</div>
-				<button
-					type="button"
-					disabled={profile.builtin}
-					onClick={onDelete}
-					aria-label={`Delete ${profile.name}`}
-					title={
-						profile.builtin ? "Builtin providers cannot be deleted" : "Delete"
-					}
-					className="rounded-lg border border-border px-2 py-1 text-text-muted hover:bg-danger-bg hover:text-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted"
-				>
-					<Trash2 className="h-3.5 w-3.5" />
-				</button>
-			</div>
-
-			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-				<div>
-					<label
-						htmlFor="detail-baseurl"
-						className="text-xs font-medium text-text-secondary"
-					>
-						API endpoint
-					</label>
-					<input
-						id="detail-baseurl"
-						value={baseUrl}
-						onChange={(e) => setBaseUrl(e.target.value)}
-						placeholder={
-							profile.protocol === "anthropic"
-								? "https://api.anthropic.com/v1"
-								: "https://api.openai.com/v1"
-						}
-						className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-					/>
-					{allowEmptyBase && (
-						<p className="mt-1 text-[11px] text-text-muted">
-							Leave blank to use the builtin default endpoint.
-						</p>
-					)}
-				</div>
-
-				<div>
-					<label
-						htmlFor="detail-key"
-						className="text-xs font-medium text-text-secondary"
-					>
-						API key
-					</label>
-					{lockedStored ? (
-						<p className="mt-0.5 mb-1 flex items-start gap-1.5 text-[11px] text-text-muted">
-							<Lock className="mt-0.5 h-3 w-3 shrink-0" />A key is stored,
-							encrypted at rest. Click the eye to enter your master password and
-							reveal or change it.
-						</p>
-					) : vaultLocked ? (
-						<p className="mt-0.5 mb-1 flex items-start gap-1.5 text-[11px] text-warning">
-							<Lock className="mt-0.5 h-3 w-3 shrink-0" />
-							Vault is locked — keys entered now will only last this session.
-							Unlock in the Security tab to persist them.
-						</p>
-					) : (
-						<p className="mt-0.5 mb-1 text-[11px] text-text-muted">
-							Keys are saved to disk automatically. Enable encryption in the
-							Security tab to protect them at rest.
-						</p>
-					)}
-					{lockedStored ? (
-						<>
-							<div className="flex gap-2">
-								<div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-surface-alt px-3 py-2">
-									<span className="flex-1 truncate font-mono text-xs tracking-widest text-text-muted">
-										••••••••••••••••
-									</span>
-									<span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[9px] uppercase text-text-muted">
-										encrypted
-									</span>
-								</div>
-								<button
-									type="button"
-									onClick={() => setUnlocking((v) => !v)}
-									className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-									aria-label="Unlock to view API key"
-									title="Enter password to view"
-								>
-									<Eye className="h-3.5 w-3.5" />
-								</button>
-								<button
-									type="button"
-									onClick={onClearKey}
-									aria-label="Clear API key"
-									className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
-									title="Clear"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</button>
-							</div>
-							{unlocking && (
-								<form onSubmit={submitUnlock} className="mt-2 flex gap-2">
-									<input
-										type="password"
-										value={pw}
-										onChange={(e) => setPw(e.target.value)}
-										placeholder="Master password"
-										// biome-ignore lint/a11y/noAutofocus: reveal prompt should focus immediately
-										autoFocus
-										className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-									/>
-									<button
-										type="submit"
-										disabled={unlockBusy || !pw}
-										className="flex items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-40"
-									>
-										<LockOpen className="h-3.5 w-3.5" />
-										Unlock
-									</button>
-								</form>
-							)}
-						</>
-					) : (
-						<div className="flex gap-2">
-							<input
-								id="detail-key"
-								type={reveal ? "text" : "password"}
-								value={apiKey}
-								onChange={(e) => onSetKey(e.target.value)}
-								placeholder={keyHintFor(profile.protocol)}
-								className="flex-1 rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-							/>
-							<button
-								type="button"
-								onClick={() => setReveal((v) => !v)}
-								className="rounded-lg border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-								aria-label={reveal ? "Hide API key" : "Show API key"}
-								title={reveal ? "Hide" : "Show"}
-							>
-								{reveal ? (
-									<EyeOff className="h-3.5 w-3.5" />
-								) : (
-									<Eye className="h-3.5 w-3.5" />
-								)}
-							</button>
-							{apiKey && (
-								<button
-									type="button"
-									onClick={onClearKey}
-									aria-label="Clear API key"
-									className="rounded-lg border border-border px-2 text-text-muted hover:bg-danger-bg hover:text-danger"
-									title="Clear"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</button>
-							)}
-						</div>
-					)}
-				</div>
-
-				<div>
-					<label
-						htmlFor="detail-models"
-						className="text-xs font-medium text-text-secondary"
-					>
-						Models
-					</label>
-					<textarea
-						id="detail-models"
-						value={modelsText}
-						onChange={(e) => setModelsText(e.target.value)}
-						rows={6}
-						placeholder={"gpt-4o\ngpt-4o-mini"}
-						className="mt-1 w-full rounded-lg border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-					/>
-					<p className="mt-1 text-[11px] text-text-muted">
-						One per line (or comma-separated).
-					</p>
-				</div>
-
-				<label className="flex items-center gap-2 text-xs text-text-secondary">
-					<input
-						type="checkbox"
-						checked={enabled}
-						onChange={(e) => setEnabled(e.target.checked)}
-						className="rounded border-border"
-					/>
-					Enabled (selectable for chat)
-				</label>
-
-				{error && (
-					<p className="rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">
-						{error}
-					</p>
-				)}
-			</div>
-
-			<div className="mt-4 flex justify-end border-t border-border pt-4">
-				<button
-					type="button"
-					onClick={handleSave}
-					disabled={saving}
-					className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-60"
-				>
-					<Save className="h-3.5 w-3.5" />
-					{saving ? "Saving…" : isDraft ? "Create provider" : "Save changes"}
-				</button>
 			</div>
 		</div>
 	);

@@ -57,8 +57,8 @@ flowchart LR
     C04A --> C05[CUI-05 Composer 与滚动]
     C05 --> G2{UG2 核心聊天体验}
 
-    G2 --> C06[CUI-06 ProviderDetail 基础重构]
-    C06 --> C07[CUI-07 密钥检测与模型发现]
+    G2 --> C06[CUI-06 ProviderDetail、多端点与多 Key 路由]
+    C06 --> C07[CUI-07 密钥检测与发现确认]
     G2 --> C08[CUI-08 完整回复遥测]
     C07 --> G3{UG3 配置与遥测}
     C08 --> G3
@@ -104,8 +104,8 @@ flowchart LR
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Done`（本地视觉验收） |
 | CUI-04A | Frontend sidebar/context/messages | CUI-04 | 上下文层级、角色身份、中性拖拽边界、紧凑工具记录 | `Done`（本地视觉验收） |
 | CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Ready` |
-| CUI-06 | Frontend settings | UG2 | ProviderDetail 纵向表单、手工模型管理、draft 保存 | `Not started` |
-| CUI-07 | Gateway + Frontend | CUI-06 | key validation、remote model discovery 与差异确认 | `Not started` |
+| CUI-06 | Gateway + Frontend settings | UG2 | ProviderDetail、多端点/多 Key 路由、模型元数据、draft 保存与自动发现 | `Done`（本地自动化与视觉验收） |
+| CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Partial`（model discovery 已前移，validation 待实现） |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Not started` |
 | CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Not started` |
 | CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Not started` |
@@ -379,48 +379,63 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05 与 UG2 已完成；下一项为 CUI-06 ProviderDetail 基础表单重构。
+CUI-05、CUI-06 与 UG2 已完成；下一项为 CUI-07 密钥检测和发现差异确认。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
-### CUI-06 重构 ProviderDetail 基础表单
+### CUI-06 重构 ProviderDetail、多端点与多 Key 配置（Done）
 
-**目标**：保持现有 Settings 三栏骨架，把右侧详情改为 API Key -> API 地址 -> 模型的纵向流程。
+**目标**：保持现有 Settings 三栏骨架，把右侧详情改为 API 格式 -> API Key 池 -> API 端点池 -> 模型的纵向流程；Key 与端点分别支持自动轮换和有序备份。
 
 **建议提交**
 
 1. `refactor(frontend): restructure provider detail form`
-2. `feat(frontend): add manual provider model management`
+2. `feat(provider): add endpoint and api key routing`
+3. `feat(frontend): add provider model metadata and discovery`
 
 **任务**
 
-- [ ] 保留 `SettingsModal` 一级导航和 `ProvidersPanel` 中间列表，不新建全屏供应商页。
-- [ ] 将 enabled 移到详情标题行；builtin 删除保持禁用，custom 删除保留确认。
-- [ ] 使用本地 draft 管理 key 状态、base URL、enabled 和 models；只有脏且校验通过时允许保存。
-- [ ] API Key 区复用 secrets vault 的未设置、会话可用、加密保存和已锁定状态；锁定时使用固定掩码。
-- [ ] API 地址使用统一 helper 规范化尾部 `/`、已有 `/v1`、本地地址和自定义路径，并显示请求地址预览。
-- [ ] 模型列表改为单个分组容器中的固定高度行，支持本地搜索、手工添加、去重、取消和移除。
-- [ ] “检测”和“获取模型列表”在 CUI-07 契约可用前不显示。
-- [ ] 放弃更改恢复服务端 profile；保存继续通过现有完整 profile PUT，不做逐键自动提交。
+- [x] 保留 `SettingsModal` 一级导航和 `ProvidersPanel` 中间列表，不新建全屏供应商页。
+- [x] 将 enabled 移到详情标题行；builtin 删除保持禁用，custom 删除保留确认。
+- [x] 使用本地 draft 管理 API 格式、Key 池、端点池、enabled 和 models；只有脏且校验通过时允许保存。
+- [x] API Key 区复用 secrets vault 的未设置、会话可用、整体加密和已锁定状态；支持最多 16 个 Key 的命名、启停、排序、删除与逐项显隐。
+- [x] Key 支持 `Round-robin` 自动轮换和 `Failover` 主/备模式；Key 值保存在兼容旧单 Key 的版本化 secret envelope 中，Provider Profile 只保存路由模式。
+- [x] API 端点使用统一 helper 规范化尾部 `/`、已有 `/v1`、本地地址和自定义路径，并显示 Chat/Models 请求地址预览。
+- [x] 端点支持 `Round-robin` 与 `Failover`、启停和排序；仅允许同一供应商、同一 API 格式下的不同端点，保留 `base_url` 兼容旧 Profile。
+- [x] Gateway 将 Key 路由包在端点路由外层；两套策略独立组合，请求或流建立后不跨 Key/端点重放。
+- [x] API 格式按运行时真实适配器提供 OpenAI Chat Completions 和 Anthropic Messages，不展示尚未实现的格式。
+- [x] 模型列表使用分组容器和固定高度行，支持本地搜索、手工添加、去重、取消、编辑和移除。
+- [x] 模型编辑器支持能力、流式、币种和输入/输出价格；Model ID 可编辑并作为 API 请求模型值，Model name 仅为本地备注/别名。
+- [x] 模型发现契约从 CUI-07 前移：Key/端点编辑 900ms 后自动获取一次，也支持手动获取；发现结果只合并新增模型，失败、空响应和取消不清空本地模型。
+- [x] 放弃更改恢复服务端 Profile 与 secret draft；保存继续通过完整 Profile PUT 和 secrets vault 写入，不逐键自动提交。
 
 **安全检查**
 
-- key 不进入 React 持久化、toast、console、URL、测试快照或日志。
-- URL 错误只记录 provider id、protocol 和错误类别，不记录 query 或响应正文。
+- [x] Key 不进入 Provider Profile、React 持久化、toast、console、URL、视觉截图或日志；Key 池由 Engine 作为单个不透明 secret 加密。
+- [x] URL/发现错误只返回 provider id、protocol 和结构化错误类别，不记录完整 URL、query、远端正文或 Key。
 
 **完成定义**
 
-- builtin/custom、draft/persisted、locked/unlocked 和窄窗状态均可恢复。
-- 手工模型添加、移除和保存刷新后保持一致。
+- [x] builtin/custom、draft/persisted、locked/unlocked 和窄窗状态均可恢复。
+- [x] 单 Key 旧数据、多 Key 轮换/备份、多端点轮换/备份和两者组合均保持向后兼容。
+- [x] 手工模型添加、ID 修改、移除、元数据和发现结果保存刷新后保持一致。
 
-### CUI-07 增加密钥检测与远程模型发现
+**完成记录（2026-07-26）**
 
-**目标**：把“检测”和“获取模型列表”实现为两个无副作用命令。
+- `ProviderProfile` 以 additive optional 字段增加 `endpoints`、`routing_strategy`、`key_routing_strategy` 和 `model_configs`；旧 `base_url`、`models` 与单 Key secret 保持可读。
+- Gateway 提供无副作用 `POST /api/v1/providers/{provider}/models/discover`，支持 OpenAI/Anthropic 及常见 `data`、`models`、裸数组响应形状；发现请求同样应用当前 Key 池策略。
+- 模型弹窗按参考图重排；ID 可编辑且进入上游请求，名称仅作 EncoreHub 本地备注。
+- Frontend 34 个测试文件/246 项测试、TypeScript、Biome、production build/包体预算，Gateway 全量测试/`go vet`，以及 16 项 workspace/docs contract 全部通过；浏览器桌面场景无控制台错误。
+- 验证图片仅保存在 Git 忽略目录，不进入提交。
+
+### CUI-07 补齐密钥检测与发现差异确认
+
+**目标**：在 CUI-06 已交付无副作用模型发现的基础上，补齐独立 Key/Key 池检测、端点健康状态和可选差异确认。
 
 **接口检查点**
 
 - `POST /api/v1/providers/{provider}/validate-key` 只回答凭据与连接是否有效。
-- `POST /api/v1/providers/{provider}/models/discover` 返回远端候选，不直接写入 profile。
+- `POST /api/v1/providers/{provider}/models/discover` 已在 CUI-06 交付，返回远端候选且不直接写入 Profile 或 secret。
 - 临时 key 继续通过现有 `X-Provider-Key` secret header 传递；draft base URL 可以放在结构化请求体中，但不得写日志。
 - discovery 返回 `discovery_supported`、候选模型和结构化错误；不支持时保留手工添加。
 
@@ -432,12 +447,13 @@ CUI-05 与 UG2 已完成；下一项为 CUI-06 ProviderDetail 基础表单重构
 
 **任务**
 
-- [ ] 扩展 Gateway route、handler、provider adapter 和 OpenAPI；不改变现有 `ListModels` 的已配置模型语义。
+- [x] 为 discovery 扩展 Gateway route、handler、provider adapter 和 OpenAPI；不改变现有 `ListModels` 的已配置模型语义。
+- [ ] 增加独立 `validate-key`/Key 池检测与端点健康检查契约。
 - [ ] 允许检测当前 draft URL 和临时 key，命令结束后不持久化 key 或 profile。
-- [ ] 对超时、401/403、限流、不支持 discovery、无模型和畸形响应使用可区分错误类别。
+- [x] discovery 对超时/网络、401/403、限流、不支持端点、无模型和畸形响应使用可区分错误类别；独立 validation 类别留在本项补齐。
 - [ ] 前端为检测、发现和保存维护独立 pending 状态，不锁死只读区域。
 - [ ] 发现结果先显示“新增 / 保留 / 将移除”差异；只有用户确认后更新本地 draft。
-- [ ] 远端失败、空响应或取消不得清空本地模型列表。
+- [x] 远端失败、空响应或取消不清空本地模型列表。
 - [ ] 为官方文档和“获取密钥”使用 Tauri shell/系统浏览器；Web 模式使用安全外链降级。
 
 **契约测试**

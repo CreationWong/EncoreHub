@@ -46,8 +46,7 @@ func Builtins() []provider.ProviderProfile {
 	}
 }
 
-// Adapter builds a single adapter from a profile, dispatching on protocol.
-func Adapter(p provider.ProviderProfile) (provider.Adapter, error) {
+func singleAdapter(p provider.ProviderProfile) (provider.Adapter, error) {
 	switch p.Protocol {
 	case provider.ProtocolOpenAI:
 		return openaicompat.New(p), nil
@@ -56,6 +55,45 @@ func Adapter(p provider.ProviderProfile) (provider.Adapter, error) {
 	default:
 		return nil, fmt.Errorf("unknown protocol %q for provider %q", p.Protocol, p.ID)
 	}
+}
+
+// Adapter builds one logical adapter from a profile. Profiles with multiple
+// enabled endpoints are wrapped in a routed adapter; older BaseURL-only
+// profiles continue to build exactly one concrete adapter.
+func Adapter(p provider.ProviderProfile) (provider.Adapter, error) {
+	var adapter provider.Adapter
+	if len(p.Endpoints) == 0 {
+		built, err := singleAdapter(p)
+		if err != nil {
+			return nil, err
+		}
+		adapter = built
+	} else {
+		adapters := make([]provider.Adapter, 0, len(p.Endpoints))
+		for _, endpoint := range p.Endpoints {
+			if !endpoint.Enabled {
+				continue
+			}
+			endpointProfile := p
+			endpointProfile.BaseURL = endpoint.BaseURL
+			endpointProfile.Endpoints = nil
+			built, err := singleAdapter(endpointProfile)
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, built)
+		}
+		if len(adapters) == 1 {
+			adapter = adapters[0]
+		} else {
+			built, err := provider.NewRoutedAdapter(p.ID, p.RoutingStrategy, adapters)
+			if err != nil {
+				return nil, err
+			}
+			adapter = built
+		}
+	}
+	return provider.NewAPIKeyRoutedAdapter(p.ID, p.KeyRoutingStrategy, adapter)
 }
 
 // Adapters builds adapters for every enabled profile, skipping disabled ones.

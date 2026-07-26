@@ -2,6 +2,34 @@ import { apiFetch } from "./api";
 
 /** Wire protocol the gateway uses to talk to a provider. */
 export type ProviderProtocol = "openai" | "anthropic";
+export type ProviderRoutingStrategy = "round_robin" | "failover";
+export type ProviderModelCapability =
+	| "vision"
+	| "web"
+	| "reasoning"
+	| "tools"
+	| "rerank"
+	| "embedding";
+
+export interface ProviderEndpoint {
+	id: string;
+	name?: string;
+	base_url: string;
+	enabled: boolean;
+}
+
+export interface ProviderModelConfig {
+	/** Exact model value sent in provider API requests. */
+	id: string;
+	/** Optional local note/alias used only for EncoreHub display. */
+	name?: string;
+	group?: string;
+	capabilities?: ProviderModelCapability[];
+	streaming: boolean;
+	currency?: string;
+	input_price?: number;
+	output_price?: number;
+}
 
 /**
  * A provider profile as persisted by the gateway/engine. Mirrors the Go
@@ -15,6 +43,13 @@ export interface ProviderProfile {
 	/** Empty for the builtin OpenAI profile (SDK default endpoint). */
 	base_url: string;
 	models: string[];
+	/** Ordered endpoint pool. Omitted on profiles saved by older clients. */
+	endpoints?: ProviderEndpoint[];
+	routing_strategy?: ProviderRoutingStrategy;
+	/** Selection policy for the separately encrypted API-key pool. */
+	key_routing_strategy?: ProviderRoutingStrategy;
+	/** Optional display/capability metadata keyed by model id. */
+	model_configs?: ProviderModelConfig[];
 	enabled: boolean;
 	/** Builtin profiles are editable but cannot be deleted. */
 	builtin: boolean;
@@ -22,6 +57,28 @@ export interface ProviderProfile {
 
 interface ProvidersResponse {
 	providers: ProviderProfile[];
+}
+
+export interface DiscoveredModel {
+	id: string;
+	name: string;
+	provider: string;
+	context_limit?: number;
+}
+
+export interface ModelDiscoveryEndpointResult {
+	endpoint_id: string;
+	status: "ok" | "error" | "skipped";
+	model_count: number;
+	error_category?: string;
+}
+
+export interface ModelDiscoveryResponse {
+	provider: string;
+	discovery_supported: boolean;
+	success_count: number;
+	models: DiscoveredModel[];
+	endpoint_results: ModelDiscoveryEndpointResult[];
 }
 
 export const providersApi = {
@@ -40,5 +97,27 @@ export const providersApi = {
 			method: "PUT",
 			body: JSON.stringify({ providers }),
 		});
+	},
+
+	/** Probe draft endpoint settings without persisting the profile or key. */
+	discoverModels(
+		providerId: string,
+		protocol: ProviderProtocol,
+		endpoints: ProviderEndpoint[],
+		apiKeyPool: string,
+		keyRoutingStrategy: ProviderRoutingStrategy,
+	): Promise<ModelDiscoveryResponse> {
+		return apiFetch<ModelDiscoveryResponse>(
+			`/providers/${encodeURIComponent(providerId)}/models/discover`,
+			{
+				method: "POST",
+				headers: { "X-Provider-Key": apiKeyPool },
+				body: JSON.stringify({
+					protocol,
+					endpoints,
+					key_routing_strategy: keyRoutingStrategy,
+				}),
+			},
+		);
 	},
 };
