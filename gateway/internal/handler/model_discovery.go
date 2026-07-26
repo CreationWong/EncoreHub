@@ -76,6 +76,7 @@ func (h *ProviderHandler) DiscoverModels(c *gin.Context) {
 	}
 
 	results := make([]endpointDiscoveryResult, len(request.Endpoints))
+	enabledCount := 0
 	var wait sync.WaitGroup
 	for index, endpoint := range request.Endpoints {
 		results[index].EndpointID = endpoint.ID
@@ -83,6 +84,7 @@ func (h *ProviderHandler) DiscoverModels(c *gin.Context) {
 			results[index].Status = "skipped"
 			continue
 		}
+		enabledCount++
 		if err := validateProviderBaseURL(endpoint.BaseURL); err != nil {
 			results[index].Status = "error"
 			results[index].ErrorCategory = "invalid_url"
@@ -108,14 +110,22 @@ func (h *ProviderHandler) DiscoverModels(c *gin.Context) {
 			results[index].models = models
 		}(index, endpoint)
 	}
+	if enabledCount == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one endpoint must be enabled"})
+		return
+	}
 	wait.Wait()
 
 	seen := make(map[string]struct{})
 	models := make([]provider.ModelInfo, 0)
 	successCount := 0
+	unsupportedCount := 0
 	for _, result := range results {
 		if result.Status == "ok" {
 			successCount++
+		}
+		if result.ErrorCategory == "unsupported_endpoint" {
+			unsupportedCount++
 		}
 		for _, model := range result.models {
 			if _, exists := seen[model.ID]; exists {
@@ -128,7 +138,7 @@ func (h *ProviderHandler) DiscoverModels(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"provider":            providerID,
-		"discovery_supported": true,
+		"discovery_supported": unsupportedCount < enabledCount,
 		"success_count":       successCount,
 		"models":              models,
 		"endpoint_results":    results,
@@ -169,20 +179,9 @@ func (h *ProviderHandler) discoverEndpointModelsWithKey(
 	baseURL string,
 	apiKey string,
 ) ([]provider.ModelInfo, string) {
-	endpoint := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if !strings.HasSuffix(endpoint, "/models") {
-		endpoint += "/models"
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	request, err := newProviderModelsRequest(ctx, protocol, baseURL, apiKey)
 	if err != nil {
 		return nil, "invalid_url"
-	}
-	request.Header.Set("Accept", "application/json")
-	if protocol == provider.ProtocolAnthropic {
-		request.Header.Set("x-api-key", apiKey)
-		request.Header.Set("anthropic-version", "2023-06-01")
-	} else {
-		request.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	response, err := h.client.Do(request)

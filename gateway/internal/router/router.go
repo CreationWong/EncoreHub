@@ -91,6 +91,7 @@ func Setup(cfg Config) *gin.Engine {
 		{
 			prov.GET("", providerHandler.ListProviders)
 			prov.PUT("", providerHandler.UpdateProviders)
+			prov.POST("/:provider/validate-key", providerHandler.ValidateKey)
 			prov.GET("/:provider/models", providerHandler.ListModels)
 			prov.POST("/:provider/models/discover", providerHandler.DiscoverModels)
 		}

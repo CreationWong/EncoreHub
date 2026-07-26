@@ -22,21 +22,32 @@ type apiKeyPoolEnvelope struct {
 	Keys    []APIKeyPoolEntry `json:"keys"`
 }
 
-// ParseAPIKeys accepts both the versioned key-pool envelope and legacy
-// single-key strings. Only enabled pool entries are returned.
-func ParseAPIKeys(raw string) ([]string, error) {
+// ParseAPIKeyPool accepts both the versioned key-pool envelope and legacy
+// single-key strings. IDs are safe to return from validation APIs; values
+// remain request-local and must never be logged or serialized in responses.
+func ParseAPIKeyPool(raw string) ([]APIKeyPoolEntry, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, nil
 	}
 	if !strings.HasPrefix(trimmed, "{") {
-		return []string{trimmed}, nil
+		return []APIKeyPoolEntry{{
+			ID:      "primary",
+			Name:    "Primary",
+			Value:   trimmed,
+			Enabled: true,
+		}}, nil
 	}
 
 	var envelope apiKeyPoolEnvelope
 	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil || envelope.Keys == nil {
 		// A provider is allowed to issue an unusual key that begins with `{`.
-		return []string{trimmed}, nil
+		return []APIKeyPoolEntry{{
+			ID:      "primary",
+			Name:    "Primary",
+			Value:   trimmed,
+			Enabled: true,
+		}}, nil
 	}
 	if envelope.Version != apiKeyPoolVersion {
 		return nil, fmt.Errorf("unsupported API key pool version")
@@ -47,7 +58,8 @@ func ParseAPIKeys(raw string) ([]string, error) {
 
 	seenIDs := make(map[string]struct{}, len(envelope.Keys))
 	seenValues := make(map[string]struct{}, len(envelope.Keys))
-	keys := make([]string, 0, len(envelope.Keys))
+	entries := make([]APIKeyPoolEntry, 0, len(envelope.Keys))
+	enabledCount := 0
 	for _, entry := range envelope.Keys {
 		id := strings.TrimSpace(entry.ID)
 		value := strings.TrimSpace(entry.Value)
@@ -58,17 +70,37 @@ func ParseAPIKeys(raw string) ([]string, error) {
 			return nil, fmt.Errorf("API key pool contains duplicate ids")
 		}
 		seenIDs[id] = struct{}{}
-		if !entry.Enabled {
-			continue
+		if entry.Enabled {
+			if _, duplicate := seenValues[value]; duplicate {
+				return nil, fmt.Errorf("API key pool contains duplicate enabled keys")
+			}
+			seenValues[value] = struct{}{}
+			enabledCount++
 		}
-		if _, duplicate := seenValues[value]; duplicate {
-			return nil, fmt.Errorf("API key pool contains duplicate enabled keys")
-		}
-		seenValues[value] = struct{}{}
-		keys = append(keys, value)
+		entries = append(entries, APIKeyPoolEntry{
+			ID:      id,
+			Name:    strings.TrimSpace(entry.Name),
+			Value:   value,
+			Enabled: entry.Enabled,
+		})
 	}
-	if len(keys) == 0 {
+	if enabledCount == 0 {
 		return nil, fmt.Errorf("API key pool has no enabled keys")
+	}
+	return entries, nil
+}
+
+// ParseAPIKeys returns only enabled key values for adapter routing.
+func ParseAPIKeys(raw string) ([]string, error) {
+	entries, err := ParseAPIKeyPool(raw)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Enabled {
+			keys = append(keys, entry.Value)
+		}
 	}
 	return keys, nil
 }

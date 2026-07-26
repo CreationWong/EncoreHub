@@ -9,8 +9,29 @@ import { toast } from "../../stores/toastStore";
 import ProviderDetail from "./ProviderDetail";
 import ProviderFormModal from "./ProviderFormModal";
 
+const LAST_SETTINGS_PROVIDER_KEY = "encorehub-settings-provider";
+
 function providerInitial(name: string): string {
 	return name.trim().charAt(0).toUpperCase() || "P";
+}
+
+function loadLastSettingsProvider(): string | null {
+	if (typeof window === "undefined") return null;
+	try {
+		return localStorage.getItem(LAST_SETTINGS_PROVIDER_KEY);
+	} catch {
+		return null;
+	}
+}
+
+function rememberSettingsProvider(id: string | null): void {
+	if (typeof window === "undefined") return;
+	try {
+		if (id) localStorage.setItem(LAST_SETTINGS_PROVIDER_KEY, id);
+		else localStorage.removeItem(LAST_SETTINGS_PROVIDER_KEY);
+	} catch {
+		/* Preference persistence must not block provider configuration. */
+	}
 }
 
 export default function ProvidersPanel() {
@@ -21,6 +42,7 @@ export default function ProvidersPanel() {
 
 	const profiles = useProviderStore((state) => state.profiles);
 	const loading = useProviderStore((state) => state.loading);
+	const loaded = useProviderStore((state) => state.loaded);
 	const upsert = useProviderStore((state) => state.upsert);
 	const removeProfile = useProviderStore((state) => state.remove);
 
@@ -35,7 +57,9 @@ export default function ProvidersPanel() {
 	}, [loadKeys, refreshSecrets]);
 
 	const [drafts, setDrafts] = useState<ProviderProfile[]>([]);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selectedId, setSelectedId] = useState<string | null>(
+		loadLastSettingsProvider,
+	);
 	const [creating, setCreating] = useState(false);
 	const [query, setQuery] = useState("");
 
@@ -51,8 +75,11 @@ export default function ProvidersPanel() {
 
 	useEffect(() => {
 		if (selectedId && list.some((profile) => profile.id === selectedId)) return;
-		setSelectedId(list[0]?.id ?? null);
-	}, [list, selectedId]);
+		if (!loaded && list.length === 0) return;
+		const fallbackId = list[0]?.id ?? null;
+		setSelectedId(fallbackId);
+		rememberSettingsProvider(fallbackId);
+	}, [list, loaded, selectedId]);
 
 	const filtered = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
@@ -77,6 +104,7 @@ export default function ProvidersPanel() {
 	const handleCreated = (draft: ProviderProfile) => {
 		setDrafts((current) => [...current, draft]);
 		setSelectedId(draft.id);
+		rememberSettingsProvider(draft.id);
 		setCreating(false);
 	};
 
@@ -147,7 +175,10 @@ export default function ProvidersPanel() {
 								<button
 									key={profile.id}
 									type="button"
-									onClick={() => setSelectedId(profile.id)}
+									onClick={() => {
+										setSelectedId(profile.id);
+										rememberSettingsProvider(profile.id);
+									}}
 									aria-current={selectedProfile ? "page" : undefined}
 									className={`mb-1 flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors ${
 										selectedProfile

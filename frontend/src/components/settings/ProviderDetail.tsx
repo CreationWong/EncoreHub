@@ -1,4 +1,5 @@
 import {
+	Activity,
 	AlertCircle,
 	ArrowDown,
 	ArrowUp,
@@ -27,8 +28,9 @@ import {
 } from "react";
 import { API_FORMATS } from "../../constants/providers";
 import {
-	type ModelDiscoveryEndpointResult,
 	type ProviderEndpoint,
+	type ProviderEndpointValidationResult,
+	type ProviderKeyValidationResult,
 	type ProviderModelConfig,
 	type ProviderProfile,
 	type ProviderProtocol,
@@ -38,19 +40,23 @@ import {
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
+import ProviderDiscoveryReview from "./ProviderDiscoveryReview";
 import ProviderKeyPoolEditor from "./ProviderKeyPoolEditor";
 import ProviderModelModal from "./ProviderModelModal";
 import {
 	chatRequestPreview,
 	createEndpoint,
 	defaultBaseUrl,
-	defaultModelConfig,
 	isValidBaseUrl,
 	modelDiscoveryPreview,
 	normalizeBaseUrl,
 	profileEndpoints,
 	profileModelConfigs,
 } from "./providerConfig";
+import {
+	type ProviderModelDiscoveryDiff,
+	buildProviderModelDiscoveryDiff,
+} from "./providerDiscovery";
 import {
 	MAX_PROVIDER_API_KEYS,
 	type ProviderAPIKey,
@@ -111,6 +117,25 @@ function connectionSignature(draft: ProviderDraft): string {
 	});
 }
 
+function normalizeModelConfigs(
+	models: ProviderModelConfig[],
+): ProviderModelConfig[] {
+	return models.map((model) => ({
+		...model,
+		id: model.id.trim(),
+		name: model.name?.trim() || model.id.trim(),
+		group: model.group?.trim() || "Models",
+		capabilities: model.capabilities ?? [],
+		currency: model.currency || "USD",
+		input_price: Number(model.input_price) || 0,
+		output_price: Number(model.output_price) || 0,
+	}));
+}
+
+function modelConfigSignature(models: ProviderModelConfig[]): string {
+	return JSON.stringify(models);
+}
+
 export default function ProviderDetail({
 	profile,
 	isDraft,
@@ -134,15 +159,26 @@ export default function ProviderDetail({
 		model: ProviderModelConfig | null;
 	} | null>(null);
 	const [discovering, setDiscovering] = useState(false);
+	const [validating, setValidating] = useState(false);
 	const [discoveryNotice, setDiscoveryNotice] =
 		useState<DiscoveryNotice | null>(null);
-	const [endpointResults, setEndpointResults] = useState<
-		Record<string, ModelDiscoveryEndpointResult>
+	const [validationNotice, setValidationNotice] =
+		useState<DiscoveryNotice | null>(null);
+	const [discoveryReview, setDiscoveryReview] =
+		useState<ProviderModelDiscoveryDiff | null>(null);
+	const [keyValidationResults, setKeyValidationResults] = useState<
+		Record<string, ProviderKeyValidationResult>
+	>({});
+	const [endpointValidationResults, setEndpointValidationResults] = useState<
+		Record<string, ProviderEndpointValidationResult>
 	>({});
 	const [connectionRevision, setConnectionRevision] = useState(0);
 	const lastDiscoveryRef = useRef<{ keys: string; connection: string } | null>(
 		null,
 	);
+	const validationRequestRef = useRef(0);
+	const discoveryRequestRef = useRef(0);
+	const pendingModelSaveRef = useRef<string | null>(null);
 
 	const unlock = useSecretsStore((state) => state.unlock);
 	const loadKeys = useSettingsStore((state) => state.loadKeys);
@@ -151,11 +187,26 @@ export default function ProviderDetail({
 	const [unlockBusy, setUnlockBusy] = useState(false);
 
 	useEffect(() => {
+		if (
+			pendingModelSaveRef.current ===
+			modelConfigSignature(persistedDraft.models)
+		) {
+			pendingModelSaveRef.current = null;
+			setDraft((current) => ({ ...current, models: persistedDraft.models }));
+			return;
+		}
 		setDraft(persistedDraft);
 		setError(null);
 		setDiscoveryNotice(null);
-		setEndpointResults({});
+		setValidationNotice(null);
+		setDiscoveryReview(null);
+		setKeyValidationResults({});
+		setEndpointValidationResults({});
+		setValidating(false);
+		setDiscovering(false);
 		setConnectionRevision(0);
+		validationRequestRef.current += 1;
+		discoveryRequestRef.current += 1;
 		lastDiscoveryRef.current = null;
 	}, [persistedDraft]);
 
@@ -199,6 +250,7 @@ export default function ProviderDetail({
 		keysReadyForDiscovery &&
 		enabledEndpoints.length > 0 &&
 		endpointsValid;
+	const canValidate = canDiscover;
 
 	const validationError = useMemo(() => {
 		if (!lockedStored) {
@@ -250,8 +302,16 @@ export default function ProviderDetail({
 	]);
 
 	const updateConnection = () => {
+		validationRequestRef.current += 1;
+		discoveryRequestRef.current += 1;
+		setValidating(false);
+		setDiscovering(false);
 		setConnectionRevision((revision) => revision + 1);
 		setDiscoveryNotice(null);
+		setValidationNotice(null);
+		setDiscoveryReview(null);
+		setKeyValidationResults({});
+		setEndpointValidationResults({});
 	};
 
 	const updateKeys = (keys: ProviderAPIKey[], connectionChanged: boolean) => {
@@ -286,6 +346,152 @@ export default function ProviderDetail({
 		});
 	};
 
+	const persistProviderDraft = useCallback(
+		async (nextDraft: ProviderDraft) => {
+			const normalizedKeys = normalizeProviderAPIKeys(keyDraft);
+			const endpoints = nextDraft.endpoints.map((endpoint) => ({
+				...endpoint,
+				name: endpoint.name?.trim() || endpoint.id,
+				base_url: normalizeBaseUrl(endpoint.base_url),
+			}));
+			const models = normalizeModelConfigs(nextDraft.models);
+			const primary =
+				endpoints.find((endpoint) => endpoint.enabled) ?? endpoints[0];
+			await onSave({
+				...profile,
+				protocol: nextDraft.protocol,
+				base_url: primary.base_url,
+				endpoints,
+				routing_strategy: nextDraft.routingStrategy,
+				key_routing_strategy: nextDraft.keyRoutingStrategy,
+				models: models.map((model) => model.id),
+				model_configs: models,
+				enabled: nextDraft.enabled,
+			});
+
+			if (pendingKeyClear) {
+				await onClearKey();
+			}
+			if (
+				!pendingKeyClear &&
+				!lockedStored &&
+				normalizedKeys.length === 0 &&
+				keyStored
+			) {
+				await onClearKey();
+			}
+			if (!lockedStored && keyDirty && normalizedKeys.length > 0) {
+				onSetKey(serializeProviderAPIKeys(normalizedKeys));
+			}
+			setPendingKeyClear(false);
+		},
+		[
+			keyDirty,
+			keyDraft,
+			keyStored,
+			lockedStored,
+			onClearKey,
+			onSave,
+			onSetKey,
+			pendingKeyClear,
+			profile,
+		],
+	);
+
+	const persistProviderModels = useCallback(
+		async (nextModels: ProviderModelConfig[]) => {
+			const models = normalizeModelConfigs(nextModels);
+			pendingModelSaveRef.current = modelConfigSignature(models);
+			try {
+				await onSave({
+					...profile,
+					models: models.map((model) => model.id),
+					model_configs: models,
+				});
+			} catch (saveError) {
+				pendingModelSaveRef.current = null;
+				throw saveError;
+			}
+		},
+		[onSave, profile],
+	);
+
+	const runValidation = useCallback(async () => {
+		if (!canValidate) {
+			setValidationNotice({
+				tone: "warning",
+				text: lockedStored
+					? "Unlock the key vault before testing connections"
+					: "Enter an API key and valid endpoint before testing connections",
+			});
+			return;
+		}
+
+		const requestID = validationRequestRef.current + 1;
+		validationRequestRef.current = requestID;
+		setValidating(true);
+		setValidationNotice(null);
+		try {
+			const response = await providersApi.validateKey(
+				profile.id,
+				draft.protocol,
+				draft.endpoints,
+				serializeProviderAPIKeys(keyDraft),
+			);
+			if (requestID !== validationRequestRef.current) return;
+
+			setKeyValidationResults(
+				Object.fromEntries(
+					response.key_results.map((result) => [result.key_id, result]),
+				),
+			);
+			setEndpointValidationResults(
+				Object.fromEntries(
+					response.endpoint_results.map((result) => [
+						result.endpoint_id,
+						result,
+					]),
+				),
+			);
+
+			const testedKeys = response.key_results.filter(
+				(result) => result.status !== "skipped",
+			).length;
+			const failedKeys = Math.max(0, testedKeys - response.success_count);
+			const reachableEndpoints = response.endpoint_results.filter(
+				(result) => result.status === "valid" || result.status === "reachable",
+			).length;
+			setValidationNotice({
+				tone: response.valid
+					? failedKeys > 0
+						? "warning"
+						: "success"
+					: "error",
+				text: response.valid
+					? `${response.success_count} of ${testedKeys} keys valid; ${reachableEndpoints} endpoints reachable`
+					: `No key could be validated; ${reachableEndpoints} endpoints responded`,
+			});
+			if (response.valid) toast.success("Connection test completed");
+			else toast.error("Connection test did not validate any key");
+		} catch {
+			if (requestID !== validationRequestRef.current) return;
+			setValidationNotice({
+				tone: "error",
+				text: "Connection test failed without changing keys or endpoints",
+			});
+			toast.error("Connection test failed");
+		} finally {
+			if (requestID === validationRequestRef.current) setValidating(false);
+		}
+	}, [
+		canValidate,
+		draft.endpoints,
+		draft.protocol,
+		keyDraft,
+		lockedStored,
+		profile.id,
+	]);
+
 	const runDiscovery = useCallback(
 		async (manual: boolean) => {
 			if (!canDiscover) {
@@ -303,8 +509,11 @@ export default function ProviderDetail({
 			const connection = connectionSignature(draft);
 			const keys = providerAPIKeySignature(keyDraft);
 			lastDiscoveryRef.current = { keys, connection };
+			const requestID = discoveryRequestRef.current + 1;
+			discoveryRequestRef.current = requestID;
 			setDiscovering(true);
 			setDiscoveryNotice(null);
+			setDiscoveryReview(null);
 			try {
 				const response = await providersApi.discoverModels(
 					profile.id,
@@ -313,66 +522,81 @@ export default function ProviderDetail({
 					serializeProviderAPIKeys(keyDraft),
 					draft.keyRoutingStrategy,
 				);
-				setEndpointResults(
-					Object.fromEntries(
-						response.endpoint_results.map((result) => [
-							result.endpoint_id,
-							result,
-						]),
-					),
-				);
-
-				const existingIds = new Set(draft.models.map((model) => model.id));
-				const additions = response.models.filter(
-					(model) => !existingIds.has(model.id),
-				);
-				if (additions.length > 0) {
-					setDraft((current) => {
-						const currentIds = new Set(current.models.map((model) => model.id));
-						return {
-							...current,
-							models: [
-								...current.models,
-								...additions
-									.filter((model) => !currentIds.has(model.id))
-									.map((model) =>
-										defaultModelConfig(
-											model.id,
-											model.name || model.id,
-											"Discovered",
-										),
-									),
-							],
-						};
-					});
-				}
+				if (requestID !== discoveryRequestRef.current) return;
 
 				const failed = response.endpoint_results.filter(
 					(result) => result.status === "error",
 				).length;
-				if (response.success_count === 0) {
+				if (!response.discovery_supported) {
+					setDiscoveryNotice({
+						tone: "warning",
+						text: "This provider does not expose model discovery. Add models manually.",
+					});
+				} else if (
+					response.success_count === 0 ||
+					response.models.length === 0
+				) {
 					setDiscoveryNotice({
 						tone: "error",
 						text: "No endpoint returned a model list. Local models were kept unchanged.",
 					});
 				} else {
+					const diff = buildProviderModelDiscoveryDiff(
+						draft.models,
+						response.models,
+						failed === 0,
+					);
+					if (manual) {
+						const nextDraft = { ...draft, models: diff.nextModels };
+						setSaving(true);
+						try {
+							await persistProviderModels(diff.nextModels);
+							setDraft(nextDraft);
+							setDiscoveryNotice({
+								tone: failed > 0 ? "warning" : "success",
+								text: `${diff.nextModels.length} models fetched and saved${
+									failed > 0 ? `; ${failed} endpoint failed` : ""
+								}`,
+							});
+							toast.success("Model list fetched and saved");
+						} catch {
+							setDiscoveryReview(diff);
+							setDiscoveryNotice({
+								tone: "error",
+								text: "Models were found but could not be saved. Review the staged changes and try again.",
+							});
+							toast.error("Failed to save fetched models");
+						} finally {
+							setSaving(false);
+						}
+						return;
+					}
+					setDiscoveryReview(diff);
 					setDiscoveryNotice({
 						tone: failed > 0 ? "warning" : "success",
-						text: `${response.models.length} models found; ${additions.length} added${
+						text: `${response.models.length} remote models ready for review${
 							failed > 0 ? `; ${failed} endpoint failed` : ""
 						}`,
 					});
 				}
 			} catch {
+				if (requestID !== discoveryRequestRef.current) return;
 				setDiscoveryNotice({
 					tone: "error",
 					text: "Model discovery failed. Local models were kept unchanged.",
 				});
 			} finally {
-				setDiscovering(false);
+				if (requestID === discoveryRequestRef.current) setDiscovering(false);
 			}
 		},
-		[canDiscover, draft, keyDraft, lockedStored, profile.id],
+		[
+			canDiscover,
+			draft,
+			keyDraft,
+			lockedStored,
+			persistProviderModels,
+			profile.id,
+		],
 	);
 
 	useEffect(() => {
@@ -410,12 +634,20 @@ export default function ProviderDetail({
 	};
 
 	const discard = () => {
+		pendingModelSaveRef.current = null;
 		setDraft(persistedDraft);
 		setKeyDraft(persistedKeys);
 		setPendingKeyClear(false);
 		setError(null);
 		setDiscoveryNotice(null);
-		setEndpointResults({});
+		setValidationNotice(null);
+		setDiscoveryReview(null);
+		setKeyValidationResults({});
+		setEndpointValidationResults({});
+		validationRequestRef.current += 1;
+		discoveryRequestRef.current += 1;
+		setValidating(false);
+		setDiscovering(false);
 	};
 
 	const handleSave = async () => {
@@ -425,53 +657,9 @@ export default function ProviderDetail({
 		}
 		setSaving(true);
 		setError(null);
+		pendingModelSaveRef.current = null;
 		try {
-			const normalizedKeys = normalizeProviderAPIKeys(keyDraft);
-			const endpoints = draft.endpoints.map((endpoint) => ({
-				...endpoint,
-				name: endpoint.name?.trim() || endpoint.id,
-				base_url: normalizeBaseUrl(endpoint.base_url),
-			}));
-			const models = draft.models.map((model) => ({
-				...model,
-				id: model.id.trim(),
-				name: model.name?.trim() || model.id.trim(),
-				group: model.group?.trim() || "Models",
-				capabilities: model.capabilities ?? [],
-				currency: model.currency || "USD",
-				input_price: Number(model.input_price) || 0,
-				output_price: Number(model.output_price) || 0,
-			}));
-			const primary =
-				endpoints.find((endpoint) => endpoint.enabled) ?? endpoints[0];
-			await onSave({
-				...profile,
-				protocol: draft.protocol,
-				base_url: primary.base_url,
-				endpoints,
-				routing_strategy: draft.routingStrategy,
-				key_routing_strategy: draft.keyRoutingStrategy,
-				models: models.map((model) => model.id),
-				model_configs: models,
-				enabled: draft.enabled,
-			});
-
-			if (pendingKeyClear) {
-				await onClearKey();
-			}
-			if (
-				!pendingKeyClear &&
-				!lockedStored &&
-				normalizedKeys.length === 0 &&
-				keyStored
-			) {
-				await onClearKey();
-			}
-			if (!lockedStored && keyDirty && normalizedKeys.length > 0) {
-				onSetKey(serializeProviderAPIKeys(normalizedKeys));
-			}
-
-			setPendingKeyClear(false);
+			await persistProviderDraft(draft);
 			toast.success(`Saved ${profile.name}`);
 		} catch (saveError) {
 			setError(
@@ -524,6 +712,7 @@ export default function ProviderDetail({
 									)
 								: [...current.models, model],
 						}));
+						setDiscoveryReview(null);
 						setModelEditor(null);
 					}}
 				/>
@@ -635,37 +824,58 @@ export default function ProviderDetail({
 								API format.
 							</p>
 						</div>
-						<fieldset
-							className="m-0 flex rounded-md border-0 bg-surface-alt p-0.5"
-							aria-label="API key routing strategy"
-						>
-							{(
-								[
-									["failover", "Failover"],
-									["round_robin", "Round-robin"],
-								] as const
-							).map(([value, label]) => (
-								<button
-									key={value}
-									type="button"
-									aria-pressed={draft.keyRoutingStrategy === value}
-									onClick={() => {
-										setDraft((current) => ({
-											...current,
-											keyRoutingStrategy: value,
-										}));
-										updateConnection();
-									}}
-									className={`rounded px-2.5 py-1.5 text-xs ${
-										draft.keyRoutingStrategy === value
-											? "bg-surface text-text-primary shadow-sm"
-											: "text-text-muted hover:text-text-primary"
-									}`}
-								>
-									{label}
-								</button>
-							))}
-						</fieldset>
+						<div className="flex flex-wrap items-center justify-end gap-2">
+							<button
+								type="button"
+								onClick={() => void runValidation()}
+								disabled={validating || !canValidate}
+								aria-label="Test API keys and endpoints"
+								title={
+									canValidate
+										? "Test API keys and endpoints"
+										: "Enter a key and valid endpoint first"
+								}
+								className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								{validating ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin" />
+								) : (
+									<Activity className="h-3.5 w-3.5" />
+								)}
+								Test connections
+							</button>
+							<fieldset
+								className="m-0 flex rounded-md border-0 bg-surface-alt p-0.5"
+								aria-label="API key routing strategy"
+							>
+								{(
+									[
+										["failover", "Failover"],
+										["round_robin", "Round-robin"],
+									] as const
+								).map(([value, label]) => (
+									<button
+										key={value}
+										type="button"
+										aria-pressed={draft.keyRoutingStrategy === value}
+										onClick={() => {
+											setDraft((current) => ({
+												...current,
+												keyRoutingStrategy: value,
+											}));
+											updateConnection();
+										}}
+										className={`rounded px-2.5 py-1.5 text-xs ${
+											draft.keyRoutingStrategy === value
+												? "bg-surface text-text-primary shadow-sm"
+												: "text-text-muted hover:text-text-primary"
+										}`}
+									>
+										{label}
+									</button>
+								))}
+							</fieldset>
+						</div>
 					</div>
 					{lockedStored ? (
 						<>
@@ -754,9 +964,32 @@ export default function ProviderDetail({
 							<ProviderKeyPoolEditor
 								keys={keyDraft}
 								protocol={draft.protocol}
+								results={keyValidationResults}
+								validating={validating}
 								onChange={updateKeys}
 							/>
 						</>
+					)}
+					{validationNotice && (
+						<p
+							aria-live="polite"
+							className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
+								validationNotice.tone === "success"
+									? "bg-success-bg text-success"
+									: validationNotice.tone === "warning"
+										? "bg-warning-bg text-warning"
+										: "bg-danger-bg text-danger"
+							}`}
+						>
+							{validationNotice.tone === "success" ? (
+								<CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+							) : validationNotice.tone === "warning" ? (
+								<AlertCircle className="h-3.5 w-3.5 shrink-0" />
+							) : (
+								<XCircle className="h-3.5 w-3.5 shrink-0" />
+							)}
+							{validationNotice.text}
+						</p>
 					)}
 					<p className="mt-3 flex items-center gap-1.5 text-xs text-text-muted">
 						<Info className="h-3.5 w-3.5" />
@@ -814,7 +1047,17 @@ export default function ProviderDetail({
 
 					<div className="overflow-hidden rounded-md border border-border">
 						{draft.endpoints.map((endpoint, index) => {
-							const result = endpointResults[endpoint.id];
+							const result = endpointValidationResults[endpoint.id];
+							const resultLabel =
+								validating && endpoint.enabled
+									? "Testing endpoint"
+									: result
+										? `${result.status.replaceAll("_", " ")}${
+												result.error_category
+													? `: ${result.error_category.replaceAll("_", " ")}`
+													: ""
+											}${result.latency_ms ? ` (${result.latency_ms} ms)` : ""}`
+										: "Not tested";
 							return (
 								<div
 									key={endpoint.id}
@@ -823,15 +1066,18 @@ export default function ProviderDetail({
 									<div className="flex items-center gap-2">
 										<span
 											className={`h-2 w-2 shrink-0 rounded-full ${
-												result?.status === "ok"
-													? "bg-success"
-													: result?.status === "error"
-														? "bg-danger"
-														: "bg-border"
+												validating && endpoint.enabled
+													? "animate-pulse bg-accent"
+													: result?.status === "valid"
+														? "bg-success"
+														: result?.status === "reachable"
+															? "bg-warning"
+															: result?.status === "unreachable"
+																? "bg-danger"
+																: "bg-border"
 											}`}
-											title={
-												result?.error_category ?? result?.status ?? "Not tested"
-											}
+											aria-label={`${endpoint.name || `Endpoint ${index + 1}`}: ${resultLabel}`}
+											title={resultLabel}
 										/>
 										<input
 											value={endpoint.name ?? ""}
@@ -936,15 +1182,16 @@ export default function ProviderDetail({
 						</p>
 						<button
 							type="button"
-							onClick={() =>
+							onClick={() => {
 								setDraft((current) => ({
 									...current,
 									endpoints: [
 										...current.endpoints,
 										createEndpoint(current.endpoints.length + 1),
 									],
-								}))
-							}
+								}));
+								updateConnection();
+							}}
 							disabled={draft.endpoints.length >= 16}
 							className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 						>
@@ -961,8 +1208,8 @@ export default function ProviderDetail({
 								Models
 							</h4>
 							<p className="text-xs text-text-muted">
-								Discovered models are merged into this draft and saved only when
-								you confirm changes.
+								Automatic discovery stages a diff for review. Fetch models saves
+								only the model list.
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
@@ -987,7 +1234,10 @@ export default function ProviderDetail({
 							</button>
 							<button
 								type="button"
-								onClick={() => setModelEditor({ model: null })}
+								onClick={() => {
+									setDiscoveryReview(null);
+									setModelEditor({ model: null });
+								}}
 								className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 							>
 								<Plus className="h-3.5 w-3.5" />
@@ -998,6 +1248,7 @@ export default function ProviderDetail({
 
 					{discoveryNotice && (
 						<p
+							aria-live="polite"
 							className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
 								discoveryNotice.tone === "success"
 									? "bg-success-bg text-success"
@@ -1007,14 +1258,37 @@ export default function ProviderDetail({
 							}`}
 						>
 							{discoveryNotice.tone === "success" ? (
-								<CheckCircle2 className="h-3.5 w-3.5" />
+								<CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
 							) : discoveryNotice.tone === "warning" ? (
-								<AlertCircle className="h-3.5 w-3.5" />
+								<AlertCircle className="h-3.5 w-3.5 shrink-0" />
 							) : (
-								<XCircle className="h-3.5 w-3.5" />
+								<XCircle className="h-3.5 w-3.5 shrink-0" />
 							)}
 							{discoveryNotice.text}
 						</p>
+					)}
+					{discoveryReview && (
+						<ProviderDiscoveryReview
+							diff={discoveryReview}
+							onCancel={() => {
+								setDiscoveryReview(null);
+								setDiscoveryNotice({
+									tone: "warning",
+									text: "Remote model changes were dismissed. Local models are unchanged.",
+								});
+							}}
+							onApply={() => {
+								setDraft((current) => ({
+									...current,
+									models: discoveryReview.nextModels,
+								}));
+								setDiscoveryReview(null);
+								setDiscoveryNotice({
+									tone: "success",
+									text: "Remote model changes were applied to the draft. Save to persist them.",
+								});
+							}}
+						/>
 					)}
 
 					<div className="relative mb-3">
@@ -1073,14 +1347,15 @@ export default function ProviderDetail({
 											</div>
 											<button
 												type="button"
-												onClick={() =>
+												onClick={() => {
 													setDraft((current) => ({
 														...current,
 														models: current.models.filter(
 															(item) => item.id !== model.id,
 														),
-													}))
-												}
+													}));
+													setDiscoveryReview(null);
+												}}
 												aria-label={`Remove model ${model.id}`}
 												title="Remove model"
 												className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger"

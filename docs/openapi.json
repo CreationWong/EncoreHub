@@ -318,6 +318,36 @@
         }
       }
     },
+    "/api/v1/providers/{provider}/validate-key": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ProviderId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "post": {
+        "tags": ["Providers"],
+        "operationId": "validateProviderKey",
+        "description": "Validate request-local legacy or versioned API-key pools against draft endpoints without persisting keys or provider profiles. Responses contain only opaque key/endpoint IDs, latency, and structured error categories.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProviderKeyValidationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-key credential status and per-endpoint connection health",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProviderKeyValidationResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/providers/{provider}/models": {
       "parameters": [
         { "$ref": "#/components/parameters/ProviderId" },
@@ -1138,6 +1168,76 @@
           "models": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ModelInfo" }
+          }
+        }
+      },
+      "ProviderKeyValidationRequest": {
+        "type": "object",
+        "required": ["protocol", "endpoints"],
+        "properties": {
+          "protocol": { "enum": ["openai", "anthropic"] },
+          "endpoints": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": { "$ref": "#/components/schemas/ProviderEndpoint" }
+          }
+        }
+      },
+      "ProviderKeyValidationResult": {
+        "type": "object",
+        "required": ["key_id", "status"],
+        "properties": {
+          "key_id": { "type": "string" },
+          "status": { "enum": ["valid", "invalid", "error", "skipped"] },
+          "endpoint_id": { "type": "string" },
+          "error_category": {
+            "enum": [
+              "invalid_url",
+              "network_error",
+              "authentication_failed",
+              "rate_limited",
+              "unsupported_endpoint",
+              "provider_unavailable",
+              "request_rejected"
+            ]
+          }
+        }
+      },
+      "ProviderEndpointValidationResult": {
+        "type": "object",
+        "required": ["endpoint_id", "status", "latency_ms"],
+        "properties": {
+          "endpoint_id": { "type": "string" },
+          "status": { "enum": ["valid", "reachable", "unreachable", "skipped"] },
+          "latency_ms": { "type": "integer", "minimum": 0 },
+          "error_category": {
+            "enum": [
+              "invalid_url",
+              "network_error",
+              "authentication_failed",
+              "rate_limited",
+              "unsupported_endpoint",
+              "provider_unavailable",
+              "request_rejected"
+            ]
+          }
+        }
+      },
+      "ProviderKeyValidationResponse": {
+        "type": "object",
+        "required": ["provider", "valid", "success_count", "key_results", "endpoint_results"],
+        "properties": {
+          "provider": { "type": "string" },
+          "valid": { "type": "boolean" },
+          "success_count": { "type": "integer", "minimum": 0 },
+          "key_results": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProviderKeyValidationResult" }
+          },
+          "endpoint_results": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProviderEndpointValidationResult" }
           }
         }
       },

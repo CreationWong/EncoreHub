@@ -9,7 +9,10 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { keyHintFor } from "../../constants/providers";
-import type { ProviderProtocol } from "../../services/providers";
+import type {
+	ProviderKeyValidationResult,
+	ProviderProtocol,
+} from "../../services/providers";
 import {
 	MAX_PROVIDER_API_KEYS,
 	type ProviderAPIKey,
@@ -19,12 +22,26 @@ import {
 interface Props {
 	keys: ProviderAPIKey[];
 	protocol: ProviderProtocol;
+	results?: Record<string, ProviderKeyValidationResult>;
+	validating?: boolean;
 	onChange: (keys: ProviderAPIKey[], connectionChanged: boolean) => void;
+}
+
+function resultLabel(result?: ProviderKeyValidationResult): string {
+	if (!result) return "Not tested";
+	if (result.status === "valid") return "Key is valid";
+	if (result.status === "invalid") return "Key was rejected";
+	if (result.status === "skipped") return "Key is disabled";
+	return result.error_category
+		? `Validation failed: ${result.error_category.replaceAll("_", " ")}`
+		: "Validation failed";
 }
 
 export default function ProviderKeyPoolEditor({
 	keys,
 	protocol,
+	results = {},
+	validating = false,
 	onChange,
 }: Props) {
 	const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
@@ -69,20 +86,40 @@ export default function ProviderKeyPoolEditor({
 				) : (
 					keys.map((key, index) => {
 						const isRevealed = revealed.has(key.id);
+						const result = results[key.id];
+						const label =
+							validating && key.enabled ? "Testing key" : resultLabel(result);
 						return (
 							<div
 								key={key.id}
 								className="grid gap-2 border-b border-border p-3 last:border-b-0 sm:grid-cols-[minmax(6rem,9rem)_minmax(10rem,1fr)_auto] sm:items-center"
 							>
-								<input
-									value={key.name}
-									onChange={(event) =>
-										update(index, { name: event.target.value }, false)
-									}
-									aria-label={`API key ${index + 1} name`}
-									placeholder={index === 0 ? "Primary" : `Backup ${index}`}
-									className="min-w-0 rounded-md border border-border bg-surface-alt px-3 py-2 text-xs font-medium text-text-secondary placeholder:text-text-muted"
-								/>
+								<div className="flex min-w-0 items-center gap-2">
+									<span
+										className={`h-2 w-2 shrink-0 rounded-full ${
+											validating && key.enabled
+												? "animate-pulse bg-accent"
+												: result?.status === "valid"
+													? "bg-success"
+													: result?.status === "invalid"
+														? "bg-danger"
+														: result?.status === "error"
+															? "bg-warning"
+															: "bg-border"
+										}`}
+										aria-label={`${key.name || `API key ${index + 1}`}: ${label}`}
+										title={label}
+									/>
+									<input
+										value={key.name}
+										onChange={(event) =>
+											update(index, { name: event.target.value }, false)
+										}
+										aria-label={`API key ${index + 1} name`}
+										placeholder={index === 0 ? "Primary" : `Backup ${index}`}
+										className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 text-xs font-medium text-text-secondary placeholder:text-text-muted"
+									/>
+								</div>
 								<div className="flex min-w-0">
 									<input
 										type={isRevealed ? "text" : "password"}

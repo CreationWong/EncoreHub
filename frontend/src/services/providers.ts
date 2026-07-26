@@ -81,6 +81,28 @@ export interface ModelDiscoveryResponse {
 	endpoint_results: ModelDiscoveryEndpointResult[];
 }
 
+export interface ProviderKeyValidationResult {
+	key_id: string;
+	status: "valid" | "invalid" | "error" | "skipped";
+	endpoint_id?: string;
+	error_category?: string;
+}
+
+export interface ProviderEndpointValidationResult {
+	endpoint_id: string;
+	status: "valid" | "reachable" | "unreachable" | "skipped";
+	latency_ms: number;
+	error_category?: string;
+}
+
+export interface ProviderKeyValidationResponse {
+	provider: string;
+	valid: boolean;
+	success_count: number;
+	key_results: ProviderKeyValidationResult[];
+	endpoint_results: ProviderEndpointValidationResult[];
+}
+
 export const providersApi = {
 	/** List all provider profiles (builtin-first). */
 	list(): Promise<ProvidersResponse> {
@@ -97,6 +119,23 @@ export const providersApi = {
 			method: "PUT",
 			body: JSON.stringify({ providers }),
 		});
+	},
+
+	/** Validate request-local keys and draft endpoints without persisting either. */
+	validateKey(
+		providerId: string,
+		protocol: ProviderProtocol,
+		endpoints: ProviderEndpoint[],
+		apiKeyPool: string,
+	): Promise<ProviderKeyValidationResponse> {
+		return apiFetch<ProviderKeyValidationResponse>(
+			`/providers/${encodeURIComponent(providerId)}/validate-key`,
+			{
+				method: "POST",
+				headers: { "X-Provider-Key": apiKeyPool },
+				body: JSON.stringify({ protocol, endpoints }),
+			},
+		);
 	},
 
 	/** Probe draft endpoint settings without persisting the profile or key. */

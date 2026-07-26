@@ -57,7 +57,7 @@ flowchart LR
     C04A --> C05[CUI-05 Composer 与滚动]
     C05 --> G2{UG2 核心聊天体验}
 
-    G2 --> C06[CUI-06 ProviderDetail、多端点与多 Key 路由]
+    G2 --> C06[CUI-06 ProviderDetail 多端点与多 Key 路由]
     C06 --> C07[CUI-07 密钥检测与发现确认]
     G2 --> C08[CUI-08 完整回复遥测]
     C07 --> G3{UG3 配置与遥测}
@@ -105,7 +105,7 @@ flowchart LR
 | CUI-04A | Frontend sidebar/context/messages | CUI-04 | 上下文层级、角色身份、中性拖拽边界、紧凑工具记录 | `Done`（本地视觉验收） |
 | CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Ready` |
 | CUI-06 | Gateway + Frontend settings | UG2 | ProviderDetail、多端点/多 Key 路由、模型元数据、draft 保存与自动发现 | `Done`（本地自动化与视觉验收） |
-| CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Partial`（model discovery 已前移，validation 待实现） |
+| CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Done`（本地自动化与视觉验收） |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Not started` |
 | CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Not started` |
 | CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Not started` |
@@ -379,7 +379,7 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05、CUI-06 与 UG2 已完成；下一项为 CUI-07 密钥检测和发现差异确认。
+CUI-05、CUI-06、CUI-07 与 UG2 已完成；下一项为 CUI-08 完整回复遥测。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
@@ -448,19 +448,27 @@ CUI-05、CUI-06 与 UG2 已完成；下一项为 CUI-07 密钥检测和发现差
 **任务**
 
 - [x] 为 discovery 扩展 Gateway route、handler、provider adapter 和 OpenAPI；不改变现有 `ListModels` 的已配置模型语义。
-- [ ] 增加独立 `validate-key`/Key 池检测与端点健康检查契约。
-- [ ] 允许检测当前 draft URL 和临时 key，命令结束后不持久化 key 或 profile。
+- [x] 增加独立 `validate-key`/Key 池检测与端点健康检查契约。
+- [x] 允许检测当前 draft URL 和临时 key，命令结束后不持久化 key 或 profile。
 - [x] discovery 对超时/网络、401/403、限流、不支持端点、无模型和畸形响应使用可区分错误类别；独立 validation 类别留在本项补齐。
-- [ ] 前端为检测、发现和保存维护独立 pending 状态，不锁死只读区域。
-- [ ] 发现结果先显示“新增 / 保留 / 将移除”差异；只有用户确认后更新本地 draft。
+- [x] 前端为检测、发现和保存维护独立 pending 状态，不锁死只读区域。
+- [x] 后台自动发现先显示“新增 / 保留 / 将移除”差异；部分 endpoint 失败时禁止移除本地模型。用户手动单击“Fetch models”视为明确确认，仅自动保存模型列表，不连带保存 endpoint、Key、协议或轮换策略草稿。
 - [x] 远端失败、空响应或取消不清空本地模型列表。
-- [ ] 为官方文档和“获取密钥”使用 Tauri shell/系统浏览器；Web 模式使用安全外链降级。
+- [ ] 为官方文档和“获取密钥”使用 Tauri shell/系统浏览器；按产品决定不纳入本项，保持延期。
 
 **契约测试**
 
 - key 正确、错误、缺失、vault 锁定和临时 key 不持久化。
 - discovery 支持、不支持、超时、重复模型、空结果和远端失败。
 - canary key、响应正文和完整 URL 不出现在 Gateway/Tauri 导出日志中。
+
+**完成记录（2026-07-26）**
+
+- Gateway 新增无持久化 `POST /api/v1/providers/{provider}/validate-key`；legacy 单 Key 与版本化 Key 池均返回按安全 ID 对齐的检测结果，endpoint 同时返回连接状态和延迟。
+- validation 只返回 `valid/invalid/error/skipped`、`valid/reachable/unreachable/skipped` 与结构化错误类别；Key 值、Key 名称、完整 URL 和上游正文不进入响应或日志。
+- ProviderDetail 的检测、发现和保存拥有独立 pending 状态；Key 与 endpoint 行显示最近检测结果，连接参数变化会立即作废旧结果和过期请求。
+- 后台发现使用 Add / Keep / Remove 审阅工具；部分成功只允许新增和保留。手动 Fetch 成功后自动保存远端模型列表，不再要求再次点击底部保存；其他 Provider 草稿和 Key 池保持未保存状态。
+- 官方文档与获取密钥外链入口按用户决定延期，不属于本次 CUI-07 完成门槛。
 
 ### CUI-08 持久化完整回复遥测
 

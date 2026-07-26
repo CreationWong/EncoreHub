@@ -1,11 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestDiscoverEndpointModelsOpenAIUsesBearerKey(t *testing.T) {
@@ -110,5 +115,46 @@ func TestDiscoverEndpointModelsTriesBackupAPIKey(t *testing.T) {
 	}
 	if want := []string{"Bearer primary-key", "Bearer backup-key"}; !reflect.DeepEqual(authorizations, want) {
 		t.Fatalf("authorizations = %v, want %v", authorizations, want)
+	}
+}
+
+func TestDiscoverModelsReportsUnsupportedEndpointWithoutChangingProfiles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"remote body must stay private"}`))
+	}))
+	defer server.Close()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	requestBody := `{"protocol":"openai","endpoints":[{"id":"primary","base_url":"` + server.URL + `/v1","enabled":true}]}`
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/providers/custom/models/discover",
+		bytes.NewBufferString(requestBody),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "temporary-key")
+	ginContext.Request = request
+	ginContext.Params = gin.Params{{Key: "provider", Value: "custom"}}
+
+	(&ProviderHandler{client: server.Client()}).DiscoverModels(ginContext)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		DiscoverySupported bool `json:"discovery_supported"`
+		SuccessCount       int  `json:"success_count"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.DiscoverySupported || response.SuccessCount != 0 {
+		t.Fatalf("response = %#v", response)
+	}
+	if strings.Contains(recorder.Body.String(), "temporary-key") || strings.Contains(recorder.Body.String(), server.URL) {
+		t.Fatalf("discovery response leaked request data: %s", recorder.Body.String())
 	}
 }

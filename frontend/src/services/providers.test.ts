@@ -10,6 +10,42 @@ import { providersApi } from "./providers";
 beforeEach(() => apiFetch.mockReset().mockResolvedValue(undefined));
 
 describe("providers service", () => {
+	it("validates temporary keys and draft endpoints without profile data", async () => {
+		await providersApi.validateKey(
+			"custom/provider",
+			"anthropic",
+			[
+				{
+					id: "primary",
+					name: "Primary",
+					base_url: "https://api.example.com/v1",
+					enabled: true,
+				},
+			],
+			"temporary-key-pool",
+		);
+
+		expect(apiFetch).toHaveBeenCalledWith(
+			"/providers/custom%2Fprovider/validate-key",
+			expect.objectContaining({
+				method: "POST",
+				headers: { "X-Provider-Key": "temporary-key-pool" },
+			}),
+		);
+		const options = apiFetch.mock.calls[0][1];
+		expect(JSON.parse(options.body)).toEqual({
+			protocol: "anthropic",
+			endpoints: [
+				{
+					id: "primary",
+					name: "Primary",
+					base_url: "https://api.example.com/v1",
+					enabled: true,
+				},
+			],
+		});
+	});
+
 	it("discovers models with draft endpoints and a secret header", async () => {
 		await providersApi.discoverModels(
 			"custom/provider",

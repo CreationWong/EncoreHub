@@ -12,6 +12,7 @@ import type { ProviderProfile } from "../../services/providers";
 import { parseProviderAPIKeys } from "./providerKeys";
 
 const discoverModels = vi.fn();
+const validateKey = vi.fn();
 vi.mock("../../services/providers", async (importOriginal) => {
 	const original =
 		await importOriginal<typeof import("../../services/providers")>();
@@ -20,6 +21,7 @@ vi.mock("../../services/providers", async (importOriginal) => {
 		providersApi: {
 			...original.providersApi,
 			discoverModels: (...args: unknown[]) => discoverModels(...args),
+			validateKey: (...args: unknown[]) => validateKey(...args),
 		},
 	};
 });
@@ -80,12 +82,27 @@ function renderDetail(
 		onDelete: vi.fn(),
 		...overrides,
 	};
-	render(<ProviderDetail {...props} />);
-	return props;
+	const view = render(<ProviderDetail {...props} />);
+	return { props, ...view };
 }
 
 beforeEach(() => {
 	vi.useFakeTimers();
+	validateKey.mockReset().mockResolvedValue({
+		provider: "custom",
+		valid: true,
+		success_count: 1,
+		key_results: [
+			{
+				key_id: "key-test-1",
+				status: "valid",
+				endpoint_id: "primary",
+			},
+		],
+		endpoint_results: [
+			{ endpoint_id: "primary", status: "valid", latency_ms: 5 },
+		],
+	});
 	discoverModels.mockReset().mockResolvedValue({
 		provider: "custom",
 		discovery_supported: true,
@@ -125,7 +142,7 @@ describe("ProviderDetail", () => {
 		).toBeDefined();
 	});
 
-	it("automatically fetches and merges models after key and endpoint input", async () => {
+	it("automatically fetches models but waits for diff confirmation", async () => {
 		renderDetail();
 		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
 		fireEvent.change(screen.getByLabelText("API key 1 value"), {
@@ -153,7 +170,89 @@ describe("ProviderDetail", () => {
 			expect.stringContaining('"value":"session-key"'),
 			"failover",
 		);
+		expect(
+			screen.getByRole("region", { name: "Model discovery changes" }),
+		).toBeDefined();
+		expect(screen.queryByText("Discovered Model")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Apply to draft" }));
 		expect(screen.getByText("Discovered Model")).toBeDefined();
+	});
+
+	it("tests temporary keys without persisting and keeps other commands available", async () => {
+		let resolveValidation: ((value: unknown) => void) | undefined;
+		validateKey.mockReturnValue(
+			new Promise((resolve) => {
+				resolveValidation = resolve;
+			}),
+		);
+		const onSetKey = vi.fn();
+		const onSave = vi.fn().mockResolvedValue(undefined);
+		renderDetail({ onSetKey, onSave });
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "temporary-session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://api.example.com/v1" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Test API keys and endpoints" }),
+		);
+		expect(
+			screen.getByRole("button", { name: "Test API keys and endpoints" }),
+		).toHaveProperty("disabled", true);
+		expect(
+			screen.getByRole("button", { name: "Fetch model list" }),
+		).toHaveProperty("disabled", false);
+		expect(screen.getByLabelText("API key 1 value")).toHaveProperty(
+			"disabled",
+			false,
+		);
+		const testedKeyID = parseProviderAPIKeys(
+			validateKey.mock.calls[0][3] as string,
+		)[0].id;
+
+		await act(async () => {
+			resolveValidation?.({
+				provider: "custom",
+				valid: true,
+				success_count: 1,
+				key_results: [
+					{
+						key_id: testedKeyID,
+						status: "valid",
+						endpoint_id: "primary",
+					},
+				],
+				endpoint_results: [
+					{ endpoint_id: "primary", status: "valid", latency_ms: 5 },
+				],
+			});
+			await Promise.resolve();
+		});
+
+		expect(validateKey).toHaveBeenCalledWith(
+			"custom",
+			"openai",
+			expect.arrayContaining([
+				expect.objectContaining({
+					base_url: "https://api.example.com/v1",
+				}),
+			]),
+			expect.stringContaining('"value":"temporary-session-key"'),
+		);
+		expect(screen.getByText(/1 of 1 keys valid/)).toBeDefined();
+		expect(screen.getByLabelText("Primary: Key is valid")).toBeDefined();
+		expect(onSetKey).not.toHaveBeenCalled();
+		expect(onSave).not.toHaveBeenCalled();
+	});
+
+	it("keeps validation disabled while the encrypted key pool is locked", () => {
+		renderDetail({ vaultLocked: true, keyStored: true, apiKey: "" });
+		expect(
+			screen.getByRole("button", { name: "Test API keys and endpoints" }),
+		).toHaveProperty("disabled", true);
 	});
 
 	it("waits for every API key row before automatic discovery", async () => {
@@ -182,6 +281,50 @@ describe("ProviderDetail", () => {
 			await Promise.resolve();
 		});
 		expect(discoverModels).toHaveBeenCalledTimes(1);
+	});
+
+	it("saves only the model list after a manual model fetch", async () => {
+		vi.useRealTimers();
+		const onSave = vi.fn().mockResolvedValue(undefined);
+		const onSetKey = vi.fn();
+		const { props, rerender } = renderDetail({ onSave, onSetKey });
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://api.example.com/v1" },
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Fetch model list" }));
+
+		await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+		const saved = onSave.mock.calls[0][0] as ProviderProfile;
+		expect(saved.base_url).toBe(profile.base_url);
+		expect(saved.endpoints).toBe(profile.endpoints);
+		expect(saved.routing_strategy).toBe(profile.routing_strategy);
+		expect(saved.key_routing_strategy).toBe(profile.key_routing_strategy);
+		expect(saved.models).toEqual(["existing-model", "discovered-model"]);
+		expect(saved.model_configs).toEqual([
+			expect.objectContaining({ id: "existing-model" }),
+			expect.objectContaining({ id: "discovered-model" }),
+		]);
+		expect(onSetKey).not.toHaveBeenCalled();
+
+		rerender(<ProviderDetail {...props} profile={saved} isDraft={false} />);
+		expect(screen.getByLabelText("Endpoint 1 URL")).toHaveProperty(
+			"value",
+			"https://api.example.com/v1",
+		);
+		expect(screen.getByLabelText("API key 1 value")).toHaveProperty(
+			"value",
+			"session-key",
+		);
+		expect(screen.getByText("Unsaved changes")).toBeDefined();
+		expect(
+			screen.queryByRole("region", { name: "Model discovery changes" }),
+		).toBeNull();
+		expect(screen.getByText(/2 models fetched and saved/)).toBeDefined();
 	});
 
 	it("persists endpoint routing, model metadata, and key only on save", async () => {
