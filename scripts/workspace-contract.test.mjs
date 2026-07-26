@@ -119,7 +119,7 @@ test("Frontend build enforces and retains its initial gzip budget", async () => 
 			read("package.json"),
 			read("frontend/vite.config.ts"),
 			read("frontend/scripts/check-bundle-budget.mjs"),
-			read(".github/workflows/ci.yml"),
+			read(".github/workflows/build.yml"),
 		]);
 	const frontendScripts = JSON.parse(frontendPackageText).scripts;
 	const rootScripts = JSON.parse(rootPackageText).scripts;
@@ -174,8 +174,33 @@ test("Unix desktop build uses argument arrays and target-triple sidecars", async
 	assert.doesNotMatch(script, /TAURI_CMD="tauri build"|pnpm "tauri" "\$TAURI_CMD"/);
 });
 
-test("Desktop CI compiles and dry-builds all declared platforms", async () => {
-	const workflow = await read(".github/workflows/ci.yml");
+test("Expensive builds only run from the manual workflow", async () => {
+	const [ciWorkflow, buildWorkflow] = await Promise.all([
+		read(".github/workflows/ci.yml"),
+		read(".github/workflows/build.yml"),
+	]);
+
+	assert.match(ciWorkflow, /^ {2}push:\s*$/m);
+	assert.match(ciWorkflow, /^ {2}pull_request:\s*$/m);
+	assert.match(ciWorkflow, /run: pnpm check/);
+	assert.match(ciWorkflow, /Check workspace contracts/);
+	assert.match(buildWorkflow, /^ {2}workflow_dispatch:\s*$/m);
+	assert.doesNotMatch(buildWorkflow, /^ {2}(?:push|pull_request):/m);
+
+	for (const command of [
+		/run: pnpm build/,
+		/run: go build -o bin\/gateway/,
+		/run: cargo build --release/,
+		/run: pnpm --dir frontend tauri build --debug --no-bundle --ci/,
+		/run: docker compose build --no-cache/,
+	]) {
+		assert.match(buildWorkflow, command);
+		assert.doesNotMatch(ciWorkflow, command);
+	}
+});
+
+test("Manual desktop build compiles all declared platforms", async () => {
+	const workflow = await read(".github/workflows/build.yml");
 	for (const runner of ["ubuntu-latest", "macos-latest", "windows-latest"]) {
 		assert.match(workflow, new RegExp(`os: ${runner}`));
 	}
@@ -198,7 +223,7 @@ test("Data Services stays dependency-minimal and opt-in", async () => {
 		read("data-services/Dockerfile"),
 		read("data-services/pyproject.toml"),
 		read("package.json"),
-		read(".github/workflows/ci.yml"),
+		read(".github/workflows/build.yml"),
 	]);
 	assert.match(compose, /data-services:\s*\n\s*profiles: \["data"\]/);
 	assert.doesNotMatch(compose, /^\s{2}redis:/m);

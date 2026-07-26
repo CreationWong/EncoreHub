@@ -1,0 +1,213 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Component to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - frontend
+          - gateway
+          - engine
+          - desktop
+          - containers
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    if: ${{ inputs.target == 'all' || inputs.target == 'frontend' || inputs.target == 'desktop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Build frontend and enforce bundle budget
+        run: pnpm build
+        env:
+          BUNDLE_BUDGET_KIB: "300"
+      - name: Upload frontend bundle statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-bundle-stats
+          path: |
+            frontend/dist/bundle-analysis.json
+            frontend/dist/bundle-budget.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload frontend assets for desktop jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  gateway:
+    if: ${{ inputs.target == 'all' || inputs.target == 'gateway' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: gateway/go.sum
+      - run: mkdir -p bin
+      - run: go build -o bin/gateway ./cmd/gateway
+
+  engine:
+    if: ${{ inputs.target == 'all' || inputs.target == 'engine' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo build --release -p encorehub-engine --bins --features standalone
+
+  desktop-platforms:
+    if: ${{ inputs.target == 'all' || inputs.target == 'desktop' }}
+    needs: frontend
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Download validated frontend assets
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Verify frontend assets required by Tauri macros
+        run: node -e "if (!require('node:fs').existsSync('frontend/dist/index.html')) process.exit(1)"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: gateway/go.sum
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            patchelf
+      - name: Validate Unix build script
+        if: runner.os == 'Linux'
+        run: bash -n scripts/build.sh
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - name: Prepare current-target Gateway sidecar
+        run: node scripts/prepare-gateway-sidecar.mjs
+      - name: Check desktop integration
+        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
+      - name: Lint desktop integration
+        run: cargo clippy --manifest-path frontend/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Test desktop integration
+        run: cargo test --manifest-path frontend/src-tauri/Cargo.toml
+      - name: Build current-platform desktop executable
+        run: pnpm --dir frontend tauri build --debug --no-bundle --ci
+
+  containers:
+    if: ${{ inputs.target == 'all' || inputs.target == 'containers' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ENCOREHUB_ENGINE_AUTH_TOKEN: ci-container-engine-token-32-bytes-minimum
+      ENCOREHUB_AUTH_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Data Services profile is declared
+        run: docker compose config --profiles | grep -qx data
+      - name: Build clean Compose images
+        run: docker compose build --no-cache
+      - name: Build optional Data Services image
+        run: docker compose --profile data build --no-cache data-services
+      - name: Start Compose stack
+        run: docker compose up -d
+      - name: Wait for Gateway readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/api/v1/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Verify published surface
+        run: |
+          docker compose ps
+          curl --fail http://127.0.0.1:8080/api/v1/health/ready
+          if curl --fail --silent http://127.0.0.1:3000/health/live >/dev/null; then
+            echo "Engine must not be published to the host" >&2
+            exit 1
+          fi
+          if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+            echo "Data Services must not start without its profile" >&2
+            exit 1
+          fi
+          if docker compose ps --services | grep -qx data-services; then
+            echo "Data Services container must not start without its profile" >&2
+            exit 1
+          fi
+      - name: Smoke optional Data Services profile
+        run: |
+          docker compose --profile data up -d data-services
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --profile data ps
+          exit 1
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose --profile data logs --no-color
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose --profile data down --volumes --remove-orphans

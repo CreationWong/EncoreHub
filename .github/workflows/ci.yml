@@ -6,14 +6,18 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ===== Documentation contracts =====
+  # ===== Documentation and workspace contracts =====
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,10 +28,13 @@ jobs:
           node-version: 22
       - name: Check links, OpenAPI, ADRs, and documented commands
         run: pnpm test:docs
+      - name: Check workspace contracts
+        run: node --test scripts/workspace-contract.test.mjs
 
-  # ===== Frontend =====
+  # ===== Frontend checks =====
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -42,34 +49,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm test:bundle
-      - name: Build frontend and enforce bundle budget
-        run: pnpm build
-        env:
-          BUNDLE_BUDGET_KIB: "300"
-      - name: Upload frontend bundle statistics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-bundle-stats
-          path: |
-            frontend/dist/bundle-analysis.json
-            frontend/dist/bundle-budget.json
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload frontend assets for desktop jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-          if-no-files-found: error
-          retention-days: 1
 
-  # ===== Gateway (Go) =====
+  # ===== Gateway (Go) checks =====
   gateway:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: gateway
@@ -83,11 +71,11 @@ jobs:
       - run: git diff --exit-code
       - run: go vet ./...
       - run: go test ./...
-      - run: go build -o bin/gateway ./cmd/gateway
 
-  # ===== Engine (Rust) =====
+  # ===== Engine (Rust) checks =====
   engine:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: engine
@@ -107,69 +95,11 @@ jobs:
         run: cargo test --workspace
       - name: Test standalone Engine targets
         run: cargo test -p encorehub-engine --all-targets --features standalone
-      - run: cargo build --release -p encorehub-engine --bins --features standalone
 
-  # ===== Desktop platform compile + no-bundle smoke =====
-  desktop-platforms:
-    needs: frontend
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-          - os: macos-latest
-          - os: windows-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.28.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-      - name: Download validated frontend assets
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-      - name: Verify frontend assets required by Tauri macros
-        run: node -e "if (!require('node:fs').existsSync('frontend/dist/index.html')) process.exit(1)"
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache-dependency-path: gateway/go.sum
-      - name: Install Tauri Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            patchelf
-      - name: Validate Unix build script
-        if: runner.os == 'Linux'
-        run: bash -n scripts/build.sh
-      - run: pnpm --dir frontend install --frozen-lockfile
-      - name: Prepare current-target Gateway sidecar
-        run: node scripts/prepare-gateway-sidecar.mjs
-      - name: Check desktop integration
-        run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
-      - name: Lint desktop integration
-        run: cargo clippy --manifest-path frontend/src-tauri/Cargo.toml --all-targets -- -D warnings
-      - name: Test desktop integration
-        run: cargo test --manifest-path frontend/src-tauri/Cargo.toml
-      - name: Build current-platform desktop executable
-        run: pnpm --dir frontend tauri build --debug --no-bundle --ci
-
-  # ===== Data Services (Python) =====
+  # ===== Data Services (Python) checks =====
   data-services:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: data-services
@@ -184,68 +114,3 @@ jobs:
       - run: uv run --frozen ruff check src/ tests/
       - run: uv run --frozen mypy src/ tests/
       - run: uv run --frozen pytest
-
-  # ===== Container contract + clean smoke =====
-  containers:
-    runs-on: ubuntu-latest
-    env:
-      ENCOREHUB_ENGINE_AUTH_TOKEN: ci-container-engine-token-32-bytes-minimum
-      ENCOREHUB_AUTH_TOKEN: ""
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Verify workspace and container contracts
-        run: node --test scripts/workspace-contract.test.mjs
-      - name: Verify Data Services profile is declared
-        run: docker compose config --profiles | grep -qx data
-      - name: Build clean Compose images
-        run: docker compose build --no-cache
-      - name: Build optional Data Services image
-        run: docker compose --profile data build --no-cache data-services
-      - name: Start Compose stack
-        run: docker compose up -d
-      - name: Wait for Gateway readiness
-        run: |
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8080/api/v1/health/ready >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose ps
-          exit 1
-      - name: Verify published surface
-        run: |
-          docker compose ps
-          curl --fail http://127.0.0.1:8080/api/v1/health/ready
-          if curl --fail --silent http://127.0.0.1:3000/health/live >/dev/null; then
-            echo "Engine must not be published to the host" >&2
-            exit 1
-          fi
-          if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
-            echo "Data Services must not start without its profile" >&2
-            exit 1
-          fi
-          if docker compose ps --services | grep -qx data-services; then
-            echo "Data Services container must not start without its profile" >&2
-            exit 1
-          fi
-      - name: Smoke optional Data Services profile
-        run: |
-          docker compose --profile data up -d data-services
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose --profile data ps
-          exit 1
-      - name: Show container logs on failure
-        if: failure()
-        run: docker compose --profile data logs --no-color
-      - name: Stop Compose stack
-        if: always()
-        run: docker compose --profile data down --volumes --remove-orphans
