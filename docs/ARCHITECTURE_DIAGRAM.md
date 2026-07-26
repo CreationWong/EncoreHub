@@ -233,7 +233,7 @@ graph TB
         X5["golangci-lint (gateway)"]
         X6["clippy + rustfmt (engine)"]
         X7["ruff + mypy (data-services)"]
-        X8["GitHub Actions CI<br/>6 job groups + platform matrix"]
+        X8["GitHub Actions<br/>Automatic CI checks<br/>Manual targeted builds"]
     end
 ```
 
