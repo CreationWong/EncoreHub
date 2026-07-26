@@ -225,7 +225,9 @@ pub async fn delete(
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateRequest {
-    pub title: String,
+    pub title: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
 }
 
 pub async fn update(
@@ -233,19 +235,55 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<UpdateRequest>,
 ) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let title = req.title.trim();
-    if title.is_empty() {
+    if req.title.is_none() && req.provider.is_none() && req.model.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "title cannot be empty".into(),
+                error: "at least one field is required".into(),
             }),
         ));
     }
-    state
-        .db
-        .update_conversation_title(&id, title)
-        .map_err(internal_error)?;
+    if req.provider.is_some() != req.model.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "provider and model must be updated together".into(),
+            }),
+        ));
+    }
+
+    if let Some(title) = req.title.as_deref() {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "title cannot be empty".into(),
+                }),
+            ));
+        }
+        state
+            .db
+            .update_conversation_title(&id, title)
+            .map_err(internal_error)?;
+    }
+
+    if let (Some(provider), Some(model)) = (req.provider.as_deref(), req.model.as_deref()) {
+        let provider = provider.trim();
+        let model = model.trim();
+        if provider.is_empty() || model.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "provider and model cannot be empty".into(),
+                }),
+            ));
+        }
+        state
+            .db
+            .update_conversation_model(&id, provider, model)
+            .map_err(internal_error)?;
+    }
     let conv = state.db.get_conversation(&id).map_err(not_found)?;
     Ok(Json(ConversationResponse {
         id: conv.id,

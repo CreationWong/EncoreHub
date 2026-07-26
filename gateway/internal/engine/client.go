@@ -106,14 +106,25 @@ func (c *Client) CreateConversation(ctx context.Context, title, provider, model 
 	return &conv, nil
 }
 
-// RenameConversation updates the title of an existing conversation.
-func (c *Client) RenameConversation(ctx context.Context, id, title string) (*Conversation, error) {
-	body := map[string]string{"title": title}
+// ConversationUpdate changes selected authoritative conversation metadata.
+type ConversationUpdate struct {
+	Title    *string `json:"title,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+	Model    *string `json:"model,omitempty"`
+}
+
+// UpdateConversation updates authoritative metadata for an existing conversation.
+func (c *Client) UpdateConversation(ctx context.Context, id string, update ConversationUpdate) (*Conversation, error) {
 	var conv Conversation
-	if err := c.doJSON(ctx, "PATCH", "/api/conversations/"+id, body, &conv); err != nil {
+	if err := c.doJSON(ctx, http.MethodPatch, "/api/conversations/"+url.PathEscape(id), update, &conv); err != nil {
 		return nil, err
 	}
 	return &conv, nil
+}
+
+// RenameConversation preserves the title-only call used by title generation.
+func (c *Client) RenameConversation(ctx context.Context, id, title string) (*Conversation, error) {
+	return c.UpdateConversation(ctx, id, ConversationUpdate{Title: &title})
 }
 
 // DeleteConversation removes a conversation and its dependent records.

@@ -276,6 +276,23 @@ async fn create_then_list_then_get_then_rename_then_delete() {
     let renamed = body_json(resp).await;
     assert_eq!(renamed["title"], "renamed");
 
+    // Change the authoritative provider/model without creating a conversation.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/conversations/{id}"),
+            json!({"provider":"anthropic","model":"claude-sonnet-4"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated = body_json(resp).await;
+    assert_eq!(updated["id"], id);
+    assert_eq!(updated["title"], "renamed");
+    assert_eq!(updated["provider"], "anthropic");
+    assert_eq!(updated["model"], "claude-sonnet-4");
+
     // Delete
     let resp = app
         .clone()
@@ -323,6 +340,32 @@ async fn rename_rejects_empty_title() {
             "PATCH",
             &format!("/api/conversations/{id}"),
             json!({"title":"   "}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn update_rejects_incomplete_provider_model_pair() {
+    let (_dir, app) = make_app();
+
+    let create = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"x","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let id = body_json(create).await["id"].as_str().unwrap().to_string();
+
+    let resp = app
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/conversations/{id}"),
+            json!({"provider":"anthropic"}),
         ))
         .await
         .unwrap();

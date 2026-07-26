@@ -39,6 +39,7 @@ import GlobalNav from "./GlobalNav";
 
 describe("GlobalNav", () => {
 	beforeEach(() => {
+		document.documentElement.classList.remove("dark");
 		newConversation.mockReset().mockResolvedValue("conversation-1");
 		setTheme.mockReset();
 		openSettings.mockReset();
@@ -57,7 +58,12 @@ describe("GlobalNav", () => {
 		expect(
 			screen.getByRole("button", { name: "New conversation" }),
 		).toBeDefined();
-		expect(screen.getByRole("button", { name: "Appearance" })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Switch appearance" }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Open appearance menu" }),
+		).toBeDefined();
 		expect(screen.getByRole("button", { name: "Settings" })).toBeDefined();
 		expect(screen.queryByRole("button", { name: "Characters" })).toBeNull();
 	});
@@ -76,7 +82,9 @@ describe("GlobalNav", () => {
 
 	it("selects a theme from the appearance menu", () => {
 		render(<GlobalNav />);
-		fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open appearance menu" }),
+		);
 
 		const system = screen.getByRole("menuitemradio", { name: "System" });
 		expect(system.getAttribute("aria-checked")).toBe("true");
@@ -86,9 +94,19 @@ describe("GlobalNav", () => {
 		expect(screen.queryByRole("menu", { name: "Appearance" })).toBeNull();
 	});
 
+	it("switches the rendered theme directly from the main appearance icon", () => {
+		render(<GlobalNav />);
+		fireEvent.click(screen.getByRole("button", { name: "Switch appearance" }));
+
+		expect(setTheme).toHaveBeenCalledWith("dark");
+		expect(screen.queryByRole("menu", { name: "Appearance" })).toBeNull();
+	});
+
 	it("closes the appearance menu on Escape and restores trigger focus", () => {
 		render(<GlobalNav />);
-		const trigger = screen.getByRole("button", { name: "Appearance" });
+		const trigger = screen.getByRole("button", {
+			name: "Open appearance menu",
+		});
 		fireEvent.click(trigger);
 		fireEvent.keyDown(window, { key: "Escape" });
 
@@ -98,7 +116,9 @@ describe("GlobalNav", () => {
 
 	it("moves through appearance options with arrow keys", async () => {
 		render(<GlobalNav />);
-		const trigger = screen.getByRole("button", { name: "Appearance" });
+		const trigger = screen.getByRole("button", {
+			name: "Open appearance menu",
+		});
 		fireEvent.keyDown(trigger, { key: "ArrowDown" });
 		const light = screen.getByRole("menuitemradio", { name: "Light" });
 		const dark = screen.getByRole("menuitemradio", { name: "Dark" });

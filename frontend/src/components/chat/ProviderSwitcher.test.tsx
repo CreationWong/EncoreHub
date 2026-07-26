@@ -9,14 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../services/conversation";
 import type { ProviderProfile } from "../../services/providers";
 
-const confirmAsk = vi.fn();
-vi.mock("../../stores/confirmStore", () => ({
-	confirm: { ask: (...args: unknown[]) => confirmAsk(...args) },
-}));
-
 const setProvider = vi.fn();
 const openSettings = vi.fn();
 const newConversation = vi.fn();
+const updateConversationModel = vi.fn();
 
 let settingsState: {
 	provider: string;
@@ -29,6 +25,7 @@ let conversationState: {
 	activeId: string | null;
 	conversations: Conversation[];
 	newConversation: typeof newConversation;
+	updateConversationModel: typeof updateConversationModel;
 };
 
 let providerState: {
@@ -88,10 +85,10 @@ function conversation(
 }
 
 beforeEach(() => {
-	confirmAsk.mockReset().mockResolvedValue(true);
 	setProvider.mockReset();
 	openSettings.mockReset();
 	newConversation.mockReset().mockResolvedValue("new-conversation");
+	updateConversationModel.mockReset().mockResolvedValue(undefined);
 	settingsState = {
 		provider: "deepseek",
 		model: "deepseek-chat",
@@ -102,6 +99,7 @@ beforeEach(() => {
 		activeId: null,
 		conversations: [],
 		newConversation,
+		updateConversationModel,
 	};
 	providerState = {
 		profiles: [
@@ -130,7 +128,7 @@ describe("ProviderSwitcher defaults", () => {
 
 		expect(setProvider).toHaveBeenCalledWith("deepseek", "deepseek-reasoner");
 		expect(newConversation).not.toHaveBeenCalled();
-		expect(confirmAsk).not.toHaveBeenCalled();
+		expect(updateConversationModel).not.toHaveBeenCalled();
 	});
 
 	it("opens the real provider settings command", () => {
@@ -167,28 +165,11 @@ describe("ProviderSwitcher conversation authority", () => {
 		expect(screen.queryByText("deepseek-chat")).toBeNull();
 	});
 
-	it("keeps the current conversation unchanged when model switching is cancelled", async () => {
-		confirmAsk.mockResolvedValueOnce(false);
+	it("updates the active conversation without creating a new conversation", async () => {
 		render(<ProviderSwitcher />);
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: /Choose a model for a new conversation/,
-			}),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitemradio", { name: "deepseek-reasoner" }),
-		);
-
-		await waitFor(() => expect(confirmAsk).toHaveBeenCalledTimes(1));
-		expect(newConversation).not.toHaveBeenCalled();
-		expect(setProvider).not.toHaveBeenCalled();
-	});
-
-	it("creates a new authoritative conversation after confirmation", async () => {
-		render(<ProviderSwitcher />);
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: /Choose a model for a new conversation/,
+				name: /Select current conversation provider and model/,
 			}),
 		);
 		fireEvent.click(
@@ -196,26 +177,28 @@ describe("ProviderSwitcher conversation authority", () => {
 		);
 
 		await waitFor(() =>
-			expect(newConversation).toHaveBeenCalledWith({
-				provider: "deepseek",
-				model: "deepseek-reasoner",
-			}),
+			expect(updateConversationModel).toHaveBeenCalledWith(
+				"conversation-1",
+				"deepseek",
+				"deepseek-reasoner",
+			),
 		);
-		expect(setProvider).toHaveBeenCalledWith("deepseek", "deepseek-reasoner");
+		expect(newConversation).not.toHaveBeenCalled();
+		expect(setProvider).not.toHaveBeenCalled();
 	});
 
 	it("does not confirm when the current model is selected again", () => {
 		render(<ProviderSwitcher />);
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: /Choose a model for a new conversation/,
+				name: /Select current conversation provider and model/,
 			}),
 		);
 		fireEvent.click(
 			screen.getByRole("menuitemradio", { name: "claude-sonnet-4" }),
 		);
 
-		expect(confirmAsk).not.toHaveBeenCalled();
+		expect(updateConversationModel).not.toHaveBeenCalled();
 		expect(newConversation).not.toHaveBeenCalled();
 	});
 });

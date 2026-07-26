@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/encorehub/gateway/internal/engine"
 	"github.com/gin-gonic/gin"
@@ -71,21 +72,54 @@ func (h *ConversationHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-type renameReq struct {
-	Title string `json:"title" binding:"required"`
+type updateConvReq struct {
+	Title    *string `json:"title"`
+	Provider *string `json:"provider"`
+	Model    *string `json:"model"`
 }
 
-// Rename handles PATCH /api/v1/conversations/:id { title }
+// Rename handles PATCH updates to title or authoritative provider/model metadata.
 func (h *ConversationHandler) Rename(c *gin.Context) {
 	id := c.Param("id")
-	var req renameReq
+	var req updateConvReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	conv, err := h.engine.RenameConversation(c.Request.Context(), id, req.Title)
+	if req.Title == nil && req.Provider == nil && req.Model == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one field is required"})
+		return
+	}
+	if (req.Provider == nil) != (req.Model == nil) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider and model must be updated together"})
+		return
+	}
+	if req.Title != nil {
+		trimmed := strings.TrimSpace(*req.Title)
+		if trimmed == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "title cannot be empty"})
+			return
+		}
+		req.Title = &trimmed
+	}
+	if req.Provider != nil && req.Model != nil {
+		provider := strings.TrimSpace(*req.Provider)
+		model := strings.TrimSpace(*req.Model)
+		if provider == "" || model == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provider and model cannot be empty"})
+			return
+		}
+		req.Provider = &provider
+		req.Model = &model
+	}
+
+	conv, err := h.engine.UpdateConversation(c.Request.Context(), id, engine.ConversationUpdate{
+		Title:    req.Title,
+		Provider: req.Provider,
+		Model:    req.Model,
+	})
 	if err != nil {
-		log.Error().Err(err).Msg("engine rename failed")
+		log.Error().Err(err).Msg("engine conversation update failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

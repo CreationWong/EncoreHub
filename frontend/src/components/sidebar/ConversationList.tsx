@@ -13,6 +13,9 @@ import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { groupConversations } from "./conversationGroups";
 
+const HOVER_PREFETCH_DELAY_MS = 1_000;
+const UNUSED_PREFETCH_TTL_MS = 10_000;
+
 interface ConversationActionsProps {
 	conversation: Conversation;
 	active: boolean;
@@ -156,6 +159,12 @@ export default function ConversationList() {
 	const selectConversation = useConversationStore(
 		(state) => state.selectConversation,
 	);
+	const prefetchConversation = useConversationStore(
+		(state) => state.prefetchConversation,
+	);
+	const releaseConversationPrefetch = useConversationStore(
+		(state) => state.releaseConversationPrefetch,
+	);
 	const newConversation = useConversationStore(
 		(state) => state.newConversation,
 	);
@@ -164,7 +173,67 @@ export default function ConversationList() {
 	);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [draftTitle, setDraftTitle] = useState("");
+	const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+	const evictionTimers = useRef(
+		new Map<string, ReturnType<typeof setTimeout>>(),
+	);
 	const groups = groupConversations(conversations);
+
+	const clearTimer = (
+		timers: Map<string, ReturnType<typeof setTimeout>>,
+		id: string,
+	) => {
+		const timer = timers.get(id);
+		if (timer !== undefined) clearTimeout(timer);
+		timers.delete(id);
+	};
+
+	const clearPrefetchTimers = (id: string) => {
+		clearTimer(hoverTimers.current, id);
+		clearTimer(evictionTimers.current, id);
+	};
+
+	const startPrefetch = (id: string) => {
+		if (activeId === id || hoverTimers.current.has(id)) return;
+		clearTimer(evictionTimers.current, id);
+		hoverTimers.current.set(
+			id,
+			setTimeout(() => {
+				hoverTimers.current.delete(id);
+				void prefetchConversation(id);
+				evictionTimers.current.set(
+					id,
+					setTimeout(() => {
+						evictionTimers.current.delete(id);
+						releaseConversationPrefetch(id);
+					}, UNUSED_PREFETCH_TTL_MS),
+				);
+			}, HOVER_PREFETCH_DELAY_MS),
+		);
+	};
+
+	const releasePrefetch = (id: string) => {
+		clearPrefetchTimers(id);
+		releaseConversationPrefetch(id);
+	};
+
+	const selectPrefetchedConversation = (id: string) => {
+		clearPrefetchTimers(id);
+		void selectConversation(id);
+	};
+
+	useEffect(
+		() => () => {
+			for (const timer of hoverTimers.current.values()) clearTimeout(timer);
+			for (const [id, timer] of evictionTimers.current) {
+				clearTimeout(timer);
+				releaseConversationPrefetch(id);
+			}
+			hoverTimers.current.clear();
+			evictionTimers.current.clear();
+		},
+		[releaseConversationPrefetch],
+	);
 
 	const beginRename = (conversation: Conversation) => {
 		setEditingId(conversation.id);
@@ -263,7 +332,11 @@ export default function ConversationList() {
 										) : (
 											<button
 												type="button"
-												onClick={() => void selectConversation(conversation.id)}
+												onPointerEnter={() => startPrefetch(conversation.id)}
+												onPointerLeave={() => releasePrefetch(conversation.id)}
+												onClick={() =>
+													selectPrefetchedConversation(conversation.id)
+												}
 												onDoubleClick={() => beginRename(conversation)}
 												aria-current={active ? "page" : undefined}
 												className="flex min-w-0 flex-1 items-center gap-2 text-left"

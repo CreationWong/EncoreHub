@@ -160,6 +160,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_conversation_model(&self, id: &str, provider: &str, model: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE conversations SET provider = ?1, model = ?2, updated_at = ?3 WHERE id = ?4",
+            params![provider, model, now_ms(), id],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::NotFound {
+                resource: "conversation".into(),
+                id: id.into(),
+            });
+        }
+        Ok(())
+    }
+
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;

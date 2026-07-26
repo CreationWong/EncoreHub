@@ -68,3 +68,6 @@ frontend/src-tauri/binaries/*.exe
 
 # Local UI verification artifacts
 docs/ui-baseline/
+
+# Agent
+.codex/

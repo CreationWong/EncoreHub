@@ -104,6 +104,17 @@ export async function renameConversation(
 	});
 }
 
+export async function updateConversationModel(
+	id: string,
+	provider: string,
+	model: string,
+): Promise<Conversation> {
+	return apiFetch<Conversation>(`/conversations/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify({ provider, model }),
+	});
+}
+
 export async function generateTitle(
 	id: string,
 	providerKey?: string,

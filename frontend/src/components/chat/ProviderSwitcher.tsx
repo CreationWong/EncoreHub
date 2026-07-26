@@ -7,7 +7,6 @@ import {
 	Settings2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -30,11 +29,11 @@ export default function ProviderSwitcher() {
 	const providerLoading = useProviderStore((state) => state.loading);
 	const activeId = useConversationStore((state) => state.activeId);
 	const conversations = useConversationStore((state) => state.conversations);
-	const newConversation = useConversationStore(
-		(state) => state.newConversation,
+	const updateConversationModel = useConversationStore(
+		(state) => state.updateConversationModel,
 	);
 	const [expanded, setExpanded] = useState(false);
-	const [creating, setCreating] = useState(false);
+	const [updating, setUpdating] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const menuRef = useRef<HTMLDivElement>(null);
@@ -66,7 +65,7 @@ export default function ProviderSwitcher() {
 		: "New conversation default";
 	const triggerLabel = [
 		activeId
-			? "Choose a model for a new conversation"
+			? "Select current conversation provider and model"
 			: "Select default provider and model",
 		`${contextLabel}: ${selection}`,
 		unavailable ? "Current model unavailable" : "",
@@ -98,11 +97,7 @@ export default function ProviderSwitcher() {
 		};
 	}, [expanded]);
 
-	const chooseModel = async (
-		nextProvider: string,
-		nextModel: string,
-		nextProviderName: string,
-	) => {
+	const chooseModel = async (nextProvider: string, nextModel: string) => {
 		setExpanded(false);
 		if (provider === nextProvider && model === nextModel) {
 			triggerRef.current?.focus();
@@ -115,24 +110,11 @@ export default function ProviderSwitcher() {
 			return;
 		}
 
-		const accepted = await confirm.ask(
-			"Start a new conversation?",
-			`Use ${nextProviderName} · ${nextModel} in a new conversation? The current conversation will remain on ${selection}.`,
-		);
-		if (!accepted) {
-			triggerRef.current?.focus();
-			return;
-		}
-
-		setCreating(true);
+		setUpdating(true);
 		try {
-			const id = await newConversation({
-				provider: nextProvider,
-				model: nextModel,
-			});
-			if (id) setProvider(nextProvider, nextModel);
+			await updateConversationModel(activeId, nextProvider, nextModel);
 		} finally {
-			setCreating(false);
+			setUpdating(false);
 			triggerRef.current?.focus();
 		}
 	};
@@ -154,12 +136,12 @@ export default function ProviderSwitcher() {
 				aria-label={triggerLabel}
 				aria-haspopup="menu"
 				aria-expanded={expanded}
-				aria-busy={creating}
+				aria-busy={updating}
 				title={triggerLabel}
-				disabled={creating}
+				disabled={updating}
 				className="flex h-9 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-control hover:text-text-primary disabled:cursor-wait disabled:opacity-70"
 			>
-				{creating ? (
+				{updating ? (
 					<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
 				) : (
 					<Cpu className="h-3.5 w-3.5 shrink-0" />
@@ -217,7 +199,9 @@ export default function ProviderSwitcher() {
 					className="absolute right-0 top-full z-50 mt-2 max-h-80 w-80 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-border bg-workspace p-1 shadow-lg"
 				>
 					<p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-text-muted">
-						{activeId ? "Start a new conversation" : "New conversation default"}
+						{activeId
+							? "Current conversation model"
+							: "New conversation default"}
 					</p>
 					{unavailable && (
 						<p className="mx-1 mb-1 rounded bg-warning-bg px-2 py-1.5 text-[11px] text-warning">
@@ -257,9 +241,7 @@ export default function ProviderSwitcher() {
 											type="button"
 											role="menuitemradio"
 											aria-checked={selected}
-											onClick={() =>
-												void chooseModel(profile.id, profileModel, profile.name)
-											}
+											onClick={() => void chooseModel(profile.id, profileModel)}
 											className="flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs text-text-secondary hover:bg-control hover:text-text-primary"
 											title={profileModel}
 										>

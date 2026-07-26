@@ -97,11 +97,15 @@ export function seedClientUiBaseline({
 		drafts: {},
 		scrollPositions: {},
 		convCache: {},
+		prefetchedConversationIds: {},
 		loadList: async () => {},
+		prefetchConversation: async () => {},
+		releaseConversationPrefetch: () => {},
 		selectConversation: async () => {},
 		newConversation: async () => scenario.activeId ?? "baseline-new",
 		deleteConversation: async () => {},
 		renameConversation: async () => {},
+		updateConversationModel: async () => {},
 		sendMessage: async () => {},
 		stopStreaming: () => {
 			useConversationStore.setState({ streaming: false });

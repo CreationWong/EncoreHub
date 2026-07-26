@@ -41,6 +41,12 @@ export default function GlobalNav() {
 	const appearanceButtonRef = useRef<HTMLButtonElement>(null);
 	const themeOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const ThemeIcon = currentThemeIcon(theme);
+	const switchAppearance = () => {
+		setAppearanceOpen(false);
+		setTheme(
+			document.documentElement.classList.contains("dark") ? "light" : "dark",
+		);
+	};
 	const focusThemeOption = (index: number) => {
 		const target = (index + THEME_OPTIONS.length) % THEME_OPTIONS.length;
 		themeOptionRefs.current[target]?.focus();
@@ -96,27 +102,39 @@ export default function GlobalNav() {
 
 			<div className="flex items-center gap-1">
 				<div ref={appearanceRef} className="relative">
-					<button
-						ref={appearanceButtonRef}
-						type="button"
-						onClick={() => setAppearanceOpen((open) => !open)}
-						onKeyDown={(event) => {
-							if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-							event.preventDefault();
-							setAppearanceOpen(true);
-							requestAnimationFrame(() => {
-								focusThemeOption(event.key === "ArrowDown" ? 0 : -1);
-							});
-						}}
-						aria-label="Appearance"
-						aria-haspopup="menu"
-						aria-expanded={appearanceOpen}
-						title="Appearance"
-						className="flex h-8 items-center gap-1 rounded-md px-2 text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
-					>
-						<ThemeIcon className="h-4 w-4" />
-						<ChevronDown className="h-3 w-3" />
-					</button>
+					<fieldset className="m-0 flex border-0 p-0">
+						<legend className="sr-only">Appearance controls</legend>
+						<button
+							type="button"
+							onClick={switchAppearance}
+							aria-label="Switch appearance"
+							title="Switch light or dark appearance"
+							className="flex h-8 w-8 items-center justify-center rounded-l-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
+						>
+							<ThemeIcon className="h-4 w-4" />
+						</button>
+						<button
+							ref={appearanceButtonRef}
+							type="button"
+							onClick={() => setAppearanceOpen((open) => !open)}
+							onKeyDown={(event) => {
+								if (event.key !== "ArrowDown" && event.key !== "ArrowUp")
+									return;
+								event.preventDefault();
+								setAppearanceOpen(true);
+								requestAnimationFrame(() => {
+									focusThemeOption(event.key === "ArrowDown" ? 0 : -1);
+								});
+							}}
+							aria-label="Open appearance menu"
+							aria-haspopup="menu"
+							aria-expanded={appearanceOpen}
+							title="Appearance options"
+							className="flex h-8 w-6 items-center justify-center rounded-r-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
+						>
+							<ChevronDown className="h-3 w-3" />
+						</button>
+					</fieldset>
 
 					{appearanceOpen && (
 						<div

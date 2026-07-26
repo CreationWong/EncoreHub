@@ -98,7 +98,54 @@ func TestRename_ForwardsPatchBodyAndReturnsEngineJSON(t *testing.T) {
 	}
 }
 
-func TestRename_400OnMissingTitle(t *testing.T) {
+func TestUpdate_ForwardsProviderAndModelWithoutCreatingConversation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c1","provider":"anthropic","model":"claude-sonnet-4"}`)
+	}))
+	defer server.Close()
+
+	r := renameRouter(server.URL)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/conversations/c1",
+		strings.NewReader(`{"provider":"anthropic","model":"claude-sonnet-4"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(gotBody, `"provider":"anthropic"`) ||
+		!strings.Contains(gotBody, `"model":"claude-sonnet-4"`) {
+		t.Fatalf("upstream body = %q", gotBody)
+	}
+	if strings.Contains(gotBody, `"title"`) {
+		t.Fatalf("model-only update unexpectedly included title: %q", gotBody)
+	}
+}
+
+func TestUpdate_400OnIncompleteProviderModelPair(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := renameRouter("http://127.0.0.1:1")
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/conversations/c1",
+		strings.NewReader(`{"provider":"anthropic"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on incomplete provider/model pair, got %d body=%s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdate_400OnEmptyPatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	// engine should never be called; point it at an unreachable port to be sure
 	r := renameRouter("http://127.0.0.1:1")
@@ -110,7 +157,7 @@ func TestRename_400OnMissingTitle(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 on missing title, got %d body=%s",
+		t.Fatalf("expected 400 on empty patch, got %d body=%s",
 			rec.Code, rec.Body.String())
 	}
 }

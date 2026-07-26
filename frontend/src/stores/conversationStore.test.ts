@@ -22,12 +22,15 @@ const generateTitleApi = vi.fn();
 const getConversationApi = vi.fn();
 const listConversationsApi = vi.fn();
 const createConversationApi = vi.fn();
+const updateConversationModelApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: (...args: unknown[]) => listConversationsApi(...args),
 	createConversation: (...args: unknown[]) => createConversationApi(...args),
 	getConversation: (...args: unknown[]) => getConversationApi(...args),
 	deleteConversation: vi.fn().mockResolvedValue(undefined),
 	renameConversation: (...args: unknown[]) => renameConversationApi(...args),
+	updateConversationModel: (...args: unknown[]) =>
+		updateConversationModelApi(...args),
 	generateTitle: (...args: unknown[]) => generateTitleApi(...args),
 }));
 
@@ -56,9 +59,11 @@ beforeEach(() => {
 		drafts: {},
 		scrollPositions: {},
 		convCache: {},
+		prefetchedConversationIds: {},
 	});
 	sendMessageStream.mockReset();
 	renameConversationApi.mockReset();
+	updateConversationModelApi.mockReset();
 	generateTitleApi.mockReset();
 	generateTitleApi.mockResolvedValue({
 		id: "c1",
@@ -183,6 +188,62 @@ describe("loadList", () => {
 		expect(state.conversations).toHaveLength(1);
 		expect(state.listLoading).toBe(false);
 		expect(state.listError).toBe("Failed to load conversations");
+	});
+});
+
+describe("conversation prefetch", () => {
+	it("loads an inactive conversation into a transient memory cache", async () => {
+		const message = serverMessage({ id: "prefetched-message" });
+		getConversationApi.mockResolvedValueOnce({ messages: [message] });
+
+		await useConversationStore.getState().prefetchConversation("c1");
+
+		const state = useConversationStore.getState();
+		expect(state.activeId).toBeNull();
+		expect(state.convCache.c1.messages).toEqual([message]);
+		expect(state.prefetchedConversationIds.c1).toBe(true);
+	});
+
+	it("promotes a prefetched cache entry on selection without fetching twice", async () => {
+		const message = serverMessage({ id: "cached-message" });
+		getConversationApi.mockResolvedValueOnce({ messages: [message] });
+		await useConversationStore.getState().prefetchConversation("c1");
+
+		await useConversationStore.getState().selectConversation("c1");
+
+		const state = useConversationStore.getState();
+		expect(getConversationApi).toHaveBeenCalledTimes(1);
+		expect(state.activeId).toBe("c1");
+		expect(state.messages).toEqual([message]);
+		expect(state.prefetchedConversationIds.c1).toBeUndefined();
+	});
+
+	it("deduplicates selection against an in-flight prefetch", async () => {
+		let resolveDetail: ((detail: { messages: Message[] }) => void) | undefined;
+		getConversationApi.mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveDetail = resolve;
+			}),
+		);
+
+		const prefetch = useConversationStore.getState().prefetchConversation("c1");
+		const selection = useConversationStore.getState().selectConversation("c1");
+		resolveDetail?.({ messages: [serverMessage({ id: "shared-message" })] });
+		await Promise.all([prefetch, selection]);
+
+		expect(getConversationApi).toHaveBeenCalledTimes(1);
+		expect(useConversationStore.getState().activeId).toBe("c1");
+	});
+
+	it("evicts an unused transient cache without removing a selected cache", async () => {
+		await useConversationStore.getState().prefetchConversation("unused");
+		useConversationStore.getState().releaseConversationPrefetch("unused");
+		expect(useConversationStore.getState().convCache.unused).toBeUndefined();
+
+		await useConversationStore.getState().prefetchConversation("selected");
+		await useConversationStore.getState().selectConversation("selected");
+		useConversationStore.getState().releaseConversationPrefetch("selected");
+		expect(useConversationStore.getState().convCache.selected).toBeDefined();
 	});
 });
 
@@ -346,6 +407,54 @@ describe("renameConversation", () => {
 		await useConversationStore.getState().renameConversation("c1", "   ");
 		expect(renameConversationApi).not.toHaveBeenCalled();
 		expect(useConversationStore.getState().conversations[0].title).toBe("kept");
+	});
+});
+
+describe("updateConversationModel", () => {
+	it("optimistically updates only the selected conversation metadata", async () => {
+		seedConversation("c1");
+		seedConversation("c2");
+		updateConversationModelApi.mockResolvedValueOnce({
+			id: "c1",
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+		});
+
+		const update = useConversationStore
+			.getState()
+			.updateConversationModel("c1", "anthropic", "claude-sonnet-4");
+		expect(useConversationStore.getState().conversations[0]).toMatchObject({
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+		});
+		await update;
+
+		expect(updateConversationModelApi).toHaveBeenCalledWith(
+			"c1",
+			"anthropic",
+			"claude-sonnet-4",
+		);
+		expect(useConversationStore.getState().conversations[1]).toMatchObject({
+			provider: "openai",
+			model: "gpt-4o",
+		});
+	});
+
+	it("rolls back provider and model when persistence fails", async () => {
+		seedConversation("c1");
+		updateConversationModelApi.mockRejectedValueOnce(new Error("offline"));
+
+		await useConversationStore
+			.getState()
+			.updateConversationModel("c1", "anthropic", "claude-sonnet-4");
+
+		expect(useConversationStore.getState().conversations[0]).toMatchObject({
+			provider: "openai",
+			model: "gpt-4o",
+		});
+		expect(useConversationStore.getState().error).toBe(
+			"Failed to update conversation model",
+		);
 	});
 });
 

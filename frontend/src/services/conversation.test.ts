@@ -10,6 +10,7 @@ import {
 	getConversation,
 	listConversations,
 	renameConversation,
+	updateConversationModel,
 } from "./conversation";
 
 beforeEach(() => apiFetch.mockReset().mockResolvedValue(undefined));
@@ -99,6 +100,17 @@ describe("conversation service", () => {
 		expect(path).toBe("/conversations/c1");
 		expect(opts.method).toBe("PATCH");
 		expect(JSON.parse(opts.body)).toEqual({ title: "renamed" });
+	});
+
+	it("updateConversationModel -> PATCH with provider and model", async () => {
+		await updateConversationModel("c1", "anthropic", "claude-sonnet-4");
+		const [path, opts] = apiFetch.mock.calls[0];
+		expect(path).toBe("/conversations/c1");
+		expect(opts.method).toBe("PATCH");
+		expect(JSON.parse(opts.body)).toEqual({
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+		});
 	});
 
 	it("generateTitle posts force flag and provider key", async () => {

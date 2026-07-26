@@ -49,6 +49,15 @@ fn conversation_lifecycle() {
     let after = db.get_conversation(&conv.id).expect("get after rename");
     assert_eq!(after.title, "renamed");
 
+    db.update_conversation_model(&conv.id, "anthropic", "claude-sonnet-4")
+        .expect("update model");
+    let after_model = db
+        .get_conversation(&conv.id)
+        .expect("get after model update");
+    assert_eq!(after_model.provider, "anthropic");
+    assert_eq!(after_model.model, "claude-sonnet-4");
+    assert_eq!(after_model.title, "renamed");
+
     let list = db.list_conversations(10, 0).expect("list");
     assert_eq!(list.len(), 1);
 

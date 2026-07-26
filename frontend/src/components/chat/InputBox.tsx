@@ -63,11 +63,15 @@ export default function InputBox() {
 	const [menuIndex, setMenuIndex] = useState(0);
 	const [historyIdx, setHistoryIdx] = useState<number>(-1);
 	const [slashDismissed, setSlashDismissed] = useState(false);
+	const [slashNavigationSource, setSlashNavigationSource] = useState<
+		"keyboard" | "pointer"
+	>("pointer");
 	const [showSearchMenu, setShowSearchMenu] = useState(false);
 	const historyDraftRef = useRef("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const composerRef = useRef<HTMLFieldSetElement>(null);
-	const searchButtonRef = useRef<HTMLButtonElement>(null);
+	const searchControlRef = useRef<HTMLFieldSetElement>(null);
+	const searchMenuButtonRef = useRef<HTMLButtonElement>(null);
 	const sendMessage = useConversationStore((state) => state.sendMessage);
 	const stopStreaming = useConversationStore((state) => state.stopStreaming);
 	const streaming = useConversationStore((state) => state.streaming);
@@ -147,7 +151,7 @@ export default function InputBox() {
 	useEffect(() => {
 		if (!showSearchMenu) return;
 		const handlePointerDown = (event: MouseEvent) => {
-			if (!composerRef.current?.contains(event.target as Node)) {
+			if (!searchControlRef.current?.contains(event.target as Node)) {
 				setShowSearchMenu(false);
 			}
 		};
@@ -162,7 +166,7 @@ export default function InputBox() {
 	const closeSearchMenu = useCallback((returnFocus = false) => {
 		setShowSearchMenu(false);
 		if (returnFocus) {
-			queueMicrotask(() => searchButtonRef.current?.focus());
+			queueMicrotask(() => searchMenuButtonRef.current?.focus());
 		}
 	}, []);
 
@@ -228,11 +232,13 @@ export default function InputBox() {
 		if (slashOpen && slashMatches.length > 0) {
 			if (event.key === "ArrowDown") {
 				event.preventDefault();
+				setSlashNavigationSource("keyboard");
 				setMenuIndex((index) => (index + 1) % slashMatches.length);
 				return;
 			}
 			if (event.key === "ArrowUp") {
 				event.preventDefault();
+				setSlashNavigationSource("keyboard");
 				setMenuIndex(
 					(index) => (index - 1 + slashMatches.length) % slashMatches.length,
 				);
@@ -307,6 +313,7 @@ export default function InputBox() {
 	const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
 		const next = event.target.value.slice(0, MAX_CHARS);
 		setSlashDismissed(false);
+		setSlashNavigationSource("pointer");
 		setHistoryIdx(-1);
 		updateInput(next);
 		resizeTextarea(event.target);
@@ -324,80 +331,23 @@ export default function InputBox() {
 			<fieldset
 				ref={composerRef}
 				aria-label="Message composer"
-				className="relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent/60"
+				className="relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent"
 			>
-				{showSearchMenu && (
-					<div
-						id={SEARCH_MENU_ID}
-						role="menu"
-						aria-label="Web search settings"
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								event.preventDefault();
-								closeSearchMenu(true);
-							}
+				{slashOpen && (
+					<SlashCommandMenu
+						id={SLASH_MENU_ID}
+						items={slashMatches}
+						activeIndex={menuIndex}
+						navigationSource={slashNavigationSource}
+						onHover={(index) => {
+							setSlashNavigationSource("pointer");
+							setMenuIndex(index);
 						}}
-						className="absolute bottom-full left-9 z-30 mb-2 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2xl"
-					>
-						<button
-							type="button"
-							role="menuitemcheckbox"
-							aria-checked={searchEnabled}
-							onClick={() => setSearchEnabled(!searchEnabled)}
-							className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs text-text-primary hover:bg-surface-hover"
-						>
-							<span>Enable web search</span>
-							<span
-								aria-hidden="true"
-								className={`flex h-4 w-7 items-center rounded-full px-0.5 transition-colors ${
-									searchEnabled ? "justify-end bg-accent" : "bg-border"
-								}`}
-							>
-								<span className="h-3 w-3 rounded-full bg-white shadow-sm" />
-							</span>
-						</button>
-						<hr className="my-1 border-0 border-t border-border" />
-						<div className="px-2.5 py-1 text-[10px] font-semibold uppercase text-text-muted">
-							Search provider
-						</div>
-						{SEARCH_PROVIDERS.map((provider) => {
-							const selected = searchProvider === provider.value;
-							return (
-								<button
-									key={provider.value}
-									type="button"
-									role="menuitemradio"
-									aria-checked={selected}
-									onClick={() => {
-										setSearchProvider(provider.value);
-										closeSearchMenu(true);
-									}}
-									className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs ${
-										selected
-											? "bg-accent/10 text-accent"
-											: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-									}`}
-								>
-									<span>{provider.label}</span>
-									{selected && (
-										<Check aria-hidden="true" className="h-3.5 w-3.5" />
-									)}
-								</button>
-							);
-						})}
-					</div>
+						onSelect={(command) => void runCommand(command, "")}
+					/>
 				)}
 
 				<div className="relative">
-					{slashOpen && (
-						<SlashCommandMenu
-							id={SLASH_MENU_ID}
-							items={slashMatches}
-							activeIndex={menuIndex}
-							onHover={setMenuIndex}
-							onSelect={(command) => void runCommand(command, "")}
-						/>
-					)}
 					<textarea
 						ref={textareaRef}
 						role="combobox"
@@ -415,7 +365,7 @@ export default function InputBox() {
 						placeholder="Type a message or / for commands"
 						rows={2}
 						maxLength={MAX_CHARS}
-						className="block max-h-[220px] min-h-[60px] w-full resize-none bg-transparent px-3.5 pb-1.5 pt-3 text-sm leading-5 text-text-primary placeholder:text-text-muted focus:outline-none"
+						className="block max-h-[220px] min-h-[60px] w-full resize-none bg-transparent px-3.5 pb-1.5 pt-3 text-sm leading-5 text-text-primary placeholder:text-text-muted focus:outline-none focus-visible:shadow-none"
 					/>
 				</div>
 
@@ -427,8 +377,11 @@ export default function InputBox() {
 								setShowSearchMenu(false);
 								if (slashOpen) {
 									setSlashDismissed(true);
+								} else if (slashCandidate) {
+									setSlashDismissed(false);
 								} else if (!input) {
 									setSlashDismissed(false);
+									setSlashNavigationSource("pointer");
 									updateInput("/");
 								}
 								focusTextarea();
@@ -442,35 +395,114 @@ export default function InputBox() {
 						>
 							<Command className="h-4 w-4" />
 						</button>
-						<button
-							ref={searchButtonRef}
-							type="button"
-							onClick={() => {
-								setSlashDismissed(true);
-								setShowSearchMenu((open) => !open);
-							}}
-							aria-label={
-								searchEnabled
-									? `Web search enabled: ${selectedSearchProvider.label}`
-									: "Web search disabled"
-							}
-							aria-haspopup="menu"
-							aria-expanded={showSearchMenu}
-							aria-controls={SEARCH_MENU_ID}
-							title={
-								searchEnabled
-									? `Web search: ${selectedSearchProvider.label}`
-									: "Web search"
-							}
-							className={`flex h-9 shrink-0 items-center justify-center gap-0.5 rounded-md px-2 transition-colors ${
+						<fieldset
+							ref={searchControlRef}
+							className={`relative m-0 flex shrink-0 rounded-md border-0 p-0 ${
 								searchEnabled
 									? "bg-accent/10 text-accent"
-									: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+									: "text-text-secondary"
 							}`}
 						>
-							<Globe className="h-4 w-4" />
-							<ChevronDown className="h-3 w-3" />
-						</button>
+							<legend className="sr-only">Web search controls</legend>
+							<button
+								type="button"
+								onClick={() => {
+									setSlashDismissed(true);
+									setShowSearchMenu(false);
+									setSearchEnabled(!searchEnabled);
+								}}
+								aria-label={
+									searchEnabled ? "Disable web search" : "Enable web search"
+								}
+								aria-pressed={searchEnabled}
+								title={
+									searchEnabled
+										? `Disable web search (${selectedSearchProvider.label})`
+										: "Enable web search"
+								}
+								className="flex h-9 w-8 items-center justify-center rounded-l-md transition-colors hover:bg-surface-hover hover:text-text-primary"
+							>
+								<Globe className="h-4 w-4" />
+							</button>
+							<button
+								ref={searchMenuButtonRef}
+								type="button"
+								onClick={() => {
+									setSlashDismissed(true);
+									setShowSearchMenu((open) => !open);
+								}}
+								aria-label="Open web search settings"
+								aria-haspopup="menu"
+								aria-expanded={showSearchMenu}
+								aria-controls={SEARCH_MENU_ID}
+								title="Web search settings"
+								className="flex h-9 w-5 items-center justify-center rounded-r-md transition-colors hover:bg-surface-hover hover:text-text-primary"
+							>
+								<ChevronDown className="h-3 w-3" />
+							</button>
+
+							{showSearchMenu && (
+								<div
+									id={SEARCH_MENU_ID}
+									role="menu"
+									aria-label="Web search settings"
+									onKeyDown={(event) => {
+										if (event.key === "Escape") {
+											event.preventDefault();
+											closeSearchMenu(true);
+										}
+									}}
+									className="absolute bottom-full left-0 z-30 mb-1 w-56 rounded-lg border border-border bg-surface p-1.5 text-text-primary shadow-2xl"
+								>
+									<button
+										type="button"
+										role="menuitemcheckbox"
+										aria-checked={searchEnabled}
+										onClick={() => setSearchEnabled(!searchEnabled)}
+										className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs text-text-primary hover:bg-surface-hover"
+									>
+										<span>Enable web search</span>
+										<span
+											aria-hidden="true"
+											className={`flex h-4 w-7 items-center rounded-full px-0.5 transition-colors ${
+												searchEnabled ? "justify-end bg-accent" : "bg-border"
+											}`}
+										>
+											<span className="h-3 w-3 rounded-full bg-white shadow-sm" />
+										</span>
+									</button>
+									<hr className="my-1 border-0 border-t border-border" />
+									<div className="px-2.5 py-1 text-[10px] font-semibold uppercase text-text-muted">
+										Search provider
+									</div>
+									{SEARCH_PROVIDERS.map((provider) => {
+										const selected = searchProvider === provider.value;
+										return (
+											<button
+												key={provider.value}
+												type="button"
+												role="menuitemradio"
+												aria-checked={selected}
+												onClick={() => {
+													setSearchProvider(provider.value);
+													closeSearchMenu(true);
+												}}
+												className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs ${
+													selected
+														? "bg-accent/10 text-accent"
+														: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+												}`}
+											>
+												<span>{provider.label}</span>
+												{selected && (
+													<Check aria-hidden="true" className="h-3.5 w-3.5" />
+												)}
+											</button>
+										);
+									})}
+								</div>
+							)}
+						</fieldset>
 						{streaming && (
 							<output className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
 								<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />

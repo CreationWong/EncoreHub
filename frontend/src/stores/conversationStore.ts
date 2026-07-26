@@ -16,6 +16,19 @@ import { toast } from "./toastStore";
 
 export const NEW_CONVERSATION_DRAFT_KEY = "__new_conversation__";
 
+const conversationLoads = new Map<string, Promise<ConversationDetail>>();
+const transientPrefetchClaims = new Set<string>();
+
+function loadConversationDetail(id: string): Promise<ConversationDetail> {
+	const existing = conversationLoads.get(id);
+	if (existing) return existing;
+	const request = convApi.getConversation(id).finally(() => {
+		conversationLoads.delete(id);
+	});
+	conversationLoads.set(id, request);
+	return request;
+}
+
 // ---- per-conversation cache (supports concurrent background streams) ----
 
 interface ConvCacheEntry {
@@ -149,12 +162,20 @@ interface ConversationState {
 
 	// Per-conversation state pool.
 	convCache: Record<string, ConvCacheEntry>;
+	prefetchedConversationIds: Record<string, true>;
 
 	loadList: () => Promise<void>;
+	prefetchConversation: (id: string) => Promise<void>;
+	releaseConversationPrefetch: (id: string) => void;
 	selectConversation: (id: string) => Promise<void>;
 	newConversation: (selection?: NewConversationSelection) => Promise<string>;
 	deleteConversation: (id: string) => Promise<void>;
 	renameConversation: (id: string, title: string) => Promise<void>;
+	updateConversationModel: (
+		id: string,
+		provider: string,
+		model: string,
+	) => Promise<void>;
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
@@ -184,6 +205,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	drafts: {},
 	scrollPositions: {},
 	convCache: {},
+	prefetchedConversationIds: {},
 
 	loadList: async () => {
 		set({ listLoading: true, listError: null });
@@ -200,8 +222,51 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 	},
 
+	prefetchConversation: async (id: string) => {
+		if (!id || get().activeId === id || get().convCache[id]) return;
+		transientPrefetchClaims.add(id);
+		try {
+			const detail = await loadConversationDetail(id);
+			if (!transientPrefetchClaims.has(id) || get().activeId === id) return;
+			set((s) => {
+				if (s.convCache[id]) return {};
+				return {
+					convCache: {
+						...s.convCache,
+						[id]: emptyCacheEntry(detail.messages),
+					},
+					prefetchedConversationIds: {
+						...s.prefetchedConversationIds,
+						[id]: true,
+					},
+				};
+			});
+		} catch (error) {
+			transientPrefetchClaims.delete(id);
+			logStoreError("Conversation prefetch failed", error);
+		}
+	},
+
+	releaseConversationPrefetch: (id: string) => {
+		transientPrefetchClaims.delete(id);
+		set((s) => {
+			if (!s.prefetchedConversationIds[id] || s.activeId === id) return {};
+			const convCache = { ...s.convCache };
+			const prefetchedConversationIds = { ...s.prefetchedConversationIds };
+			delete convCache[id];
+			delete prefetchedConversationIds[id];
+			return { convCache, prefetchedConversationIds };
+		});
+	},
+
 	selectConversation: async (id: string) => {
-		const convCache = saveActiveViewToCache(get());
+		transientPrefetchClaims.delete(id);
+		const current = get();
+		const convCache = saveActiveViewToCache(current);
+		const prefetchedConversationIds = {
+			...current.prefetchedConversationIds,
+		};
+		delete prefetchedConversationIds[id];
 
 		// Restore from cache if available.
 		const cached = convCache[id];
@@ -217,6 +282,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				loading: false,
 				error: null,
 				convCache,
+				prefetchedConversationIds,
 			});
 			return;
 		}
@@ -231,9 +297,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			streamingToolCalls: [],
 			error: null,
 			convCache,
+			prefetchedConversationIds,
 		});
 		try {
-			const detail = await convApi.getConversation(id);
+			const detail = await loadConversationDetail(id);
 			const entry = emptyCacheEntry(detail.messages);
 			set((s) => {
 				const nextCache = { ...s.convCache, [id]: entry };
@@ -306,15 +373,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	},
 
 	deleteConversation: async (id: string) => {
+		transientPrefetchClaims.delete(id);
 		try {
 			await convApi.deleteConversation(id);
-			const { activeId, convCache, drafts, scrollPositions } = get();
+			const {
+				activeId,
+				convCache,
+				drafts,
+				scrollPositions,
+				prefetchedConversationIds,
+			} = get();
 			const newCache = { ...convCache };
 			const nextDrafts = { ...drafts };
 			const nextScrollPositions = { ...scrollPositions };
+			const nextPrefetchedConversationIds = {
+				...prefetchedConversationIds,
+			};
 			delete newCache[id];
 			delete nextDrafts[id];
 			delete nextScrollPositions[id];
+			delete nextPrefetchedConversationIds[id];
 			if (activeId === id) {
 				set({
 					activeId: null,
@@ -326,12 +404,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streamingToolCalls: [],
 					abortController: null,
 					convCache: newCache,
+					prefetchedConversationIds: nextPrefetchedConversationIds,
 					drafts: nextDrafts,
 					scrollPositions: nextScrollPositions,
 				});
 			} else {
 				set({
 					convCache: newCache,
+					prefetchedConversationIds: nextPrefetchedConversationIds,
 					drafts: nextDrafts,
 					scrollPositions: nextScrollPositions,
 				});
@@ -365,6 +445,58 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				error: "Rename failed",
 			}));
 			toast.error("Rename failed");
+		}
+	},
+
+	updateConversationModel: async (id, provider, model) => {
+		const nextProvider = provider.trim();
+		const nextModel = model.trim();
+		if (!id || !nextProvider || !nextModel) return;
+		const previous = get().conversations.find(
+			(conversation) => conversation.id === id,
+		);
+		if (!previous) return;
+		if (previous.provider === nextProvider && previous.model === nextModel)
+			return;
+
+		set((s) => ({
+			conversations: s.conversations.map((conversation) =>
+				conversation.id === id
+					? { ...conversation, provider: nextProvider, model: nextModel }
+					: conversation,
+			),
+			error: null,
+		}));
+		try {
+			const updated = await convApi.updateConversationModel(
+				id,
+				nextProvider,
+				nextModel,
+			);
+			set((s) => ({
+				conversations: s.conversations.map((conversation) =>
+					conversation.id === id
+						? { ...conversation, ...updated }
+						: conversation,
+				),
+			}));
+		} catch (error) {
+			logStoreError("Conversation model update failed", error);
+			set((s) => ({
+				conversations: s.conversations.map((conversation) =>
+					conversation.id === id &&
+					conversation.provider === nextProvider &&
+					conversation.model === nextModel
+						? {
+								...conversation,
+								provider: previous.provider,
+								model: previous.model,
+							}
+						: conversation,
+				),
+				error: "Failed to update conversation model",
+			}));
+			toast.error("Failed to update conversation model");
 		}
 	},
 

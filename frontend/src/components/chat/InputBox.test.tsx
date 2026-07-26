@@ -124,6 +124,8 @@ describe("InputBox slash menu", () => {
 		expect(ta.getAttribute("aria-activedescendant")).toMatch(
 			/^slash-command-option-/,
 		);
+		expect(listbox.parentElement?.classList.contains("bottom-full")).toBe(true);
+		expect(listbox.parentElement?.classList.contains("bottom-12")).toBe(false);
 	});
 
 	it("Tab autocompletes the highlighted command", () => {
@@ -158,6 +160,51 @@ describe("InputBox slash menu", () => {
 		).toBeNull();
 		expect(document.activeElement).toBe(ta);
 	});
+
+	it("reopens the command menu when the slash draft is already present", () => {
+		render(<InputBox />);
+		const trigger = screen.getByRole("button", { name: "Open commands" });
+
+		fireEvent.click(trigger);
+		expect(
+			screen.getByRole("listbox", { name: "Slash commands" }),
+		).toBeDefined();
+		fireEvent.click(trigger);
+		expect(
+			screen.queryByRole("listbox", { name: "Slash commands" }),
+		).toBeNull();
+		fireEvent.click(trigger);
+		expect(
+			screen.getByRole("listbox", { name: "Slash commands" }),
+		).toBeDefined();
+	});
+
+	it("scrolls the active command for keyboard navigation but not pointer hover", () => {
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
+		render(<InputBox />);
+		const ta = getTextarea();
+		fireEvent.change(ta, { target: { value: "/" } });
+		scrollIntoView.mockClear();
+
+		fireEvent.mouseEnter(screen.getAllByRole("option")[1]);
+		expect(scrollIntoView).not.toHaveBeenCalled();
+
+		fireEvent.keyDown(ta, { key: "ArrowDown" });
+		expect(scrollIntoView).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps pointer hover and selected command styling visually stable", () => {
+		render(<InputBox />);
+		fireEvent.change(getTextarea(), { target: { value: "/" } });
+		const option = screen.getAllByRole("option")[1];
+
+		expect(option.classList.contains("hover:bg-surface-hover")).toBe(true);
+		fireEvent.mouseEnter(option);
+		expect(option.getAttribute("aria-selected")).toBe("true");
+		expect(option.classList.contains("bg-surface-hover")).toBe(true);
+		expect(option.classList.contains("bg-accent/10")).toBe(false);
+	});
 });
 
 describe("InputBox composer surface", () => {
@@ -172,11 +219,24 @@ describe("InputBox composer surface", () => {
 			composer.contains(screen.getByRole("button", { name: "Open commands" })),
 		).toBe(true);
 		expect(
-			composer.contains(screen.getByRole("button", { name: /Web search/ })),
+			composer.contains(
+				screen.getByRole("group", { name: "Web search controls" }),
+			),
 		).toBe(true);
 		expect(
 			composer.contains(screen.getByRole("button", { name: "Send message" })),
 		).toBe(true);
+	});
+
+	it("keeps the focus treatment on the unified composer surface", () => {
+		render(<InputBox />);
+		const composer = screen.getByRole("group", { name: "Message composer" });
+		const ta = getTextarea();
+		const composerClasses = composer.className.split(/\s+/);
+		const textareaClasses = ta.className.split(/\s+/);
+
+		expect(composerClasses).toContain("focus-within:border-accent");
+		expect(textareaClasses).toContain("focus-visible:shadow-none");
 	});
 
 	it("shows character status only after reaching 85 percent", () => {
@@ -193,13 +253,29 @@ describe("InputBox composer surface", () => {
 		).toContain("6800 / 8000");
 	});
 
-	it("uses one menu for search enablement and provider selection", () => {
-		settingsState.searchEnabled = true;
+	it("toggles search from the globe and opens settings from the chevron", () => {
 		render(<InputBox />);
-		fireEvent.click(screen.getByRole("button", { name: /Web search enabled/ }));
+		const controls = screen.getByRole("group", {
+			name: "Web search controls",
+		});
+		fireEvent.click(
+			within(controls).getByRole("button", { name: "Enable web search" }),
+		);
+		expect(setSearchEnabled).toHaveBeenCalledWith(true);
+		expect(
+			screen.queryByRole("menu", { name: "Web search settings" }),
+		).toBeNull();
+
+		fireEvent.click(
+			within(controls).getByRole("button", {
+				name: "Open web search settings",
+			}),
+		);
 
 		const menu = screen.getByRole("menu", { name: "Web search settings" });
 		expect(menu).toBeDefined();
+		expect(menu.className).toContain("bottom-full");
+		expect(menu.className).toContain("mb-1");
 		expect(
 			screen.getByRole("menuitemcheckbox", { name: "Enable web search" }),
 		).toBeDefined();

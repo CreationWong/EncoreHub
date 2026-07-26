@@ -118,12 +118,12 @@
       },
       "patch": {
         "tags": ["Conversations"],
-        "operationId": "renameConversation",
+        "operationId": "updateConversation",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/RenameConversationRequest" }
+              "schema": { "$ref": "#/components/schemas/UpdateConversationRequest" }
             }
           }
         },
@@ -912,6 +912,19 @@
         "type": "object",
         "required": ["title"],
         "properties": { "title": { "type": "string", "minLength": 1 } }
+      },
+      "UpdateConversationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "provider": { "type": "string", "minLength": 1 },
+          "model": { "type": "string", "minLength": 1 }
+        },
+        "anyOf": [
+          { "required": ["title"] },
+          { "required": ["provider", "model"] }
+        ]
       },
       "ChatRequest": {
         "type": "object",

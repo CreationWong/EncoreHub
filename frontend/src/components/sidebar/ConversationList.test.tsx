@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../services/conversation";
 
@@ -13,6 +19,8 @@ const selectConversation = vi.fn();
 const newConversation = vi.fn();
 const loadList = vi.fn();
 const generateTitle = vi.fn();
+const prefetchConversation = vi.fn();
+const releaseConversationPrefetch = vi.fn();
 
 let conversationState: {
 	conversations: Conversation[];
@@ -25,6 +33,8 @@ let conversationState: {
 	deleteConversation: typeof deleteConversation;
 	renameConversation: typeof renameConversation;
 	generateTitle: typeof generateTitle;
+	prefetchConversation: typeof prefetchConversation;
+	releaseConversationPrefetch: typeof releaseConversationPrefetch;
 };
 
 vi.mock("../../stores/conversationStore", () => ({
@@ -61,6 +71,8 @@ beforeEach(() => {
 	newConversation.mockReset().mockResolvedValue("new-conversation");
 	loadList.mockReset().mockResolvedValue(undefined);
 	generateTitle.mockReset().mockResolvedValue(undefined);
+	prefetchConversation.mockReset().mockResolvedValue(undefined);
+	releaseConversationPrefetch.mockReset();
 	conversationState = {
 		conversations: [conversation()],
 		activeId: "c1",
@@ -72,6 +84,8 @@ beforeEach(() => {
 		deleteConversation,
 		renameConversation,
 		generateTitle,
+		prefetchConversation,
+		releaseConversationPrefetch,
 	};
 });
 
@@ -108,6 +122,46 @@ describe("ConversationList content", () => {
 
 		expect(newConversation).toHaveBeenCalledTimes(1);
 		expect(selectConversation).toHaveBeenCalledWith("c1");
+	});
+
+	it("prefetches after one second and releases an unused cache after ten seconds", () => {
+		conversationState.activeId = null;
+		render(<ConversationList />);
+		const item = screen.getByRole("button", { name: /Original gpt-4o/ });
+
+		fireEvent.pointerEnter(item);
+		act(() => vi.advanceTimersByTime(999));
+		expect(prefetchConversation).not.toHaveBeenCalled();
+		act(() => vi.advanceTimersByTime(1));
+		expect(prefetchConversation).toHaveBeenCalledWith("c1");
+		act(() => vi.advanceTimersByTime(10_000));
+		expect(releaseConversationPrefetch).toHaveBeenCalledWith("c1");
+	});
+
+	it("releases a prefetched item on pointer leave", () => {
+		conversationState.activeId = null;
+		render(<ConversationList />);
+		const item = screen.getByRole("button", { name: /Original gpt-4o/ });
+
+		fireEvent.pointerEnter(item);
+		act(() => vi.advanceTimersByTime(1_000));
+		fireEvent.pointerLeave(item);
+
+		expect(releaseConversationPrefetch).toHaveBeenCalledWith("c1");
+	});
+
+	it("promotes a prefetched item on click instead of evicting it", () => {
+		conversationState.activeId = null;
+		render(<ConversationList />);
+		const item = screen.getByRole("button", { name: /Original gpt-4o/ });
+
+		fireEvent.pointerEnter(item);
+		act(() => vi.advanceTimersByTime(1_000));
+		fireEvent.click(item);
+		act(() => vi.advanceTimersByTime(10_000));
+
+		expect(selectConversation).toHaveBeenCalledWith("c1");
+		expect(releaseConversationPrefetch).not.toHaveBeenCalled();
 	});
 });
 
