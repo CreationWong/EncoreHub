@@ -159,7 +159,7 @@
         },
         "responses": {
           "200": {
-            "description": "JSON response when stream=false, otherwise an SSE stream ending in authoritative done or error data.",
+            "description": "JSON response when stream=false, otherwise an SSE stream ending in authoritative done or error data. Streaming delta, reasoning, and usage events may include cumulative provider generation duration_ms; tool execution time is excluded.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ChatResponse" }
@@ -929,6 +929,10 @@
             "items": { "$ref": "#/components/schemas/ToolCall" }
           },
           "token_count": { "type": "integer", "minimum": 0 },
+          "input_tokens": { "type": ["integer", "null"], "minimum": 0 },
+          "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+          "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "finish_reason": { "type": ["string", "null"] },
           "status": { "enum": ["pending", "completed", "failed", "stopped"] },
           "created_at": { "type": "string" }
         }
@@ -1005,7 +1009,8 @@
           "stop": { "type": "array", "items": { "type": "string" } },
           "seed": { "type": ["integer", "null"] },
           "json_mode": { "type": "boolean" },
-          "reasoning_effort": { "type": "string" }
+          "reasoning_effort": { "type": "string", "enum": ["low", "medium", "high"] },
+          "thinking_budget": { "type": "integer", "minimum": 0 }
         }
       },
       "Usage": {

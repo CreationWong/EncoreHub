@@ -1196,6 +1196,10 @@ async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
                     "content": "world",
                     "reasoning": "checked",
                     "token_count": 42,
+                    "input_tokens": 30,
+                    "output_tokens": 12,
+                    "duration_ms": 750,
+                    "finish_reason": "stop",
                     "tool_calls": [{
                         "id": "provider-call-1",
                         "name": "web_search",
@@ -1215,6 +1219,10 @@ async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
     assert_eq!(finalized["assistant_message"]["status"], "completed");
     assert_eq!(finalized["assistant_message"]["parent_id"], turn_id);
     assert_eq!(finalized["assistant_message"]["token_count"], 42);
+    assert_eq!(finalized["assistant_message"]["input_tokens"], 30);
+    assert_eq!(finalized["assistant_message"]["output_tokens"], 12);
+    assert_eq!(finalized["assistant_message"]["duration_ms"], 750);
+    assert_eq!(finalized["assistant_message"]["finish_reason"], "stop");
     assert_eq!(
         finalized["assistant_message"]["tool_calls"][0]["id"],
         "provider-call-1"

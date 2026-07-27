@@ -13,6 +13,11 @@ import MessageBubble from "./MessageBubble";
 
 const FOLLOW_THRESHOLD_PX = 96;
 
+export function estimateStreamingTokens(content: string): number {
+	if (!content) return 0;
+	return Math.ceil(new TextEncoder().encode(content).length / 4);
+}
+
 function lastUserMessageId(messages: Message[]): string | null {
 	for (let index = messages.length - 1; index >= 0; index--) {
 		if (messages[index]?.role === "user") return messages[index].id;
@@ -48,6 +53,8 @@ export default function MessageFeed() {
 	const streamingReasoning = useConversationStore(
 		(state) => state.streamingReasoning,
 	);
+	const streamingDurationMs =
+		useConversationStore((state) => state.streamingDurationMs) ?? 0;
 	const streamingToolCalls = useConversationStore(
 		(state) => state.streamingToolCalls,
 	);
@@ -66,6 +73,9 @@ export default function MessageFeed() {
 	>({});
 	const streamingParentId = lastUserMessageId(messages);
 	const streamingReasoningKey = streamingParentId ?? "streaming";
+	const streamingTokenEstimate = estimateStreamingTokens(
+		streamingContent + streamingReasoning,
+	);
 
 	const writeScrollPosition = useCallback(
 		(scrollTop: number) => {
@@ -143,6 +153,7 @@ export default function MessageFeed() {
 		messages,
 		scheduleScrollToLatest,
 		streamingContent,
+		streamingDurationMs,
 		streamingReasoning,
 		streamingToolCalls,
 	]);
@@ -208,6 +219,9 @@ export default function MessageFeed() {
 								role: "assistant",
 								content: streamingContent,
 								reasoning: streamingReasoning || undefined,
+								output_tokens: streamingTokenEstimate || null,
+								duration_ms:
+									streamingDurationMs > 0 ? streamingDurationMs : null,
 								parent_id: streamingParentId,
 								tool_calls: streamingToolCalls
 									.filter((toolCall) => toolCall.name)

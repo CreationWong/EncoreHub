@@ -65,6 +65,72 @@ describe("conversation service", () => {
 		]);
 	});
 
+	it("removes duplicated DSML protocol blocks from historical tool messages", async () => {
+		const dsml =
+			'<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">world population</|DSML|></|invoke></|tool_calls>';
+		apiFetch.mockResolvedValueOnce({
+			id: "c1",
+			title: "Tool conversation",
+			provider: "deepseek",
+			model: "deepseek-chat",
+			messages: [
+				{
+					id: "m1",
+					role: "assistant",
+					content: `${dsml}\n\nThe requested population table is ready.`,
+					parent_id: null,
+					tool_calls: [
+						{
+							id: "call-1",
+							name: "web_search",
+							arguments: '{"query":"world population"}',
+						},
+					],
+					status: "completed",
+					created_at: "",
+				},
+			],
+			summary: null,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const detail = await getConversation("c1");
+
+		expect(detail.messages[0].content).toBe(
+			"The requested population table is ready.",
+		);
+	});
+
+	it("preserves ordinary DSML discussion without structured tool calls", async () => {
+		const content =
+			"The literal <|DSML|><|tool_calls|> marker is part of this explanation.";
+		apiFetch.mockResolvedValueOnce({
+			id: "c1",
+			title: "Protocol discussion",
+			provider: "deepseek",
+			model: "deepseek-chat",
+			messages: [
+				{
+					id: "m1",
+					role: "assistant",
+					content,
+					parent_id: null,
+					tool_calls: [],
+					status: "completed",
+					created_at: "",
+				},
+			],
+			summary: null,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const detail = await getConversation("c1");
+
+		expect(detail.messages[0].content).toBe(content);
+	});
+
 	it("createConversation defaults to 'New Chat'", async () => {
 		await createConversation();
 		const [path, opts] = apiFetch.mock.calls[0];

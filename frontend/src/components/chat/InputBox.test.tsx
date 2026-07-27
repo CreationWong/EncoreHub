@@ -23,6 +23,11 @@ const convState = {
 	stopStreaming,
 	streaming: false,
 	activeId: null as string | null,
+	conversations: [] as Array<{
+		id: string;
+		provider: string;
+		model: string;
+	}>,
 	messages: [] as unknown[],
 	pendingDraft: null as string | null,
 	drafts: {} as Record<string, string>,
@@ -44,18 +49,39 @@ const setSearchEnabled = vi.fn((enabled: boolean) => {
 const setSearchProvider = vi.fn((provider: SearchProvider) => {
 	settingsState.searchProvider = provider;
 });
+const setDeepThinking = vi.fn((enabled: boolean) => {
+	settingsState.deepThinking = enabled;
+});
+const toastInfo = vi.fn();
 const settingsState: {
 	openSettings: ReturnType<typeof vi.fn>;
+	provider: string;
+	model: string;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
+	deepThinking: boolean;
 	setSearchEnabled: typeof setSearchEnabled;
 	setSearchProvider: typeof setSearchProvider;
+	setDeepThinking: typeof setDeepThinking;
 } = {
 	openSettings: vi.fn(),
+	provider: "openai",
+	model: "gpt-4o",
 	searchEnabled: false,
 	searchProvider: "duckduckgo",
+	deepThinking: false,
 	setSearchEnabled,
 	setSearchProvider,
+	setDeepThinking,
+};
+const providerState = {
+	profiles: [] as Array<{
+		id: string;
+		model_configs?: Array<{
+			id: string;
+			capabilities?: Array<"web" | "reasoning">;
+		}>;
+	}>,
 };
 
 vi.mock("../../stores/conversationStore", () => {
@@ -76,6 +102,15 @@ vi.mock("../../stores/settingsStore", () => {
 	return { useSettingsStore: hook };
 });
 
+vi.mock("../../stores/providerStore", () => ({
+	useProviderStore: <T,>(selector: (state: typeof providerState) => T): T =>
+		selector(providerState),
+}));
+
+vi.mock("../../stores/toastStore", () => ({
+	toast: { info: (...args: unknown[]) => toastInfo(...args) },
+}));
+
 import InputBox from "./InputBox";
 
 beforeEach(() => {
@@ -83,6 +118,7 @@ beforeEach(() => {
 	stopStreaming.mockReset();
 	convState.streaming = false;
 	convState.activeId = null;
+	convState.conversations = [];
 	convState.messages = [];
 	convState.pendingDraft = null;
 	convState.drafts = {};
@@ -91,8 +127,14 @@ beforeEach(() => {
 	clearConversationDraft.mockClear();
 	setSearchEnabled.mockClear();
 	setSearchProvider.mockClear();
+	setDeepThinking.mockClear();
 	settingsState.searchEnabled = false;
 	settingsState.searchProvider = "duckduckgo";
+	settingsState.deepThinking = false;
+	settingsState.provider = "openai";
+	settingsState.model = "gpt-4o";
+	providerState.profiles = [];
+	toastInfo.mockReset();
 	// jsdom doesn't implement scrollIntoView; SlashCommandMenu uses it.
 	if (!Element.prototype.scrollIntoView) {
 		Element.prototype.scrollIntoView = () => {};
@@ -228,6 +270,53 @@ describe("InputBox composer surface", () => {
 		).toBe(true);
 	});
 
+	it("hides deep thinking when the active model does not expose it", () => {
+		settingsState.deepThinking = true;
+		render(<InputBox />);
+
+		expect(screen.queryByRole("button", { name: /deep thinking/i })).toBeNull();
+	});
+
+	it("toggles deep thinking without opening another surface", () => {
+		providerState.profiles = [
+			{
+				id: "openai",
+				model_configs: [{ id: "gpt-4o", capabilities: ["reasoning"] }],
+			},
+		];
+		render(<InputBox />);
+		const button = screen.getByRole("button", {
+			name: "Enable deep thinking",
+		});
+		expect(button.getAttribute("aria-pressed")).toBe("false");
+		fireEvent.click(button);
+		expect(setDeepThinking).toHaveBeenCalledWith(true);
+	});
+
+	it("uses the active conversation model capability instead of the default", () => {
+		providerState.profiles = [
+			{
+				id: "openai",
+				model_configs: [
+					{ id: "gpt-4o", capabilities: ["reasoning"] },
+					{ id: "gpt-4o-mini", capabilities: [] },
+				],
+			},
+		];
+		convState.activeId = "ordinary-conversation";
+		convState.conversations = [
+			{
+				id: "ordinary-conversation",
+				provider: "openai",
+				model: "gpt-4o-mini",
+			},
+		];
+
+		render(<InputBox />);
+
+		expect(screen.queryByRole("button", { name: /deep thinking/i })).toBeNull();
+	});
+
 	it("keeps the focus treatment on the unified composer surface", () => {
 		render(<InputBox />);
 		const composer = screen.getByRole("group", { name: "Message composer" });
@@ -283,6 +372,48 @@ describe("InputBox composer surface", () => {
 
 		fireEvent.click(screen.getByRole("menuitemradio", { name: "Bing" }));
 		expect(setSearchProvider).toHaveBeenCalledWith("bing");
+	});
+
+	it("locks search on and hides external search settings for a native web model", () => {
+		settingsState.provider = "ordinary-provider";
+		settingsState.model = "ordinary-model";
+		convState.activeId = "native-conversation";
+		convState.conversations = [
+			{
+				id: "native-conversation",
+				provider: "native-provider",
+				model: "online-model",
+			},
+		];
+		providerState.profiles = [
+			{
+				id: "native-provider",
+				model_configs: [
+					{
+						id: "online-model",
+						capabilities: ["web"],
+					},
+				],
+			},
+		];
+
+		render(<InputBox />);
+
+		const searchButton = screen.getByRole("button", {
+			name: "Built-in web search enabled",
+		});
+		expect(searchButton.getAttribute("aria-pressed")).toBe("true");
+		expect(
+			screen.queryByRole("button", { name: "Open web search settings" }),
+		).toBeNull();
+
+		fireEvent.click(searchButton);
+
+		expect(setSearchEnabled).not.toHaveBeenCalled();
+		expect(toastInfo).toHaveBeenCalledWith(
+			"This model has built-in web search, so web search cannot be turned off.",
+			5000,
+		);
 	});
 });
 

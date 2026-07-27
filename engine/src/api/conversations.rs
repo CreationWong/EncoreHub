@@ -71,6 +71,10 @@ pub struct MessageResponse {
     pub parent_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
     pub token_count: i32,
+    pub input_tokens: Option<i32>,
+    pub output_tokens: Option<i32>,
+    pub duration_ms: Option<i64>,
+    pub finish_reason: Option<String>,
     pub status: String,
     pub created_at: String,
 }
@@ -197,6 +201,10 @@ pub async fn get_one(
                 parent_id: m.parent_id,
                 tool_calls,
                 token_count: m.token_count,
+                input_tokens: m.input_tokens,
+                output_tokens: m.output_tokens,
+                duration_ms: m.duration_ms,
+                finish_reason: m.finish_reason,
                 status: m.status.as_str().to_string(),
                 created_at: m.created_at.to_rfc3339(),
             }
@@ -373,6 +381,10 @@ pub async fn get_messages(
                 parent_id: m.parent_id,
                 tool_calls,
                 token_count: m.token_count,
+                input_tokens: m.input_tokens,
+                output_tokens: m.output_tokens,
+                duration_ms: m.duration_ms,
+                finish_reason: m.finish_reason,
                 status: m.status.as_str().to_string(),
                 created_at: m.created_at.to_rfc3339(),
             }
@@ -392,6 +404,14 @@ pub struct AddMessageRequest {
     pub reasoning: String,
     #[serde(default)]
     pub token_count: i32,
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub finish_reason: Option<String>,
     #[serde(default)]
     pub tool_calls: Vec<AddToolCall>,
 }
@@ -428,6 +448,14 @@ pub struct FinalizeAssistantRequest {
     pub reasoning: String,
     #[serde(default)]
     pub token_count: i32,
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub finish_reason: Option<String>,
     #[serde(default)]
     pub tool_calls: Vec<AddToolCall>,
 }
@@ -484,6 +512,10 @@ pub async fn finalize_turn(
         )
         .with_reasoning(input.reasoning);
         message.token_count = input.token_count;
+        message.input_tokens = input.input_tokens;
+        message.output_tokens = input.output_tokens;
+        message.duration_ms = input.duration_ms;
+        message.finish_reason = input.finish_reason;
         message.status = status;
         let calls = input
             .tool_calls
@@ -538,6 +570,10 @@ pub async fn add_message(
     let mut msg =
         Message::new(&conv_id, role, &req.content, req.parent_id).with_reasoning(&req.reasoning);
     msg.token_count = req.token_count;
+    msg.input_tokens = req.input_tokens;
+    msg.output_tokens = req.output_tokens;
+    msg.duration_ms = req.duration_ms;
+    msg.finish_reason = req.finish_reason;
     state.db.append_message(&msg).map_err(internal_error)?;
 
     // Persist any tool calls the gateway parsed from the provider stream.
@@ -749,6 +785,10 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
             })
             .collect(),
         token_count: msg.token_count,
+        input_tokens: msg.input_tokens,
+        output_tokens: msg.output_tokens,
+        duration_ms: msg.duration_ms,
+        finish_reason: msg.finish_reason.clone(),
         status: msg.status.as_str().to_string(),
         created_at: msg.created_at.to_rfc3339(),
     }

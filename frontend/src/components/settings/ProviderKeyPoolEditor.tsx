@@ -18,12 +18,17 @@ import {
 	type ProviderAPIKey,
 	createProviderAPIKey,
 } from "./providerKeys";
+import {
+	providerRuntimeStatusPresentation,
+	validationResultRuntimeStatus,
+} from "./providerRuntimeStatus";
 
 interface Props {
 	keys: ProviderAPIKey[];
 	protocol: ProviderProtocol;
 	results?: Record<string, ProviderKeyValidationResult>;
 	validating?: boolean;
+	waiting?: boolean;
 	onChange: (keys: ProviderAPIKey[], connectionChanged: boolean) => void;
 }
 
@@ -42,6 +47,7 @@ export default function ProviderKeyPoolEditor({
 	protocol,
 	results = {},
 	validating = false,
+	waiting = false,
 	onChange,
 }: Props) {
 	const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
@@ -87,8 +93,20 @@ export default function ProviderKeyPoolEditor({
 					keys.map((key, index) => {
 						const isRevealed = revealed.has(key.id);
 						const result = results[key.id];
+						const runtimeStatus = validationResultRuntimeStatus(
+							key.enabled,
+							validating || (waiting && !result),
+							result?.status,
+							result?.error_category,
+						);
+						const statusPresentation =
+							providerRuntimeStatusPresentation(runtimeStatus);
 						const label =
-							validating && key.enabled ? "Testing key" : resultLabel(result);
+							validating && key.enabled
+								? "Testing key"
+								: result
+									? resultLabel(result)
+									: statusPresentation.label;
 						return (
 							<div
 								key={key.id}
@@ -97,16 +115,8 @@ export default function ProviderKeyPoolEditor({
 								<div className="flex min-w-0 items-center gap-2">
 									<span
 										className={`h-2 w-2 shrink-0 rounded-full ${
-											validating && key.enabled
-												? "animate-pulse bg-accent"
-												: result?.status === "valid"
-													? "bg-success"
-													: result?.status === "invalid"
-														? "bg-danger"
-														: result?.status === "error"
-															? "bg-warning"
-															: "bg-border"
-										}`}
+											statusPresentation.className
+										} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
 										aria-label={`${key.name || `API key ${index + 1}`}: ${label}`}
 										title={label}
 									/>

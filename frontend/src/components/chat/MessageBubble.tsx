@@ -80,6 +80,10 @@ export default function MessageBubble({
 				content={message.content}
 				status={message.status}
 				tokenCount={message.token_count}
+				inputTokens={message.input_tokens}
+				outputTokens={message.output_tokens}
+				durationMs={message.duration_ms}
+				finishReason={message.finish_reason}
 				streaming={isStreaming}
 			/>
 		</article>

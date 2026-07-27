@@ -1,4 +1,5 @@
 import {
+	Brain,
 	Check,
 	ChevronDown,
 	Command,
@@ -17,10 +18,13 @@ import {
 	NEW_CONVERSATION_DRAFT_KEY,
 	useConversationStore,
 } from "../../stores/conversationStore";
+import { useProviderStore } from "../../stores/providerStore";
 import {
 	type SearchProvider,
 	useSettingsStore,
 } from "../../stores/settingsStore";
+import { toast } from "../../stores/toastStore";
+import { modelHasCapability } from "../../utils/modelCapabilities";
 import SlashCommandMenu, { slashCommandOptionId } from "./SlashCommandMenu";
 
 const MAX_CHARS = 8000;
@@ -28,6 +32,8 @@ const WARN_AT = Math.ceil(MAX_CHARS * 0.85);
 const MAX_TEXTAREA_HEIGHT = 220;
 const SLASH_MENU_ID = "chat-slash-command-menu";
 const SEARCH_MENU_ID = "chat-search-menu";
+const NATIVE_WEB_SEARCH_MESSAGE =
+	"This model has built-in web search, so web search cannot be turned off.";
 
 const SEARCH_PROVIDERS: { value: SearchProvider; label: string }[] = [
 	{ value: "duckduckgo", label: "DuckDuckGo" },
@@ -76,6 +82,13 @@ export default function InputBox() {
 	const stopStreaming = useConversationStore((state) => state.stopStreaming);
 	const streaming = useConversationStore((state) => state.streaming);
 	const activeId = useConversationStore((state) => state.activeId);
+	const activeConversation = useConversationStore((state) =>
+		state.activeId
+			? state.conversations.find(
+					(conversation) => conversation.id === state.activeId,
+				)
+			: undefined,
+	);
 	const messages = useConversationStore((state) => state.messages);
 	const pendingDraft = useConversationStore((state) => state.pendingDraft);
 	const clearDraft = useConversationStore((state) => state.clearDraft);
@@ -87,10 +100,30 @@ export default function InputBox() {
 	);
 	const searchEnabled = useSettingsStore((state) => state.searchEnabled);
 	const searchProvider = useSettingsStore((state) => state.searchProvider);
+	const defaultProvider = useSettingsStore((state) => state.provider);
+	const defaultModel = useSettingsStore((state) => state.model);
+	const deepThinking = useSettingsStore((state) => state.deepThinking);
 	const setSearchEnabled = useSettingsStore((state) => state.setSearchEnabled);
 	const setSearchProvider = useSettingsStore(
 		(state) => state.setSearchProvider,
 	);
+	const setDeepThinking = useSettingsStore((state) => state.setDeepThinking);
+	const providerProfiles = useProviderStore((state) => state.profiles);
+	const activeProvider = activeConversation?.provider || defaultProvider;
+	const activeModel = activeConversation?.model || defaultModel;
+	const nativeWebSearch = modelHasCapability(
+		providerProfiles,
+		activeProvider,
+		activeModel,
+		"web",
+	);
+	const deepThinkingAvailable = modelHasCapability(
+		providerProfiles,
+		activeProvider,
+		activeModel,
+		"reasoning",
+	);
+	const effectiveSearchEnabled = nativeWebSearch || searchEnabled;
 
 	const updateInput = useCallback(
 		(next: string, conversationId: string | null = activeId) => {
@@ -158,6 +191,10 @@ export default function InputBox() {
 		document.addEventListener("mousedown", handlePointerDown);
 		return () => document.removeEventListener("mousedown", handlePointerDown);
 	}, [showSearchMenu]);
+
+	useEffect(() => {
+		if (nativeWebSearch) setShowSearchMenu(false);
+	}, [nativeWebSearch]);
 
 	const focusTextarea = useCallback(() => {
 		textareaRef.current?.focus();
@@ -398,7 +435,7 @@ export default function InputBox() {
 						<fieldset
 							ref={searchControlRef}
 							className={`relative m-0 flex shrink-0 rounded-md border-0 p-0 ${
-								searchEnabled
+								effectiveSearchEnabled
 									? "bg-accent/10 text-accent"
 									: "text-text-secondary"
 							}`}
@@ -409,39 +446,54 @@ export default function InputBox() {
 								onClick={() => {
 									setSlashDismissed(true);
 									setShowSearchMenu(false);
+									if (nativeWebSearch) {
+										toast.info(NATIVE_WEB_SEARCH_MESSAGE, 5000);
+										focusTextarea();
+										return;
+									}
 									setSearchEnabled(!searchEnabled);
 								}}
 								aria-label={
-									searchEnabled ? "Disable web search" : "Enable web search"
+									nativeWebSearch
+										? "Built-in web search enabled"
+										: searchEnabled
+											? "Disable web search"
+											: "Enable web search"
 								}
-								aria-pressed={searchEnabled}
+								aria-pressed={effectiveSearchEnabled}
 								title={
-									searchEnabled
-										? `Disable web search (${selectedSearchProvider.label})`
-										: "Enable web search"
+									nativeWebSearch
+										? "Built-in web search is always enabled for this model"
+										: searchEnabled
+											? `Disable web search (${selectedSearchProvider.label})`
+											: "Enable web search"
 								}
-								className="flex h-9 w-8 items-center justify-center rounded-l-md transition-colors hover:bg-surface-hover hover:text-text-primary"
+								className={`flex h-9 w-8 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text-primary ${
+									nativeWebSearch ? "rounded-md" : "rounded-l-md"
+								}`}
 							>
 								<Globe className="h-4 w-4" />
 							</button>
-							<button
-								ref={searchMenuButtonRef}
-								type="button"
-								onClick={() => {
-									setSlashDismissed(true);
-									setShowSearchMenu((open) => !open);
-								}}
-								aria-label="Open web search settings"
-								aria-haspopup="menu"
-								aria-expanded={showSearchMenu}
-								aria-controls={SEARCH_MENU_ID}
-								title="Web search settings"
-								className="flex h-9 w-5 items-center justify-center rounded-r-md transition-colors hover:bg-surface-hover hover:text-text-primary"
-							>
-								<ChevronDown className="h-3 w-3" />
-							</button>
+							{!nativeWebSearch && (
+								<button
+									ref={searchMenuButtonRef}
+									type="button"
+									onClick={() => {
+										setSlashDismissed(true);
+										setShowSearchMenu((open) => !open);
+									}}
+									aria-label="Open web search settings"
+									aria-haspopup="menu"
+									aria-expanded={showSearchMenu}
+									aria-controls={SEARCH_MENU_ID}
+									title="Web search settings"
+									className="flex h-9 w-5 items-center justify-center rounded-r-md transition-colors hover:bg-surface-hover hover:text-text-primary"
+								>
+									<ChevronDown className="h-3 w-3" />
+								</button>
+							)}
 
-							{showSearchMenu && (
+							{!nativeWebSearch && showSearchMenu && (
 								<div
 									id={SEARCH_MENU_ID}
 									role="menu"
@@ -503,6 +555,35 @@ export default function InputBox() {
 								</div>
 							)}
 						</fieldset>
+						{deepThinkingAvailable && (
+							<button
+								type="button"
+								onClick={() => {
+									setSlashDismissed(true);
+									setShowSearchMenu(false);
+									setDeepThinking(!deepThinking);
+									focusTextarea();
+								}}
+								aria-label={
+									deepThinking
+										? "Disable deep thinking"
+										: "Enable deep thinking"
+								}
+								aria-pressed={deepThinking}
+								title={
+									deepThinking
+										? "Deep thinking enabled"
+										: "Enable deep thinking"
+								}
+								className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-surface-hover hover:text-text-primary ${
+									deepThinking
+										? "bg-accent/10 text-accent"
+										: "text-text-secondary"
+								}`}
+							>
+								<Brain className="h-4 w-4" />
+							</button>
+						)}
 						{streaming && (
 							<output className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
 								<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />

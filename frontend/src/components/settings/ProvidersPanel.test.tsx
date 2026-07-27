@@ -66,8 +66,25 @@ vi.mock("../../stores/toastStore", () => ({
 }));
 
 vi.mock("./ProviderDetail", () => ({
-	default: ({ profile }: { profile: ProviderProfile }) => (
-		<div aria-label="Selected provider detail">{profile.id}</div>
+	default: ({
+		profile,
+		onStatusChange,
+	}: {
+		profile: ProviderProfile;
+		onStatusChange: (providerId: string, status: "timeout" | "error") => void;
+	}) => (
+		<div>
+			<div aria-label="Selected provider detail">{profile.id}</div>
+			<button
+				type="button"
+				onClick={() => onStatusChange(profile.id, "timeout")}
+			>
+				Report timeout
+			</button>
+			<button type="button" onClick={() => onStatusChange(profile.id, "error")}>
+				Report fault
+			</button>
+		</div>
 	),
 }));
 
@@ -138,5 +155,31 @@ describe("ProvidersPanel selection preference", () => {
 		expect(screen.getByLabelText("Selected provider detail").textContent).toBe(
 			"beta",
 		);
+	});
+
+	it("updates the selected provider indicator from live connection status", () => {
+		render(<ProvidersPanel />);
+
+		expect(screen.getByLabelText("Alpha status: Normal").className).toContain(
+			"bg-success",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Report timeout" }));
+		expect(
+			screen.getByLabelText("Alpha status: Connection timed out").className,
+		).toContain("bg-warning");
+
+		fireEvent.click(screen.getByRole("button", { name: "Report fault" }));
+		expect(
+			screen.getByLabelText("Alpha status: Connection fault").className,
+		).toContain("bg-danger");
+	});
+
+	it("renders disabled providers without a status color", () => {
+		providerState.profiles = [profiles[0], { ...profiles[1], enabled: false }];
+		render(<ProvidersPanel />);
+
+		const indicator = screen.getByLabelText("Beta status: Disabled");
+		expect(indicator.className).toContain("bg-transparent");
+		expect(indicator.className).not.toMatch(/bg-(success|warning|danger)/);
 	});
 });

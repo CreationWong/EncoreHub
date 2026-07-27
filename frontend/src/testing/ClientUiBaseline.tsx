@@ -2,6 +2,7 @@ import ChatView from "../components/chat/ChatView";
 import GlobalNav from "../components/layout/GlobalNav";
 import SettingsModal from "../components/settings/SettingsModal";
 import Sidebar from "../components/sidebar/Sidebar";
+import ToastHost from "../components/ui/ToastHost";
 import { useConversationStore } from "../stores/conversationStore";
 import { useProviderStore } from "../stores/providerStore";
 import { useSecretsStore } from "../stores/secretsStore";
@@ -90,6 +91,7 @@ export function seedClientUiBaseline({
 		streaming: scenario.streaming,
 		streamingContent: scenario.streamingContent,
 		streamingReasoning: scenario.streamingReasoning,
+		streamingDurationMs: scenario.streaming ? 1840 : 0,
 		streamingToolCalls: scenario.streamingToolCalls,
 		error: null,
 		abortController: null,
@@ -139,6 +141,7 @@ export default function ClientUiBaseline() {
 				</div>
 			</div>
 			<SettingsModal />
+			<ToastHost />
 		</>
 	);
 }

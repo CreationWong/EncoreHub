@@ -16,6 +16,7 @@ let feedState: {
 	streaming: boolean;
 	streamingContent: string;
 	streamingReasoning: string;
+	streamingDurationMs: number;
 	streamingToolCalls: StreamToolCall[];
 	scrollPositions: Record<string, number>;
 	setConversationScrollPosition: (id: string, scrollTop: number) => void;
@@ -90,6 +91,7 @@ beforeEach(() => {
 		streaming: false,
 		streamingContent: "",
 		streamingReasoning: "",
+		streamingDurationMs: 0,
 		streamingToolCalls: [],
 		scrollPositions: {},
 		setConversationScrollPosition: vi.fn((id, scrollTop) => {
@@ -194,6 +196,32 @@ describe("MessageFeed document layout", () => {
 		expect(container.querySelector(".max-w-\\[1080px\\]")).not.toBeNull();
 		expect(screen.getByText("Generating")).toBeDefined();
 		expect(screen.getByText("Generating response")).toBeDefined();
+	});
+
+	it("derives live token totals and output rate from streamed content", () => {
+		feedState.streaming = true;
+		feedState.streamingContent = "a".repeat(40);
+		feedState.streamingDurationMs = 2000;
+		const { rerender } = render(<MessageFeed />);
+
+		expect(screen.getByText("5.0 tokens/s")).toBeDefined();
+		expect(screen.getByText("10 tokens")).toBeDefined();
+		expect(screen.getByText("2 s")).toBeDefined();
+
+		feedState.streamingContent = "a".repeat(80);
+		rerender(<MessageFeed />);
+
+		expect(screen.getByText("10.0 tokens/s")).toBeDefined();
+		expect(screen.getByText("20 tokens")).toBeDefined();
+	});
+
+	it("does not show a zero-duration placeholder before telemetry arrives", () => {
+		feedState.streaming = true;
+		feedState.streamingContent = "partial";
+		render(<MessageFeed />);
+
+		expect(screen.queryByText("0 ms")).toBeNull();
+		expect(screen.queryByText(/tokens\/s/)).toBeNull();
 	});
 });
 

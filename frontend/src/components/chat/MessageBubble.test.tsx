@@ -253,7 +253,7 @@ describe("MessageBubble reply footer", () => {
 		const footer = screen.getByLabelText("Reply actions and status");
 		expect(footer.textContent).toContain("13,126 tokens");
 		expect(
-			screen.getByTitle("Total input and output tokens").closest("footer"),
+			screen.getByTitle("Legacy total token count").closest("footer"),
 		).toBe(footer);
 	});
 

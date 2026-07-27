@@ -20,6 +20,11 @@ export interface Message {
 	tool_calls: ToolCall[];
 	/** Total input+output tokens from the provider response. 0 if unknown. */
 	token_count?: number;
+	/** Raw provider telemetry. Null means unavailable, including legacy records. */
+	input_tokens?: number | null;
+	output_tokens?: number | null;
+	duration_ms?: number | null;
+	finish_reason?: string | null;
 	/** Persisted chat-turn lifecycle state. */
 	status: "pending" | "completed" | "failed" | "stopped";
 	created_at: string;
@@ -40,10 +45,53 @@ export type MessagePayload = Omit<Message, "tool_calls"> & {
 	tool_calls?: ToolCall[] | null;
 };
 
+const DSML_TOOL_CALL_MARKERS = [
+	["<|DSML|><|tool_calls|>", "</|tool_calls>"],
+	["<|DSML|tool_calls>", "<|/DSML|tool_calls>"],
+	["<|DSML|tool_calls>", "<|DSML|/tool_calls>"],
+	["<｜DSML｜tool_calls>", "<｜/DSML｜tool_calls>"],
+	["<｜DSML｜tool_calls>", "<｜DSML｜/tool_calls>"],
+] as const;
+
+function cleanDuplicatedToolProtocol(
+	content: string,
+	toolCalls: ToolCall[],
+): string {
+	if (toolCalls.length === 0 || !content.includes("DSML")) return content;
+
+	let cleaned = content;
+	while (true) {
+		let startIndex = -1;
+		let endIndex = -1;
+		for (const [start, end] of DSML_TOOL_CALL_MARKERS) {
+			const candidateStart = cleaned.indexOf(start);
+			if (candidateStart < 0) continue;
+
+			const remainderStart = candidateStart + start.length;
+			const relativeEnd = cleaned.indexOf(end, remainderStart);
+			if (relativeEnd < 0) continue;
+
+			if (startIndex < 0 || candidateStart < startIndex) {
+				startIndex = candidateStart;
+				endIndex = relativeEnd + end.length;
+			}
+		}
+
+		if (startIndex < 0) break;
+		const before = cleaned.slice(0, startIndex).trimEnd();
+		const after = cleaned.slice(endIndex).trimStart();
+		cleaned = before && after ? `${before}\n${after}` : before || after;
+	}
+
+	return cleaned.trim();
+}
+
 export function normalizeMessage(message: MessagePayload): Message {
+	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
 	return {
 		...message,
-		tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+		content: cleanDuplicatedToolProtocol(message.content, toolCalls),
+		tool_calls: toolCalls,
 	};
 }
 

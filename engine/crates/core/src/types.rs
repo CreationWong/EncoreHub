@@ -51,6 +51,15 @@ pub struct Message {
     pub reasoning: String,
     pub parent_id: Option<String>,
     pub token_count: i32,
+    /// Provider-reported prompt/input usage. None when the provider did not
+    /// report usage or for records created before telemetry persistence.
+    pub input_tokens: Option<i32>,
+    /// Provider-reported completion/output usage.
+    pub output_tokens: Option<i32>,
+    /// Time spent consuming provider generation responses, excluding tool work.
+    pub duration_ms: Option<i64>,
+    /// Raw provider finish reason (for example `stop`, `length`, `tool_use`).
+    pub finish_reason: Option<String>,
     #[serde(default)]
     pub status: MessageStatus,
     pub created_at: DateTime<Utc>,
@@ -71,6 +80,10 @@ impl Message {
             reasoning: String::new(),
             parent_id,
             token_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+            duration_ms: None,
+            finish_reason: None,
             status: MessageStatus::Completed,
             created_at: Utc::now(),
         }

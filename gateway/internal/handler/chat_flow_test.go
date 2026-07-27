@@ -114,15 +114,19 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if request.Assistant != nil {
 			parentID := user.ID
 			assistant = &engine.Message{
-				ID:         "assistant-authoritative",
-				Role:       "assistant",
-				Content:    request.Assistant.Content,
-				Reasoning:  request.Assistant.Reasoning,
-				ParentID:   &parentID,
-				ToolCalls:  request.Assistant.ToolCalls,
-				TokenCount: request.Assistant.TokenCount,
-				Status:     request.Status,
-				CreatedAt:  "2026-07-16T00:00:01Z",
+				ID:           "assistant-authoritative",
+				Role:         "assistant",
+				Content:      request.Assistant.Content,
+				Reasoning:    request.Assistant.Reasoning,
+				ParentID:     &parentID,
+				ToolCalls:    request.Assistant.ToolCalls,
+				TokenCount:   request.Assistant.TokenCount,
+				InputTokens:  request.Assistant.InputTokens,
+				OutputTokens: request.Assistant.OutputTokens,
+				DurationMS:   request.Assistant.DurationMS,
+				FinishReason: request.Assistant.FinishReason,
+				Status:       request.Status,
+				CreatedAt:    "2026-07-16T00:00:01Z",
 			}
 		}
 		writeTestJSON(w, http.StatusOK, engine.FinalizeTurnResponse{
@@ -251,8 +255,9 @@ func TestSendMessage_DoneCarriesCommittedMessages(t *testing.T) {
 	stub := &chatEngineStub{}
 	adapter := &scriptedAdapter{
 		streamFn: func(context.Context, *provider.ChatRequest, int) (<-chan provider.StreamEvent, error) {
+			time.Sleep(3 * time.Millisecond)
 			return streamOf(
-				provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer"}},
+				provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer", FinishReason: "stop"}},
 				provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 2, OutputTokens: 3}},
 			), nil
 		},
@@ -280,12 +285,23 @@ func TestSendMessage_DoneCarriesCommittedMessages(t *testing.T) {
 	if done.Usage.InputTokens != 2 || done.Usage.OutputTokens != 3 {
 		t.Fatalf("unexpected done usage: %+v", done.Usage)
 	}
+	if done.AssistantMessage.InputTokens == nil || *done.AssistantMessage.InputTokens != 2 ||
+		done.AssistantMessage.OutputTokens == nil || *done.AssistantMessage.OutputTokens != 3 ||
+		done.AssistantMessage.DurationMS == nil || *done.AssistantMessage.DurationMS <= 0 ||
+		done.AssistantMessage.FinishReason == nil || *done.AssistantMessage.FinishReason != "stop" {
+		t.Fatalf("missing persisted telemetry: %+v", done.AssistantMessage)
+	}
+	if !strings.Contains(body, `"duration_ms":`) {
+		t.Fatalf("stream deltas did not expose live duration: %s", body)
+	}
 
 	requests := stub.finalizations()
 	if len(requests) != 1 || requests[0].Status != "completed" {
 		t.Fatalf("finalize requests = %+v", requests)
 	}
-	if requests[0].Assistant == nil || requests[0].Assistant.TokenCount != 5 {
+	if requests[0].Assistant == nil || requests[0].Assistant.TokenCount != 5 ||
+		requests[0].Assistant.InputTokens == nil || *requests[0].Assistant.InputTokens != 2 ||
+		requests[0].Assistant.OutputTokens == nil || *requests[0].Assistant.OutputTokens != 3 {
 		t.Fatalf("unexpected finalized assistant: %+v", requests[0].Assistant)
 	}
 }
@@ -301,6 +317,7 @@ func TestSendMessage_NonStreamingReturnsCommittedMessages(t *testing.T) {
 			return &provider.ChatResponse{
 				Content:          "answer",
 				ReasoningContent: "reasoning",
+				FinishReason:     "end_turn",
 				InputTokens:      4,
 				OutputTokens:     6,
 			}, nil
@@ -330,7 +347,11 @@ func TestSendMessage_NonStreamingReturnsCommittedMessages(t *testing.T) {
 		t.Fatalf("response did not use committed messages: %+v", response)
 	}
 	requests := stub.finalizations()
-	if len(requests) != 1 || requests[0].Assistant == nil || requests[0].Assistant.TokenCount != 10 || requests[0].Assistant.Reasoning != "reasoning" {
+	if len(requests) != 1 || requests[0].Assistant == nil || requests[0].Assistant.TokenCount != 10 ||
+		requests[0].Assistant.Reasoning != "reasoning" || requests[0].Assistant.InputTokens == nil ||
+		*requests[0].Assistant.InputTokens != 4 || requests[0].Assistant.OutputTokens == nil ||
+		*requests[0].Assistant.OutputTokens != 6 || requests[0].Assistant.DurationMS == nil ||
+		requests[0].Assistant.FinishReason == nil || *requests[0].Assistant.FinishReason != "end_turn" {
 		t.Fatalf("unexpected finalization: %+v", requests)
 	}
 }
@@ -393,6 +414,30 @@ func TestSendMessage_ProviderFailurePersistsPartialFailedTurn(t *testing.T) {
 	if len(requests) != 1 || requests[0].Status != "failed" || requests[0].Assistant == nil || requests[0].Assistant.Content != "partial" {
 		t.Fatalf("unexpected failed finalization: %+v", requests)
 	}
+	if requests[0].Assistant.FinishReason == nil || *requests[0].Assistant.FinishReason != "error" {
+		t.Fatalf("provider error finish reason was not persisted: %+v", requests[0].Assistant)
+	}
+}
+
+func TestSendMessage_ProviderFailureWithoutOutputDoesNotCreateAssistant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(context.Context, *provider.ChatRequest, int) (<-chan provider.StreamEvent, error) {
+			return nil, errors.New("connection failed")
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Status != "failed" || requests[0].Assistant != nil {
+		t.Fatalf("provider failure fabricated an assistant: %+v", requests)
+	}
 }
 
 func TestSendMessage_StopPersistsPartialStoppedTurn(t *testing.T) {
@@ -438,6 +483,9 @@ func TestSendMessage_StopPersistsPartialStoppedTurn(t *testing.T) {
 	if requests[0].Assistant == nil || requests[0].Assistant.Content != "partial" {
 		t.Fatalf("partial assistant was not persisted on Stop: %+v", requests[0].Assistant)
 	}
+	if requests[0].Assistant.FinishReason == nil || *requests[0].Assistant.FinishReason != "cancelled" {
+		t.Fatalf("stop finish reason was not persisted: %+v", requests[0].Assistant)
+	}
 }
 
 func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
@@ -457,7 +505,7 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 					t.Fatalf("current user message missing from provider request: %+v", req.Messages)
 				}
 				return streamOf(
-					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "preface"}},
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "preface", FinishReason: "tool_calls"}},
 					provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
 						Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Renamed"}`,
 					}},
@@ -465,7 +513,7 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 				), nil
 			case 2:
 				return streamOf(
-					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer"}},
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer", FinishReason: "stop"}},
 					provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 5, OutputTokens: 6}},
 				), nil
 			default:
@@ -493,8 +541,102 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 	if len(requests) != 1 || requests[0].Assistant == nil {
 		t.Fatalf("unexpected finalization: %+v", requests)
 	}
+	if requests[0].Assistant.InputTokens == nil || *requests[0].Assistant.InputTokens != 8 ||
+		requests[0].Assistant.OutputTokens == nil || *requests[0].Assistant.OutputTokens != 10 ||
+		requests[0].Assistant.DurationMS == nil || requests[0].Assistant.FinishReason == nil ||
+		*requests[0].Assistant.FinishReason != "stop" {
+		t.Fatalf("tool-loop telemetry was not accumulated: %+v", requests[0].Assistant)
+	}
 	if len(requests[0].Assistant.ToolCalls) != 1 || requests[0].Assistant.ToolCalls[0].Status != "success" {
 		t.Fatalf("executed tool call was not persisted authoritatively: %+v", requests[0].Assistant.ToolCalls)
+	}
+}
+
+func TestSendMessage_ToolFollowupDoesNotPersistDSMLProtocolText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	const leakedDSML = `<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">world population</|DSML|></|invoke></|tool_calls>`
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, req *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: leakedDSML[:20]}},
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: leakedDSML[20:]}},
+					provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+						Index:     0,
+						ID:        "title-call",
+						Name:      "update_conversation_title",
+						Arguments: `{"title":"Population"}`,
+					}},
+				), nil
+			case 2:
+				if strings.Contains(req.SystemPrompt, "the tool is available") {
+					return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: leakedDSML}}), nil
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "The requested population table is ready.", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "DSML") {
+		t.Fatalf("tool protocol leaked into SSE stream: %s", recorder.Body.String())
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Assistant == nil {
+		t.Fatalf("unexpected finalization: %+v", requests)
+	}
+	if strings.Contains(requests[0].Assistant.Content, "DSML") {
+		t.Fatalf("tool protocol leaked into assistant content: %q", requests[0].Assistant.Content)
+	}
+	if requests[0].Assistant.Content != "The requested population table is ready." {
+		t.Fatalf("unexpected assistant content: %q", requests[0].Assistant.Content)
+	}
+}
+
+func TestSendMessage_ToolFollowupFiltersDSMLWhenProviderIgnoresPrompt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	const leakedDSML = `<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">world population</|DSML|></|invoke></|tool_calls>`
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Population"}`,
+				}}), nil
+			case 2:
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: leakedDSML + "\n\nFallback answer.", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "DSML") {
+		t.Fatalf("tool protocol leaked into SSE stream: %s", recorder.Body.String())
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Assistant == nil || requests[0].Assistant.Content != "Fallback answer." {
+		t.Fatalf("unexpected finalization: %+v", requests)
 	}
 }
 

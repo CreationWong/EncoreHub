@@ -78,7 +78,7 @@ jobs:
           go-version: "1.25"
           cache-dependency-path: gateway/go.sum
       - run: mkdir -p bin
-      - run: go build -o bin/gateway ./cmd/gateway
+      - run: go build -o bin/encorehub-gateway ./cmd/gateway
 
   engine:
     if: ${{ inputs.target == 'all' || inputs.target == 'engine' }}

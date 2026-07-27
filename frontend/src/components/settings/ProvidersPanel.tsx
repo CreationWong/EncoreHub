@@ -1,5 +1,5 @@
 import { Plus, Search, Server } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProviderProfile } from "../../services/providers";
 import { confirm } from "../../stores/confirmStore";
 import { useProviderStore } from "../../stores/providerStore";
@@ -8,6 +8,11 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import ProviderDetail from "./ProviderDetail";
 import ProviderFormModal from "./ProviderFormModal";
+import {
+	type ProviderRuntimeStatus,
+	defaultProviderRuntimeStatus,
+	providerRuntimeStatusPresentation,
+} from "./providerRuntimeStatus";
 
 const LAST_SETTINGS_PROVIDER_KEY = "encorehub-settings-provider";
 
@@ -62,6 +67,20 @@ export default function ProvidersPanel() {
 	);
 	const [creating, setCreating] = useState(false);
 	const [query, setQuery] = useState("");
+	const [runtimeStatuses, setRuntimeStatuses] = useState<
+		Record<string, ProviderRuntimeStatus>
+	>({});
+
+	const handleRuntimeStatusChange = useCallback(
+		(providerId: string, status: ProviderRuntimeStatus) => {
+			setRuntimeStatuses((current) =>
+				current[providerId] === status
+					? current
+					: { ...current, [providerId]: status },
+			);
+		},
+		[],
+	);
 
 	const list = useMemo(
 		() => [
@@ -171,6 +190,11 @@ export default function ProvidersPanel() {
 						filtered.map((profile) => {
 							const draft = !profiles.some((item) => item.id === profile.id);
 							const selectedProfile = selectedId === profile.id;
+							const runtimeStatus =
+								runtimeStatuses[profile.id] ??
+								defaultProviderRuntimeStatus(profile.enabled, draft);
+							const statusPresentation =
+								providerRuntimeStatusPresentation(runtimeStatus);
 							return (
 								<button
 									key={profile.id}
@@ -208,10 +232,11 @@ export default function ProvidersPanel() {
 										</span>
 									</span>
 									<span
-										className={`h-2 w-2 shrink-0 rounded-full ${
-											profile.enabled ? "bg-success" : "bg-border"
-										}`}
-										title={profile.enabled ? "Enabled" : "Disabled"}
+										className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+											statusPresentation.className
+										} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
+										aria-label={`${profile.name} status: ${statusPresentation.label}`}
+										title={statusPresentation.label}
 									/>
 								</button>
 							);
@@ -240,6 +265,7 @@ export default function ProvidersPanel() {
 						apiKey={apiKeys[selected.id] ?? ""}
 						vaultLocked={vaultLocked}
 						keyStored={keyStored}
+						onStatusChange={handleRuntimeStatusChange}
 						onSetKey={(value) => setApiKey(selected.id, value)}
 						onClearKey={() => clearApiKey(selected.id)}
 						onSave={async (next) => {

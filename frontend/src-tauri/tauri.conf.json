@@ -38,7 +38,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/gateway"
+      "binaries/encorehub-gateway"
     ],
     "resources": {
       "../../skills/": "skills/"

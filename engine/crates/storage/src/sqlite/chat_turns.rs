@@ -115,8 +115,9 @@ impl Database {
 fn insert_message(tx: &Transaction<'_>, message: &Message) -> Result<()> {
     tx.execute(
         "INSERT INTO messages
-         (id, conversation_id, role, content, reasoning, parent_id, token_count, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         (id, conversation_id, role, content, reasoning, parent_id, token_count,
+          input_tokens, output_tokens, duration_ms, finish_reason, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             message.id,
             message.conversation_id,
@@ -125,6 +126,10 @@ fn insert_message(tx: &Transaction<'_>, message: &Message) -> Result<()> {
             message.reasoning,
             message.parent_id,
             message.token_count,
+            message.input_tokens,
+            message.output_tokens,
+            message.duration_ms,
+            message.finish_reason,
             message.status.as_str(),
             message.created_at.timestamp_millis(),
         ],

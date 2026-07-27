@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+	type DeepThinkingRequest,
 	type StreamDonePayload,
 	type StreamErrorPayload,
 	type StreamToolCall,
@@ -11,6 +12,8 @@ import type {
 	Message,
 } from "../services/conversation";
 import * as convApi from "../services/conversation";
+import { modelHasCapability } from "../utils/modelCapabilities";
+import { useProviderStore } from "./providerStore";
 import { useSettingsStore } from "./settingsStore";
 import { toast } from "./toastStore";
 
@@ -36,6 +39,7 @@ interface ConvCacheEntry {
 	streaming: boolean;
 	streamingContent: string;
 	streamingReasoning: string;
+	streamingDurationMs: number;
 	streamingToolCalls: StreamToolCall[];
 	abortController: AbortController | null;
 }
@@ -51,6 +55,7 @@ function emptyCacheEntry(messages: Message[] = []): ConvCacheEntry {
 		streaming: false,
 		streamingContent: "",
 		streamingReasoning: "",
+		streamingDurationMs: 0,
 		streamingToolCalls: [],
 		abortController: null,
 	};
@@ -62,6 +67,7 @@ function currentViewEntry(s: ConversationState): ConvCacheEntry {
 		streaming: s.streaming,
 		streamingContent: s.streamingContent,
 		streamingReasoning: s.streamingReasoning,
+		streamingDurationMs: s.streamingDurationMs,
 		streamingToolCalls: s.streamingToolCalls,
 		abortController: s.abortController,
 	};
@@ -139,6 +145,22 @@ function isTerminalMessage(message: Message | undefined): boolean {
 	return Boolean(message && message.status !== "pending");
 }
 
+function deepThinkingRequest(
+	providerId: string,
+	modelId: string,
+	enabled: boolean,
+): DeepThinkingRequest | undefined {
+	if (!enabled) return undefined;
+	const profiles = useProviderStore.getState().profiles;
+	if (!modelHasCapability(profiles, providerId, modelId, "reasoning")) {
+		return undefined;
+	}
+	const profile = profiles.find((item) => item.id === providerId);
+	return profile?.protocol === "anthropic"
+		? { thinking_budget: 2048 }
+		: { reasoning_effort: "high" };
+}
+
 // ---- store ----
 
 interface ConversationState {
@@ -153,6 +175,7 @@ interface ConversationState {
 	streaming: boolean;
 	streamingContent: string;
 	streamingReasoning: string;
+	streamingDurationMs: number;
 	streamingToolCalls: StreamToolCall[];
 	error: string | null;
 	abortController: AbortController | null;
@@ -198,6 +221,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	streaming: false,
 	streamingContent: "",
 	streamingReasoning: "",
+	streamingDurationMs: 0,
 	streamingToolCalls: [],
 	error: null,
 	abortController: null,
@@ -277,6 +301,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				streaming: cached.streaming,
 				streamingContent: cached.streamingContent,
 				streamingReasoning: cached.streamingReasoning,
+				streamingDurationMs: cached.streamingDurationMs,
 				streamingToolCalls: cached.streamingToolCalls,
 				abortController: cached.abortController,
 				loading: false,
@@ -294,6 +319,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			streaming: false,
 			streamingContent: "",
 			streamingReasoning: "",
+			streamingDurationMs: 0,
 			streamingToolCalls: [],
 			error: null,
 			convCache,
@@ -356,6 +382,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
+					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
 					error: null,
@@ -401,6 +428,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
+					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
 					convCache: newCache,
@@ -522,11 +550,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 
 		// Get API key + search settings
-		const { provider, apiKeys, searchEnabled, searchProvider } =
-			useSettingsStore.getState();
-		const convProvider =
-			get().conversations.find((c) => c.id === convId)?.provider || provider;
+		const {
+			provider,
+			model,
+			apiKeys,
+			searchEnabled,
+			searchProvider,
+			deepThinking,
+		} = useSettingsStore.getState();
+		const conversation = get().conversations.find((c) => c.id === convId);
+		const convProvider = conversation?.provider || provider;
+		const convModel = conversation?.model || model;
 		const providerKey = convProvider ? apiKeys[convProvider] : undefined;
+		const thinking = deepThinkingRequest(convProvider, convModel, deepThinking);
+		const nativeWebSearch = modelHasCapability(
+			useProviderStore.getState().profiles,
+			convProvider,
+			convModel,
+			"web",
+		);
+		const externalSearchEnabled = searchEnabled && !nativeWebSearch;
 
 		// Optimistic user message
 		const userMsg: Message = {
@@ -548,6 +591,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				streaming: true,
 				streamingContent: "",
 				streamingReasoning: "",
+				streamingDurationMs: 0,
 				streamingToolCalls: [],
 				abortController: controller,
 			});
@@ -559,7 +603,6 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
 		let authoritativeTurnID: string | undefined;
 		let shouldReconcile = false;
-		let streamedTokenCount = 0;
 
 		const applyDone = (result: StreamDonePayload) => {
 			authoritativeTurnID = result.user_message.id;
@@ -577,6 +620,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
+					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
 				});
@@ -609,6 +653,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
+					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
 				});
@@ -627,6 +672,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 							streaming: false,
 							streamingContent: "",
 							streamingReasoning: "",
+							streamingDurationMs: 0,
 							streamingToolCalls: [],
 							abortController: null,
 						}),
@@ -721,8 +767,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						});
 					});
 				},
-				onUsage(input, output) {
-					streamedTokenCount += input + output;
+				onTelemetry(durationMs) {
+					set((s) => {
+						const entry = s.convCache[convId];
+						if (!entry) return {};
+						return cacheUpdate(s, convId, {
+							streamingDurationMs: Math.max(
+								entry.streamingDurationMs,
+								durationMs,
+							),
+						});
+					});
 				},
 				onWarning(msg) {
 					toast.warning(msg, 6000);
@@ -741,15 +796,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				},
 				onDone(result) {
 					applyDone(result);
-					streamedTokenCount = 0;
 				},
 				onError(error) {
 					applyError(error);
 				},
 			},
 			controller.signal,
-			searchEnabled,
+			externalSearchEnabled,
 			searchProvider,
+			thinking,
 		);
 
 		// Gateway persists Stop with a detached, bounded cleanup context. Reload
@@ -762,6 +817,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streaming: false,
 					streamingContent: "",
 					streamingReasoning: "",
+					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
 				}),

@@ -65,6 +65,14 @@ import {
 	providerAPIKeySignature,
 	serializeProviderAPIKeys,
 } from "./providerKeys";
+import {
+	type ProviderRuntimeStatus,
+	defaultProviderRuntimeStatus,
+	isTimeoutError,
+	providerRuntimeStatusPresentation,
+	statusFromValidation,
+	validationResultRuntimeStatus,
+} from "./providerRuntimeStatus";
 
 interface DetailProps {
 	profile: ProviderProfile;
@@ -76,6 +84,7 @@ interface DetailProps {
 	onClearKey: () => Promise<void>;
 	onSave: (next: ProviderProfile) => Promise<void>;
 	onDelete: () => void;
+	onStatusChange: (providerId: string, status: ProviderRuntimeStatus) => void;
 }
 
 interface ProviderDraft {
@@ -146,6 +155,7 @@ export default function ProviderDetail({
 	onClearKey,
 	onSave,
 	onDelete,
+	onStatusChange,
 }: DetailProps) {
 	const persistedDraft = useMemo(() => draftFromProfile(profile), [profile]);
 	const persistedKeys = useMemo(() => parseProviderAPIKeys(apiKey), [apiKey]);
@@ -176,9 +186,17 @@ export default function ProviderDetail({
 	const lastDiscoveryRef = useRef<{ keys: string; connection: string } | null>(
 		null,
 	);
+	const lastValidationRef = useRef<{
+		keys: string;
+		connection: string;
+	} | null>(null);
 	const validationRequestRef = useRef(0);
 	const discoveryRequestRef = useRef(0);
 	const pendingModelSaveRef = useRef<string | null>(null);
+	const reportStatus = useCallback(
+		(status: ProviderRuntimeStatus) => onStatusChange(profile.id, status),
+		[onStatusChange, profile.id],
+	);
 
 	const unlock = useSecretsStore((state) => state.unlock);
 	const loadKeys = useSettingsStore((state) => state.loadKeys);
@@ -208,6 +226,7 @@ export default function ProviderDetail({
 		validationRequestRef.current += 1;
 		discoveryRequestRef.current += 1;
 		lastDiscoveryRef.current = null;
+		lastValidationRef.current = null;
 	}, [persistedDraft]);
 
 	useEffect(() => {
@@ -301,7 +320,7 @@ export default function ProviderDetail({
 		lockedStored,
 	]);
 
-	const updateConnection = () => {
+	const updateConnection = (enabled = draft.enabled) => {
 		validationRequestRef.current += 1;
 		discoveryRequestRef.current += 1;
 		setValidating(false);
@@ -312,6 +331,9 @@ export default function ProviderDetail({
 		setDiscoveryReview(null);
 		setKeyValidationResults({});
 		setEndpointValidationResults({});
+		lastValidationRef.current = null;
+		lastDiscoveryRef.current = null;
+		reportStatus(enabled ? "waiting" : "disabled");
 	};
 
 	const updateKeys = (keys: ProviderAPIKey[], connectionChanged: boolean) => {
@@ -424,13 +446,19 @@ export default function ProviderDetail({
 					? "Unlock the key vault before testing connections"
 					: "Enter an API key and valid endpoint before testing connections",
 			});
+			if (draft.enabled) reportStatus("waiting");
 			return;
 		}
 
+		lastValidationRef.current = {
+			keys: providerAPIKeySignature(keyDraft),
+			connection: connectionSignature(draft),
+		};
 		const requestID = validationRequestRef.current + 1;
 		validationRequestRef.current = requestID;
 		setValidating(true);
 		setValidationNotice(null);
+		if (draft.enabled) reportStatus("waiting");
 		try {
 			const response = await providersApi.validateKey(
 				profile.id,
@@ -471,25 +499,31 @@ export default function ProviderDetail({
 					? `${response.success_count} of ${testedKeys} keys valid; ${reachableEndpoints} endpoints reachable`
 					: `No key could be validated; ${reachableEndpoints} endpoints responded`,
 			});
+			if (draft.enabled) reportStatus(statusFromValidation(response));
 			if (response.valid) toast.success("Connection test completed");
 			else toast.error("Connection test did not validate any key");
-		} catch {
+		} catch (validationFailure) {
 			if (requestID !== validationRequestRef.current) return;
 			setValidationNotice({
 				tone: "error",
 				text: "Connection test failed without changing keys or endpoints",
 			});
+			if (draft.enabled) {
+				reportStatus(isTimeoutError(validationFailure) ? "timeout" : "error");
+			}
 			toast.error("Connection test failed");
 		} finally {
 			if (requestID === validationRequestRef.current) setValidating(false);
 		}
 	}, [
 		canValidate,
+		draft,
 		draft.endpoints,
 		draft.protocol,
 		keyDraft,
 		lockedStored,
 		profile.id,
+		reportStatus,
 	]);
 
 	const runDiscovery = useCallback(
@@ -603,15 +637,29 @@ export default function ProviderDetail({
 		if (connectionRevision === 0 || !canDiscover) return;
 		const connection = connectionSignature(draft);
 		const keys = providerAPIKeySignature(keyDraft);
-		if (
-			lastDiscoveryRef.current?.keys === keys &&
-			lastDiscoveryRef.current.connection === connection
-		) {
-			return;
-		}
-		const timer = window.setTimeout(() => void runDiscovery(false), 900);
+		const timer = window.setTimeout(() => {
+			if (
+				lastValidationRef.current?.keys !== keys ||
+				lastValidationRef.current.connection !== connection
+			) {
+				void runValidation();
+			}
+			if (
+				lastDiscoveryRef.current?.keys !== keys ||
+				lastDiscoveryRef.current.connection !== connection
+			) {
+				void runDiscovery(false);
+			}
+		}, 900);
 		return () => window.clearTimeout(timer);
-	}, [canDiscover, connectionRevision, draft, keyDraft, runDiscovery]);
+	}, [
+		canDiscover,
+		connectionRevision,
+		draft,
+		keyDraft,
+		runDiscovery,
+		runValidation,
+	]);
 
 	const submitUnlock = async (event: FormEvent) => {
 		event.preventDefault();
@@ -648,6 +696,10 @@ export default function ProviderDetail({
 		discoveryRequestRef.current += 1;
 		setValidating(false);
 		setDiscovering(false);
+		setConnectionRevision(0);
+		lastValidationRef.current = null;
+		lastDiscoveryRef.current = null;
+		reportStatus(defaultProviderRuntimeStatus(persistedDraft.enabled, isDraft));
 	};
 
 	const handleSave = async () => {
@@ -660,6 +712,7 @@ export default function ProviderDetail({
 		pendingModelSaveRef.current = null;
 		try {
 			await persistProviderDraft(draft);
+			reportStatus(draft.enabled ? "healthy" : "disabled");
 			toast.success(`Saved ${profile.name}`);
 		} catch (saveError) {
 			setError(
@@ -741,9 +794,11 @@ export default function ProviderDetail({
 						aria-checked={draft.enabled}
 						aria-label={draft.enabled ? "Disable provider" : "Enable provider"}
 						title={draft.enabled ? "Disable provider" : "Enable provider"}
-						onClick={() =>
-							setDraft((current) => ({ ...current, enabled: !current.enabled }))
-						}
+						onClick={() => {
+							const enabled = !draft.enabled;
+							setDraft((current) => ({ ...current, enabled }));
+							updateConnection(enabled);
+						}}
 						className={`flex h-6 w-11 items-center rounded-full px-0.5 transition-colors ${
 							draft.enabled ? "justify-end bg-accent" : "bg-border"
 						}`}
@@ -966,6 +1021,7 @@ export default function ProviderDetail({
 								protocol={draft.protocol}
 								results={keyValidationResults}
 								validating={validating}
+								waiting={isDraft || connectionRevision > 0}
 								onChange={updateKeys}
 							/>
 						</>
@@ -1048,6 +1104,14 @@ export default function ProviderDetail({
 					<div className="overflow-hidden rounded-md border border-border">
 						{draft.endpoints.map((endpoint, index) => {
 							const result = endpointValidationResults[endpoint.id];
+							const runtimeStatus = validationResultRuntimeStatus(
+								endpoint.enabled,
+								validating || ((isDraft || connectionRevision > 0) && !result),
+								result?.status,
+								result?.error_category,
+							);
+							const statusPresentation =
+								providerRuntimeStatusPresentation(runtimeStatus);
 							const resultLabel =
 								validating && endpoint.enabled
 									? "Testing endpoint"
@@ -1057,7 +1121,7 @@ export default function ProviderDetail({
 													? `: ${result.error_category.replaceAll("_", " ")}`
 													: ""
 											}${result.latency_ms ? ` (${result.latency_ms} ms)` : ""}`
-										: "Not tested";
+										: statusPresentation.label;
 							return (
 								<div
 									key={endpoint.id}
@@ -1066,16 +1130,8 @@ export default function ProviderDetail({
 									<div className="flex items-center gap-2">
 										<span
 											className={`h-2 w-2 shrink-0 rounded-full ${
-												validating && endpoint.enabled
-													? "animate-pulse bg-accent"
-													: result?.status === "valid"
-														? "bg-success"
-														: result?.status === "reachable"
-															? "bg-warning"
-															: result?.status === "unreachable"
-																? "bg-danger"
-																: "bg-border"
-											}`}
+												statusPresentation.className
+											} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
 											aria-label={`${endpoint.name || `Endpoint ${index + 1}`}: ${resultLabel}`}
 											title={resultLabel}
 										/>

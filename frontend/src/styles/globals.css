@@ -334,3 +334,18 @@ pre {
 		transform: translateY(0);
 	}
 }
+
+@keyframes toastIn {
+	from {
+		opacity: 0;
+		transform: translate3d(10px, -6px, 0);
+	}
+	to {
+		opacity: 1;
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+.animate-toast-in {
+	animation: toastIn 0.18s ease-out;
+}

@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,5 +105,14 @@ func TestValidateKeyRejectsMissingTemporaryKey(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest || strings.Contains(recorder.Body.String(), validationCanary) {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestValidationTransportErrorCategoryDistinguishesTimeout(t *testing.T) {
+	if got := validationTransportErrorCategory(context.Background(), context.DeadlineExceeded); got != "timeout" {
+		t.Fatalf("deadline category = %q", got)
+	}
+	if got := validationTransportErrorCategory(context.Background(), errors.New("offline")); got != "network_error" {
+		t.Fatalf("network category = %q", got)
 	}
 }

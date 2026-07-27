@@ -186,8 +186,10 @@ impl Database {
     pub fn append_message(&self, msg: &Message) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, reasoning, parent_id, token_count, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO messages
+             (id, conversation_id, role, content, reasoning, parent_id, token_count,
+              input_tokens, output_tokens, duration_ms, finish_reason, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 msg.id,
                 msg.conversation_id,
@@ -196,6 +198,10 @@ impl Database {
                 msg.reasoning,
                 msg.parent_id,
                 msg.token_count,
+                msg.input_tokens,
+                msg.output_tokens,
+                msg.duration_ms,
+                msg.finish_reason,
                 msg.status.as_str(),
                 msg.created_at.timestamp_millis(),
             ],
@@ -210,7 +216,8 @@ impl Database {
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count, status, created_at
+            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
+                    input_tokens, output_tokens, duration_ms, finish_reason, status, created_at
              FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], |row| {
@@ -222,9 +229,13 @@ impl Database {
                 reasoning: row.get(4)?,
                 parent_id: row.get(5)?,
                 token_count: row.get(6)?,
-                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(7)?)
+                input_tokens: row.get(7)?,
+                output_tokens: row.get(8)?,
+                duration_ms: row.get(9)?,
+                finish_reason: row.get(10)?,
+                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(11)?)
                     .unwrap_or_default(),
-                created_at: ts_to_dt(row.get::<_, i64>(8)?),
+                created_at: ts_to_dt(row.get::<_, i64>(12)?),
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -234,7 +245,8 @@ impl Database {
     pub fn get_message(&self, id: &str) -> Result<Message> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count, status, created_at
+            "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
+                    input_tokens, output_tokens, duration_ms, finish_reason, status, created_at
              FROM messages WHERE id = ?1",
             params![id],
             |row| {
@@ -246,9 +258,13 @@ impl Database {
                     reasoning: row.get(4)?,
                     parent_id: row.get(5)?,
                     token_count: row.get(6)?,
-                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(7)?)
+                    input_tokens: row.get(7)?,
+                    output_tokens: row.get(8)?,
+                    duration_ms: row.get(9)?,
+                    finish_reason: row.get(10)?,
+                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(11)?)
                         .unwrap_or_default(),
-                    created_at: ts_to_dt(row.get::<_, i64>(8)?),
+                    created_at: ts_to_dt(row.get::<_, i64>(12)?),
                 })
             },
         )

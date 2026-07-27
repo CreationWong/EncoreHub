@@ -27,6 +27,7 @@ interface SettingsState {
 	devMode: boolean;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
+	deepThinking: boolean;
 
 	setTheme: (theme: Theme) => void;
 	setProvider: (provider: string, model?: string) => void;
@@ -43,6 +44,7 @@ interface SettingsState {
 	setDevMode: (on: boolean) => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
+	setDeepThinking: (on: boolean) => void;
 }
 
 function getSystemTheme(): "dark" | "light" {
@@ -178,6 +180,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 					"encorehub-search-provider",
 				) as SearchProvider | null)
 			: null) ?? "duckduckgo",
+	deepThinking:
+		typeof window !== "undefined"
+			? localStorage.getItem("encorehub-deep-thinking") === "1"
+			: false,
 
 	setTheme: (theme: Theme) => {
 		set({ theme });
@@ -295,6 +301,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		set({ searchProvider: p });
 		try {
 			localStorage.setItem("encorehub-search-provider", p);
+		} catch {
+			/* ignore */
+		}
+	},
+
+	setDeepThinking: (on: boolean) => {
+		set({ deepThinking: on });
+		try {
+			localStorage.setItem("encorehub-deep-thinking", on ? "1" : "0");
 		} catch {
 			/* ignore */
 		}

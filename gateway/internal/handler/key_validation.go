@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -240,7 +242,7 @@ func (h *ProviderHandler) validateEndpointWithKey(
 	response, err := h.client.Do(request)
 	attempt.latencyMS = time.Since(started).Milliseconds()
 	if err != nil {
-		attempt.category = "network_error"
+		attempt.category = validationTransportErrorCategory(ctx, err)
 		return attempt
 	}
 	defer response.Body.Close()
@@ -252,6 +254,18 @@ func (h *ProviderHandler) validateEndpointWithKey(
 	}
 	attempt.category = discoveryHTTPErrorCategory(response.StatusCode)
 	return attempt
+}
+
+func validationTransportErrorCategory(ctx context.Context, err error) string {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return "timeout"
+	}
+	return "network_error"
 }
 
 func mergeEndpointValidationResult(

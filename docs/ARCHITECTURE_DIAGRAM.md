@@ -70,7 +70,7 @@ graph TB
 
         subgraph TAURI["Tauri Shell"]
             T1["src-tauri/main.rs<br/>in-process Engine + random token"]
-            T2["tauri.conf.json<br/>externalBin: gateway"]
+            T2["tauri.conf.json<br/>externalBin: encorehub-gateway"]
             T3["Plugins: shell, notification,<br/>clipboard, fs, global-shortcut"]
         end
 

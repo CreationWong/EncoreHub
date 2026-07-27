@@ -48,15 +48,19 @@ type ConversationDetail struct {
 
 // Message represents a single message.
 type Message struct {
-	ID         string          `json:"id"`
-	Role       string          `json:"role"`
-	Content    string          `json:"content"`
-	Reasoning  string          `json:"reasoning,omitempty"`
-	ParentID   *string         `json:"parent_id"`
-	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
-	TokenCount int             `json:"token_count"`
-	Status     string          `json:"status"`
-	CreatedAt  string          `json:"created_at"`
+	ID           string          `json:"id"`
+	Role         string          `json:"role"`
+	Content      string          `json:"content"`
+	Reasoning    string          `json:"reasoning,omitempty"`
+	ParentID     *string         `json:"parent_id"`
+	ToolCalls    []ToolCallInput `json:"tool_calls,omitempty"`
+	TokenCount   int             `json:"token_count"`
+	InputTokens  *int            `json:"input_tokens"`
+	OutputTokens *int            `json:"output_tokens"`
+	DurationMS   *int64          `json:"duration_ms"`
+	FinishReason *string         `json:"finish_reason"`
+	Status       string          `json:"status"`
+	CreatedAt    string          `json:"created_at"`
 }
 
 // ToolCallInput is a tool call the gateway parsed from a provider stream,
@@ -194,12 +198,16 @@ func (c *Client) BaseURL() string {
 
 // AppendMessage stores a single message in the engine without auto-reply.
 type AppendMessageRequest struct {
-	Content    string          `json:"content"`
-	Role       string          `json:"role"`
-	ParentID   string          `json:"parent_id,omitempty"`
-	Reasoning  string          `json:"reasoning,omitempty"`
-	TokenCount int             `json:"token_count,omitempty"`
-	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
+	Content      string          `json:"content"`
+	Role         string          `json:"role"`
+	ParentID     string          `json:"parent_id,omitempty"`
+	Reasoning    string          `json:"reasoning,omitempty"`
+	TokenCount   int             `json:"token_count,omitempty"`
+	InputTokens  *int            `json:"input_tokens,omitempty"`
+	OutputTokens *int            `json:"output_tokens,omitempty"`
+	DurationMS   *int64          `json:"duration_ms,omitempty"`
+	FinishReason *string         `json:"finish_reason,omitempty"`
+	ToolCalls    []ToolCallInput `json:"tool_calls,omitempty"`
 }
 
 func (c *Client) AppendMessage(ctx context.Context, convID, content, role, parentID string) (*Message, error) {
@@ -236,10 +244,14 @@ type FinalizeTurnRequest struct {
 }
 
 type FinalizeAssistant struct {
-	Content    string          `json:"content"`
-	Reasoning  string          `json:"reasoning,omitempty"`
-	TokenCount int             `json:"token_count,omitempty"`
-	ToolCalls  []ToolCallInput `json:"tool_calls,omitempty"`
+	Content      string          `json:"content"`
+	Reasoning    string          `json:"reasoning,omitempty"`
+	TokenCount   int             `json:"token_count,omitempty"`
+	InputTokens  *int            `json:"input_tokens,omitempty"`
+	OutputTokens *int            `json:"output_tokens,omitempty"`
+	DurationMS   *int64          `json:"duration_ms,omitempty"`
+	FinishReason *string         `json:"finish_reason,omitempty"`
+	ToolCalls    []ToolCallInput `json:"tool_calls,omitempty"`
 }
 
 type FinalizeTurnResponse struct {

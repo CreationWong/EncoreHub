@@ -5,6 +5,22 @@ import {
 } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useSettingsStore } from "../../stores/settingsStore";
 
+const CODE_SELECTOR = 'code[class*="language-"]';
+const darkSyntaxTheme = {
+	...oneDark,
+	[CODE_SELECTOR]: {
+		...oneDark[CODE_SELECTOR],
+		background: "transparent",
+	},
+};
+const lightSyntaxTheme = {
+	...oneLight,
+	[CODE_SELECTOR]: {
+		...oneLight[CODE_SELECTOR],
+		background: "transparent",
+	},
+};
+
 interface HighlightedCodeBlockProps {
 	language: string;
 	value: string;
@@ -19,7 +35,8 @@ export default function HighlightedCodeBlock({
 		theme === "system" &&
 		typeof window !== "undefined" &&
 		window.matchMedia("(prefers-color-scheme: dark)").matches;
-	const syntaxTheme = theme === "dark" || systemDark ? oneDark : oneLight;
+	const syntaxTheme =
+		theme === "dark" || systemDark ? darkSyntaxTheme : lightSyntaxTheme;
 
 	return (
 		<SyntaxHighlighter

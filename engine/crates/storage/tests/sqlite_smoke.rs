@@ -100,7 +100,12 @@ fn message_append_and_retrieve_keeps_order() {
 
     let mut m1 = Message::new(&conv.id, Role::User, "hi", None);
     m1.status = MessageStatus::Pending;
-    let m2 = Message::new(&conv.id, Role::Assistant, "hello", Some(m1.id.clone()));
+    let mut m2 = Message::new(&conv.id, Role::Assistant, "hello", Some(m1.id.clone()));
+    m2.token_count = 34;
+    m2.input_tokens = Some(21);
+    m2.output_tokens = Some(13);
+    m2.duration_ms = Some(875);
+    m2.finish_reason = Some("stop".into());
     let m3 = Message::new(&conv.id, Role::User, "again", Some(m2.id.clone()));
 
     for m in [&m1, &m2, &m3] {
@@ -114,6 +119,11 @@ fn message_append_and_retrieve_keeps_order() {
     assert_eq!(fetched[1].parent_id.as_deref(), Some(m1.id.as_str()));
     assert_eq!(fetched[0].status, MessageStatus::Pending);
     assert_eq!(fetched[1].status, MessageStatus::Completed);
+    assert_eq!(fetched[1].token_count, 34);
+    assert_eq!(fetched[1].input_tokens, Some(21));
+    assert_eq!(fetched[1].output_tokens, Some(13));
+    assert_eq!(fetched[1].duration_ms, Some(875));
+    assert_eq!(fetched[1].finish_reason.as_deref(), Some("stop"));
 }
 
 #[test]
@@ -139,6 +149,12 @@ fn message_status_schema_defaults_and_rejects_invalid_states() {
         )
         .unwrap();
     assert_eq!(default_status, "completed");
+    let legacy = db.get_message("legacy-message").unwrap();
+    assert_eq!(legacy.token_count, 0);
+    assert_eq!(legacy.input_tokens, None);
+    assert_eq!(legacy.output_tokens, None);
+    assert_eq!(legacy.duration_ms, None);
+    assert_eq!(legacy.finish_reason, None);
 
     connection
         .execute(

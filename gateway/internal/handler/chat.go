@@ -69,6 +69,7 @@ type SendMessageRequest struct {
 	Seed                *int     `json:"seed"`
 	JSONMode            bool     `json:"json_mode"`
 	ReasoningEffort     string   `json:"reasoning_effort"`
+	ThinkingBudget      int      `json:"thinking_budget"`
 }
 
 type ChatResponse struct {
@@ -92,6 +93,25 @@ type chatErrorPayload struct {
 	Message          string          `json:"message"`
 	UserMessage      *engine.Message `json:"user_message,omitempty"`
 	AssistantMessage *engine.Message `json:"assistant_message,omitempty"`
+}
+
+type assistantMetrics struct {
+	tokenCount   int
+	inputTokens  *int
+	outputTokens *int
+	durationMS   *int64
+	finishReason *string
+}
+
+type streamRoundResult struct {
+	content      string
+	reasoning    string
+	usage        provider.UsageEvent
+	usageSeen    bool
+	toolCalls    []engine.ToolCallInput
+	finishReason string
+	duration     time.Duration
+	err          error
 }
 
 // SendMessage handles POST /api/v1/conversations/:id/chat
@@ -249,7 +269,9 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		h.generateTitle(titleCtx, convID, req.Provider, req.Model, apiKey)
 	}()
 
+	providerStarted := time.Now()
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
+	providerDuration := time.Since(providerStarted)
 	if err != nil {
 		safeExternalError(log.Error().
 			Str("request_id", c.GetString("request_id")).
@@ -269,11 +291,18 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{
-		Content:    chatResp.Content,
-		Reasoning:  chatResp.ReasoningContent,
-		TokenCount: chatResp.InputTokens + chatResp.OutputTokens,
-	})
+	usage := provider.UsageEvent{
+		InputTokens:  chatResp.InputTokens,
+		OutputTokens: chatResp.OutputTokens,
+	}
+	metrics := measuredAssistantMetrics(
+		usage,
+		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0,
+		providerDuration,
+		chatResp.FinishReason,
+	)
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed",
+		assistantForTurn(chatResp.Content, chatResp.ReasoningContent, nil, metrics))
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize chat turn")
 		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -317,6 +346,9 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var fullContent string
 	var fullReasoning string
 	var totalUsage provider.UsageEvent
+	var totalProviderDuration time.Duration
+	var usageAvailable bool
+	var finalFinishReason string
 	var allToolCalls []engine.ToolCallInput
 	flusher, _ := c.Writer.(http.Flusher)
 
@@ -361,24 +393,46 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	writeFrame("turn_started", map[string]engine.Message{"user_message": userMessage})
 
-	processOneStream := func(cr *provider.ChatRequest, round int) (content string, reasoning string, usage provider.UsageEvent, toolCalls []engine.ToolCallInput, err error) {
+	processOneStream := func(cr *provider.ChatRequest, round int) (result streamRoundResult) {
+		providerStarted := time.Now()
+		contentBuffer := protocolStreamBuffer{}
+		flushContent := func(toolCalls []engine.ToolCallInput) {
+			knownToolCalls := make([]engine.ToolCallInput, 0, len(allToolCalls)+len(toolCalls))
+			knownToolCalls = append(knownToolCalls, allToolCalls...)
+			knownToolCalls = append(knownToolCalls, toolCalls...)
+			if content := contentBuffer.finish(knownToolCalls); content != "" {
+				writeFrame("delta", map[string]any{
+					"content":     content,
+					"duration_ms": (totalProviderDuration + time.Since(providerStarted)).Milliseconds(),
+				})
+			}
+		}
+		defer func() {
+			result.duration = time.Since(providerStarted)
+		}()
 		if round > 0 {
 			logToolLoopFollowup(cr, round)
 		}
 		events, streamErr := adapter.ChatStream(ctx, cr, apiKey)
 		if streamErr != nil {
-			return "", "", provider.UsageEvent{}, nil, streamErr
+			result.err = streamErr
+			return result
 		}
 
 		agg := newToolCallAggregator(round)
-		usageSeen := false
 		for ev := range events {
 			switch {
 			case ev.Error != nil:
-				return content, reasoning, usage, agg.toInputs(), ev.Error
+				result.toolCalls = agg.toInputs()
+				flushContent(result.toolCalls)
+				result.err = ev.Error
+				return result
 			case ev.Reasoning != nil:
-				reasoning += ev.Reasoning.Content
-				writeFrame("reasoning", map[string]string{"content": ev.Reasoning.Content})
+				result.reasoning += ev.Reasoning.Content
+				writeFrame("reasoning", map[string]any{
+					"content":     ev.Reasoning.Content,
+					"duration_ms": (totalProviderDuration + time.Since(providerStarted)).Milliseconds(),
+				})
 			case ev.ToolCall != nil:
 				agg.add(ev.ToolCall)
 				writeFrame("tool_call", ev.ToolCall)
@@ -386,22 +440,36 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				agg.setResult(ev.ToolResult)
 				writeFrame("tool_result", ev.ToolResult)
 			case ev.Delta != nil:
+				if ev.Delta.FinishReason != "" {
+					result.finishReason = ev.Delta.FinishReason
+				}
 				if ev.Delta.Content != "" {
-					content += ev.Delta.Content
-					writeFrame("delta", map[string]string{"content": ev.Delta.Content})
+					result.content += ev.Delta.Content
+					if content := contentBuffer.push(ev.Delta.Content); content != "" {
+						writeFrame("delta", map[string]any{
+							"content":     content,
+							"duration_ms": (totalProviderDuration + time.Since(providerStarted)).Milliseconds(),
+						})
+					}
 				}
 			case ev.Usage != nil:
-				usage = *ev.Usage
-				usageSeen = true
+				result.usage = *ev.Usage
+				result.usageSeen = true
 			}
 		}
-		if usageSeen {
-			writeFrame("usage", usage)
+		result.toolCalls = agg.toInputs()
+		flushContent(result.toolCalls)
+		if result.usageSeen {
+			writeFrame("usage", map[string]any{
+				"input_tokens":  result.usage.InputTokens,
+				"output_tokens": result.usage.OutputTokens,
+				"duration_ms":   (totalProviderDuration + time.Since(providerStarted)).Milliseconds(),
+			})
 		}
 		if ctx.Err() != nil {
-			return content, reasoning, usage, agg.toInputs(), ctx.Err()
+			result.err = ctx.Err()
 		}
-		return content, reasoning, usage, agg.toInputs(), nil
+		return result
 	}
 	cr := req // start with the original request
 
@@ -433,9 +501,9 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		})
 	}
 
-	finalizeError := func(status, code, message string) {
-		assistant := partialAssistant(fullContent, fullReasoning, allToolCalls,
-			totalUsage.InputTokens+totalUsage.OutputTokens)
+	finalizeError := func(status, code, message, finishReason string) {
+		assistant := assistantForTurn(cleanAssistantContent(fullContent, allToolCalls), fullReasoning, allToolCalls,
+			measuredAssistantMetrics(totalUsage, usageAvailable, totalProviderDuration, finishReason))
 		finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, status, assistant)
 		if err != nil {
 			log.Warn().Err(err).Str("conv_id", convID).Str("status", status).
@@ -448,27 +516,31 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	}
 
 	for round := 0; round < maxToolRounds; round++ {
-		content, reasoning, usage, toolCalls, streamErr := processOneStream(cr, round)
-		fullContent += content
-		fullReasoning += reasoning
-		totalUsage.InputTokens += usage.InputTokens
-		totalUsage.OutputTokens += usage.OutputTokens
-		if streamErr != nil {
+		result := processOneStream(cr, round)
+		fullContent += result.content
+		fullReasoning += result.reasoning
+		totalUsage.InputTokens += result.usage.InputTokens
+		totalUsage.OutputTokens += result.usage.OutputTokens
+		totalProviderDuration += result.duration
+		usageAvailable = usageAvailable || result.usageSeen
+		finalFinishReason = result.finishReason
+		if result.err != nil {
 			safeExternalError(log.Error().
 				Str("request_id", requestID).
 				Str("conv_id", convID).
 				Str("provider", adapter.ID()).
 				Str("model", req.Model).
-				Int("round", round), streamErr).
+				Int("round", round), result.err).
 				Msg("stream error")
-			allToolCalls = append(allToolCalls, toolCalls...)
-			if errors.Is(streamErr, context.Canceled) || ctx.Err() != nil {
-				finalizeError("stopped", "stopped", "Generation stopped")
+			allToolCalls = append(allToolCalls, result.toolCalls...)
+			if errors.Is(result.err, context.Canceled) || ctx.Err() != nil {
+				finalizeError("stopped", "stopped", "Generation stopped", "cancelled")
 			} else {
-				finalizeError("failed", "provider_error", "Provider stream failed")
+				finalizeError("failed", "provider_error", "Provider stream failed", "error")
 			}
 			return
 		}
+		toolCalls := result.toolCalls
 
 		// Check if any tool calls need the gateway to execute them.
 		hasGatewayTool := false
@@ -534,7 +606,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 		allToolCalls = append(allToolCalls, toolCalls...)
 		if ctx.Err() != nil {
-			finalizeError("stopped", "stopped", "Generation stopped")
+			finalizeError("stopped", "stopped", "Generation stopped", "cancelled")
 			return
 		}
 
@@ -576,12 +648,9 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		cr = nextReq
 	}
 
-	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed", &engine.FinalizeAssistant{
-		Content:    fullContent,
-		Reasoning:  fullReasoning,
-		TokenCount: totalUsage.InputTokens + totalUsage.OutputTokens,
-		ToolCalls:  allToolCalls,
-	})
+	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed",
+		assistantForTurn(cleanAssistantContent(fullContent, allToolCalls), fullReasoning, allToolCalls,
+			measuredAssistantMetrics(totalUsage, usageAvailable, totalProviderDuration, finalFinishReason)))
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize streamed chat turn")
 		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -660,6 +729,8 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 		})
 	}
 
+	followupSystemPrompt := strings.Replace(prev.SystemPrompt, webSearchSystemPrompt, "", 1)
+	followupSystemPrompt += toolResultFollowupPrompt
 	next := &provider.ChatRequest{
 		Model:               prev.Model,
 		Stream:              prev.Stream,
@@ -673,7 +744,8 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 		Seed:                prev.Seed,
 		JSONMode:            prev.JSONMode,
 		ReasoningEffort:     prev.ReasoningEffort,
-		SystemPrompt:        prev.SystemPrompt,
+		ThinkingBudget:      prev.ThinkingBudget,
+		SystemPrompt:        followupSystemPrompt,
 		Messages:            messages,
 		Tools:               nil, // don't offer tools again to avoid loops
 	}
@@ -745,6 +817,123 @@ func (a *toolCallAggregator) toInputs() []engine.ToolCallInput {
 	return out
 }
 
+type protocolBlockMarkers struct {
+	start string
+	end   string
+}
+
+var dsmlToolCallMarkers = []protocolBlockMarkers{
+	{start: "<|DSML|><|tool_calls|>", end: "</|tool_calls>"},
+	{start: "<|DSML|tool_calls>", end: "<|/DSML|tool_calls>"},
+	{start: "<|DSML|tool_calls>", end: "<|DSML|/tool_calls>"},
+	{start: "<\uFF5CDSML\uFF5Ctool_calls>", end: "<\uFF5C/DSML\uFF5Ctool_calls>"},
+	{start: "<\uFF5CDSML\uFF5Ctool_calls>", end: "<\uFF5CDSML\uFF5C/tool_calls>"},
+}
+
+// protocolStreamBuffer delays only text that could begin a DSML tool-call
+// block. Once the round reveals structured tool calls, complete duplicate
+// protocol blocks are removed before any buffered text reaches the client.
+// Ordinary content streams immediately, including literal DSML text when the
+// round has no structured tool call.
+type protocolStreamBuffer struct {
+	pending   string
+	capturing bool
+}
+
+func (b *protocolStreamBuffer) push(content string) string {
+	b.pending += content
+	if b.capturing {
+		return ""
+	}
+
+	startIndex := -1
+	for _, markers := range dsmlToolCallMarkers {
+		if candidate := strings.Index(b.pending, markers.start); candidate >= 0 &&
+			(startIndex < 0 || candidate < startIndex) {
+			startIndex = candidate
+		}
+	}
+	if startIndex >= 0 {
+		safe := b.pending[:startIndex]
+		b.pending = b.pending[startIndex:]
+		b.capturing = true
+		return safe
+	}
+
+	keep := 0
+	for _, markers := range dsmlToolCallMarkers {
+		limit := min(len(b.pending), len(markers.start)-1)
+		for length := limit; length > keep; length-- {
+			if strings.HasSuffix(b.pending, markers.start[:length]) {
+				keep = length
+				break
+			}
+		}
+	}
+
+	emitUntil := len(b.pending) - keep
+	safe := b.pending[:emitUntil]
+	b.pending = b.pending[emitUntil:]
+	return safe
+}
+
+func (b *protocolStreamBuffer) finish(toolCalls []engine.ToolCallInput) string {
+	content := b.pending
+	b.pending = ""
+	if b.capturing && len(toolCalls) > 0 {
+		content = cleanAssistantContent(content, toolCalls)
+	}
+	b.capturing = false
+	return content
+}
+
+// cleanAssistantContent removes complete provider protocol blocks only when
+// the same message also contains normalized tool calls. This prevents native
+// DSML control text from becoming visible answer content while preserving
+// legitimate discussions or code samples that merely mention DSML.
+func cleanAssistantContent(content string, toolCalls []engine.ToolCallInput) string {
+	if len(toolCalls) == 0 || !strings.Contains(content, "DSML") {
+		return content
+	}
+
+	cleaned := content
+	for {
+		startIndex := -1
+		endIndex := -1
+		for _, markers := range dsmlToolCallMarkers {
+			candidateStart := strings.Index(cleaned, markers.start)
+			if candidateStart < 0 {
+				continue
+			}
+			remainderStart := candidateStart + len(markers.start)
+			candidateEnd := strings.Index(cleaned[remainderStart:], markers.end)
+			if candidateEnd < 0 {
+				continue
+			}
+			candidateEnd += remainderStart + len(markers.end)
+			if startIndex < 0 || candidateStart < startIndex {
+				startIndex = candidateStart
+				endIndex = candidateEnd
+			}
+		}
+		if startIndex < 0 {
+			break
+		}
+
+		before := strings.TrimRight(cleaned[:startIndex], " \t\r\n")
+		after := strings.TrimLeft(cleaned[endIndex:], " \t\r\n")
+		switch {
+		case before == "":
+			cleaned = after
+		case after == "":
+			cleaned = before
+		default:
+			cleaned = before + "\n" + after
+		}
+	}
+	return strings.TrimSpace(cleaned)
+}
+
 // ===== Mock mode =====
 
 func (h *ChatHandler) mockReply(ctx context.Context, c *gin.Context, convID string, userMessage engine.Message, req SendMessageRequest) {
@@ -796,7 +985,7 @@ func (h *ChatHandler) mockStream(ctx context.Context, c *gin.Context, convID str
 		if i%3 == 0 {
 			select {
 			case <-ctx.Done():
-				assistant := partialAssistant(partial.String(), "", nil, 0)
+				assistant := assistantForTurn(partial.String(), "", nil, assistantMetrics{})
 				finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "stopped", assistant)
 				if err != nil {
 					finalized = h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -859,15 +1048,39 @@ func boundedTurnContext(ctx context.Context, detach bool) (context.Context, cont
 	return context.WithTimeout(ctx, turnFinalizeTimeout)
 }
 
-func partialAssistant(content, reasoning string, toolCalls []engine.ToolCallInput, tokenCount int) *engine.FinalizeAssistant {
-	if content == "" && reasoning == "" && len(toolCalls) == 0 && tokenCount == 0 {
+func measuredAssistantMetrics(usage provider.UsageEvent, usageAvailable bool, duration time.Duration, finishReason string) assistantMetrics {
+	metrics := assistantMetrics{}
+	if usageAvailable {
+		inputTokens := usage.InputTokens
+		outputTokens := usage.OutputTokens
+		metrics.inputTokens = &inputTokens
+		metrics.outputTokens = &outputTokens
+		metrics.tokenCount = inputTokens + outputTokens
+	}
+	durationMS := duration.Milliseconds()
+	metrics.durationMS = &durationMS
+	if trimmed := strings.TrimSpace(finishReason); trimmed != "" {
+		metrics.finishReason = &trimmed
+	}
+	return metrics
+}
+
+func assistantForTurn(content, reasoning string, toolCalls []engine.ToolCallInput, metrics assistantMetrics) *engine.FinalizeAssistant {
+	// Duration or a synthetic error finish reason alone does not prove that the
+	// provider produced an assistant message.
+	if content == "" && reasoning == "" && len(toolCalls) == 0 && metrics.tokenCount == 0 &&
+		metrics.inputTokens == nil && metrics.outputTokens == nil {
 		return nil
 	}
 	return &engine.FinalizeAssistant{
-		Content:    content,
-		Reasoning:  reasoning,
-		TokenCount: tokenCount,
-		ToolCalls:  toolCalls,
+		Content:      content,
+		Reasoning:    reasoning,
+		TokenCount:   metrics.tokenCount,
+		InputTokens:  metrics.inputTokens,
+		OutputTokens: metrics.outputTokens,
+		DurationMS:   metrics.durationMS,
+		FinishReason: metrics.finishReason,
+		ToolCalls:    toolCalls,
 	}
 }
 
@@ -895,6 +1108,9 @@ func validateChatRequest(req SendMessageRequest) error {
 	if req.MaxTokens < 0 || req.MaxCompletionTokens < 0 {
 		return fmt.Errorf("token limits cannot be negative")
 	}
+	if req.ThinkingBudget < 0 {
+		return fmt.Errorf("thinking_budget cannot be negative")
+	}
 	if req.FrequencyPenalty < -2 || req.FrequencyPenalty > 2 ||
 		req.PresencePenalty < -2 || req.PresencePenalty > 2 {
 		return fmt.Errorf("penalties must be between -2 and 2")
@@ -912,6 +1128,10 @@ func validateChatRequest(req SendMessageRequest) error {
 
 // buildChatRequest builds a provider ChatRequest from a stored conversation.
 // When searchTool or titleTool are non-nil they are registered as available tools.
+const baseChatSystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately."
+const webSearchSystemPrompt = " When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results."
+const toolResultFollowupPrompt = "\n\nTool execution for this response is complete. Use the supplied tool result messages to answer the user. Do not request another tool or emit tool-call protocol markup."
+
 func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, systemExtra string, searchTool, titleTool *provider.Tool) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
 		Model:               req.Model,
@@ -926,12 +1146,16 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, s
 		Seed:                req.Seed,
 		JSONMode:            req.JSONMode,
 		ReasoningEffort:     req.ReasoningEffort,
+		ThinkingBudget:      req.ThinkingBudget,
 	}
 	if cr.MaxTokens == 0 {
 		cr.MaxTokens = 4096
 	}
-	cr.SystemPrompt = "You are EncoreHub, a helpful AI assistant. Answer concisely and accurately. " +
-		"When you need real-time or up-to-date information, use the web_search tool to search the web. The user has already enabled web search — the tool is available to you. Do NOT say you cannot search the web; call the web_search function instead. Cite your sources from the search results." + systemExtra
+	cr.SystemPrompt = baseChatSystemPrompt
+	if searchTool != nil {
+		cr.SystemPrompt += webSearchSystemPrompt
+	}
+	cr.SystemPrompt += systemExtra
 
 	// Register available tools
 	var tools []provider.Tool

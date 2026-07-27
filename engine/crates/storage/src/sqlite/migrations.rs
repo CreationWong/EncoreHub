@@ -179,6 +179,17 @@ const MIGRATIONS: &[&str] = &[
         CHECK(status IN ('pending', 'completed', 'failed', 'stopped'));
     CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
     ",
+    // 009: Persist provider reply telemetry.
+    //
+    // Nullable columns preserve the distinction between an actual zero and
+    // telemetry that was unavailable (including every pre-migration message).
+    // `token_count` remains for old clients and records.
+    "
+    ALTER TABLE messages ADD COLUMN input_tokens INTEGER;
+    ALTER TABLE messages ADD COLUMN output_tokens INTEGER;
+    ALTER TABLE messages ADD COLUMN duration_ms INTEGER;
+    ALTER TABLE messages ADD COLUMN finish_reason TEXT;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -234,5 +245,54 @@ mod tests {
         run(&conn).unwrap();
         // Second run should be idempotent
         run(&conn).unwrap();
+    }
+
+    #[test]
+    fn telemetry_migration_preserves_legacy_messages_as_unknown() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+
+        for (index, sql) in MIGRATIONS.iter().take(8).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, applied_at) VALUES (?1, 1)",
+                [index as i64 + 1],
+            )
+            .unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO conversations
+             (id, title, provider, model, created_at, updated_at)
+             VALUES ('legacy-conversation', 'Legacy', 'openai', 'gpt-4o', 1, 1);
+             INSERT INTO messages
+             (id, conversation_id, role, content, reasoning, parent_id,
+              token_count, status, created_at)
+             VALUES
+             ('legacy-message', 'legacy-conversation', 'assistant', 'answer', '',
+              NULL, 12, 'completed', 1);",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let telemetry: (Option<i32>, Option<i32>, Option<i64>, Option<String>) = conn
+            .query_row(
+                "SELECT input_tokens, output_tokens, duration_ms, finish_reason
+                 FROM messages WHERE id = 'legacy-message'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(telemetry, (None, None, None, None));
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 9);
     }
 }

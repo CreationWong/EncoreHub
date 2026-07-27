@@ -103,10 +103,10 @@ flowchart LR
 | CUI-03 | Frontend context/provider semantics | CUI-02 | 上下文栏、对话权威 Provider/Model 语义 | `Done`（本地视觉验收） |
 | CUI-04 | Frontend messages | UG1 | UserBubble、ReasoningSection、AnswerBody、ReplyFooter | `Done`（本地视觉验收） |
 | CUI-04A | Frontend sidebar/context/messages | CUI-04 | 上下文层级、角色身份、中性拖拽边界、紧凑工具记录 | `Done`（本地视觉验收） |
-| CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Ready` |
+| CUI-05 | Frontend composer/scroll | CUI-04A | 一体式输入区、Slash a11y、滚动控制与分会话草稿 | `Done`（本地自动化与视觉验收） |
 | CUI-06 | Gateway + Frontend settings | UG2 | ProviderDetail、多端点/多 Key 路由、模型元数据、draft 保存与自动发现 | `Done`（本地自动化与视觉验收） |
 | CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Done`（本地自动化与视觉验收） |
-| CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Not started` |
+| CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Done`（本地自动化与兼容性验收） |
 | CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Not started` |
 | CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Not started` |
 | CUI-11 | Frontend character UI | CUI-10 | 角色创建、编辑、复制、删除与对话版本升级 | `Not started` |
@@ -356,6 +356,7 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - [x] 将 textarea、Slash、联网搜索、字符状态和发送/停止合并为单个 composer 容器。
 - [x] textarea 默认两行，最大 220px；达到字符上限 85% 后才显示进度状态。
 - [x] 搜索开关与 Provider 选择合并到同一菜单，未接通的附件、图片和 MCP 按钮不显示。
+- [x] 当前对话模型标记 `web` 能力时，联网搜索强制开启并隐藏外部 Search API 菜单；点击开关以通知解释该模型的内置联网不可关闭。
 - [x] Slash 菜单向上展开并补齐 `listbox/option`、活动项关联、分组、Escape 和焦点返回。
 - [x] 中文输入法组合态下 Enter 不发送；发送和停止图标切换不改变按钮尺寸。
 - [x] 为每个 Conversation 保存独立草稿；新对话使用独立临时 key，创建成功后迁移草稿。
@@ -373,13 +374,13 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 **执行记录（2026-07-25）**
 
 - `InputBox` 改为单个两段式 composer：两行 textarea 与底部工具栏共享边框容器，最大高度 220px；Slash、搜索、生成状态、6800/8000 起显示的字符状态和固定 36px 发送/停止按钮均位于容器内，长草稿发送后立即恢复默认高度。
-- 联网搜索改为一个 Globe 菜单，使用 `menuitemcheckbox` 管理启用状态、`menuitemradio` 管理 DuckDuckGo/Bing/Google；Slash 菜单按 Conversation、Workspace、Developer 分组，向上展开并实现 `combobox + listbox/option + aria-activedescendant`、方向键、Tab、Escape 和焦点返回。
+- 普通模型的联网搜索使用一个 Globe 菜单，以 `menuitemcheckbox` 管理启用状态、`menuitemradio` 管理 DuckDuckGo/Bing/Google。模型配置标记 `web` 时代表模型内置联网：Globe 按当前对话模型强制显示启用，隐藏外部 Search API 展开按钮，点击时通过通知说明不可关闭；发送请求时不再重复挂载 EncoreHub 外部 `web_search` 工具，切回普通模型后恢复用户原有外部搜索偏好。Slash 菜单按 Conversation、Workspace、Developer 分组，向上展开并实现 `combobox + listbox/option + aria-activedescendant`、方向键、Tab、Escape 和焦点返回。
 - `conversationStore` 新增内存态 `drafts` 与 `scrollPositions`；每个 Conversation 独立保存，未创建对话使用 `__new_conversation__`，创建成功后迁移，发送或删除时清理对应状态；Memory quote 继续追加到当前草稿，侧栏和上下文栏重渲染不清空输入。
 - `MessageFeed` 使用 96px 距底阈值和 requestAnimationFrame 分别节流流式跟随与滚动位置写入；向上阅读时停止跟随并显示固定 36px “Back to latest”按钮，Conversation 切换和加载卸载时保存、恢复各自位置。
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05、CUI-06、CUI-07 与 UG2 已完成；下一项为 CUI-08 完整回复遥测。
+CUI-05 至 CUI-08 与 UG2、UG3 已完成；下一项为 CUI-09 响应式布局和 Windows 自定义标题栏。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
@@ -467,10 +468,11 @@ CUI-05、CUI-06、CUI-07 与 UG2 已完成；下一项为 CUI-08 完整回复遥
 - Gateway 新增无持久化 `POST /api/v1/providers/{provider}/validate-key`；legacy 单 Key 与版本化 Key 池均返回按安全 ID 对齐的检测结果，endpoint 同时返回连接状态和延迟。
 - validation 只返回 `valid/invalid/error/skipped`、`valid/reachable/unreachable/skipped` 与结构化错误类别；Key 值、Key 名称、完整 URL 和上游正文不进入响应或日志。
 - ProviderDetail 的检测、发现和保存拥有独立 pending 状态；Key 与 endpoint 行显示最近检测结果，连接参数变化会立即作废旧结果和过期请求。
+- API 格式、Key、Endpoint 或供应商开关完成编辑后，草稿会先进入等待态，并在停止输入 900ms 后自动检测连接及执行既有模型发现。左侧指示灯由详情草稿即时驱动：正常绿色、等待或超时黄色、故障红色、关闭透明；首次打开或切换回已保存供应商时，已启用的 Key 与 Endpoint 在没有本次检测结果时按正常绿色初始化。`Discard` 同时恢复最后已保存的字段、开关和指示状态，检测过程不持久化 Provider 或 Key。
 - 后台发现使用 Add / Keep / Remove 审阅工具；部分成功只允许新增和保留。手动 Fetch 成功后自动保存远端模型列表，不再要求再次点击底部保存；其他 Provider 草稿和 Key 池保持未保存状态。
 - 官方文档与获取密钥外链入口按用户决定延期，不属于本次 CUI-07 完成门槛。
 
-### CUI-08 持久化完整回复遥测
+### CUI-08 持久化完整回复遥测（Done）
 
 **目标**：刷新后仍能按 `tokens/s -> tokens -> duration -> stop reason` 显示真实状态。
 
@@ -489,12 +491,12 @@ CUI-05、CUI-06、CUI-07 与 UG2 已完成；下一项为 CUI-08 完整回复遥
 
 **任务**
 
-- [ ] 使用 additive SQLite migration 扩展 Message storage、API request/response 和旧数据默认值。
-- [ ] Gateway 聚合 provider usage、每段生成耗时和最终 finish reason，并在持久化与 SSE done 中使用同一权威值。
-- [ ] 工具循环分段计时；工具执行等待不计入生成 duration。
-- [ ] Frontend 乐观消息、流式完成、重载和失败回滚都使用同一遥测类型。
-- [ ] `ReplyFooter` 按真实字段逐项渲染；原始 finish reason 放 tooltip，异常使用语义状态色。
-- [ ] 限制未知或异常大数值的展示宽度，使用 tabular numbers，避免 footer 跳动。
+- [x] 使用 additive SQLite migration 扩展 Message storage、API request/response 和旧数据默认值。
+- [x] Gateway 聚合 provider usage、每段生成耗时和最终 finish reason，并在持久化与 SSE done 中使用同一权威值。
+- [x] 工具循环分段计时；工具执行等待不计入生成 duration。
+- [x] Frontend 乐观消息、流式完成、重载和失败回滚都使用同一遥测类型。
+- [x] `ReplyFooter` 按真实字段逐项渲染；原始 finish reason 放 tooltip，异常使用语义状态色。
+- [x] 限制未知或异常大数值的展示宽度，使用 tabular numbers，避免 footer 跳动。
 
 **迁移与回滚测试**
 
@@ -508,6 +510,18 @@ CUI-05、CUI-06、CUI-07 与 UG2 已完成；下一项为 CUI-08 完整回复遥
 - 远端失败不破坏本地 profile，secret canary 扫描通过。
 - 新回复刷新后完整指标不丢失，旧回复保持兼容降级。
 - Frontend、Gateway、Engine、OpenAPI/docs 契约与全仓 gate 通过。
+
+**完成记录（2026-07-27）**
+
+- Engine 使用 nullable additive SQLite migration v9 持久化 `input_tokens`、`output_tokens`、`duration_ms` 和 `finish_reason`；旧记录继续保留 `token_count` 降级显示。
+- Gateway 在非流式和工具多轮流式响应中累计 provider usage、生成耗时与结束原因；工具执行等待不计入 `duration_ms`，取消和 provider 错误分别记录为 `cancelled` 与 `error`。
+- Frontend 按 `tokens/s -> tokens -> duration -> finish reason` 渲染；`tokens/s` 使用 `output_tokens / duration` 动态计算，流式阶段以 UTF-8 字节数估算 token，权威 usage 到达后替换估算值。
+- Composer 仅在模型设置显式勾选 `Deep thinking`（`reasoning`）能力时显示深度思考按钮并发送参数：Anthropic 协议发送 `thinking_budget`，OpenAI 兼容协议发送 `reasoning_effort`；未暴露该能力时隐藏按钮且不附加参数，已保存的开关偏好保留供支持模型恢复使用。
+- 修复 DeepSeek 工具后续回合的 DSML 协议文本泄漏：后续回合不再宣称已移除的工具可用，Gateway 在 SSE 与持久化边界只对已有结构化 tool call 的完整协议块进行过滤，Frontend 在 API 边界兼容清理历史污染记录。
+- Gateway 可执行文件和 Tauri sidecar 在 Windows、macOS、Linux 统一命名为 `encorehub-gateway[.exe]`，目标 sidecar 保持 Tauri 的 `<name>-<target>[.exe]` 解析约定。
+- 验证通过：Frontend 36 files / 265 tests、Gateway 全量 tests + vet、Engine workspace 与 standalone tests + clippy、Tauri 22 tests + clippy、17 项 workspace/docs contracts；Frontend 初始 JavaScript gzip 为 121.93 KiB，低于 300 KiB 预算。
+
+CUI-08 已完成；当前下一项为 CUI-09 响应式布局和 Windows 自定义标题栏。
 
 ## 6. 桌面迭代 C：响应式与标题栏
 
@@ -766,7 +780,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批已按顺序完成 CUI-00 至 CUI-04A。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；下一项 CUI-05 继续处理 Composer 与滚动，这些工作都会触碰主窗口，因此不并行实施。
+第一批已按顺序完成 CUI-00 至 CUI-08。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B 的 ProviderDetail、密钥检测、模型发现和完整回复遥测也已完成。下一项 CUI-09 处理响应式布局和 Windows 自定义标题栏。
 
 建议首批提交顺序：
 
@@ -778,4 +792,4 @@ git status --short
 6. `refactor(frontend): layer chat messages and reply status`
 7. `fix(frontend): align conversation workspace details`
 
-UG1 已按原范围通过，CUI-04A 参考图纠正也已完成。当前下一项为 CUI-05；UG2 通过前不开始 ProviderDetail、回复遥测、自定义标题栏或 CharacterProfile。
+UG1、UG2、UG3 已通过，CUI-06 至 CUI-08 已完成。当前下一项为 CUI-09；UG4 通过后再开始 CharacterProfile。

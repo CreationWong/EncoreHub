@@ -51,7 +51,7 @@ fi
 
 BINARY_DIR="$REPO_ROOT/frontend/src-tauri/binaries"
 ENGINE_BIN="encorehub-engine"
-GATEWAY_BIN="gateway"
+GATEWAY_BIN="encorehub-gateway"
 
 # platform suffix
 case "$(uname -s)" in
@@ -190,7 +190,7 @@ if [ "$TAURI_BUILD" = true ]; then
     if [ -z "$TARGET_TRIPLE" ]; then
         err "could not determine Rust host target triple"
     fi
-    TARGET_GATEWAY_BIN="gateway-${TARGET_TRIPLE}"
+    TARGET_GATEWAY_BIN="encorehub-gateway-${TARGET_TRIPLE}"
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*) TARGET_GATEWAY_BIN="${TARGET_GATEWAY_BIN}.exe" ;;
     esac

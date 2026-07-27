@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderProfile } from "../../services/providers";
-import { parseProviderAPIKeys } from "./providerKeys";
+import { parseProviderAPIKeys, serializeProviderAPIKeys } from "./providerKeys";
 
 const discoverModels = vi.fn();
 const validateKey = vi.fn();
@@ -80,6 +80,7 @@ function renderDetail(
 		onClearKey: vi.fn().mockResolvedValue(undefined),
 		onSave: vi.fn().mockResolvedValue(undefined),
 		onDelete: vi.fn(),
+		onStatusChange: vi.fn(),
 		...overrides,
 	};
 	const view = render(<ProviderDetail {...props} />);
@@ -176,6 +177,205 @@ describe("ProviderDetail", () => {
 		expect(screen.queryByText("Discovered Model")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Apply to draft" }));
 		expect(screen.getByText("Discovered Model")).toBeDefined();
+	});
+
+	it("automatically checks completed connection input and reports normal health", async () => {
+		const onStatusChange = vi.fn();
+		renderDetail({
+			profile: { ...profile, enabled: true },
+			isDraft: false,
+			onStatusChange,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://api.example.com/v1" },
+		});
+
+		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "waiting");
+		await act(async () => {
+			vi.advanceTimersByTime(900);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(validateKey).toHaveBeenCalledTimes(1);
+		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "healthy");
+	});
+
+	it("initializes saved enabled key and endpoint indicators after every mount", () => {
+		const configured: ProviderProfile = {
+			...profile,
+			enabled: true,
+			base_url: "https://api.example.com/v1",
+			endpoints: [
+				{
+					id: "primary",
+					name: "Primary endpoint",
+					base_url: "https://api.example.com/v1",
+					enabled: true,
+				},
+			],
+		};
+		const savedKeys = serializeProviderAPIKeys([
+			{ id: "primary", name: "Primary", value: "saved-key", enabled: true },
+		]);
+		const renderConfigured = () =>
+			renderDetail({
+				profile: configured,
+				isDraft: false,
+				apiKey: savedKeys,
+				keyStored: true,
+			});
+
+		const firstMount = renderConfigured();
+		expect(screen.getByLabelText("Primary: Normal").className).toContain(
+			"bg-success",
+		);
+		expect(
+			screen.getByLabelText("Primary endpoint: Normal").className,
+		).toContain("bg-success");
+
+		firstMount.unmount();
+		renderConfigured();
+		expect(screen.getByLabelText("Primary: Normal")).toBeDefined();
+		expect(screen.getByLabelText("Primary endpoint: Normal")).toBeDefined();
+	});
+
+	it("uses disabled and waiting indicator states when a row switch changes", () => {
+		const savedKeys = serializeProviderAPIKeys([
+			{ id: "primary", name: "Primary", value: "saved-key", enabled: true },
+		]);
+		renderDetail({
+			profile: {
+				...profile,
+				enabled: true,
+				base_url: "https://api.example.com/v1",
+				endpoints: [
+					{
+						id: "primary",
+						name: "Primary endpoint",
+						base_url: "https://api.example.com/v1",
+						enabled: true,
+					},
+				],
+			},
+			isDraft: false,
+			apiKey: savedKeys,
+			keyStored: true,
+		});
+
+		fireEvent.click(screen.getByRole("switch", { name: "Disable API key 1" }));
+		expect(screen.getByLabelText("Primary: Disabled").className).toContain(
+			"bg-transparent",
+		);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable API key 1" }));
+		expect(
+			screen.getByLabelText("Primary: Waiting for connection check").className,
+		).toContain("bg-warning");
+	});
+
+	it("reports connection timeouts as warning status", async () => {
+		validateKey.mockResolvedValueOnce({
+			provider: "custom",
+			valid: false,
+			success_count: 0,
+			key_results: [
+				{
+					key_id: "key-test-1",
+					status: "error",
+					endpoint_id: "primary",
+					error_category: "timeout",
+				},
+			],
+			endpoint_results: [
+				{
+					endpoint_id: "primary",
+					status: "unreachable",
+					latency_ms: 20000,
+					error_category: "timeout",
+				},
+			],
+		});
+		const onStatusChange = vi.fn();
+		renderDetail({
+			profile: { ...profile, enabled: true },
+			isDraft: false,
+			onStatusChange,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://slow.example.com/v1" },
+		});
+
+		await act(async () => {
+			vi.advanceTimersByTime(900);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "timeout");
+	});
+
+	it("discard restores unsaved fields, switch, and disabled status", () => {
+		const onStatusChange = vi.fn();
+		renderDetail({ isDraft: false, onStatusChange });
+
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://draft.example.com/v1" },
+		});
+		fireEvent.click(screen.getByRole("switch", { name: "Enable provider" }));
+		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "waiting");
+
+		fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+		expect(screen.getByLabelText("Endpoint 1 URL")).toHaveProperty("value", "");
+		expect(
+			screen
+				.getByRole("switch", { name: "Enable provider" })
+				.getAttribute("aria-checked"),
+		).toBe("false");
+		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "disabled");
+	});
+
+	it("discard cancels the pending automatic connection actions", async () => {
+		const configured: ProviderProfile = {
+			...profile,
+			enabled: true,
+			base_url: "https://saved.example.com/v1",
+			endpoints: [
+				{
+					id: "primary",
+					name: "Primary",
+					base_url: "https://saved.example.com/v1",
+					enabled: true,
+				},
+			],
+		};
+		renderDetail({
+			profile: configured,
+			isDraft: false,
+			apiKey: "saved-key",
+			keyStored: true,
+		});
+
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://draft.example.com/v1" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+		await act(async () => {
+			vi.advanceTimersByTime(900);
+			await Promise.resolve();
+		});
+
+		expect(validateKey).not.toHaveBeenCalled();
+		expect(discoverModels).not.toHaveBeenCalled();
 	});
 
 	it("tests temporary keys without persisting and keeps other commands available", async () => {

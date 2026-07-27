@@ -40,8 +40,8 @@ export const MODEL_CAPABILITIES: {
 	label: string;
 }[] = [
 	{ value: "vision", label: "Vision" },
-	{ value: "web", label: "Web" },
-	{ value: "reasoning", label: "Reasoning" },
+	{ value: "web", label: "Built-in web search" },
+	{ value: "reasoning", label: "Deep thinking" },
 	{ value: "tools", label: "Tools" },
 	{ value: "rerank", label: "Rerank" },
 	{ value: "embedding", label: "Embedding" },

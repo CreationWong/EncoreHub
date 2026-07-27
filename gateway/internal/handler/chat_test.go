@@ -65,6 +65,32 @@ func TestBuildChatRequest_EmptyHistory(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequest_PropagatesDeepThinkingControls(t *testing.T) {
+	conv := &engine.ConversationDetail{}
+	req := SendMessageRequest{
+		ReasoningEffort: "high",
+		ThinkingBudget:  2048,
+	}
+
+	cr := buildChatRequest(conv, req, "", nil, nil)
+	if cr.ReasoningEffort != "high" || cr.ThinkingBudget != 2048 {
+		t.Fatalf("deep-thinking controls were not propagated: %+v", cr)
+	}
+	cloned := cloneRequestForNextRound(cr, []engine.ToolCallInput{{
+		ID: "call-1", Name: "web_search", Arguments: `{}`, Result: "ok",
+	}})
+	if cloned == nil || cloned.ReasoningEffort != "high" || cloned.ThinkingBudget != 2048 {
+		t.Fatalf("tool follow-up lost deep-thinking controls: %+v", cloned)
+	}
+}
+
+func TestValidateChatRequest_RejectsNegativeThinkingBudget(t *testing.T) {
+	err := validateChatRequest(SendMessageRequest{Content: "hello", ThinkingBudget: -1})
+	if err == nil || !strings.Contains(err.Error(), "thinking_budget") {
+		t.Fatalf("negative thinking budget error = %v", err)
+	}
+}
+
 func TestContainsLower_Cases(t *testing.T) {
 	cases := []struct {
 		hay  string

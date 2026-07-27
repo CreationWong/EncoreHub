@@ -105,9 +105,18 @@ describe("chatApi.sendMessageStream", () => {
 			vi.fn().mockResolvedValue(
 				sseResponse([
 					{ event: "turn_started", data: { user_message: pendingUser } },
-					{ event: "delta", data: { content: "answer" } },
-					{ event: "usage", data: { input_tokens: 1, output_tokens: 2 } },
-					{ event: "usage", data: { input_tokens: 3, output_tokens: 4 } },
+					{
+						event: "delta",
+						data: { content: "answer", duration_ms: 120 },
+					},
+					{
+						event: "usage",
+						data: { input_tokens: 1, output_tokens: 2, duration_ms: 250 },
+					},
+					{
+						event: "usage",
+						data: { input_tokens: 3, output_tokens: 4, duration_ms: 400 },
+					},
 					{
 						event: "done",
 						data: {
@@ -122,6 +131,7 @@ describe("chatApi.sendMessageStream", () => {
 		const onTurnStarted = vi.fn();
 		const onDelta = vi.fn();
 		const onUsage = vi.fn();
+		const onTelemetry = vi.fn();
 		const onDone = vi.fn();
 		const onError = vi.fn();
 
@@ -129,6 +139,7 @@ describe("chatApi.sendMessageStream", () => {
 			onTurnStarted,
 			onDelta,
 			onUsage,
+			onTelemetry,
 			onDone,
 			onError,
 		});
@@ -139,12 +150,47 @@ describe("chatApi.sendMessageStream", () => {
 			[1, 2],
 			[3, 4],
 		]);
+		expect(onTelemetry.mock.calls).toEqual([[120], [250], [400]]);
 		expect(onDone).toHaveBeenCalledWith({
 			user_message: completedUser,
 			assistant_message: assistant,
 			usage: { input_tokens: 4, output_tokens: 6 },
 		});
 		expect(onError).not.toHaveBeenCalled();
+	});
+
+	it("sends supported deep-thinking controls in the stream request", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			sseResponse([
+				{
+					event: "error",
+					data: { code: "test_end", message: "stop fixture" },
+				},
+			]),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await chatApi.sendMessageStream(
+			"c1",
+			"hello",
+			"key",
+			{
+				onDelta: vi.fn(),
+				onDone: vi.fn(),
+				onError: vi.fn(),
+			},
+			undefined,
+			false,
+			undefined,
+			{ reasoning_effort: "high" },
+		);
+
+		const request = fetchMock.mock.calls[0][1] as RequestInit;
+		expect(JSON.parse(String(request.body))).toEqual({
+			content: "hello",
+			stream: true,
+			reasoning_effort: "high",
+		});
 	});
 
 	it("decodes structured terminal errors without treating them as done", async () => {

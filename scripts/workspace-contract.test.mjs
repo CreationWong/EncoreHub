@@ -18,10 +18,7 @@ test("Engine container builds the standalone HTTP binary with readonly skills", 
 		/cargo build --release --features standalone --bin encorehub-engine/,
 	);
 	assert.match(dockerfile, /COPY skills\/ \/opt\/encorehub\/skills\//);
-	assert.match(
-		dockerfile,
-		/ENV ENCOREHUB_SKILLS_DIR=\/opt\/encorehub\/skills/,
-	);
+	assert.match(dockerfile, /ENV ENCOREHUB_SKILLS_DIR=\/opt\/encorehub\/skills/);
 	assert.match(dockerfile, /ENV ENGINE_DB=\/data\/encorehub\.db/);
 	assert.match(dockerfile, /EXPOSE 3000/);
 	assert.doesNotMatch(dockerfile, /50051|9090/);
@@ -41,12 +38,17 @@ test("Gateway builder matches go.mod and exposes only HTTP", async () => {
 	assert.ok(goVersion, "go.mod must declare a Go version");
 	assert.equal(imageVersion, goVersion);
 	assert.match(dockerfile, /EXPOSE 8080/);
+	assert.match(dockerfile, /bin\/encorehub-gateway/);
+	assert.match(dockerfile, /CMD \["encorehub-gateway"\]/);
 	assert.doesNotMatch(dockerfile, /9090|50051/);
 });
 
 test("Compose uses the Engine image contract and readiness dependencies", async () => {
 	const compose = await read("docker-compose.yml");
-	assert.match(compose, /engine:\s*\n\s*build:\s*\n\s*context: \.\s*\n\s*dockerfile: engine\/Dockerfile/);
+	assert.match(
+		compose,
+		/engine:\s*\n\s*build:\s*\n\s*context: \.\s*\n\s*dockerfile: engine\/Dockerfile/,
+	);
 	assert.match(compose, /ENGINE_DB=\/data\/encorehub\.db/);
 	assert.match(compose, /condition: service_healthy/);
 	assert.match(compose, /\/api\/v1\/health\/ready/);
@@ -63,7 +65,14 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	]);
 	const pkg = JSON.parse(packageText);
 	const scripts = pkg.scripts ?? {};
-	for (const name of ["dev", "build", "test", "lint", "check", "test:contracts"]) {
+	for (const name of [
+		"dev",
+		"build",
+		"test",
+		"lint",
+		"check",
+		"test:contracts",
+	]) {
 		assert.equal(typeof scripts[name], "string", `missing root script ${name}`);
 	}
 	const serialized = JSON.stringify(scripts);
@@ -73,7 +82,10 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	assert.match(scripts["build:engine"], /--features standalone/);
 	assert.match(scripts["build:engine"], /--bin encorehub-engine/);
 	assert.match(makefile, /Compatibility shim/);
-	assert.doesNotMatch(makefile, /cargo (build|test|check)|go (build|test|vet)|pnpm --filter/);
+	assert.doesNotMatch(
+		makefile,
+		/cargo (build|test|check)|go (build|test|vet)|pnpm --filter/,
+	);
 	assert.doesNotMatch(readme, /\bmake (dev|build|check|test|lint|fmt)\b/);
 });
 
@@ -99,12 +111,18 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		]).then((files) => files.join("\n")),
 	]);
 
-	assert.match(app, /lazy\(\s*\(\) => import\("\.\/components\/settings\/SettingsModal"\)/);
+	assert.match(
+		app,
+		/lazy\(\s*\(\) => import\("\.\/components\/settings\/SettingsModal"\)/,
+	);
 	assert.match(app, /settingsOpen &&/);
 	assert.doesNotMatch(app, /^import SettingsModal/m);
 	assert.match(settingsModal, /lazy\(\(\) => import\("\.\/DeveloperPanel"\)\)/);
 	assert.doesNotMatch(settingsModal, /^import DeveloperPanel/m);
-	assert.match(markdownRenderer, /lazy\(\(\) => import\("\.\/HighlightedCodeBlock"\)\)/);
+	assert.match(
+		markdownRenderer,
+		/lazy\(\(\) => import\("\.\/HighlightedCodeBlock"\)\)/,
+	);
 	assert.doesNotMatch(markdownRenderer, /from "react-syntax-highlighter/);
 	assert.match(highlightedCodeBlock, /from "react-syntax-highlighter"/);
 	assert.match(devtools, /await import\("@tauri-apps\/api\/core"\)/);
@@ -113,14 +131,19 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 });
 
 test("Frontend build enforces and retains its initial gzip budget", async () => {
-	const [frontendPackageText, rootPackageText, viteConfig, budgetCheck, workflow] =
-		await Promise.all([
-			read("frontend/package.json"),
-			read("package.json"),
-			read("frontend/vite.config.ts"),
-			read("frontend/scripts/check-bundle-budget.mjs"),
-			read(".github/workflows/build.yml"),
-		]);
+	const [
+		frontendPackageText,
+		rootPackageText,
+		viteConfig,
+		budgetCheck,
+		workflow,
+	] = await Promise.all([
+		read("frontend/package.json"),
+		read("package.json"),
+		read("frontend/vite.config.ts"),
+		read("frontend/scripts/check-bundle-budget.mjs"),
+		read(".github/workflows/build.yml"),
+	]);
 	const frontendScripts = JSON.parse(frontendPackageText).scripts;
 	const rootScripts = JSON.parse(rootPackageText).scripts;
 
@@ -162,7 +185,7 @@ test("Desktop keeps mutable state in app data and bundles readonly skills", asyn
 
 test("Desktop launches the Gateway through Tauri's sidecar resolver", async () => {
 	const main = await read("frontend/src-tauri/src/main.rs");
-	assert.match(main, /\.shell\(\)\.sidecar\("gateway"\)/);
+	assert.match(main, /\.shell\(\)\.sidecar\("encorehub-gateway"\)/);
 	assert.doesNotMatch(main, /fn find_binary|std::process::Command/);
 });
 
@@ -170,8 +193,11 @@ test("Unix desktop build uses argument arrays and target-triple sidecars", async
 	const script = await read("scripts/build.sh");
 	assert.match(script, /TAURI_ARGS=\([^\n]*tauri[^\n]*(build|dev)/);
 	assert.match(script, /pnpm "\$\{TAURI_ARGS\[@\]\}"/);
-	assert.match(script, /gateway-\$\{?TARGET_TRIPLE\}?/);
-	assert.doesNotMatch(script, /TAURI_CMD="tauri build"|pnpm "tauri" "\$TAURI_CMD"/);
+	assert.match(script, /encorehub-gateway-\$\{?TARGET_TRIPLE\}?/);
+	assert.doesNotMatch(
+		script,
+		/TAURI_CMD="tauri build"|pnpm "tauri" "\$TAURI_CMD"/,
+	);
 });
 
 test("Expensive builds only run from the manual workflow", async () => {
@@ -189,7 +215,7 @@ test("Expensive builds only run from the manual workflow", async () => {
 
 	for (const command of [
 		/run: pnpm build/,
-		/run: go build -o bin\/gateway/,
+		/run: go build -o bin\/encorehub-gateway/,
 		/run: cargo build --release/,
 		/run: pnpm --dir frontend tauri build --debug --no-bundle --ci/,
 		/run: docker compose build --no-cache/,
@@ -212,19 +238,23 @@ test("Windows uninstall hooks preserve app data outside the install directory", 
 		read("frontend/src-tauri/wix/cleanup-runtime-data.wxs"),
 		read("frontend/src-tauri/nsis/installer-hooks.nsh"),
 	]);
-	assert.doesNotMatch(`${wix}\n${nsis}`, /APPDATA|LOCALAPPDATA|AppData|Roaming/i);
+	assert.doesNotMatch(
+		`${wix}\n${nsis}`,
+		/APPDATA|LOCALAPPDATA|AppData|Roaming/i,
+	);
 	assert.match(wix, /NOT UPGRADINGPRODUCTCODE/);
 	assert.match(nsis, /\$UpdateMode <> 1/);
 });
 
 test("Data Services stays dependency-minimal and opt-in", async () => {
-	const [compose, dockerfile, pyproject, rootPackage, workflow] = await Promise.all([
-		read("docker-compose.yml"),
-		read("data-services/Dockerfile"),
-		read("data-services/pyproject.toml"),
-		read("package.json"),
-		read(".github/workflows/build.yml"),
-	]);
+	const [compose, dockerfile, pyproject, rootPackage, workflow] =
+		await Promise.all([
+			read("docker-compose.yml"),
+			read("data-services/Dockerfile"),
+			read("data-services/pyproject.toml"),
+			read("package.json"),
+			read(".github/workflows/build.yml"),
+		]);
 	assert.match(compose, /data-services:\s*\n\s*profiles: \["data"\]/);
 	assert.doesNotMatch(compose, /^\s{2}redis:/m);
 	assert.doesNotMatch(compose, /REDIS_URL=|DATA_SERVICE_URL=/);

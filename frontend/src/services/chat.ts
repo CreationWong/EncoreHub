@@ -28,6 +28,11 @@ export interface StreamUsage {
 	output_tokens: number;
 }
 
+export interface DeepThinkingRequest {
+	reasoning_effort?: "low" | "medium" | "high";
+	thinking_budget?: number;
+}
+
 export interface StreamDonePayload {
 	user_message: Message;
 	assistant_message: Message | null;
@@ -67,6 +72,7 @@ export interface StreamCallbacks {
 		status: string;
 	}) => void;
 	onUsage?: (input: number, output: number) => void;
+	onTelemetry?: (durationMs: number) => void;
 	onWarning?: (message: string) => void;
 	onTitleUpdate?: (data: { conversation_id: string; title: string }) => void;
 	onTitleError?: (message: string) => void;
@@ -106,6 +112,7 @@ export const chatApi = {
 		providerKey?: string,
 		search?: boolean,
 		searchProvider?: SearchProvider,
+		deepThinking?: DeepThinkingRequest,
 	): Promise<ChatResponse> {
 		const headers: Record<string, string> = {};
 		if (providerKey) headers["X-Provider-Key"] = providerKey;
@@ -118,6 +125,7 @@ export const chatApi = {
 				body: JSON.stringify({
 					content,
 					...(search && { search: true, search_provider: searchProvider }),
+					...deepThinking,
 				}),
 			},
 		);
@@ -141,6 +149,7 @@ export const chatApi = {
 		signal?: AbortSignal,
 		search?: boolean,
 		searchProvider?: SearchProvider,
+		deepThinking?: DeepThinkingRequest,
 	): Promise<void> {
 		const extra: Record<string, string> = {};
 		if (providerKey) extra["X-Provider-Key"] = providerKey;
@@ -153,6 +162,7 @@ export const chatApi = {
 					content,
 					stream: true,
 					...(search && { search: true, search_provider: searchProvider }),
+					...deepThinking,
 				}),
 				signal,
 			});
@@ -231,6 +241,9 @@ export const chatApi = {
 							try {
 								const j = JSON.parse(delta);
 								delta = j.content ?? j.text ?? "";
+								if (Number.isFinite(j.duration_ms) && j.duration_ms >= 0) {
+									callbacks.onTelemetry?.(j.duration_ms);
+								}
 							} catch {
 								/* keep raw */
 							}
@@ -244,6 +257,9 @@ export const chatApi = {
 						try {
 							const j = JSON.parse(ev.data);
 							if (j.content) callbacks.onReasoning?.(j.content);
+							if (Number.isFinite(j.duration_ms) && j.duration_ms >= 0) {
+								callbacks.onTelemetry?.(j.duration_ms);
+							}
 						} catch {
 							/* ignore malformed reasoning frame */
 						}
@@ -280,6 +296,9 @@ export const chatApi = {
 						try {
 							const j = JSON.parse(ev.data);
 							callbacks.onUsage?.(j.input_tokens ?? 0, j.output_tokens ?? 0);
+							if (Number.isFinite(j.duration_ms) && j.duration_ms >= 0) {
+								callbacks.onTelemetry?.(j.duration_ms);
+							}
 						} catch {
 							/* ignore malformed usage frame */
 						}

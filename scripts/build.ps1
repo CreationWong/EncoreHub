@@ -32,7 +32,7 @@ if ($Debug)     { $goBuildBase += @("-gcflags", "all=-N -l") }
 $tauriCmd     = if ($Debug) { "dev" } else { "build" }
 $binaryDir    = "$repoRoot\frontend\src-tauri\binaries"
 $engineSrc    = "$repoRoot\engine\target\$cargoTarget\encorehub-engine.exe"
-$gatewaySrc   = "$repoRoot\gateway\bin\gateway.exe"
+$gatewaySrc   = "$repoRoot\gateway\bin\encorehub-gateway.exe"
 
 # ---- helpers ----
 $timings = [ordered]@{}
@@ -113,7 +113,7 @@ function Build-Gateway {
     Push-Location "$repoRoot\gateway"
     try {
         New-Item -ItemType Directory -Force -Path bin | Out-Null
-        $args = $goBuildBase + @("-o", "bin\gateway.exe", ".\cmd\gateway")
+        $args = $goBuildBase + @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
         go @args
         if ($LASTEXITCODE -ne 0) { throw "go build failed" }
         if (Test-Path $gatewaySrc) {
@@ -175,12 +175,12 @@ if ($Tauri) {
 
     # Only gateway is a Tauri sidecar now — engine runs in-process.
     if (Test-Path $gatewaySrc) {
-        Copy-Item -Force $gatewaySrc "$binaryDir\gateway.exe"
-        Copy-Item -Force $gatewaySrc "$binaryDir\gateway-$triple.exe"
+        Copy-Item -Force $gatewaySrc "$binaryDir\encorehub-gateway.exe"
+        Copy-Item -Force $gatewaySrc "$binaryDir\encorehub-gateway-$triple.exe"
         $sz = [math]::Round((Get-Item $gatewaySrc).Length / 1MB, 1)
-        Write-Ok "gateway.exe → binaries/ ($sz MB, also $triple alias)"
+        Write-Ok "encorehub-gateway.exe → binaries/ ($sz MB, also $triple alias)"
     } else {
-        Write-Warn "gateway.exe not found — Tauri may use a stale cached binary"
+        Write-Warn "encorehub-gateway.exe not found — Tauri may use a stale cached binary"
     }
 
     Step "tauri-installer" {

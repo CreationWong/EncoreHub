@@ -448,7 +448,7 @@ fn spawn_gateway(
     gateway_port: u16,
     internal_auth_token: &str,
 ) -> Option<ServiceHandle> {
-    let command = match app.shell().sidecar("gateway") {
+    let command = match app.shell().sidecar("encorehub-gateway") {
         Ok(command) => command.envs(gateway_environment(
             engine_port,
             gateway_port,

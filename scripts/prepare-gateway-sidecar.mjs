@@ -7,7 +7,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gatewayDir = path.join(root, "gateway");
 const binariesDir = path.join(root, "frontend", "src-tauri", "binaries");
 const extension = process.platform === "win32" ? ".exe" : "";
-const builtBinary = path.join(gatewayDir, "bin", `gateway${extension}`);
+const builtBinary = path.join(
+	gatewayDir,
+	"bin",
+	`encorehub-gateway${extension}`,
+);
 const goCache = process.env.GOCACHE || path.join(root, ".cache", "go-build");
 
 function run(command, args, options = {}) {
@@ -38,13 +42,17 @@ const rustc = spawnSync("rustc", ["-vV"], {
 	shell: false,
 });
 if (rustc.error) throw rustc.error;
-if (rustc.status !== 0) throw new Error(`rustc exited with status ${rustc.status}`);
+if (rustc.status !== 0)
+	throw new Error(`rustc exited with status ${rustc.status}`);
 const target = rustc.stdout.match(/^host:\s*(.+)$/m)?.[1]?.trim();
 if (!target) throw new Error("could not determine Rust host target triple");
 
-copyFileSync(builtBinary, path.join(binariesDir, `gateway${extension}`));
 copyFileSync(
 	builtBinary,
-	path.join(binariesDir, `gateway-${target}${extension}`),
+	path.join(binariesDir, `encorehub-gateway${extension}`),
+);
+copyFileSync(
+	builtBinary,
+	path.join(binariesDir, `encorehub-gateway-${target}${extension}`),
 );
 console.log(`Prepared Gateway sidecar for ${target}`);

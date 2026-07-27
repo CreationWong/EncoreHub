@@ -39,6 +39,7 @@ import {
 	NEW_CONVERSATION_DRAFT_KEY,
 	useConversationStore,
 } from "./conversationStore";
+import { useProviderStore } from "./providerStore";
 import { useSettingsStore } from "./settingsStore";
 
 beforeEach(() => {
@@ -52,6 +53,7 @@ beforeEach(() => {
 		streaming: false,
 		streamingContent: "",
 		streamingReasoning: "",
+		streamingDurationMs: 0,
 		streamingToolCalls: [],
 		error: null,
 		abortController: null,
@@ -93,7 +95,11 @@ beforeEach(() => {
 		provider: "openai",
 		model: "gpt-4o",
 		apiKeys: { openai: "openai-key", anthropic: "anthropic-key" },
+		searchEnabled: false,
+		searchProvider: "duckduckgo",
+		deepThinking: false,
 	});
+	useProviderStore.setState({ profiles: [], loaded: false, error: null });
 });
 
 // ---- helpers ----
@@ -693,6 +699,172 @@ describe("sendMessage", () => {
 		expect(sendMessageStream.mock.calls[0][2]).toBe("anthropic-key");
 	});
 
+	it("maps deep thinking only when the active model exposes reasoning", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => cb.onDone(donePayload("done")),
+		);
+		useSettingsStore.setState({ deepThinking: true });
+		useProviderStore.setState({
+			loaded: true,
+			profiles: [
+				{
+					id: "openai",
+					name: "OpenAI",
+					protocol: "openai",
+					base_url: "",
+					models: ["gpt-4o", "gpt-5"],
+					model_configs: [
+						{
+							id: "gpt-5",
+							capabilities: ["reasoning"],
+							streaming: true,
+						},
+					],
+					enabled: true,
+					builtin: true,
+				},
+				{
+					id: "anthropic",
+					name: "Anthropic",
+					protocol: "anthropic",
+					base_url: "",
+					models: ["claude-sonnet-4"],
+					model_configs: [
+						{
+							id: "claude-sonnet-4",
+							capabilities: ["reasoning"],
+							streaming: true,
+						},
+					],
+					enabled: true,
+					builtin: true,
+				},
+			],
+		});
+
+		seedConversation("ordinary");
+		useConversationStore.setState({ activeId: "ordinary" });
+		await useConversationStore.getState().sendMessage("ordinary");
+		expect(sendMessageStream.mock.calls[0][7]).toBeUndefined();
+
+		seedConversation("unconfigured-reasoning-name");
+		useConversationStore.setState((state) => ({
+			activeId: "unconfigured-reasoning-name",
+			conversations: state.conversations.map((conversation) =>
+				conversation.id === "unconfigured-reasoning-name"
+					? { ...conversation, model: "o3" }
+					: conversation,
+			),
+		}));
+		await useConversationStore.getState().sendMessage("unconfigured");
+		expect(sendMessageStream.mock.calls[1][7]).toBeUndefined();
+
+		seedConversation("reasoning");
+		useConversationStore.setState((state) => ({
+			activeId: "reasoning",
+			conversations: state.conversations.map((conversation) =>
+				conversation.id === "reasoning"
+					? { ...conversation, model: "gpt-5" }
+					: conversation,
+			),
+		}));
+		await useConversationStore.getState().sendMessage("reasoning");
+		expect(sendMessageStream.mock.calls[2][7]).toEqual({
+			reasoning_effort: "high",
+		});
+
+		seedConversation("anthropic");
+		useConversationStore.setState((state) => ({
+			activeId: "anthropic",
+			conversations: state.conversations.map((conversation) =>
+				conversation.id === "anthropic"
+					? {
+							...conversation,
+							provider: "anthropic",
+							model: "claude-sonnet-4",
+						}
+					: conversation,
+			),
+		}));
+		await useConversationStore.getState().sendMessage("anthropic");
+		expect(sendMessageStream.mock.calls[3][7]).toEqual({
+			thinking_budget: 2048,
+		});
+	});
+
+	it("does not attach the external search tool to a native web model", async () => {
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				callbacks: StreamCallbacks,
+			) => callbacks.onDone(donePayload("done")),
+		);
+		useSettingsStore.setState({
+			searchEnabled: true,
+			searchProvider: "bing",
+		});
+		useProviderStore.setState({
+			loaded: true,
+			profiles: [
+				{
+					id: "openai",
+					name: "OpenAI",
+					protocol: "openai",
+					base_url: "",
+					models: ["gpt-4o"],
+					model_configs: [
+						{
+							id: "gpt-4o",
+							name: "GPT-4o Online",
+							capabilities: ["web"],
+							streaming: true,
+						},
+					],
+					enabled: true,
+					builtin: true,
+				},
+			],
+		});
+		seedConversation("native-web");
+		useConversationStore.setState({ activeId: "native-web" });
+
+		await useConversationStore.getState().sendMessage("latest news");
+
+		expect(sendMessageStream.mock.calls[0][5]).toBe(false);
+		expect(sendMessageStream.mock.calls[0][6]).toBe("bing");
+	});
+
+	it("keeps the greatest streamed provider duration in conversation state", async () => {
+		let observedDuration = 0;
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onTelemetry?.(320);
+				cb.onTelemetry?.(180);
+				observedDuration = useConversationStore.getState().streamingDurationMs;
+				cb.onDone(donePayload("done", { duration_ms: 320 }));
+			},
+		);
+		useConversationStore.setState({ activeId: "c1" });
+
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(observedDuration).toBe(320);
+		expect(useConversationStore.getState().streamingDurationMs).toBe(0);
+		expect(useConversationStore.getState().messages[1].duration_ms).toBe(320);
+	});
+
 	it("does not issue a second title generation request when stream has no title event", async () => {
 		sendMessageStream.mockImplementation(
 			async (
@@ -1181,6 +1353,7 @@ describe("multi-conversation streaming", () => {
 					streamingContent: "",
 					streamingReasoning: "",
 					streamingToolCalls: [],
+					streamingDurationMs: 0,
 					abortController: null,
 				},
 			},
