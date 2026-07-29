@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/encorehub/gateway/internal/diagnostics"
 	"github.com/encorehub/gateway/internal/provider"
 )
 
@@ -30,7 +31,7 @@ type Adapter struct {
 // New builds the default Anthropic adapter (id "anthropic", official endpoint).
 func New() *Adapter {
 	return &Adapter{
-		httpClient: &http.Client{},
+		httpClient: diagnostics.NewHTTPClient(0),
 		id:         "anthropic",
 		baseURL:    anthropicBaseURL,
 	}
@@ -45,7 +46,7 @@ func NewFromProfile(p provider.ProviderProfile) *Adapter {
 		base = anthropicBaseURL
 	}
 	return &Adapter{
-		httpClient: &http.Client{},
+		httpClient: diagnostics.NewHTTPClient(0),
 		id:         p.ID,
 		baseURL:    base,
 		models:     p.Models,

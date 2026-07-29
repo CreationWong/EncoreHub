@@ -1,4 +1,5 @@
 import { AUTH_TOKEN, apiBase } from "./config";
+import { diagnosticFetch } from "./diagnosticFetch";
 
 export class ApiError extends Error {
 	constructor(
@@ -31,7 +32,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
 	const url = `${apiBase()}${path}`;
 
-	const res = await fetch(url, {
+	const res = await diagnosticFetch(url, {
 		...options,
 		headers: buildHeaders(options.headers),
 	});

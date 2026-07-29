@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/encorehub/gateway/internal/diagnostics"
 	"github.com/encorehub/gateway/internal/provider"
 	goopenai "github.com/sashabaranov/go-openai"
 )
@@ -44,6 +45,7 @@ func (a *Adapter) ID() string { return a.id }
 // Client itself doesn't expose it).
 func (a *Adapter) config(apiKey string) goopenai.ClientConfig {
 	cfg := goopenai.DefaultConfig(apiKey)
+	cfg.HTTPClient = diagnostics.NewHTTPClient(0)
 	if a.baseURL != "" {
 		cfg.BaseURL = a.baseURL
 	}

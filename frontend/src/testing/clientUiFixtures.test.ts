@@ -72,6 +72,7 @@ describe("client UI baseline fixtures", () => {
 			scenarioId: "long-markdown",
 			theme: "light",
 			sidebar: "conversations",
+			settingsTab: null,
 		});
 		expect(
 			parseClientUiBaselineOptions(
@@ -81,6 +82,7 @@ describe("client UI baseline fixtures", () => {
 			scenarioId: "streaming",
 			theme: "dark",
 			sidebar: "characters",
+			settingsTab: null,
 		});
 		expect(
 			parseClientUiBaselineOptions(
@@ -90,6 +92,7 @@ describe("client UI baseline fixtures", () => {
 			scenarioId: "long-markdown",
 			theme: "light",
 			sidebar: "conversations",
+			settingsTab: null,
 		});
 		expect(parseClientUiBaselineOptions("?sidebar=closed").sidebar).toBe(
 			"closed",
@@ -97,5 +100,8 @@ describe("client UI baseline fixtures", () => {
 		expect(parseClientUiBaselineOptions("?sidebar=focus").sidebar).toBe(
 			"conversations",
 		);
+		expect(
+			parseClientUiBaselineOptions("?settings=developer").settingsTab,
+		).toBe("developer");
 	});
 });

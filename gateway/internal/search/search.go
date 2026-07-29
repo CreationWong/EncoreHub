@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/encorehub/gateway/internal/diagnostics"
 	"golang.org/x/net/html"
 )
 
@@ -106,7 +107,7 @@ func NewProvider(name, apiKey string, opts ...ProviderOption) (Provider, error) 
 		if apiKey == "" {
 			return nil, fmt.Errorf("google search: missing API key")
 		}
-		p := &Google{apiKey: apiKey, client: &http.Client{Timeout: 10 * time.Second}}
+		p := &Google{apiKey: apiKey, client: diagnostics.NewHTTPClient(10 * time.Second)}
 		for _, opt := range opts {
 			opt(p)
 		}
@@ -144,7 +145,7 @@ type DuckDuckGo struct {
 }
 
 func NewDuckDuckGo() *DuckDuckGo {
-	return &DuckDuckGo{client: &http.Client{Timeout: 10 * time.Second}}
+	return &DuckDuckGo{client: diagnostics.NewHTTPClient(10 * time.Second)}
 }
 
 func (d *DuckDuckGo) Name() string { return "duckduckgo" }
@@ -380,7 +381,7 @@ type Bing struct {
 
 func NewBing(apiKey string) *Bing {
 	return &Bing{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: diagnostics.NewHTTPClient(10 * time.Second),
 		apiKey: apiKey,
 	}
 }

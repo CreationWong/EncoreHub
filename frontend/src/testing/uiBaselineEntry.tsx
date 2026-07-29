@@ -1,3 +1,4 @@
+import { mockIPC } from "@tauri-apps/api/mocks";
 import ReactDOM from "react-dom/client";
 import ClientUiBaseline, { seedClientUiBaseline } from "./ClientUiBaseline";
 import { parseClientUiBaselineOptions } from "./clientUiFixtures";
@@ -13,6 +14,110 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element #root not found");
 
 const options = parseClientUiBaselineOptions(window.location.search);
+if (options.settingsTab === "developer") {
+	mockIPC((command, args) => {
+		switch (command) {
+			case "get_service_status":
+				return [
+					{
+						name: "desktop",
+						pid: 16420,
+						running: true,
+						uptime_secs: 0,
+						port: 0,
+					},
+					{
+						name: "engine",
+						pid: 16420,
+						running: true,
+						uptime_secs: 428,
+						port: 10000,
+					},
+					{
+						name: "gateway",
+						pid: 21804,
+						running: true,
+						uptime_secs: 425,
+						port: 10001,
+					},
+				];
+			case "get_logs": {
+				const after = Number(
+					(args as { after?: number } | undefined)?.after ?? 0,
+				);
+				return [
+					{
+						seq: 1,
+						source: "desktop",
+						level: "warn",
+						message: "developer diagnostics enabled",
+					},
+					{
+						seq: 2,
+						source: "frontend",
+						level: "info",
+						message:
+							'[communication] {"direction":"frontend-request","method":"POST","url":"/chat","body":"Find the current build status"}',
+					},
+					{
+						seq: 3,
+						source: "gateway",
+						level: "info",
+						message:
+							'channel=communication direction=outbound-response status=200 body={"model":"gpt-4.1"}',
+					},
+					{
+						seq: 4,
+						source: "gateway",
+						level: "info",
+						message:
+							"activity=database/write channel=communication method=POST url=http://127.0.0.1:10000/api/conversations",
+					},
+				].filter((entry) => entry.seq > after);
+			}
+			case "get_file_log_level":
+				return "info";
+			case "get_database_overview":
+				return {
+					path: "C:\\Users\\demo\\AppData\\Roaming\\EncoreHub\\data\\encorehub.db",
+					tables: [
+						{
+							name: "conversations",
+							columns: ["id", "title", "model"],
+							row_count: 18,
+						},
+						{
+							name: "messages",
+							columns: ["id", "role", "content"],
+							row_count: 246,
+						},
+						{
+							name: "characters",
+							columns: ["id", "name", "version"],
+							row_count: 4,
+						},
+						{ name: "config", columns: ["key", "value_json"], row_count: 12 },
+					],
+				};
+			case "get_database_rows":
+				return {
+					table:
+						(args as { table?: string } | undefined)?.table ?? "conversations",
+					columns: ["id", "title", "model"],
+					rows: [
+						["conv-018", "Tool execution", "gpt-4.1"],
+						["conv-017", "Reasoning state", "deepseek-reasoner"],
+						["conv-016", "Release checklist", "deepseek-chat"],
+					],
+					total_rows: 18,
+					limit: 100,
+					offset: 0,
+				};
+			default:
+				return undefined;
+		}
+	});
+}
 const scenario = seedClientUiBaseline(options);
 document.title = `EncoreHub UI Baseline - ${scenario.id} - ${options.theme}`;
 

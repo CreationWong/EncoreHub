@@ -6,6 +6,7 @@ import {
 	type MessagePayload,
 	normalizeMessage,
 } from "./conversation";
+import { diagnosticFetch } from "./diagnosticFetch";
 
 interface ChatResponsePayload {
 	conversation_id: string;
@@ -155,17 +156,20 @@ export const chatApi = {
 		if (providerKey) extra["X-Provider-Key"] = providerKey;
 
 		try {
-			const res = await fetch(`${apiBase()}/conversations/${convId}/chat`, {
-				method: "POST",
-				headers: buildHeaders(extra),
-				body: JSON.stringify({
-					content,
-					stream: true,
-					...(search && { search: true, search_provider: searchProvider }),
-					...deepThinking,
-				}),
-				signal,
-			});
+			const res = await diagnosticFetch(
+				`${apiBase()}/conversations/${convId}/chat`,
+				{
+					method: "POST",
+					headers: buildHeaders(extra),
+					body: JSON.stringify({
+						content,
+						stream: true,
+						...(search && { search: true, search_provider: searchProvider }),
+						...deepThinking,
+					}),
+					signal,
+				},
+			);
 
 			if (!res.ok) {
 				const text = await res.text();

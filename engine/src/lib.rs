@@ -63,12 +63,41 @@ pub async fn serve(
     bind_addr: String,
     internal_auth_token: String,
 ) -> anyhow::Result<()> {
+    serve_with_shutdown(
+        db,
+        skill_registry,
+        log_control,
+        bind_addr,
+        internal_auth_token,
+        std::future::pending(),
+    )
+    .await
+}
+
+/// Run the engine until `shutdown` resolves.
+///
+/// The desktop host uses this variant so the in-process engine can be restarted
+/// without terminating the Tauri process. Standalone deployments keep using
+/// [`serve`], which has no external shutdown future.
+pub async fn serve_with_shutdown<F>(
+    db: Database,
+    skill_registry: SkillRegistry,
+    log_control: Option<LogControl>,
+    bind_addr: String,
+    internal_auth_token: String,
+    shutdown: F,
+) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
     let internal_auth_token = internal_auth_token.trim().to_owned();
     if internal_auth_token.is_empty() {
         anyhow::bail!("internal Engine authentication token must not be empty");
     }
     let app = api::build_router_with(db, skill_registry, log_control, internal_auth_token);
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
     Ok(())
 }

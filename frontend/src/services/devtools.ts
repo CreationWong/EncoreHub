@@ -23,6 +23,26 @@ export interface ServiceStatus {
 	port: number;
 }
 
+export interface DatabaseTable {
+	name: string;
+	columns: string[];
+	row_count: number;
+}
+
+export interface DatabaseOverview {
+	path: string;
+	tables: DatabaseTable[];
+}
+
+export interface DatabasePage {
+	table: string;
+	columns: string[];
+	rows: Array<Array<string | null>>;
+	total_rows: number;
+	limit: number;
+	offset: number;
+}
+
 /** True when running inside the Tauri webview (vs. a plain browser). */
 export function inTauri(): boolean {
 	return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -69,6 +89,43 @@ export const devtools = {
 	async openDevtools(): Promise<void> {
 		if (!inTauri()) return;
 		await invokeCommand("open_devtools");
+	},
+
+	async getDeveloperMode(): Promise<boolean> {
+		if (!inTauri()) return false;
+		return invokeCommand<boolean>("get_developer_mode");
+	},
+
+	async setDeveloperMode(enabled: boolean): Promise<boolean> {
+		if (!inTauri()) return enabled;
+		return invokeCommand<boolean>("set_developer_mode", { enabled });
+	},
+
+	async restartService(service: "engine" | "gateway"): Promise<ServiceStatus> {
+		if (!inTauri()) {
+			throw new Error("Service restart is only available in the desktop app");
+		}
+		return invokeCommand<ServiceStatus>(`restart_${service}`);
+	},
+
+	async databaseOverview(): Promise<DatabaseOverview> {
+		if (!inTauri()) return { path: "", tables: [] };
+		return invokeCommand<DatabaseOverview>("get_database_overview");
+	},
+
+	async databaseRows(
+		table: string,
+		limit: number,
+		offset: number,
+	): Promise<DatabasePage> {
+		if (!inTauri()) {
+			return { table, columns: [], rows: [], total_rows: 0, limit, offset };
+		}
+		return invokeCommand<DatabasePage>("get_database_rows", {
+			table,
+			limit,
+			offset,
+		});
 	},
 
 	/**

@@ -18,6 +18,7 @@ export function seedClientUiBaseline({
 	scenarioId,
 	theme,
 	sidebar,
+	settingsTab,
 }: ClientUiBaselineOptions) {
 	const scenario = getClientUiScenario(scenarioId);
 	const selectedConversation = CLIENT_UI_BASELINE_CONVERSATIONS.find(
@@ -36,9 +37,9 @@ export function seedClientUiBaseline({
 		sidebarOpen: sidebar !== "closed",
 		sidebarWidth: 300,
 		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
-		settingsOpen: scenario.settingsOpen,
-		settingsTab: "providers",
-		devMode: false,
+		settingsOpen: scenario.settingsOpen || settingsTab !== null,
+		settingsTab: settingsTab ?? "providers",
+		devMode: settingsTab === "developer",
 		searchEnabled: scenario.searchEnabled,
 		searchProvider: "duckduckgo",
 		setApiKey: () => {},

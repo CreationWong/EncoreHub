@@ -1,7 +1,8 @@
 //! In-memory ring buffer for sidecar (engine/gateway) logs, feeding the in-app
 //! developer panel. Lines are tagged with their source and a best-effort level,
-//! and secrets are redacted before a line ever enters the buffer — so neither
-//! the buffer nor anything the frontend pulls can contain an API key.
+//! and secrets are redacted before a line enters the buffer. The sole exception
+//! is an explicitly marked communication event while developer diagnostics are
+//! enabled; that mode is user-confirmed and still receives redacted auth headers.
 //!
 //! Lines at or above the configured file level (Info by default) are mirrored
 //! to a daily file under the active runtime `log/` directory so issues can be
@@ -12,6 +13,7 @@ use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -113,6 +115,9 @@ pub struct LogBuffer {
     /// File mirror threshold. Memory keeps every captured line; disk keeps
     /// entries at or above this level. Defaults to Info.
     file_level: Mutex<Level>,
+    /// Preserve explicitly marked communication bodies only after the user has
+    /// acknowledged the developer-mode warning.
+    preserve_diagnostics: AtomicBool,
     /// Optional file mirror. `None` when no log dir was configured (e.g. tests).
     file: Option<Mutex<FileSink>>,
 }
@@ -221,6 +226,7 @@ pub fn export_log_entries(
     preferred_dir: Option<&Path>,
     fallback_dir: &Path,
     entries: &[LogEntry],
+    preserve_diagnostics: bool,
 ) -> io::Result<PathBuf> {
     if entries.is_empty() {
         return Err(io::Error::new(
@@ -245,14 +251,18 @@ pub fn export_log_entries(
     }
 
     if let Some(directory) = preferred_dir {
-        if let Ok(path) = write_log_export(directory, entries) {
+        if let Ok(path) = write_log_export(directory, entries, preserve_diagnostics) {
             return Ok(path);
         }
     }
-    write_log_export(fallback_dir, entries)
+    write_log_export(fallback_dir, entries, preserve_diagnostics)
 }
 
-fn write_log_export(directory: &Path, entries: &[LogEntry]) -> io::Result<PathBuf> {
+fn write_log_export(
+    directory: &Path,
+    entries: &[LogEntry],
+    preserve_diagnostics: bool,
+) -> io::Result<PathBuf> {
     fs::create_dir_all(directory)?;
     let now = chrono::Local::now();
     let stem = format!(
@@ -275,7 +285,12 @@ fn write_log_export(directory: &Path, entries: &[LogEntry]) -> io::Result<PathBu
         };
 
         for entry in entries {
-            let message = redact(&strip_ansi(&entry.message));
+            let stripped = strip_ansi(&entry.message);
+            let message = if preserve_diagnostics && is_communication_event(&stripped) {
+                stripped
+            } else {
+                redact(&stripped)
+            };
             writeln!(
                 file,
                 "[{}/{}] {}",
@@ -302,6 +317,7 @@ impl LogBuffer {
                 next_seq: 1,
             }),
             file_level: Mutex::new(Level::Info),
+            preserve_diagnostics: AtomicBool::new(false),
             file: None,
         }
     }
@@ -326,6 +342,7 @@ impl LogBuffer {
                 next_seq: 1,
             }),
             file_level: Mutex::new(Level::Info),
+            preserve_diagnostics: AtomicBool::new(false),
             file,
         }
     }
@@ -336,6 +353,10 @@ impl LogBuffer {
 
     pub fn file_level(&self) -> Level {
         *self.file_level.lock().unwrap()
+    }
+
+    pub fn set_preserve_diagnostics(&self, enabled: bool) {
+        self.preserve_diagnostics.store(enabled, Ordering::Release);
     }
 
     /// Tag, redact, and append a raw line. The stream ("out"/"err") nudges the
@@ -353,8 +374,16 @@ impl LogBuffer {
 
     /// Redact, mirror to disk, and append one entry at the given level.
     fn append(&self, source: Source, level: Level, raw: &str) {
-        let message = redact(&strip_ansi(raw));
-        // Mirror to the daily file (already redacted — no key material on disk).
+        let stripped = strip_ansi(raw);
+        let message = if self.preserve_diagnostics.load(Ordering::Acquire)
+            && is_communication_event(&stripped)
+        {
+            stripped
+        } else {
+            redact(&stripped)
+        };
+        // Communication bodies are mirrored only after the user explicitly
+        // enables developer diagnostics; all other lines remain redacted.
         let file_level = self.file_level();
         if level.should_write_to_file(file_level) {
             if let Some(file) = self.file.as_ref() {
@@ -393,6 +422,10 @@ impl LogBuffer {
     pub fn clear(&self) {
         self.inner.lock().unwrap().entries.clear();
     }
+}
+
+fn is_communication_event(message: &str) -> bool {
+    message.contains("[communication]") || message.contains("channel=communication")
 }
 
 impl Default for LogBuffer {
@@ -494,7 +527,8 @@ fn redact(line: &str) -> String {
 /// The gateway should never emit them, but this keeps legacy or stray sidecar
 /// logs from reaching the in-memory panel, file mirror, or exported log file.
 fn contains_payload_field(line: &str) -> bool {
-    const FIELDS: [&str; 8] = [
+    const FIELDS: [&str; 9] = [
+        "body",
         "request",
         "response",
         "raw",
@@ -749,6 +783,7 @@ mod tests {
         let buf = LogBuffer::with_log_dir(dir.clone());
 
         let payload_fields = [
+            "body",
             "request",
             "response",
             "raw",
@@ -778,6 +813,28 @@ mod tests {
         assert!(!text.contains(CANARY), "file log leaked payload: {text}");
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn preserves_only_marked_communication_payloads_in_developer_mode() {
+        const CANARY: &str = "developer-visible-prompt";
+        let buf = LogBuffer::new();
+        buf.set_preserve_diagnostics(true);
+
+        buf.push_event(
+            Source::Frontend,
+            Level::Info,
+            &format!(r#"[communication] {{"body":"{CANARY}"}}"#),
+        );
+        buf.push_event(
+            Source::Frontend,
+            Level::Info,
+            &format!(r#"{{"body":"{CANARY}"}}"#),
+        );
+
+        let entries = buf.since(0);
+        assert!(entries[0].message.contains(CANARY));
+        assert!(!entries[1].message.contains(CANARY));
     }
 
     #[test]
@@ -846,7 +903,7 @@ mod tests {
             message: "loaded key sk-export-canary-123456789".into(),
         }];
 
-        let path = export_log_entries(Some(&preferred), &fallback, &entries).unwrap();
+        let path = export_log_entries(Some(&preferred), &fallback, &entries, false).unwrap();
         let text = fs::read_to_string(&path).unwrap();
 
         assert_eq!(path.parent(), Some(preferred.as_path()));
@@ -867,7 +924,7 @@ mod tests {
             message: "fallback export".into(),
         }];
 
-        let path = export_log_entries(Some(&blocked), &fallback, &entries).unwrap();
+        let path = export_log_entries(Some(&blocked), &fallback, &entries, false).unwrap();
 
         assert_eq!(path.parent(), Some(fallback.as_path()));
         assert!(fs::read_to_string(path)

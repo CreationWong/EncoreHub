@@ -9,16 +9,19 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rand::{rngs::OsRng, RngCore};
+use rusqlite::types::ValueRef;
+use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use tauri::{Manager, State};
+use tokio::sync::oneshot;
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
+use app_info::get_app_info;
 use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
-use app_info::get_app_info;
 use log_layer::LogBufferLayer;
 use logs::{export_log_entries, Level, LogBuffer, LogEntry, Source};
 #[cfg(target_os = "windows")]
@@ -69,10 +72,15 @@ struct ServiceHandle {
     running: Arc<AtomicBool>,
 }
 
+struct EngineHandle {
+    shutdown: oneshot::Sender<()>,
+    task: tauri::async_runtime::JoinHandle<()>,
+    started: Instant,
+    running: Arc<AtomicBool>,
+}
+
 struct ServiceState {
-    /// The engine now runs in-process (an axum task on Tauri's tokio runtime),
-    /// so there is no child handle — just the start time for the uptime readout.
-    engine_started: Instant,
+    engine: Mutex<Option<EngineHandle>>,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
     /// File logs share the platform app-data root with the SQLite database.
@@ -83,12 +91,38 @@ struct ServiceState {
     /// Process-lifetime credential for trusted Rust/sidecar calls only. This
     /// state is intentionally not serializable and no Tauri command returns it.
     internal_auth_token: Arc<str>,
+    runtime_paths: RuntimePaths,
+    log_control: LogControl,
+    developer_mode: AtomicBool,
 }
 
 /// Port info returned to the frontend so it can build API URLs.
 #[derive(Serialize, Clone, Copy)]
 struct ServicePorts {
     gateway_port: u16,
+}
+
+#[derive(Serialize)]
+struct DatabaseTable {
+    name: String,
+    columns: Vec<String>,
+    row_count: u64,
+}
+
+#[derive(Serialize)]
+struct DatabaseOverview {
+    path: String,
+    tables: Vec<DatabaseTable>,
+}
+
+#[derive(Serialize)]
+struct DatabasePage {
+    table: String,
+    columns: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+    total_rows: u64,
+    limit: u32,
+    offset: u64,
 }
 
 /// Status snapshot for one process, surfaced to the developer panel.
@@ -145,15 +179,29 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
             uptime_secs: 0,
             port: 0,
         },
-        ServiceStatus {
-            name: "engine".into(),
-            pid: Some(std::process::id()),
-            running: true,
-            uptime_secs: state.engine_started.elapsed().as_secs(),
-            port: state.engine_port,
-        },
+        engine_status(&state.engine, state.engine_port),
         status_of(&state.gateway, "gateway", state.gateway_port),
     ]
+}
+
+fn engine_status(slot: &Mutex<Option<EngineHandle>>, port: u16) -> ServiceStatus {
+    let guard = slot.lock().unwrap();
+    match guard.as_ref() {
+        Some(handle) => ServiceStatus {
+            name: "engine".into(),
+            pid: Some(std::process::id()),
+            running: handle.running.load(Ordering::Acquire),
+            uptime_secs: handle.started.elapsed().as_secs(),
+            port,
+        },
+        None => ServiceStatus {
+            name: "engine".into(),
+            pid: None,
+            running: false,
+            uptime_secs: 0,
+            port,
+        },
+    }
 }
 
 fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> ServiceStatus {
@@ -195,8 +243,13 @@ fn export_logs(
     entries: Vec<LogEntry>,
 ) -> Result<String, String> {
     let download_dir = app.path().download_dir().ok();
-    let path = export_log_entries(download_dir.as_deref(), &state.log_dir, &entries)
-        .map_err(|error| format!("failed to export logs: {error}"))?;
+    let path = export_log_entries(
+        download_dir.as_deref(),
+        &state.log_dir,
+        &entries,
+        state.developer_mode.load(Ordering::Acquire),
+    )
+    .map_err(|error| format!("failed to export logs: {error}"))?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -236,6 +289,264 @@ fn write_client_log(
         Level::parse(&level).ok_or_else(|| format!("invalid client log level: {level}"))?;
     state.logs.push_event(Source::Frontend, parsed, &message);
     Ok(())
+}
+
+#[tauri::command]
+fn get_developer_mode(state: State<ServiceState>) -> bool {
+    state.developer_mode.load(Ordering::Acquire)
+}
+
+#[tauri::command]
+async fn set_developer_mode(
+    app: tauri::AppHandle,
+    state: State<'_, ServiceState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    let previous = state.developer_mode.swap(enabled, Ordering::AcqRel);
+    if previous == enabled {
+        return Ok(enabled);
+    }
+    state.logs.set_preserve_diagnostics(enabled);
+
+    if enabled {
+        tracing::warn!(
+            "developer diagnostics enabled; communication bodies may contain sensitive data"
+        );
+    } else {
+        tracing::info!("developer diagnostics disabled");
+    }
+
+    restart_gateway_process(&app, &state).await?;
+    Ok(enabled)
+}
+
+#[tauri::command]
+async fn restart_gateway(
+    app: tauri::AppHandle,
+    state: State<'_, ServiceState>,
+) -> Result<ServiceStatus, String> {
+    require_developer_mode(&state)?;
+    restart_gateway_process(&app, &state).await?;
+    Ok(status_of(&state.gateway, "gateway", state.gateway_port))
+}
+
+#[tauri::command]
+async fn restart_engine(state: State<'_, ServiceState>) -> Result<ServiceStatus, String> {
+    require_developer_mode(&state)?;
+
+    let previous = state.engine.lock().unwrap().take();
+    if let Some(handle) = previous {
+        let EngineHandle {
+            shutdown, mut task, ..
+        } = handle;
+        let _ = shutdown.send(());
+        if tokio::time::timeout(Duration::from_secs(5), &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+            tracing::warn!("forced in-process Engine task to stop during restart");
+        }
+    }
+
+    let handle = start_engine(
+        &state.runtime_paths,
+        state.log_control.clone(),
+        state.engine_port,
+        state.logs.clone(),
+        state.internal_auth_token.clone(),
+    )?;
+    state.engine.lock().unwrap().replace(handle);
+    tracing::info!("Engine restart completed");
+    Ok(engine_status(&state.engine, state.engine_port))
+}
+
+#[tauri::command]
+fn get_database_overview(state: State<ServiceState>) -> Result<DatabaseOverview, String> {
+    require_developer_mode(&state)?;
+    let connection = open_developer_database(&state.runtime_paths.database)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT name FROM sqlite_schema \
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .map_err(|error| format!("failed to inspect database tables: {error}"))?;
+    let names = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("failed to list database tables: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to decode database table: {error}"))?;
+
+    let mut tables = Vec::with_capacity(names.len());
+    for name in names {
+        let columns = database_columns(&connection, &name)?;
+        let sql = format!("SELECT COUNT(*) FROM {}", quoted_identifier(&name));
+        let row_count = connection
+            .query_row(&sql, [], |row| row.get::<_, i64>(0))
+            .map_err(|error| format!("failed to count table {name}: {error}"))?
+            .max(0) as u64;
+        tables.push(DatabaseTable {
+            name,
+            columns,
+            row_count,
+        });
+    }
+
+    state.logs.push_event(
+        Source::Desktop,
+        Level::Info,
+        &format!("[database/read] listed {} tables", tables.len()),
+    );
+    Ok(DatabaseOverview {
+        path: state.runtime_paths.database.to_string_lossy().into_owned(),
+        tables,
+    })
+}
+
+#[tauri::command]
+fn get_database_rows(
+    state: State<ServiceState>,
+    table: String,
+    limit: u32,
+    offset: u64,
+) -> Result<DatabasePage, String> {
+    require_developer_mode(&state)?;
+    let connection = open_developer_database(&state.runtime_paths.database)?;
+    let exists = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",
+            [&table],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("failed to validate database table: {error}"))?;
+    if !exists {
+        return Err(format!("unknown database table: {table}"));
+    }
+
+    let columns = database_columns(&connection, &table)?;
+    let quoted = quoted_identifier(&table);
+    let total_rows = connection
+        .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|error| format!("failed to count table {table}: {error}"))?
+        .max(0) as u64;
+    let limit = limit.clamp(1, 200);
+    let mut statement = connection
+        .prepare(&format!("SELECT * FROM {quoted} LIMIT ?1 OFFSET ?2"))
+        .map_err(|error| format!("failed to read table {table}: {error}"))?;
+    let mut query = statement
+        .query((limit, offset))
+        .map_err(|error| format!("failed to query table {table}: {error}"))?;
+    let mut rows = Vec::new();
+    while let Some(row) = query
+        .next()
+        .map_err(|error| format!("failed to iterate table {table}: {error}"))?
+    {
+        let mut cells = Vec::with_capacity(columns.len());
+        for index in 0..columns.len() {
+            let value = row
+                .get_ref(index)
+                .map_err(|error| format!("failed to read {table} column {index}: {error}"))?;
+            cells.push(database_value(value));
+        }
+        rows.push(cells);
+    }
+
+    state.logs.push_event(
+        Source::Desktop,
+        Level::Info,
+        &format!(
+            "[database/read] table={} offset={} rows={}",
+            table,
+            offset,
+            rows.len()
+        ),
+    );
+    Ok(DatabasePage {
+        table,
+        columns,
+        rows,
+        total_rows,
+        limit,
+        offset,
+    })
+}
+
+fn require_developer_mode(state: &ServiceState) -> Result<(), String> {
+    state
+        .developer_mode
+        .load(Ordering::Acquire)
+        .then_some(())
+        .ok_or_else(|| "developer mode is not enabled".to_string())
+}
+
+async fn restart_gateway_process(
+    app: &tauri::AppHandle,
+    state: &ServiceState,
+) -> Result<(), String> {
+    if let Some(handle) = state.gateway.lock().unwrap().take() {
+        handle
+            .child
+            .kill()
+            .map_err(|error| format!("failed to stop Gateway: {error}"))?;
+    }
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let handle = spawn_gateway(
+        app,
+        &state.logs,
+        state.engine_port,
+        state.gateway_port,
+        &state.internal_auth_token,
+        state.developer_mode.load(Ordering::Acquire),
+    )
+    .ok_or_else(|| "failed to start Gateway; inspect desktop logs".to_string())?;
+    state.gateway.lock().unwrap().replace(handle);
+    Ok(())
+}
+
+fn open_developer_database(path: &std::path::Path) -> Result<Connection, String> {
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| format!("failed to open database read-only: {error}"))
+}
+
+fn database_columns(connection: &Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({})", quoted_identifier(table)))
+        .map_err(|error| format!("failed to inspect table {table}: {error}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("failed to list columns for {table}: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to decode columns for {table}: {error}"))?;
+    Ok(columns)
+}
+
+fn quoted_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn database_value(value: ValueRef<'_>) -> Option<String> {
+    match value {
+        ValueRef::Null => None,
+        ValueRef::Integer(value) => Some(value.to_string()),
+        ValueRef::Real(value) => Some(value.to_string()),
+        ValueRef::Text(value) => Some(String::from_utf8_lossy(value).into_owned()),
+        ValueRef::Blob(value) => {
+            const PREVIEW_BYTES: usize = 256;
+            let mut encoded = String::with_capacity(value.len().min(PREVIEW_BYTES) * 2 + 32);
+            for byte in value.iter().take(PREVIEW_BYTES) {
+                write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            if value.len() > PREVIEW_BYTES {
+                write!(&mut encoded, "… ({} bytes)", value.len())
+                    .expect("writing to a String cannot fail");
+            }
+            Some(encoded)
+        }
+    }
 }
 
 /// Open the webview's native DevTools (inspector). Available in release builds
@@ -278,6 +589,12 @@ fn main() {
             get_file_log_level,
             set_file_log_level,
             write_client_log,
+            get_developer_mode,
+            set_developer_mode,
+            restart_gateway,
+            restart_engine,
+            get_database_overview,
+            get_database_rows,
             open_devtools,
             use_custom_titlebar,
         ])
@@ -336,28 +653,42 @@ fn main() {
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 
             app.manage(ServiceState {
-                engine_started: Instant::now(),
+                engine: Mutex::new(None),
                 gateway: Mutex::new(None),
                 logs: logs.clone(),
                 log_dir: runtime_paths.logs.clone(),
                 engine_port,
                 gateway_port,
                 internal_auth_token: internal_auth_token.clone(),
+                runtime_paths: runtime_paths.clone(),
+                log_control: log_control.clone(),
+                developer_mode: AtomicBool::new(false),
             });
 
             // ---- Start engine in-process ----
-            start_engine(
+            let engine = start_engine(
                 &runtime_paths,
                 log_control,
                 engine_port,
                 logs.clone(),
                 internal_auth_token.clone(),
-            );
+            )
+            .map_err(std::io::Error::other)?;
+            app.state::<ServiceState>()
+                .engine
+                .lock()
+                .unwrap()
+                .replace(engine);
 
             // ---- Spawn gateway (still a sidecar) ----
-            if let Some(handle) =
-                spawn_gateway(app, &logs, engine_port, gateway_port, &internal_auth_token)
-            {
+            if let Some(handle) = spawn_gateway(
+                app.handle(),
+                &logs,
+                engine_port,
+                gateway_port,
+                &internal_auth_token,
+                false,
+            ) {
                 app.state::<ServiceState>()
                     .gateway
                     .lock()
@@ -379,6 +710,9 @@ fn main() {
                 };
                 if let Some(h) = gateway {
                     let _ = h.child.kill();
+                }
+                if let Some(engine) = window.state::<ServiceState>().engine.lock().unwrap().take() {
+                    let _ = engine.shutdown.send(());
                 }
             }
         })
@@ -426,17 +760,13 @@ fn start_engine(
     port: u16,
     logs: Arc<LogBuffer>,
     internal_auth_token: Arc<str>,
-) {
-    let db = match Database::open_and_return(&runtime_paths.database) {
-        Ok(db) => db,
-        Err(e) => {
-            tracing::error!(
-                "failed to open engine database at {:?}: {e}",
-                runtime_paths.database
-            );
-            return;
-        }
-    };
+) -> Result<EngineHandle, String> {
+    let db = Database::open_and_return(&runtime_paths.database).map_err(|error| {
+        format!(
+            "failed to open engine database at {:?}: {error}",
+            runtime_paths.database
+        )
+    })?;
 
     if let Ok(Some(entry)) = db.get_config("log_level") {
         if let Ok(level) = serde_json::from_str::<String>(&entry.value_json) {
@@ -468,35 +798,50 @@ fn start_engine(
     let bind_addr = format!("127.0.0.1:{port}");
     tracing::info!("Engine starting in-process on http://{bind_addr}");
 
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = encorehub_engine::serve(
+    let (shutdown, shutdown_rx) = oneshot::channel();
+    let running = Arc::new(AtomicBool::new(true));
+    let task_running = running.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        if let Err(e) = encorehub_engine::serve_with_shutdown(
             db,
             skill_registry,
             Some(log_control),
             bind_addr,
             internal_auth_token.to_string(),
+            async move {
+                let _ = shutdown_rx.await;
+            },
         )
         .await
         {
             tracing::error!("engine serve exited: {e}");
         }
+        task_running.store(false, Ordering::Release);
     });
+    Ok(EngineHandle {
+        shutdown,
+        task,
+        started: Instant::now(),
+        running,
+    })
 }
 
 /// Resolve and spawn the bundled Gateway through Tauri's platform-aware
 /// sidecar API, then forward its event stream into the shared log buffer.
 fn spawn_gateway(
-    app: &tauri::App,
+    app: &tauri::AppHandle,
     logs: &Arc<LogBuffer>,
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
+    developer_mode: bool,
 ) -> Option<ServiceHandle> {
     let command = match app.shell().sidecar("encorehub-gateway") {
         Ok(command) => command.envs(gateway_environment(
             engine_port,
             gateway_port,
             internal_auth_token,
+            developer_mode,
         )),
         Err(error) => {
             tracing::error!("failed to resolve Gateway sidecar: {error}");
@@ -580,7 +925,8 @@ fn gateway_environment(
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
-) -> [(String, String); 4] {
+    developer_mode: bool,
+) -> [(String, String); 5] {
     [
         (
             "ENGINE_URL".into(),
@@ -589,6 +935,10 @@ fn gateway_environment(
         ("LISTEN_ADDR".into(), format!("127.0.0.1:{gateway_port}")),
         ("GIN_MODE".into(), "release".into()),
         (ENGINE_AUTH_TOKEN_ENV.into(), internal_auth_token.into()),
+        (
+            "ENCOREHUB_DEVELOPER_MODE".into(),
+            if developer_mode { "1" } else { "0" }.into(),
+        ),
     ]
 }
 
@@ -628,7 +978,7 @@ mod tests {
     #[test]
     fn gateway_command_receives_internal_token_without_frontend_exposure() {
         const TOKEN: &str = "wf02-desktop-token-canary";
-        let env: HashMap<_, _> = gateway_environment(10000, 10001, TOKEN)
+        let env: HashMap<_, _> = gateway_environment(10000, 10001, TOKEN, true)
             .into_iter()
             .collect();
         assert_eq!(
@@ -643,6 +993,10 @@ mod tests {
         assert_eq!(
             env.get("LISTEN_ADDR").map(String::as_str),
             Some("127.0.0.1:10001")
+        );
+        assert_eq!(
+            env.get("ENCOREHUB_DEVELOPER_MODE").map(String::as_str),
+            Some("1")
         );
 
         let ports = serde_json::to_string(&ServicePorts {
@@ -671,5 +1025,36 @@ mod tests {
         assert!(std::fs::read_to_string(file)
             .unwrap()
             .contains("app-data log initialized"));
+    }
+
+    #[test]
+    fn developer_database_connection_is_read_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("developer.db");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute("INSERT INTO sample (value) VALUES ('visible')", [])
+            .unwrap();
+        drop(connection);
+
+        let read_only = open_developer_database(&path).unwrap();
+        let value: String = read_only
+            .query_row("SELECT value FROM sample", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, "visible");
+        assert!(read_only
+            .execute("INSERT INTO sample (value) VALUES ('blocked')", [])
+            .is_err());
+    }
+
+    #[test]
+    fn database_identifiers_are_quoted_without_becoming_sql() {
+        assert_eq!(quoted_identifier("odd\"table"), "\"odd\"\"table\"");
     }
 }

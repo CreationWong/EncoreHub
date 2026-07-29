@@ -1,7 +1,7 @@
 import type { StreamToolCall } from "../services/chat";
 import type { Conversation, Message } from "../services/conversation";
 import type { ProviderProfile } from "../services/providers";
-import type { Theme } from "../stores/settingsStore";
+import type { SettingsTab, Theme } from "../stores/settingsStore";
 
 export const CLIENT_UI_BASELINE_VIEWPORTS = [
 	{ id: "wide", width: 1600, height: 1120 },
@@ -534,7 +534,19 @@ export interface ClientUiBaselineOptions {
 	scenarioId: ClientUiScenarioId;
 	theme: (typeof CLIENT_UI_BASELINE_THEMES)[number];
 	sidebar: "characters" | "conversations" | "closed";
+	settingsTab: SettingsTab | null;
 }
+
+const CLIENT_UI_SETTINGS_TABS: readonly SettingsTab[] = [
+	"providers",
+	"skills",
+	"knowledge",
+	"memories",
+	"appearance",
+	"security",
+	"about",
+	"developer",
+];
 
 export function isClientUiScenarioId(
 	value: string | null,
@@ -549,6 +561,7 @@ export function parseClientUiBaselineOptions(
 	const requestedScenario = params.get("scenario");
 	const requestedTheme = params.get("theme");
 	const requestedSidebar = params.get("sidebar");
+	const requestedSettingsTab = params.get("settings");
 
 	return {
 		scenarioId: isClientUiScenarioId(requestedScenario)
@@ -559,6 +572,11 @@ export function parseClientUiBaselineOptions(
 			requestedSidebar === "characters" || requestedSidebar === "closed"
 				? requestedSidebar
 				: "conversations",
+		settingsTab: CLIENT_UI_SETTINGS_TABS.includes(
+			requestedSettingsTab as SettingsTab,
+		)
+			? (requestedSettingsTab as SettingsTab)
+			: null,
 	};
 }
 

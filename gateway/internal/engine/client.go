@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/encorehub/gateway/internal/diagnostics"
 )
 
 // AuthTokenEnv is the shared secret used only for Gateway -> Engine calls.
@@ -129,9 +131,7 @@ func NewClient(baseURL, internalAuthToken string) *Client {
 	return &Client{
 		baseURL:           baseURL,
 		internalAuthToken: strings.TrimSpace(internalAuthToken),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		httpClient:        diagnostics.NewHTTPClient(30 * time.Second),
 	}
 }
 

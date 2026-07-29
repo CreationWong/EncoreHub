@@ -6,11 +6,14 @@
 //! a closure stored in [`LogControl`]. The `/api/config/log_level` handler calls
 //! [`LogControl::set`] to apply a new level immediately.
 
+use std::sync::Arc;
+
 /// The setter closure behind [`LogControl`]: applies a level string, returning
 /// an error message on invalid input or reload failure.
-type SetFn = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+type SetFn = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 /// Type-erased control over the running subscriber's level filter.
+#[derive(Clone)]
 pub struct LogControl {
     set: SetFn,
 }
@@ -20,7 +23,7 @@ impl LogControl {
     where
         F: Fn(&str) -> Result<(), String> + Send + Sync + 'static,
     {
-        Self { set: Box::new(set) }
+        Self { set: Arc::new(set) }
     }
 
     /// Apply a new level (e.g. "info", "debug"). Invalid input is rejected.

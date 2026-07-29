@@ -17,6 +17,9 @@ const getLogLevel = vi.fn();
 const setLogLevel = vi.fn();
 const getFileLogLevel = vi.fn();
 const setFileLogLevel = vi.fn();
+const restartService = vi.fn();
+const databaseOverview = vi.fn();
+const databaseRows = vi.fn();
 const inTauri = vi.fn();
 const confirmAsk = vi.fn();
 
@@ -33,6 +36,10 @@ vi.mock("../../services/devtools", () => ({
 		setLogLevel: (level: string) => setLogLevel(level),
 		getFileLogLevel: () => getFileLogLevel(),
 		setFileLogLevel: (level: string) => setFileLogLevel(level),
+		restartService: (service: string) => restartService(service),
+		databaseOverview: () => databaseOverview(),
+		databaseRows: (table: string, limit: number, offset: number) =>
+			databaseRows(table, limit, offset),
 	},
 }));
 
@@ -72,6 +79,19 @@ beforeEach(() => {
 	setFileLogLevel
 		.mockReset()
 		.mockImplementation(async (level: string) => level);
+	restartService.mockReset().mockResolvedValue(statusFixture[1]);
+	databaseOverview.mockReset().mockResolvedValue({
+		path: "C:\\Users\\test\\EncoreHub\\data\\encorehub.db",
+		tables: [{ name: "conversations", columns: ["id", "title"], row_count: 1 }],
+	});
+	databaseRows.mockReset().mockResolvedValue({
+		table: "conversations",
+		columns: ["id", "title"],
+		rows: [["conv-1", "Test conversation"]],
+		total_rows: 1,
+		limit: 100,
+		offset: 0,
+	});
 	confirmAsk.mockReset().mockResolvedValue(true);
 	useToastStore.setState({ toasts: [] });
 });
@@ -222,5 +242,27 @@ describe("DeveloperPanel", () => {
 
 		await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
 		expect(setFileLogLevel).not.toHaveBeenCalled();
+	});
+
+	it("restarts the selected local service after confirmation", async () => {
+		render(<DeveloperPanel />);
+		await waitFor(() => expect(status).toHaveBeenCalled());
+
+		fireEvent.click(screen.getByRole("button", { name: "Restart gateway" }));
+
+		await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+		await waitFor(() => expect(restartService).toHaveBeenCalledWith("gateway"));
+	});
+
+	it("opens a read-only paginated database browser", async () => {
+		render(<DeveloperPanel />);
+		fireEvent.click(screen.getByRole("tab", { name: "Database" }));
+
+		await waitFor(() => expect(databaseOverview).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(databaseRows).toHaveBeenCalledWith("conversations", 100, 0),
+		);
+		expect(screen.getByText("Test conversation")).toBeDefined();
+		expect(screen.getByText(/encorehub\.db/)).toBeDefined();
 	});
 });

@@ -7,7 +7,7 @@ import Sidebar from "./components/sidebar/Sidebar";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
 import { applyServicePorts, gatewayReadinessUrl } from "./services/config";
-import { inTauri } from "./services/devtools";
+import { devtools, inTauri } from "./services/devtools";
 import { useConversationStore } from "./stores/conversationStore";
 import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
@@ -27,12 +27,20 @@ export default function App() {
 	const loadKeys = useSettingsStore((s) => s.loadKeys);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const settingsOpen = useSettingsStore((s) => s.settingsOpen);
+	const devMode = useSettingsStore((s) => s.devMode);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
 		gateway: false,
 	});
 	const [checking, setChecking] = useState(true);
 	const [portsReady, setPortsReady] = useState(() => !inTauri());
+
+	useEffect(() => {
+		if (!inTauri()) return;
+		void devtools.setDeveloperMode(devMode).catch((error) => {
+			console.error("Failed to synchronize developer diagnostics", error);
+		});
+	}, [devMode]);
 
 	// Cmd/Ctrl + , opens Settings — convention from VS Code / Chrome.
 	useEffect(() => {
