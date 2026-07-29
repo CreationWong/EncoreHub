@@ -17,7 +17,7 @@ export default function UserBubble({ message }: { message: Message }) {
 	return (
 		<article
 			aria-label="User message"
-			className="group flex justify-end px-4 py-3"
+			className="app-message app-message-user group flex justify-end px-4 py-3"
 		>
 			<div className="flex max-w-[72%] min-w-0 items-end gap-1.5">
 				<div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

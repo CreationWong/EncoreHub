@@ -11,6 +11,28 @@ const newConversation = vi.fn();
 const setTheme = vi.fn();
 const openSettings = vi.fn();
 const closeSettings = vi.fn();
+const titlebarMocks = vi.hoisted(() => ({
+	platform: "web" as "web" | "windows",
+	toggleMaximize: vi.fn(),
+}));
+
+vi.mock("../../services/runtimePlatform", () => ({
+	getRuntimePlatform: () => titlebarMocks.platform,
+}));
+
+vi.mock("../../hooks/useCustomTitlebar", () => ({
+	useCustomTitlebar: () => titlebarMocks.platform === "windows",
+}));
+
+vi.mock("../../services/windowControls", () => ({
+	toggleCurrentWindowMaximize: (...args: unknown[]) =>
+		titlebarMocks.toggleMaximize(...args),
+}));
+
+vi.mock("./WindowControls", () => ({
+	default: ({ enabled }: { enabled: boolean }) =>
+		enabled ? <fieldset aria-label="Window controls" /> : null,
+}));
 
 vi.mock("../../stores/conversationStore", () => ({
 	useConversationStore: (
@@ -44,6 +66,8 @@ describe("GlobalNav", () => {
 		setTheme.mockReset();
 		openSettings.mockReset();
 		closeSettings.mockReset();
+		titlebarMocks.platform = "web";
+		titlebarMocks.toggleMaximize.mockReset().mockResolvedValue(undefined);
 	});
 
 	afterEach(cleanup);
@@ -66,6 +90,28 @@ describe("GlobalNav", () => {
 		).toBeDefined();
 		expect(screen.getByRole("button", { name: "Settings" })).toBeDefined();
 		expect(screen.queryByRole("button", { name: "Characters" })).toBeNull();
+		expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
+	});
+
+	it("marks only Windows titlebar whitespace as draggable", () => {
+		titlebarMocks.platform = "windows";
+		render(<GlobalNav />);
+
+		const header = screen.getByRole("banner");
+		const dragRegion = screen.getByTestId("titlebar-drag-region");
+		expect(header.hasAttribute("data-tauri-drag-region")).toBe(true);
+		expect(dragRegion.hasAttribute("data-tauri-drag-region")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Home" })
+				.hasAttribute("data-tauri-drag-region"),
+		).toBe(false);
+		expect(
+			screen.getByRole("group", { name: "Window controls" }),
+		).toBeDefined();
+
+		fireEvent.doubleClick(dragRegion);
+		expect(titlebarMocks.toggleMaximize).toHaveBeenCalledTimes(1);
 	});
 
 	it("routes home, new conversation, and settings to the existing stores", () => {

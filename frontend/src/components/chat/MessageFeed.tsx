@@ -186,7 +186,7 @@ export default function MessageFeed() {
 				ref={scrollerRef}
 				data-testid="message-feed-scroller"
 				onScroll={handleScroll}
-				className="h-full overflow-y-auto overscroll-contain"
+				className="app-message-feed-scroller h-full overflow-y-auto overscroll-contain"
 			>
 				<div className="mx-auto w-full max-w-[1080px]">
 					{messages.length === 0 && !streaming && (

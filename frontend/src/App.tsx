@@ -177,7 +177,7 @@ export default function App() {
 	return (
 		<div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-canvas text-text-primary">
 			<GlobalNav />
-			<div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
+			<div className="app-shell-body relative flex min-h-0 flex-1 gap-2 px-2 pb-2">
 				<Sidebar />
 				<main className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace">
 					<ChatView />

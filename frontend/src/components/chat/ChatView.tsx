@@ -35,7 +35,7 @@ function LoadingComposer() {
 	return (
 		<div
 			aria-hidden="true"
-			className="h-[77px] shrink-0 border-t border-border p-4"
+			className="chat-composer-loading h-[77px] shrink-0 border-t border-border p-4"
 		>
 			<div className="mx-auto h-11 max-w-3xl rounded-lg bg-control" />
 		</div>

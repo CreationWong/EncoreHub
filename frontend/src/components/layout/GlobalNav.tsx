@@ -9,8 +9,12 @@ import {
 	Sun,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useCustomTitlebar } from "../../hooks/useCustomTitlebar";
+import { toggleCurrentWindowMaximize } from "../../services/windowControls";
 import { useConversationStore } from "../../stores/conversationStore";
 import { type Theme, useSettingsStore } from "../../stores/settingsStore";
+import { toast } from "../../stores/toastStore";
+import WindowControls from "./WindowControls";
 
 const THEME_OPTIONS: {
 	value: Theme;
@@ -41,6 +45,13 @@ export default function GlobalNav() {
 	const appearanceButtonRef = useRef<HTMLButtonElement>(null);
 	const themeOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const ThemeIcon = currentThemeIcon(theme);
+	const windowsTitleBar = useCustomTitlebar();
+	const toggleTitlebarMaximize = () => {
+		if (!windowsTitleBar) return;
+		void toggleCurrentWindowMaximize().catch(() => {
+			toast.error("Unable to maximize or restore the application window.");
+		});
+	};
 	const switchAppearance = () => {
 		setAppearanceOpen(false);
 		setTheme(
@@ -75,7 +86,15 @@ export default function GlobalNav() {
 	}, [appearanceOpen]);
 
 	return (
-		<header className="flex h-16 shrink-0 items-center justify-between bg-app-canvas px-3">
+		<header
+			data-tauri-drag-region={windowsTitleBar ? "" : undefined}
+			onDoubleClick={(event) => {
+				if (event.target === event.currentTarget) toggleTitlebarMaximize();
+			}}
+			className={`flex h-16 shrink-0 items-center gap-2 bg-app-canvas pl-3 ${
+				windowsTitleBar ? "pr-0" : "pr-3"
+			}`}
+		>
 			<nav
 				aria-label="Global navigation"
 				className="flex min-w-0 items-center gap-1"
@@ -87,7 +106,7 @@ export default function GlobalNav() {
 					className="flex h-9 items-center gap-2 rounded-md border border-border bg-selected px-3 text-sm font-medium text-text-primary"
 				>
 					<Home className="h-4 w-4" />
-					<span>Home</span>
+					<span className="max-[679px]:hidden">Home</span>
 				</button>
 				<button
 					type="button"
@@ -100,7 +119,15 @@ export default function GlobalNav() {
 				</button>
 			</nav>
 
-			<div className="flex items-center gap-1">
+			<div
+				data-testid="titlebar-drag-region"
+				data-tauri-drag-region={windowsTitleBar ? "" : undefined}
+				onDoubleClick={toggleTitlebarMaximize}
+				aria-hidden="true"
+				className="h-full min-w-3 flex-1"
+			/>
+
+			<div className="flex h-full shrink-0 items-center gap-1">
 				<div ref={appearanceRef} className="relative">
 					<fieldset className="m-0 flex border-0 p-0">
 						<legend className="sr-only">Appearance controls</legend>
@@ -198,6 +225,7 @@ export default function GlobalNav() {
 				>
 					<Settings className="h-4 w-4" />
 				</button>
+				<WindowControls enabled={windowsTitleBar} />
 			</div>
 		</header>
 	);

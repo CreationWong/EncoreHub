@@ -19,7 +19,7 @@ function SystemMessage({ message }: { message: Message }) {
 	return (
 		<article
 			aria-label="System message"
-			className="flex gap-3 px-4 py-3 text-text-muted"
+			className="app-message app-message-system flex gap-3 px-4 py-3 text-text-muted"
 		>
 			<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 			<MarkdownRenderer
@@ -37,7 +37,7 @@ function ToolMessage({ message }: { message: Message }) {
 	return (
 		<article
 			aria-label="Tool message"
-			className="flex gap-3 px-4 py-3 text-text-muted"
+			className="app-message app-message-tool flex gap-3 px-4 py-3 text-text-muted"
 		>
 			<Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 			<div className="min-w-0 flex-1">
@@ -63,7 +63,10 @@ export default function MessageBubble({
 	if (message.role === "tool") return <ToolMessage message={message} />;
 
 	return (
-		<article aria-label="Assistant message" className="px-4 py-5">
+		<article
+			aria-label="Assistant message"
+			className="app-message app-message-assistant px-4 py-5"
+		>
 			<AssistantIdentity />
 			{message.reasoning && (
 				<ReasoningSection

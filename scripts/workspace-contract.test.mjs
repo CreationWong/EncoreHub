@@ -189,6 +189,33 @@ test("Desktop launches the Gateway through Tauri's sidecar resolver", async () =
 	assert.doesNotMatch(main, /fn find_binary|std::process::Command/);
 });
 
+test("Windows custom titlebar is platform scoped and has a native rollback", async () => {
+	const [baseText, windowsText, capabilityText, main] = await Promise.all([
+		read("frontend/src-tauri/tauri.conf.json"),
+		read("frontend/src-tauri/tauri.windows.conf.json"),
+		read("frontend/src-tauri/capabilities/windows-titlebar.json"),
+		read("frontend/src-tauri/src/main.rs"),
+	]);
+	const base = JSON.parse(baseText);
+	const windows = JSON.parse(windowsText);
+	const capability = JSON.parse(capabilityText);
+
+	assert.equal(base.app.windows[0].decorations, true);
+	assert.equal(windows.app.windows[0].decorations, false);
+	assert.deepEqual(capability.platforms, ["windows"]);
+	for (const permission of [
+		"core:window:allow-minimize",
+		"core:window:allow-toggle-maximize",
+		"core:window:allow-close",
+		"core:window:allow-start-dragging",
+	]) {
+		assert.ok(capability.permissions.includes(permission));
+	}
+	assert.match(main, /ENCOREHUB_NATIVE_TITLEBAR/);
+	assert.match(main, /set_decorations\(true\)/);
+	assert.match(main, /fn use_custom_titlebar\(\) -> bool/);
+});
+
 test("Unix desktop build uses argument arrays and target-triple sidecars", async () => {
 	const script = await read("scripts/build.sh");
 	assert.match(script, /TAURI_ARGS=\([^\n]*tauri[^\n]*(build|dev)/);

@@ -30,6 +30,35 @@ const CLIENT_PORT_START: u16 = 10000;
 
 const FILE_LOG_LEVEL_CONFIG_KEY: &str = "file_log_level";
 
+#[cfg(any(target_os = "windows", test))]
+const NATIVE_TITLEBAR_ROLLBACK_ENV: &str = "ENCOREHUB_NATIVE_TITLEBAR";
+
+#[cfg(any(target_os = "windows", test))]
+fn native_titlebar_rollback_value(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        )
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn native_titlebar_rollback_requested() -> bool {
+    native_titlebar_rollback_value(std::env::var(NATIVE_TITLEBAR_ROLLBACK_ENV).ok().as_deref())
+}
+
+#[tauri::command]
+fn use_custom_titlebar() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        !native_titlebar_rollback_requested()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
 /// A spawned sidecar plus the metadata the developer panel reports.
 struct ServiceHandle {
     child: CommandChild,
@@ -248,6 +277,7 @@ fn main() {
             set_file_log_level,
             write_client_log,
             open_devtools,
+            use_custom_titlebar,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -266,6 +296,18 @@ fn main() {
                 RuntimePaths::prepare(&app_data_dir, &resource_dir, executable_dir.as_deref())?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
             let log_control = install_logging(logs.clone());
+
+            #[cfg(target_os = "windows")]
+            if native_titlebar_rollback_requested() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_decorations(true)?;
+                    tracing::warn!(
+                        environment = NATIVE_TITLEBAR_ROLLBACK_ENV,
+                        "native Windows titlebar rollback enabled"
+                    );
+                }
+            }
+
             let internal_auth_token: Arc<str> = generate_internal_auth_token().into();
             let (engine_port, gateway_port) = negotiate_ports();
 
@@ -569,6 +611,16 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn native_titlebar_rollback_requires_an_explicit_truthy_value() {
+        for enabled in ["1", "true", "TRUE", "yes"] {
+            assert!(native_titlebar_rollback_value(Some(enabled)));
+        }
+        for disabled in [None, Some(""), Some("0"), Some("false")] {
+            assert!(!native_titlebar_rollback_value(disabled));
+        }
     }
 
     #[test]

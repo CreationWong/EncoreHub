@@ -107,7 +107,7 @@ flowchart LR
 | CUI-06 | Gateway + Frontend settings | UG2 | ProviderDetail、多端点/多 Key 路由、模型元数据、draft 保存与自动发现 | `Done`（本地自动化与视觉验收） |
 | CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Done`（本地自动化与视觉验收） |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Done`（本地自动化与兼容性验收） |
-| CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Not started` |
+| CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Done`（本地自动化、视觉与 Windows debug smoke） |
 | CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Not started` |
 | CUI-11 | Frontend character UI | CUI-10 | 角色创建、编辑、复制、删除与对话版本升级 | `Not started` |
 | CUI-12 | Engine/domain adapter + Frontend | CUI-11 | JSON/PNG 角色卡导入导出、预览、冲突处理 | `Not started` |
@@ -380,7 +380,7 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05 至 CUI-08 与 UG2、UG3 已完成；下一项为 CUI-09 响应式布局和 Windows 自定义标题栏。
+CUI-05 至 CUI-09 与 UG2、UG3 已完成；当前下一项为 CUI-10 CharacterProfile 领域链路。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
@@ -521,11 +521,11 @@ CUI-05 至 CUI-08 与 UG2、UG3 已完成；下一项为 CUI-09 响应式布局�
 - Gateway 可执行文件和 Tauri sidecar 在 Windows、macOS、Linux 统一命名为 `encorehub-gateway[.exe]`，目标 sidecar 保持 Tauri 的 `<name>-<target>[.exe]` 解析约定。
 - 验证通过：Frontend 36 files / 265 tests、Gateway 全量 tests + vet、Engine workspace 与 standalone tests + clippy、Tauri 22 tests + clippy、17 项 workspace/docs contracts；Frontend 初始 JavaScript gzip 为 121.93 KiB，低于 300 KiB 预算。
 
-CUI-08 已完成；当前下一项为 CUI-09 响应式布局和 Windows 自定义标题栏。
+CUI-08 与后续 CUI-09 已完成；当前下一项为 CUI-10 CharacterProfile 领域链路。
 
 ## 6. 桌面迭代 C：响应式与标题栏
 
-### CUI-09 完成响应式布局和 Windows 自定义标题栏
+### CUI-09 完成响应式布局和 Windows 自定义标题栏（Done）
 
 **目标**：在不破坏 macOS/Linux 原生窗口行为的前提下完成参考图顶部窗口结构。
 
@@ -538,13 +538,13 @@ CUI-08 已完成；当前下一项为 CUI-09 响应式布局和 Windows 自定�
 
 **任务**
 
-- [ ] `900-1199px` 收窄侧栏与上下文次要文字；`680-899px` 使用覆盖抽屉。
-- [ ] 高度低于 620px 时启用 104px composer 和更紧凑消息间距。
-- [ ] 抽屉支持遮罩、Escape、滚动锁定和关闭后的焦点返回。
-- [ ] 使用 `data-tauri-drag-region` 标记空白区，并明确排除所有交互控件。
-- [ ] 接入最小化、最大化/还原、关闭和空白区双击行为；Web 模式隐藏窗口按钮。
-- [ ] 使用 Windows 平台配置或运行时分支控制 decorations，不使用影响三平台的单一全局开关。
-- [ ] 保留一个可快速恢复原生 decorations 的回滚路径。
+- [x] `900-1199px` 收窄侧栏与上下文次要文字；`680-899px` 使用覆盖抽屉。
+- [x] 高度低于 620px 时启用 104px composer 和更紧凑消息间距。
+- [x] 抽屉支持遮罩、Escape、滚动锁定和关闭后的焦点返回。
+- [x] 使用 `data-tauri-drag-region` 标记空白区，并明确排除所有交互控件。
+- [x] 接入最小化、最大化/还原、关闭和空白区双击行为；Web 模式隐藏窗口按钮。
+- [x] 使用 Windows 平台配置或运行时分支控制 decorations，不使用影响三平台的单一全局开关。
+- [x] 保留一个可快速恢复原生 decorations 的回滚路径。
 
 **实机矩阵**
 
@@ -560,6 +560,19 @@ CUI-08 已完成；当前下一项为 CUI-09 响应式布局和 Windows 自定�
 - 1600x1120、1200x800、900x700、680x480 的亮暗主题无重叠、裁切或不可达命令。
 - Windows 安装包实机窗口 smoke 通过后才允许关闭 decorations。
 - macOS/Linux 未完成安装 smoke 前不声明对应平台发布支持。
+
+**完成记录（2026-07-28）**
+
+- 响应式侧栏在 `>=1200px` 保留持久化宽度与拖拽调整，`900-1199px` 固定为 260px，`680-899px` 改为最大 320px 的覆盖抽屉；主工作区在抽屉状态保持全宽。
+- 抽屉提供遮罩、Escape、Tab 循环、背景滚动锁定和关闭后的焦点返回。Tab 与整高 resize handle 覆盖全局 focus ring，分别使用紧凑焦点背景和 32px 中心指示线，避免出现圆角蓝框或整高蓝线。
+- 高度低于 620px 时 composer 的计算高度固定为 104px，textarea 为 44px；消息间距收紧，Settings 变为无圆角全高布局。
+- 顶栏仅将空白区标记为 `data-tauri-drag-region`，交互控件不继承拖拽属性；Windows 接入最小化、最大化/还原、关闭及空白区双击，Web、macOS 和 Linux 不渲染重复窗口按钮。窗口按钮默认保持灰色，鼠标移入时在 20px 圆形图标区按最小化黄、最大化/还原绿、关闭红显示 macOS 红绿灯配色。
+- 基础 `tauri.conf.json` 继续使用原生 decorations；`tauri.windows.conf.json` 仅在 Windows 关闭 decorations，并通过平台 capability 限定窗口权限。设置 `ENCOREHUB_NATIVE_TITLEBAR=1` 会恢复原生标题栏，同时停用应用内拖拽区和窗口按钮。
+- Windows debug 构建与启动通过，实机确认无重复标题栏、双击最大化和还原可用；最小化、最大化/还原、关闭及 resize 状态同步由组件测试覆盖。macOS/Linux 仍保留原生 decorations，在各自安装 smoke 前不声明发布支持。
+- 亮暗主题的 `1600x1120`、`1200x800`、`900x700`、`680x480` 矩阵及 680px Settings/侧栏关闭状态均完成视觉验收；截图只写入临时目录，未加入 Git。
+- 验证通过：Frontend 40 个测试文件/298 项测试、TypeScript、受影响文件 Biome、production build 和 300 KiB bundle budget；Tauri 23 项测试、fmt、clippy 与 Windows debug build 通过，初始 JavaScript gzip 为 123.93 KiB。
+
+CUI-09 实现已完成；下一项为 CUI-10 CharacterProfile 领域链路。Windows 发布包及 macOS/Linux 安装 smoke 仍属于发布声明前置条件。
 
 ## 7. 角色迭代 D：角色与角色卡
 
@@ -780,7 +793,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批已按顺序完成 CUI-00 至 CUI-08。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B 的 ProviderDetail、密钥检测、模型发现和完整回复遥测也已完成。下一项 CUI-09 处理响应式布局和 Windows 自定义标题栏。
+第一批已按顺序完成 CUI-00 至 CUI-09。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B 的 ProviderDetail、密钥检测、模型发现和完整回复遥测，以及桌面迭代 C 的响应式布局和 Windows 自定义标题栏也已完成。下一项 CUI-10 建立 CharacterProfile 领域链路。
 
 建议首批提交顺序：
 
@@ -792,4 +805,4 @@ git status --short
 6. `refactor(frontend): layer chat messages and reply status`
 7. `fix(frontend): align conversation workspace details`
 
-UG1、UG2、UG3 已通过，CUI-06 至 CUI-08 已完成。当前下一项为 CUI-09；UG4 通过后再开始 CharacterProfile。
+UG1、UG2、UG3 已通过，CUI-06 至 CUI-09 已完成。当前下一项为 CUI-10 CharacterProfile；Windows 发布包及 macOS/Linux 安装 smoke 继续作为平台发布声明的前置条件。

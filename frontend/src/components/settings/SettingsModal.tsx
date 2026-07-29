@@ -57,7 +57,7 @@ export default function SettingsModal() {
 
 	return (
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+			className="settings-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
 			onClick={close}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") close();
@@ -66,7 +66,7 @@ export default function SettingsModal() {
 		>
 			<dialog
 				open
-				className="flex h-[780px] max-h-full w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-surface text-text-primary shadow-2xl"
+				className="settings-dialog flex h-[780px] max-h-full w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-surface text-text-primary shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 				aria-modal="true"

@@ -30,6 +30,8 @@ import SlashCommandMenu, { slashCommandOptionId } from "./SlashCommandMenu";
 const MAX_CHARS = 8000;
 const WARN_AT = Math.ceil(MAX_CHARS * 0.85);
 const MAX_TEXTAREA_HEIGHT = 220;
+const COMPACT_TEXTAREA_HEIGHT = 44;
+const LOW_HEIGHT_QUERY = "(max-height: 619px)";
 const SLASH_MENU_ID = "chat-slash-command-menu";
 const SEARCH_MENU_ID = "chat-search-menu";
 const NATIVE_WEB_SEARCH_MESSAGE =
@@ -47,12 +49,17 @@ function draftKey(id: string | null): string {
 
 function resizeTextarea(element: HTMLTextAreaElement | null) {
 	if (!element) return;
+	const maxHeight =
+		typeof window.matchMedia === "function" &&
+		window.matchMedia(LOW_HEIGHT_QUERY).matches
+			? COMPACT_TEXTAREA_HEIGHT
+			: MAX_TEXTAREA_HEIGHT;
 	element.style.height = "auto";
 	if (element.scrollHeight > 0) {
-		element.style.height = `${Math.min(element.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+		element.style.height = `${Math.min(element.scrollHeight, maxHeight)}px`;
 	}
 	element.style.overflowY =
-		element.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+		element.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
 function resetTextarea(element: HTMLTextAreaElement | null) {
@@ -191,6 +198,14 @@ export default function InputBox() {
 		document.addEventListener("mousedown", handlePointerDown);
 		return () => document.removeEventListener("mousedown", handlePointerDown);
 	}, [showSearchMenu]);
+
+	useEffect(() => {
+		if (typeof window.matchMedia !== "function") return;
+		const media = window.matchMedia(LOW_HEIGHT_QUERY);
+		const resize = () => resizeTextarea(textareaRef.current);
+		media.addEventListener("change", resize);
+		return () => media.removeEventListener("change", resize);
+	}, []);
 
 	useEffect(() => {
 		if (nativeWebSearch) setShowSearchMenu(false);
@@ -364,11 +379,11 @@ export default function InputBox() {
 	const activeSlashCommand = slashMatches[menuIndex];
 
 	return (
-		<div className="border-t border-border bg-surface px-3 py-3 sm:px-4">
+		<div className="chat-composer-shell border-t border-border bg-surface px-3 py-3 sm:px-4">
 			<fieldset
 				ref={composerRef}
 				aria-label="Message composer"
-				className="relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent"
+				className="chat-composer-surface relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent"
 			>
 				{slashOpen && (
 					<SlashCommandMenu
@@ -402,11 +417,11 @@ export default function InputBox() {
 						placeholder="Type a message or / for commands"
 						rows={2}
 						maxLength={MAX_CHARS}
-						className="block max-h-[220px] min-h-[60px] w-full resize-none bg-transparent px-3.5 pb-1.5 pt-3 text-sm leading-5 text-text-primary placeholder:text-text-muted focus:outline-none focus-visible:shadow-none"
+						className="chat-composer-input block max-h-[220px] min-h-[60px] w-full resize-none bg-transparent px-3.5 pb-1.5 pt-3 text-sm leading-5 text-text-primary placeholder:text-text-muted focus:outline-none focus-visible:shadow-none"
 					/>
 				</div>
 
-				<div className="flex min-h-11 items-center justify-between gap-2 px-2 pb-2 pt-1">
+				<div className="chat-composer-toolbar flex min-h-11 items-center justify-between gap-2 px-2 pb-2 pt-1">
 					<div className="flex min-w-0 items-center gap-1">
 						<button
 							type="button"
