@@ -2,7 +2,7 @@
 
 * **Status**: Accepted
 * **Date**: 2026-07-19
-* **Amended**: 2026-07-24 (portable log directory and native export)
+* **Amended**: 2026-07-29 (app-data runtime layout and native export)
 * **Decision makers**: Project lead
 
 ## Context
@@ -60,21 +60,21 @@ authentication, rate limiting, provider access, and SSE.
 
 Desktop chooses free loopback ports at startup and gives React only the
 negotiated Gateway port through `get_service_ports`. Mutable SQLite files live
-under Tauri's `app_data_dir`. Desktop file logs prefer a writable `log/`
-directory beside the installed executable on every platform; system-managed
-installations that make this location read-only fall back to
-`app_data_dir/log` so logging never disables itself. Developer-panel exports
-use native Rust filesystem writes to the OS Downloads directory, falling back
-to the active log directory. Bundled skills are read from `resource_dir`.
-Standalone paths remain explicitly configurable through environment
-variables.
+under Tauri's `app_data_dir/data`, and Desktop file logs live under the same
+app-data root at `app_data_dir/log`. Developer-panel exports use native Rust
+filesystem writes to the OS Downloads directory, falling back to the log
+directory. The installation directory contains only executables, runtime
+libraries, bundled resources, and startup configuration. Startup configuration
+comes from packaged files, environment variables, or process-memory values and
+is not persisted to SQLite. Bundled skills are read from `resource_dir`.
+Standalone paths remain explicitly configurable through environment variables.
 
 ## Consequences
 
 - Desktop ships one sidecar instead of two and no longer searches for an
   Engine executable.
-- Portable/per-user installations keep daily logs beside the executable;
-  system-wide read-only installations retain the platform app-data fallback.
+- Desktop database and daily logs use one platform-owned app-data root on
+  Windows, macOS, and Linux; installed program directories remain immutable.
 - Log export no longer depends on WebView blob-download behavior and reports
   the native destination path to the user.
 - Engine failure now shares the Desktop process crash domain. Service health

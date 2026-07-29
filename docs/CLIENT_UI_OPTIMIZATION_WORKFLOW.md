@@ -569,6 +569,7 @@ CUI-08 与后续 CUI-09 已完成；当前下一项为 CUI-10 CharacterProfile �
 - 顶栏仅将空白区标记为 `data-tauri-drag-region`，交互控件不继承拖拽属性；Windows 接入最小化、最大化/还原、关闭及空白区双击，Web、macOS 和 Linux 不渲染重复窗口按钮。窗口按钮默认保持灰色，鼠标移入时在 20px 圆形图标区按最小化黄、最大化/还原绿、关闭红显示 macOS 红绿灯配色。
 - 基础 `tauri.conf.json` 继续使用原生 decorations；`tauri.windows.conf.json` 仅在 Windows 关闭 decorations，并通过平台 capability 限定窗口权限。设置 `ENCOREHUB_NATIVE_TITLEBAR=1` 会恢复原生标题栏，同时停用应用内拖拽区和窗口按钮。
 - Windows debug 构建与启动通过，实机确认无重复标题栏、双击最大化和还原可用；最小化、最大化/还原、关闭及 resize 状态同步由组件测试覆盖。macOS/Linux 仍保留原生 decorations，在各自安装 smoke 前不声明发布支持。
+- Desktop 最终运行目录约定为数据库固定写入 `app_data_dir/data/encorehub.db`、日志固定写入 `app_data_dir/log/`；安装目录仅保留程序、运行库、打包资源和不入 SQLite 的启动配置。Windows 旧安装目录的 `data/`、`log/` 仅作为一次性迁移源读取。
 - 亮暗主题的 `1600x1120`、`1200x800`、`900x700`、`680x480` 矩阵及 680px Settings/侧栏关闭状态均完成视觉验收；截图只写入临时目录，未加入 Git。
 - 验证通过：Frontend 40 个测试文件/298 项测试、TypeScript、受影响文件 Biome、production build 和 300 KiB bundle budget；Tauri 23 项测试、fmt、clippy 与 Windows debug build 通过，初始 JavaScript gzip 为 123.93 KiB。
 

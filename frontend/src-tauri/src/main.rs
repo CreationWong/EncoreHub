@@ -73,8 +73,7 @@ struct ServiceState {
     engine_started: Instant,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
-    /// Actual file-log directory. Normally beside the executable; app data is
-    /// retained as a fallback for read-only system installations.
+    /// File logs share the platform app-data root with the SQLite database.
     log_dir: PathBuf,
     /// Dynamically negotiated ports (filled during setup).
     engine_port: u16,
@@ -282,6 +281,7 @@ fn main() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let resource_dir = app.path().resource_dir()?;
+            #[cfg(target_os = "windows")]
             let executable_dir = std::env::current_exe()
                 .ok()
                 .and_then(|path| path.parent().map(|parent| parent.to_path_buf()));
@@ -292,8 +292,7 @@ fn main() {
                 .map(|legacy_root| migrate_legacy_runtime(legacy_root, &app_data_dir))
                 .transpose()?;
 
-            let runtime_paths =
-                RuntimePaths::prepare(&app_data_dir, &resource_dir, executable_dir.as_deref())?;
+            let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
             let log_control = install_logging(logs.clone());
 
@@ -652,23 +651,22 @@ mod tests {
     }
 
     #[test]
-    fn desktop_runtime_creates_daily_log_in_portable_install_directory() {
+    fn desktop_runtime_creates_daily_log_in_app_data_directory() {
         let temp = tempfile::tempdir().unwrap();
-        let install = temp.path().join("install");
         let app_data = temp.path().join("app-data");
         let resources = temp.path().join("resources");
-        std::fs::create_dir_all(&install).unwrap();
-        let paths = RuntimePaths::prepare(&app_data, &resources, Some(&install)).unwrap();
+        let paths = RuntimePaths::prepare(&app_data, &resources).unwrap();
         let logs = LogBuffer::with_log_dir(paths.logs.clone());
 
-        logs.push_event(Source::Desktop, Level::Info, "portable log initialized");
+        logs.push_event(Source::Desktop, Level::Info, "app-data log initialized");
 
         let day = chrono::Local::now().format("%Y-%m-%d");
-        let file = install.join("log").join(format!("encorehub-{day}.log"));
-        assert_eq!(paths.logs, install.join("log"));
+        let file = app_data.join("log").join(format!("encorehub-{day}.log"));
+        assert_eq!(paths.logs, app_data.join("log"));
+        assert_eq!(paths.database, app_data.join("data/encorehub.db"));
         assert!(file.is_file());
         assert!(std::fs::read_to_string(file)
             .unwrap()
-            .contains("portable log initialized"));
+            .contains("app-data log initialized"));
     }
 }

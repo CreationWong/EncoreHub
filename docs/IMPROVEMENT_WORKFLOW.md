@@ -484,7 +484,7 @@ curl -f http://127.0.0.1:8080/api/v1/health/ready
 
 **后续修订（2026-07-24）**
 
-- 根据桌面产品需求，日志改为在所有平台优先写入可执行文件同级 `log/`；系统安装目录不可写时保留 `app_data_dir/log` 回退，数据库位置不变。
+- 2026-07-29 最终存储约定取代此前的便携日志方案：所有平台的 Desktop 日志固定写入 `app_data_dir/log/`，数据库固定写入 `app_data_dir/data/encorehub.db`。安装目录不再接收新的可变数据，只保留运行库、可执行文件、打包资源和启动配置；启动配置不写入 SQLite。
 - Developer 面板新增打开实际日志目录命令；日志导出改为 Rust 原生文件写入，优先 Downloads、失败时回退到当前日志目录。
 - README 与 `CLAUDE.md` 已删除未经安装 smoke 证明的跨平台支持声明，并记录运行目录、迁移、卸载保留和打包契约。macOS/Linux 安装包在 smoke 前不作为受支持发布物。
 - 本地已通过 9 项 workspace/desktop 契约测试、Tauri 16 项测试、Tauri check/clippy、`pnpm prepare:sidecar`、Windows `tauri build --debug --no-bundle --ci`、`pnpm check`、`pnpm test`、`pnpm lint` 与 `git diff --check`。构建输出已确认包含 `gateway.exe` 和 `resource_dir/skills`。
