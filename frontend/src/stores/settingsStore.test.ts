@@ -8,6 +8,7 @@ beforeEach(() => {
 		sidebarMode: "conversations",
 		sidebarWidth: 300,
 		deepThinking: false,
+		trafficLightWindowControls: false,
 	});
 });
 
@@ -39,5 +40,14 @@ describe("settingsStore sidebar preferences", () => {
 
 		expect(useSettingsStore.getState().deepThinking).toBe(true);
 		expect(localStorage.getItem("encorehub-deep-thinking")).toBe("1");
+	});
+
+	it("persists the optional traffic-light window style", () => {
+		useSettingsStore.getState().setTrafficLightWindowControls(true);
+
+		expect(useSettingsStore.getState().trafficLightWindowControls).toBe(true);
+		expect(
+			localStorage.getItem("encorehub-traffic-light-window-controls"),
+		).toBe("1");
 	});
 });

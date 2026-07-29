@@ -10,6 +10,7 @@ export type SettingsTab =
 	| "memories"
 	| "appearance"
 	| "security"
+	| "about"
 	| "developer";
 
 export type SearchProvider = "duckduckgo" | "bing" | "google";
@@ -25,6 +26,7 @@ interface SettingsState {
 	settingsOpen: boolean;
 	settingsTab: SettingsTab;
 	devMode: boolean;
+	trafficLightWindowControls: boolean;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
 	deepThinking: boolean;
@@ -42,6 +44,7 @@ interface SettingsState {
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
 	setDevMode: (on: boolean) => void;
+	setTrafficLightWindowControls: (on: boolean) => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
 	setDeepThinking: (on: boolean) => void;
@@ -170,6 +173,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-dev-mode") === "1"
 			: false,
+	trafficLightWindowControls:
+		typeof window !== "undefined"
+			? localStorage.getItem("encorehub-traffic-light-window-controls") === "1"
+			: false,
 	searchEnabled:
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-search-enabled") === "1"
@@ -280,9 +287,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	closeSettings: () => set({ settingsOpen: false }),
 
 	setDevMode: (on: boolean) => {
-		set({ devMode: on });
+		set((state) => ({
+			devMode: on,
+			settingsTab:
+				!on && state.settingsTab === "developer" ? "about" : state.settingsTab,
+		}));
 		try {
 			localStorage.setItem("encorehub-dev-mode", on ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
+	},
+
+	setTrafficLightWindowControls: (on: boolean) => {
+		set({ trafficLightWindowControls: on });
+		try {
+			localStorage.setItem(
+				"encorehub-traffic-light-window-controls",
+				on ? "1" : "0",
+			);
 		} catch {
 			/* ignore */
 		}

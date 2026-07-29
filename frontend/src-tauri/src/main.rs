@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_info;
 mod log_layer;
 mod logs;
 mod runtime_paths;
@@ -17,6 +18,7 @@ use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 use encorehub_engine::logging::{normalize_level, LogControl};
 use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
+use app_info::get_app_info;
 use log_layer::LogBufferLayer;
 use logs::{export_log_entries, Level, LogBuffer, LogEntry, Source};
 #[cfg(target_os = "windows")]
@@ -267,6 +269,7 @@ fn main() {
             check_engine_health,
             check_gateway_health,
             get_service_ports,
+            get_app_info,
             get_service_status,
             get_logs,
             clear_logs,

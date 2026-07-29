@@ -31,6 +31,10 @@
 		--color-info-bg: rgba(25, 113, 194, 0.1);
 		--color-info-border: rgba(25, 113, 194, 0.3);
 		--color-code-bg: #f7f8fa;
+		--color-window-close: #ff5f57;
+		--color-window-minimize: #febc2e;
+		--color-window-maximize: #28c840;
+		--color-window-symbol: rgba(0, 0, 0, 0.65);
 	}
 
 	.dark {

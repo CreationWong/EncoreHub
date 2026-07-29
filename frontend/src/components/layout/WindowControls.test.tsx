@@ -6,6 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 const mocks = vi.hoisted(() => ({
 	maximized: false,
@@ -48,6 +49,7 @@ describe("WindowControls", () => {
 		mocks.unlisten.mockReset();
 		mocks.onResized.mockReset().mockResolvedValue(mocks.unlisten);
 		mocks.toastError.mockReset();
+		useSettingsStore.setState({ trafficLightWindowControls: false });
 	});
 
 	afterEach(cleanup);
@@ -57,21 +59,39 @@ describe("WindowControls", () => {
 		expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
 	});
 
-	it("uses macOS traffic-light colors for the three hover states", () => {
+	it("uses standard caption styling by default", () => {
+		render(<WindowControls enabled />);
+
+		const controls = screen.getByRole("group", { name: "Window controls" });
+		expect(controls.getAttribute("data-window-control-style")).toBe("standard");
+		expect(
+			screen
+				.getByRole("button", { name: "Minimize window" })
+				.querySelector("span")?.className,
+		).not.toContain("group-hover:bg-window-minimize");
+	});
+
+	it("uses macOS traffic-light colors when the optional style is enabled", () => {
+		useSettingsStore.setState({ trafficLightWindowControls: true });
 		render(<WindowControls enabled />);
 
 		const minimize = screen.getByRole("button", { name: "Minimize window" });
 		const maximize = screen.getByRole("button", { name: "Maximize window" });
 		const close = screen.getByRole("button", { name: "Close window" });
 
+		expect(
+			screen
+				.getByRole("group", { name: "Window controls" })
+				.getAttribute("data-window-control-style"),
+		).toBe("traffic-lights");
 		expect(minimize.querySelector("span")?.className).toContain(
-			"group-hover:bg-[#febc2e]",
+			"group-hover:bg-window-minimize",
 		);
 		expect(maximize.querySelector("span")?.className).toContain(
-			"group-hover:bg-[#28c840]",
+			"group-hover:bg-window-maximize",
 		);
 		expect(close.querySelector("span")?.className).toContain(
-			"group-hover:bg-[#ff5f57]",
+			"group-hover:bg-window-close",
 		);
 	});
 
