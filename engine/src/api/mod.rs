@@ -1,3 +1,4 @@
+mod characters;
 mod config;
 mod conversations;
 mod knowledge;
@@ -121,6 +122,17 @@ pub fn build_router_with(
         .route("/api/memories", get(memories::list))
         .route("/api/memories/search", get(memories::search))
         .route("/api/memories/:id", delete(memories::delete))
+        // Versioned character profiles
+        .route(
+            "/api/characters/:id",
+            get(characters::get_one)
+                .patch(characters::update)
+                .delete(characters::delete),
+        )
+        .route(
+            "/api/characters",
+            get(characters::list).post(characters::create),
+        )
         // Messages
         .route(
             "/api/conversations/:id/messages/append",
@@ -137,6 +149,10 @@ pub fn build_router_with(
         .route(
             "/api/conversations/:id/turns/:turn_id/finalize",
             post(conversations::finalize_turn),
+        )
+        .route(
+            "/api/conversations/:id/character-upgrade",
+            get(conversations::preview_character_upgrade).post(conversations::upgrade_character),
         )
         // Conversations
         .route(

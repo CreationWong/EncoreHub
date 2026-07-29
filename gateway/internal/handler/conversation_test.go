@@ -28,6 +28,95 @@ func deleteRouter(target string) *gin.Engine {
 	return r
 }
 
+func createRouter(target string) *gin.Engine {
+	r := gin.New()
+	h := handler.NewConversationHandler(engine.NewClient(target, "test-engine-token"))
+	r.POST("/api/v1/conversations", h.Create)
+	return r
+}
+
+func TestCreate_ForwardsCharacterAssociationToEngine(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := io.ReadAll(r.Body)
+		body = string(payload)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c1","character_id":"archivist","character_version":2}`)
+	}))
+	defer server.Close()
+
+	router := createRouter(server.URL)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations",
+		strings.NewReader(`{"title":"Research","character_id":"archivist"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(body, `"character_id":"archivist"`) {
+		t.Fatalf("character association missing from engine request: %s", body)
+	}
+}
+
+func TestCreate_PreservesCharacterNotFoundStatusWithoutLeakingEngineBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"private-character-canary"}`)
+	}))
+	defer server.Close()
+
+	router := createRouter(server.URL)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations",
+		strings.NewReader(`{"title":"Research","character_id":"missing"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "private-character-canary") {
+		t.Fatalf("engine body leaked to browser: %s", recorder.Body.String())
+	}
+}
+
+func TestCreate_MapsUnexpectedEngineClientErrorsToBadGateway(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"private-auth-canary"}`)
+	}))
+	defer server.Close()
+
+	router := createRouter(server.URL)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations",
+		strings.NewReader(`{"title":"Research","character_id":"archivist"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "private-auth-canary") {
+		t.Fatalf("engine body leaked to browser: %s", recorder.Body.String())
+	}
+}
+
 func TestDelete_UsesAuthenticatedEngineClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

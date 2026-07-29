@@ -203,6 +203,15 @@ When the user toggles search on (globe icon in the input box):
 - Limits: Chinese-only ≤20 chars, English-only ≤15 words, mixed Chinese/English ≤15 chars; timeout 30s; 3 retries with redacted metadata-only failure logging
 - Titles are displayed in the conversation list and conversation header with edit functionality
 
+### Character Profiles and Prompt Snapshots
+
+- Engine owns versioned `CharacterProfile` records. Use `character_id`; never introduce a character type named `Role` because `Message.role` is the protocol role.
+- Every Conversation stores `character_id`, character version, prompt-bearing character snapshot, and final provider/model. Character edits affect only new Conversations.
+- Existing Conversations can change character revisions only through the explicit preview/apply upgrade endpoint with an expected-version check.
+- Deleted characters are soft-deleted so historical Conversation snapshots remain readable. The migrated `default` character cannot be deleted.
+- Gateway composes provider prompts from the stored Conversation snapshot in this order: application constraints -> character -> Skill -> Memory/Knowledge -> tool instructions.
+- Character, Skill, Memory, and Knowledge text is user-controlled context. It cannot register tools or weaken application constraints; tool availability is decided only by Gateway code. See [ADR-0005](docs/adr/0005-character-profile-snapshots.md).
+
 ### Frontend State (Zustand)
 
 - `conversationStore` — active conversation, message list, streaming state (content + reasoning + tool calls), `streamTokenCount` capture, optimistic updates with rollback on failure

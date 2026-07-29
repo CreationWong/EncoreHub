@@ -1,10 +1,15 @@
 import { apiFetch } from "./api";
+import type { CharacterSnapshot } from "./characters";
 
 export interface Conversation {
 	id: string;
 	title: string;
 	provider: string;
 	model: string;
+	/** Optional only while interoperating with a pre-CUI-10 Gateway. */
+	character_id?: string;
+	character_version?: number;
+	character_snapshot?: CharacterSnapshot;
 	message_count: number;
 	created_at: string;
 	updated_at: string;
@@ -117,6 +122,7 @@ export async function createConversation(
 	title?: string,
 	provider?: string,
 	model?: string,
+	characterId?: string,
 ): Promise<Conversation> {
 	return apiFetch<Conversation>("/conversations", {
 		method: "POST",
@@ -124,6 +130,7 @@ export async function createConversation(
 			title: title || "New Chat",
 			provider: provider || "",
 			model: model || "",
+			...(characterId ? { character_id: characterId } : {}),
 		}),
 	});
 }

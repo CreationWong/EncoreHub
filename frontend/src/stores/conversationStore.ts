@@ -47,6 +47,7 @@ interface ConvCacheEntry {
 export interface NewConversationSelection {
 	provider: string;
 	model: string;
+	characterId?: string;
 }
 
 function emptyCacheEntry(messages: Message[] = []): ConvCacheEntry {
@@ -356,11 +357,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			const defaults = useSettingsStore.getState();
 			const provider = selection?.provider ?? defaults.provider ?? "";
 			const model = selection?.model ?? defaults.model ?? "";
-			const conv = await convApi.createConversation(
-				"New Chat",
-				provider,
-				model,
-			);
+			const conv = selection?.characterId
+				? await convApi.createConversation(
+						"New Chat",
+						provider,
+						model,
+						selection.characterId,
+					)
+				: await convApi.createConversation("New Chat", provider, model);
 			await get().loadList();
 			const entry = emptyCacheEntry([]);
 			set((s) => {

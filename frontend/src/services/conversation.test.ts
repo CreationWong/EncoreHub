@@ -153,6 +153,17 @@ describe("conversation service", () => {
 		});
 	});
 
+	it("createConversation can bind an immutable character snapshot", async () => {
+		await createConversation("Research", "", "", "archivist/one");
+		const [, opts] = apiFetch.mock.calls[0];
+		expect(JSON.parse(opts.body)).toEqual({
+			title: "Research",
+			provider: "",
+			model: "",
+			character_id: "archivist/one",
+		});
+	});
+
 	it("deleteConversation -> DELETE /conversations/:id", async () => {
 		await deleteConversation("c1");
 		expect(apiFetch).toHaveBeenCalledWith("/conversations/c1", {

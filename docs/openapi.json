@@ -20,6 +20,7 @@
   "tags": [
     { "name": "Health" },
     { "name": "Conversations" },
+    { "name": "Characters" },
     { "name": "Providers" },
     { "name": "Search" },
     { "name": "Settings" },
@@ -100,7 +101,9 @@
         "responses": {
           "200": { "$ref": "#/components/responses/Conversation" },
           "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" }
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -215,6 +218,104 @@
         "responses": {
           "200": { "$ref": "#/components/responses/Conversation" },
           "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/character-upgrade": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "get": {
+        "tags": ["Characters"],
+        "operationId": "previewConversationCharacterUpgrade",
+        "responses": {
+          "200": { "$ref": "#/components/responses/CharacterUpgradePreview" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Characters"],
+        "operationId": "upgradeConversationCharacter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpgradeCharacterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Conversation" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters": {
+      "get": {
+        "tags": ["Characters"],
+        "operationId": "listCharacters",
+        "responses": {
+          "200": { "$ref": "#/components/responses/CharacterList" }
+        }
+      },
+      "post": {
+        "tags": ["Characters"],
+        "operationId": "createCharacter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateCharacterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Character" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" }
+      ],
+      "get": {
+        "tags": ["Characters"],
+        "operationId": "getCharacter",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Character" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "patch": {
+        "tags": ["Characters"],
+        "operationId": "updateCharacter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateCharacterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Character" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Characters"],
+        "operationId": "deleteCharacter",
+        "description": "Soft-deletes a non-default character. Existing conversations retain their immutable character snapshots.",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -849,6 +950,30 @@
           }
         }
       },
+      "Character": {
+        "description": "Current version of a character profile",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/CharacterProfile" }
+          }
+        }
+      },
+      "CharacterList": {
+        "description": "Active character profiles; soft-deleted profiles are omitted",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/CharacterList" }
+          }
+        }
+      },
+      "CharacterUpgradePreview": {
+        "description": "Diff between the conversation snapshot and the character's current version",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/CharacterUpgradePreview" }
+          }
+        }
+      },
       "Providers": {
         "description": "Canonical provider profiles",
         "content": {
@@ -893,12 +1018,15 @@
       },
       "Conversation": {
         "type": "object",
-        "required": ["id", "title", "provider", "model", "created_at", "updated_at"],
+        "required": ["id", "title", "provider", "model", "character_id", "character_version", "character_snapshot", "created_at", "updated_at"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "title": { "type": "string" },
           "provider": { "type": "string" },
           "model": { "type": "string" },
+          "character_id": { "type": "string" },
+          "character_version": { "type": "integer", "minimum": 1 },
+          "character_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
           "message_count": { "type": "integer", "minimum": 0 },
           "created_at": { "type": "string" },
           "updated_at": { "type": "string" }
@@ -969,7 +1097,125 @@
         "properties": {
           "title": { "type": "string" },
           "provider": { "type": "string" },
-          "model": { "type": "string" }
+          "model": { "type": "string" },
+          "character_id": {
+            "type": "string",
+            "description": "Defaults to the stable default character. Provider/model inherit from the selected character when omitted together."
+          }
+        }
+      },
+      "CharacterSnapshot": {
+        "type": "object",
+        "description": "Prompt-bearing character data copied onto a conversation. It is never refreshed implicitly.",
+        "required": ["name", "avatar", "description", "system_prompt", "opening_message", "tags"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "avatar": { "type": "string", "maxLength": 4096 },
+          "description": { "type": "string", "maxLength": 16384 },
+          "system_prompt": { "type": "string", "maxLength": 65536 },
+          "opening_message": { "type": "string", "maxLength": 16384 },
+          "tags": {
+            "type": "array",
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": { "type": "string", "maxLength": 64 }
+          }
+        }
+      },
+      "CharacterProfile": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CharacterSnapshot" },
+          {
+            "type": "object",
+            "required": ["id", "default_provider", "default_model", "version", "created_at", "updated_at"],
+            "properties": {
+              "id": { "type": "string" },
+              "default_provider": { "type": "string", "maxLength": 100 },
+              "default_model": { "type": "string", "maxLength": 200 },
+              "version": { "type": "integer", "minimum": 1 },
+              "created_at": { "type": "string", "format": "date-time" },
+              "updated_at": { "type": "string", "format": "date-time" },
+              "deleted_at": { "type": ["string", "null"], "format": "date-time" }
+            }
+          }
+        ]
+      },
+      "CharacterList": {
+        "type": "object",
+        "required": ["characters", "total"],
+        "properties": {
+          "characters": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CharacterProfile" }
+          },
+          "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CreateCharacterRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "avatar": { "type": "string", "maxLength": 4096 },
+          "description": { "type": "string", "maxLength": 16384 },
+          "system_prompt": { "type": "string", "maxLength": 65536 },
+          "default_provider": { "type": "string", "maxLength": 100 },
+          "default_model": { "type": "string", "maxLength": 200 },
+          "opening_message": { "type": "string", "maxLength": 16384 },
+          "tags": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "maxLength": 64 }
+          }
+        }
+      },
+      "UpdateCharacterRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expected_version"],
+        "properties": {
+          "expected_version": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "avatar": { "type": "string", "maxLength": 4096 },
+          "description": { "type": "string", "maxLength": 16384 },
+          "system_prompt": { "type": "string", "maxLength": 65536 },
+          "default_provider": { "type": "string", "maxLength": 100 },
+          "default_model": { "type": "string", "maxLength": 200 },
+          "opening_message": { "type": "string", "maxLength": 16384 },
+          "tags": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "type": "string", "maxLength": 64 }
+          }
+        }
+      },
+      "CharacterUpgradePreview": {
+        "type": "object",
+        "required": ["conversation_id", "character_id", "from_version", "to_version", "changed", "changed_fields", "current_snapshot", "proposed_snapshot", "current_provider", "proposed_provider", "current_model", "proposed_model"],
+        "properties": {
+          "conversation_id": { "type": "string", "format": "uuid" },
+          "character_id": { "type": "string" },
+          "from_version": { "type": "integer", "minimum": 1 },
+          "to_version": { "type": "integer", "minimum": 1 },
+          "changed": { "type": "boolean" },
+          "changed_fields": {
+            "type": "array",
+            "items": { "enum": ["name", "avatar", "description", "system_prompt", "opening_message", "tags", "provider", "model"] }
+          },
+          "current_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
+          "proposed_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
+          "current_provider": { "type": "string" },
+          "proposed_provider": { "type": "string" },
+          "current_model": { "type": "string" },
+          "proposed_model": { "type": "string" }
+        }
+      },
+      "UpgradeCharacterRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expected_character_version"],
+        "properties": {
+          "expected_character_version": { "type": "integer", "minimum": 1 }
         }
       },
       "RenameConversationRequest": {

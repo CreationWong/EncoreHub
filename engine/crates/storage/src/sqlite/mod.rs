@@ -3,16 +3,17 @@
 //! Manages: conversations, messages, tool_calls, summaries, pinned messages,
 //! memories (metadata), search cache, config.
 
+mod characters;
 mod chat_turns;
 mod migrations;
 mod secret_transactions;
 
 use encorehub_core::{
-    ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document, DocumentChunk,
-    EngineError, Memory, MemoryScope, MemoryType, Message, PinnedMessage, Role, SearchCacheEntry,
-    SecretRow, ToolCall,
+    CharacterSnapshot, ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document,
+    DocumentChunk, EngineError, Memory, MemoryScope, MemoryType, Message, PinnedMessage, Role,
+    SearchCacheEntry, SecretRow, ToolCall,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Row};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -26,6 +27,37 @@ fn ts_to_dt(ms: i64) -> chrono::DateTime<chrono::Utc> {
 /// Helper: current time in milliseconds.
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+const CONVERSATION_COLUMNS: &str = "id, title, provider, model, character_id, character_version,
+     character_name_snapshot, character_avatar_snapshot,
+     character_description_snapshot, character_prompt_snapshot,
+     character_opening_snapshot, character_tags_snapshot,
+     created_at, updated_at";
+
+fn parse_tags_json(value: String) -> Vec<String> {
+    serde_json::from_str(&value).unwrap_or_default()
+}
+
+fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
+    Ok(Conversation {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        provider: row.get(2)?,
+        model: row.get(3)?,
+        character_id: row.get(4)?,
+        character_version: row.get(5)?,
+        character_snapshot: CharacterSnapshot {
+            name: row.get(6)?,
+            avatar: row.get(7)?,
+            description: row.get(8)?,
+            system_prompt: row.get(9)?,
+            opening_message: row.get(10)?,
+            tags: parse_tags_json(row.get(11)?),
+        },
+        created_at: ts_to_dt(row.get::<_, i64>(12)?),
+        updated_at: ts_to_dt(row.get::<_, i64>(13)?),
+    })
 }
 
 pub struct Database {
@@ -86,14 +118,28 @@ impl Database {
 
     pub fn create_conversation(&self, conv: &Conversation) -> Result<()> {
         let conn = self.conn.lock().unwrap();
+        let tags_json = serde_json::to_string(&conv.character_snapshot.tags)?;
         conn.execute(
-            "INSERT INTO conversations (id, title, provider, model, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO conversations
+             (id, title, provider, model, character_id, character_version,
+              character_name_snapshot, character_avatar_snapshot,
+              character_description_snapshot, character_prompt_snapshot,
+              character_opening_snapshot, character_tags_snapshot,
+              created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 conv.id,
                 conv.title,
                 conv.provider,
                 conv.model,
+                conv.character_id,
+                conv.character_version,
+                conv.character_snapshot.name,
+                conv.character_snapshot.avatar,
+                conv.character_snapshot.description,
+                conv.character_snapshot.system_prompt,
+                conv.character_snapshot.opening_message,
+                tags_json,
                 conv.created_at.timestamp_millis(),
                 conv.updated_at.timestamp_millis(),
             ],
@@ -104,19 +150,11 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Conversation> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, title, provider, model, created_at, updated_at FROM conversations WHERE id = ?1",
+            &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
             params![id],
-            |row| {
-                Ok(Conversation {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    provider: row.get(2)?,
-                    model: row.get(3)?,
-                    created_at: ts_to_dt(row.get::<_, i64>(4)?),
-                    updated_at: ts_to_dt(row.get::<_, i64>(5)?),
-                })
-            },
-        ).map_err(|e| match e {
+            conversation_from_row,
+        )
+        .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
                 resource: "conversation".into(),
                 id: id.into(),
@@ -127,20 +165,11 @@ impl Database {
 
     pub fn list_conversations(&self, limit: i64, offset: i64) -> Result<Vec<Conversation>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, created_at, updated_at
-             FROM conversations ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
-        )?;
-        let rows = stmt.query_map(params![limit, offset], |row| {
-            Ok(Conversation {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                provider: row.get(2)?,
-                model: row.get(3)?,
-                created_at: ts_to_dt(row.get::<_, i64>(4)?),
-                updated_at: ts_to_dt(row.get::<_, i64>(5)?),
-            })
-        })?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {CONVERSATION_COLUMNS}
+             FROM conversations ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2"
+        ))?;
+        let rows = stmt.query_map(params![limit, offset], conversation_from_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }

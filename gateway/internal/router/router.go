@@ -77,6 +77,9 @@ func Setup(cfg Config) *gin.Engine {
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
 			// Tool-based title update (proxied to engine)
 			conv.PATCH("/:id/title", engineProxy.Forward)
+			// Character upgrades are previewed and applied by the authoritative Engine.
+			conv.GET("/:id/character-upgrade", engineProxy.Forward)
+			conv.POST("/:id/character-upgrade", engineProxy.Forward)
 		}
 
 		// Search
@@ -100,7 +103,7 @@ func Setup(cfg Config) *gin.Engine {
 		// proxy. All standard CRUD verbs land on the proxy; engine enforces shape.
 		// Secrets carry key material — they ride the same localhost trust boundary
 		// as the X-Provider-Key header the gateway already forwards.
-		for _, res := range []string{"skills", "memories", "knowledge", "secrets"} {
+		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters"} {
 			api.Any("/"+res, engineProxy.Forward)
 			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}

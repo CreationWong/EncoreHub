@@ -19,9 +19,10 @@ func NewConversationHandler(engineClient *engine.Client) *ConversationHandler {
 }
 
 type createConvReq struct {
-	Title    string `json:"title"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Title       string `json:"title"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+	CharacterID string `json:"character_id"`
 }
 
 func (h *ConversationHandler) Create(c *gin.Context) {
@@ -31,10 +32,18 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	conv, err := h.engine.CreateConversation(c.Request.Context(), req.Title, req.Provider, req.Model)
+	conv, err := h.engine.CreateConversation(
+		c.Request.Context(), req.Title, req.Provider, req.Model, req.CharacterID,
+	)
 	if err != nil {
-		log.Error().Err(err).Msg("engine create conversation failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		engineStatus := engine.ErrorStatus(err)
+		status := http.StatusBadGateway
+		switch engineStatus {
+		case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict:
+			status = engineStatus
+		}
+		log.Error().Int("engine_status", engineStatus).Msg("engine create conversation failed")
+		c.JSON(status, gin.H{"error": "create conversation failed"})
 		return
 	}
 

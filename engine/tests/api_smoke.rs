@@ -1152,6 +1152,287 @@ async fn append_message_persists_reasoning_and_tool_calls() {
 }
 
 #[tokio::test]
+async fn character_versions_snapshot_new_conversations_and_upgrade_explicitly() {
+    let (_dir, app) = make_app();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({
+                "name": "Archivist",
+                "description": "Answers from documented evidence.",
+                "system_prompt": "Version one prompt",
+                "default_provider": "anthropic",
+                "default_model": "claude-sonnet-4",
+                "opening_message": "What should we research?",
+                "tags": ["research"]
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let character = body_json(response).await;
+    let character_id = character["id"].as_str().unwrap().to_string();
+    assert_eq!(character["version"], 1);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "Old", "character_id": character_id}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let old_conversation = body_json(response).await;
+    let old_id = old_conversation["id"].as_str().unwrap().to_string();
+    assert_eq!(old_conversation["provider"], "anthropic");
+    assert_eq!(old_conversation["model"], "claude-sonnet-4");
+    assert_eq!(old_conversation["character_version"], 1);
+    assert_eq!(
+        old_conversation["character_snapshot"]["system_prompt"],
+        "Version one prompt"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/characters/{character_id}"),
+            json!({
+                "expected_version": 1,
+                "system_prompt": "Version two prompt",
+                "default_model": "claude-opus-4"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_json(response).await["version"], 2);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "New", "character_id": character_id}),
+        ))
+        .await
+        .unwrap();
+    let new_conversation = body_json(response).await;
+    assert_eq!(new_conversation["character_version"], 2);
+    assert_eq!(new_conversation["model"], "claude-opus-4");
+    assert_eq!(
+        new_conversation["character_snapshot"]["system_prompt"],
+        "Version two prompt"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{old_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let old_detail = body_json(response).await;
+    assert_eq!(old_detail["character_version"], 1);
+    assert_eq!(
+        old_detail["character_snapshot"]["system_prompt"],
+        "Version one prompt"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{old_id}/character-upgrade"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let preview = body_json(response).await;
+    assert_eq!(preview["from_version"], 1);
+    assert_eq!(preview["to_version"], 2);
+    assert_eq!(preview["changed"], true);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{old_id}/character-upgrade"),
+            json!({"expected_character_version": 1}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let upgraded = body_json(response).await;
+    assert_eq!(upgraded["character_version"], 2);
+    assert_eq!(upgraded["model"], "claude-opus-4");
+    assert_eq!(
+        upgraded["character_snapshot"]["system_prompt"],
+        "Version two prompt"
+    );
+}
+
+#[tokio::test]
+async fn deleting_character_keeps_historical_conversation_snapshot() {
+    let (_dir, app) = make_app();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({"name": "Temporary", "system_prompt": "Snapshot canary"}),
+        ))
+        .await
+        .unwrap();
+    let character_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "History", "character_id": character_id}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "DELETE",
+            &format!("/api/characters/{character_id}"),
+            Value::Null,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{conversation_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let historical = body_json(response).await;
+    assert_eq!(historical["character_id"], character_id);
+    assert_eq!(
+        historical["character_snapshot"]["system_prompt"],
+        "Snapshot canary"
+    );
+
+    let response = app
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "Rejected", "character_id": character_id}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn character_api_enforces_default_delete_conflicts_and_text_limits() {
+    let (_dir, app) = make_app();
+
+    let response = app
+        .clone()
+        .oneshot(json_post("DELETE", "/api/characters/default", Value::Null))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(json_post(
+                "POST",
+                "/api/characters",
+                json!({"name": "Same name"}),
+            ))
+            .await
+            .unwrap();
+        if response.status() != StatusCode::CREATED {
+            assert_eq!(response.status(), StatusCode::CONFLICT);
+        }
+    }
+
+    let response = app
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({
+                "name": "Too long",
+                "system_prompt": "x".repeat(65_537)
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn concurrent_conversation_creation_uses_one_character_revision() {
+    let (_dir, app) = make_app();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({"name": "Concurrent", "system_prompt": "Stable revision"}),
+        ))
+        .await
+        .unwrap();
+    let character_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let first = app.clone().oneshot(json_post(
+        "POST",
+        "/api/conversations",
+        json!({"title": "First", "character_id": character_id}),
+    ));
+    let second = app.clone().oneshot(json_post(
+        "POST",
+        "/api/conversations",
+        json!({"title": "Second", "character_id": character_id}),
+    ));
+    let (first, second) = tokio::join!(first, second);
+    let first = body_json(first.unwrap()).await;
+    let second = body_json(second.unwrap()).await;
+
+    for conversation in [first, second] {
+        assert_eq!(conversation["character_version"], 1);
+        assert_eq!(
+            conversation["character_snapshot"]["system_prompt"],
+            "Stable revision"
+        );
+    }
+}
+
+#[tokio::test]
 async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
     let (_dir, app) = make_app();
 

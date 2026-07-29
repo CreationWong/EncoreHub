@@ -108,7 +108,7 @@ flowchart LR
 | CUI-07 | Gateway + Frontend | CUI-06 | key validation、连接健康检查与发现差异确认 | `Done`（本地自动化与视觉验收） |
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Done`（本地自动化与兼容性验收） |
 | CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Done`（本地自动化、视觉与 Windows debug smoke） |
-| CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Not started` |
+| CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Done`（本地跨栈自动化与契约验收） |
 | CUI-11 | Frontend character UI | CUI-10 | 角色创建、编辑、复制、删除与对话版本升级 | `Not started` |
 | CUI-12 | Engine/domain adapter + Frontend | CUI-11 | JSON/PNG 角色卡导入导出、预览、冲突处理 | `Not started` |
 
@@ -380,7 +380,7 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05 至 CUI-09 与 UG2、UG3 已完成；当前下一项为 CUI-10 CharacterProfile 领域链路。
+CUI-05 至 CUI-10 与 UG2、UG3 已完成；当前下一项为 CUI-11 角色管理界面。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
@@ -521,7 +521,7 @@ CUI-05 至 CUI-09 与 UG2、UG3 已完成；当前下一项为 CUI-10 CharacterP
 - Gateway 可执行文件和 Tauri sidecar 在 Windows、macOS、Linux 统一命名为 `encorehub-gateway[.exe]`，目标 sidecar 保持 Tauri 的 `<name>-<target>[.exe]` 解析约定。
 - 验证通过：Frontend 36 files / 265 tests、Gateway 全量 tests + vet、Engine workspace 与 standalone tests + clippy、Tauri 22 tests + clippy、17 项 workspace/docs contracts；Frontend 初始 JavaScript gzip 为 121.93 KiB，低于 300 KiB 预算。
 
-CUI-08 与后续 CUI-09 已完成；当前下一项为 CUI-10 CharacterProfile 领域链路。
+CUI-08 至 CUI-10 已完成；当前下一项为 CUI-11 角色管理界面。
 
 ## 6. 桌面迭代 C：响应式与标题栏
 
@@ -573,11 +573,11 @@ CUI-08 与后续 CUI-09 已完成；当前下一项为 CUI-10 CharacterProfile �
 - 亮暗主题的 `1600x1120`、`1200x800`、`900x700`、`680x480` 矩阵及 680px Settings/侧栏关闭状态均完成视觉验收；截图只写入临时目录，未加入 Git。
 - 验证通过：Frontend 40 个测试文件/298 项测试、TypeScript、受影响文件 Biome、production build 和 300 KiB bundle budget；Tauri 23 项测试、fmt、clippy 与 Windows debug build 通过，初始 JavaScript gzip 为 123.93 KiB。
 
-CUI-09 实现已完成；下一项为 CUI-10 CharacterProfile 领域链路。Windows 发布包及 macOS/Linux 安装 smoke 仍属于发布声明前置条件。
+CUI-09 与后续 CUI-10 已完成；下一项为 CUI-11 角色管理界面。Windows 发布包及 macOS/Linux 安装 smoke 仍属于发布声明前置条件。
 
 ## 7. 角色迭代 D：角色与角色卡
 
-### CUI-10 建立 CharacterProfile 领域链路
+### CUI-10 建立 CharacterProfile 领域链路（Done）
 
 **目标**：让“角色”成为可审计的一等实体，而不是 Provider/Model 的显示别名。
 
@@ -597,18 +597,30 @@ CUI-09 实现已完成；下一项为 CUI-10 CharacterProfile 领域链路。Win
 
 **任务**
 
-- [ ] 定义版本化 schema、SQLite additive migration、CRUD API 和 OpenAPI。
-- [ ] 创建默认角色迁移或运行时投影，确保现有对话在升级后仍可加载。
-- [ ] 创建 Conversation 时原子保存角色 id、版本、prompt 快照和最终 provider/model。
-- [ ] Gateway 从 Conversation 快照构造请求，不能每次读取角色最新版本覆盖旧对话。
-- [ ] 提供显式“升级角色版本”API，返回变更预览并创建新的快照。
-- [ ] 对 prompt 段使用结构化边界，角色卡文本不能提升工具或安全权限。
+- [x] 定义版本化 schema、SQLite additive migration、CRUD API 和 OpenAPI。
+- [x] 创建默认角色迁移或运行时投影，确保现有对话在升级后仍可加载。
+- [x] 创建 Conversation 时原子保存角色 id、版本、prompt 快照和最终 provider/model。
+- [x] Gateway 从 Conversation 快照构造请求，不能每次读取角色最新版本覆盖旧对话。
+- [x] 提供显式“升级角色版本”API，返回变更预览并创建新的快照。
+- [x] 对 prompt 段使用结构化边界，角色卡文本不能提升工具或安全权限。
 
 **契约测试**
 
 - 默认角色、新角色、角色修改后新旧对话差异、角色删除与历史对话保留。
 - prompt 组合顺序、空字段、超长限制、恶意指令文本和日志 canary。
 - 迁移前数据库、迁移后回滚和并发创建 Conversation。
+
+**完成记录（2026-07-29）**
+
+- Engine 新增 `CharacterProfile`、不可变版本记录和 SQLite additive migration v10。稳定 `default` 角色为旧 Conversation 投影版本 1 的空 prompt 快照，不改写原 provider/model；非默认角色使用软删除，历史 Conversation 继续保留角色 id、版本和完整 prompt-bearing snapshot。
+- 角色 CRUD 对名称、头像、描述、全局提示词、默认 provider/model、开场白和标签实施长度/配对限制；更新使用 `expected_version` 防止覆盖并发编辑，默认角色不可删除。每次新建 Conversation 在单一事务内解析角色版本、最终 provider/model 并写入快照。
+- Conversation 提供角色升级 GET 预览与 POST 确认端点，返回字段和模型差异；确认操作使用 `expected_character_version` 原子替换快照。角色未定义默认模型时升级保留 Conversation 当前 provider/model。
+- Gateway 只读取 Conversation detail 中的角色快照，不查询可变角色最新值。system prompt 按 Application -> Character -> Skill -> Memory/Knowledge -> Tools 组合；用户控制区段的保留边界会转义，角色文本不能增添工具，工具后续回合在代码层撤销。
+- Frontend 新增 `characters` service、`characterStore`、升级预览/确认和带 `character_id` 的 Conversation 创建契约；CUI-11 前不接入可见管理界面。Gateway 对角色 CRUD 使用 Engine proxy，对 Conversation 创建保留 Engine 的 400/404/409 且不向浏览器或日志暴露 Engine 错误正文。
+- ADR-0005 固定角色权威、历史快照与 prompt 信任顺序；`docs/openapi.json` 已覆盖角色 CRUD、Conversation 快照和显式升级。CUI-10 是无新增可见页面的契约工作项，因此不生成或提交视觉验证图片。
+- 验证通过：Engine workspace tests、standalone all-target tests、fmt 与两组 clippy；Gateway 全量 tests 与 vet；Frontend 42 个测试文件/305 项测试、TypeScript、受影响文件 Biome、3 项 bundle tests 和 production build；18 项 workspace/docs contracts。初始 JavaScript gzip 为 123.96 KiB / 300 KiB。
+
+CUI-10 实现已完成；下一项为 CUI-11 角色管理界面。CUI-12 继续依赖 CUI-11，不提前在页面组件解析 Tavern/SillyTavern 数据。
 
 ### CUI-11 实现角色管理界面
 
@@ -785,7 +797,7 @@ git status --short
 - [ ] 主窗口与供应商详情分别符合输入计划的 Image #1 和 Image #2 结构，不引入计划外一级导航。
 - [ ] 现有聊天、搜索、标题、secrets、Settings 和日志功能无回归。
 - [ ] 每轮回复 token 位于右下角；存在完整真实数据时显示 tokens/s、tokens、duration 和 stop reason。
-- [ ] 角色具有真实全局提示词、版本和 Conversation 快照，不再只是 Provider/Model 别名。
+- [x] 角色具有真实全局提示词、版本和 Conversation 快照，不再只是 Provider/Model 别名。
 - [ ] 角色卡适配具有版本契约、限制、预览、冲突处理和未知字段往返测试。
 - [ ] 目标视口、亮暗主题、键盘、IME 和 reduced motion 验收通过。
 - [ ] Windows 安装后窗口 smoke 通过；macOS/Linux 的发布声明与各自安装 smoke 证据一致。
@@ -794,7 +806,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批已按顺序完成 CUI-00 至 CUI-09。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B 的 ProviderDetail、密钥检测、模型发现和完整回复遥测，以及桌面迭代 C 的响应式布局和 Windows 自定义标题栏也已完成。下一项 CUI-10 建立 CharacterProfile 领域链路。
+第一批已按顺序完成 CUI-00 至 CUI-10。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B、桌面迭代 C 与 CharacterProfile 领域链路也已完成。下一项 CUI-11 实现角色管理界面。
 
 建议首批提交顺序：
 
@@ -806,4 +818,4 @@ git status --short
 6. `refactor(frontend): layer chat messages and reply status`
 7. `fix(frontend): align conversation workspace details`
 
-UG1、UG2、UG3 已通过，CUI-06 至 CUI-09 已完成。当前下一项为 CUI-10 CharacterProfile；Windows 发布包及 macOS/Linux 安装 smoke 继续作为平台发布声明的前置条件。
+UG1、UG2、UG3 已通过，CUI-06 至 CUI-10 已完成。当前下一项为 CUI-11 角色管理界面；Windows 发布包及 macOS/Linux 安装 smoke 继续作为平台发布声明的前置条件。

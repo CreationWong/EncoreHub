@@ -1,0 +1,407 @@
+use super::{
+    conversation_from_row, now_ms, parse_tags_json, Database, Result, CONVERSATION_COLUMNS,
+};
+use encorehub_core::{
+    CharacterProfile, CharacterUpgradePreview, Conversation, EngineError, DEFAULT_CHARACTER_ID,
+};
+use rusqlite::{params, Connection, ErrorCode, Row};
+
+const CHARACTER_COLUMNS: &str = "id, name, avatar, description, system_prompt, default_provider,
+     default_model, opening_message, tags_json, version, created_at,
+     updated_at, deleted_at";
+
+fn character_from_row(row: &Row<'_>) -> rusqlite::Result<CharacterProfile> {
+    Ok(CharacterProfile {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        avatar: row.get(2)?,
+        description: row.get(3)?,
+        system_prompt: row.get(4)?,
+        default_provider: row.get(5)?,
+        default_model: row.get(6)?,
+        opening_message: row.get(7)?,
+        tags: parse_tags_json(row.get(8)?),
+        version: row.get(9)?,
+        created_at: super::ts_to_dt(row.get::<_, i64>(10)?),
+        updated_at: super::ts_to_dt(row.get::<_, i64>(11)?),
+        deleted_at: row.get::<_, Option<i64>>(12)?.map(super::ts_to_dt),
+    })
+}
+
+fn get_character_from_connection(
+    conn: &Connection,
+    id: &str,
+    include_deleted: bool,
+) -> Result<CharacterProfile> {
+    let deleted_clause = if include_deleted {
+        ""
+    } else {
+        " AND deleted_at IS NULL"
+    };
+    conn.query_row(
+        &format!(
+            "SELECT {CHARACTER_COLUMNS} FROM character_profiles
+             WHERE id = ?1{deleted_clause}"
+        ),
+        params![id],
+        character_from_row,
+    )
+    .map_err(|error| match error {
+        rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+            resource: "character".into(),
+            id: id.into(),
+        },
+        other => other.into(),
+    })
+}
+
+fn map_character_write_error(error: rusqlite::Error, id: &str) -> EngineError {
+    match &error {
+        rusqlite::Error::SqliteFailure(details, _)
+            if details.code == ErrorCode::ConstraintViolation =>
+        {
+            EngineError::AlreadyExists {
+                resource: "character".into(),
+                id: id.into(),
+            }
+        }
+        _ => error.into(),
+    }
+}
+
+fn insert_character_version(
+    conn: &Connection,
+    profile: &CharacterProfile,
+    tags_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO character_profile_versions
+         (character_id, version, name, avatar, description, system_prompt,
+          default_provider, default_model, opening_message, tags_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            profile.id,
+            profile.version,
+            profile.name,
+            profile.avatar,
+            profile.description,
+            profile.system_prompt,
+            profile.default_provider,
+            profile.default_model,
+            profile.opening_message,
+            tags_json,
+            profile.updated_at.timestamp_millis(),
+        ],
+    )
+    .map_err(|error| map_character_write_error(error, &profile.id))?;
+    Ok(())
+}
+
+fn resolved_model(profile: &CharacterProfile, selection: Option<(&str, &str)>) -> (String, String) {
+    if let Some((provider, model)) = selection {
+        return (provider.into(), model.into());
+    }
+    if !profile.default_provider.is_empty() && !profile.default_model.is_empty() {
+        return (
+            profile.default_provider.clone(),
+            profile.default_model.clone(),
+        );
+    }
+    ("openai".into(), "gpt-4o".into())
+}
+
+fn resolved_upgrade_model(
+    profile: &CharacterProfile,
+    conversation: &Conversation,
+) -> (String, String) {
+    if !profile.default_provider.is_empty() && !profile.default_model.is_empty() {
+        return (
+            profile.default_provider.clone(),
+            profile.default_model.clone(),
+        );
+    }
+    (conversation.provider.clone(), conversation.model.clone())
+}
+
+fn changed_fields(
+    conversation: &Conversation,
+    profile: &CharacterProfile,
+    proposed_provider: &str,
+    proposed_model: &str,
+) -> Vec<String> {
+    let proposed = profile.snapshot();
+    let current = &conversation.character_snapshot;
+    let mut fields = Vec::new();
+    for (name, changed) in [
+        ("name", current.name != proposed.name),
+        ("avatar", current.avatar != proposed.avatar),
+        ("description", current.description != proposed.description),
+        (
+            "system_prompt",
+            current.system_prompt != proposed.system_prompt,
+        ),
+        (
+            "opening_message",
+            current.opening_message != proposed.opening_message,
+        ),
+        ("tags", current.tags != proposed.tags),
+        ("provider", conversation.provider != proposed_provider),
+        ("model", conversation.model != proposed_model),
+    ] {
+        if changed {
+            fields.push(name.into());
+        }
+    }
+    fields
+}
+
+impl Database {
+    pub fn create_character_profile(&self, profile: &CharacterProfile) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let tags_json = serde_json::to_string(&profile.tags)?;
+        transaction
+            .execute(
+                "INSERT INTO character_profiles
+                 (id, name, avatar, description, system_prompt, default_provider,
+                  default_model, opening_message, tags_json, version, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    profile.id,
+                    profile.name,
+                    profile.avatar,
+                    profile.description,
+                    profile.system_prompt,
+                    profile.default_provider,
+                    profile.default_model,
+                    profile.opening_message,
+                    tags_json,
+                    profile.version,
+                    profile.created_at.timestamp_millis(),
+                    profile.updated_at.timestamp_millis(),
+                ],
+            )
+            .map_err(|error| map_character_write_error(error, &profile.id))?;
+        insert_character_version(&transaction, profile, &tags_json)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn get_character_profile(&self, id: &str) -> Result<CharacterProfile> {
+        let conn = self.conn.lock().unwrap();
+        get_character_from_connection(&conn, id, false)
+    }
+
+    pub fn list_character_profiles(&self) -> Result<Vec<CharacterProfile>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(&format!(
+            "SELECT {CHARACTER_COLUMNS} FROM character_profiles
+             WHERE deleted_at IS NULL
+             ORDER BY CASE WHEN id = 'default' THEN 0 ELSE 1 END, updated_at DESC"
+        ))?;
+        let rows = statement.query_map([], character_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn update_character_profile(
+        &self,
+        profile: &CharacterProfile,
+        expected_version: i64,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let tags_json = serde_json::to_string(&profile.tags)?;
+        let rows = transaction
+            .execute(
+                "UPDATE character_profiles SET
+                    name = ?1, avatar = ?2, description = ?3, system_prompt = ?4,
+                    default_provider = ?5, default_model = ?6, opening_message = ?7,
+                    tags_json = ?8, version = ?9, updated_at = ?10
+                 WHERE id = ?11 AND version = ?12 AND deleted_at IS NULL",
+                params![
+                    profile.name,
+                    profile.avatar,
+                    profile.description,
+                    profile.system_prompt,
+                    profile.default_provider,
+                    profile.default_model,
+                    profile.opening_message,
+                    tags_json,
+                    profile.version,
+                    profile.updated_at.timestamp_millis(),
+                    profile.id,
+                    expected_version,
+                ],
+            )
+            .map_err(|error| map_character_write_error(error, &profile.id))?;
+        if rows == 0 {
+            get_character_from_connection(&transaction, &profile.id, false)?;
+            return Err(EngineError::InvalidArgument(format!(
+                "character version conflict: expected {expected_version}"
+            )));
+        }
+        insert_character_version(&transaction, profile, &tags_json)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_character_profile(&self, id: &str) -> Result<()> {
+        if id == DEFAULT_CHARACTER_ID {
+            return Err(EngineError::InvalidArgument(
+                "the default character cannot be deleted".into(),
+            ));
+        }
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE character_profiles SET deleted_at = ?1, updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![now_ms(), id],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::NotFound {
+                resource: "character".into(),
+                id: id.into(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn create_conversation_for_character(
+        &self,
+        title: &str,
+        selection: Option<(&str, &str)>,
+        character_id: &str,
+    ) -> Result<Conversation> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let profile = get_character_from_connection(&transaction, character_id, false)?;
+        let (provider, model) = resolved_model(&profile, selection);
+        let conversation = Conversation::new(title, provider, model).with_character(
+            &profile.id,
+            profile.version,
+            profile.snapshot(),
+        );
+        let tags_json = serde_json::to_string(&conversation.character_snapshot.tags)?;
+        transaction.execute(
+            "INSERT INTO conversations
+             (id, title, provider, model, character_id, character_version,
+              character_name_snapshot, character_avatar_snapshot,
+              character_description_snapshot, character_prompt_snapshot,
+              character_opening_snapshot, character_tags_snapshot,
+              created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                conversation.id,
+                conversation.title,
+                conversation.provider,
+                conversation.model,
+                conversation.character_id,
+                conversation.character_version,
+                conversation.character_snapshot.name,
+                conversation.character_snapshot.avatar,
+                conversation.character_snapshot.description,
+                conversation.character_snapshot.system_prompt,
+                conversation.character_snapshot.opening_message,
+                tags_json,
+                conversation.created_at.timestamp_millis(),
+                conversation.updated_at.timestamp_millis(),
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(conversation)
+    }
+
+    pub fn preview_character_upgrade(
+        &self,
+        conversation_id: &str,
+    ) -> Result<CharacterUpgradePreview> {
+        let conversation = self.get_conversation(conversation_id)?;
+        let profile = self.get_character_profile(&conversation.character_id)?;
+        let (proposed_provider, proposed_model) = resolved_upgrade_model(&profile, &conversation);
+        let fields = changed_fields(&conversation, &profile, &proposed_provider, &proposed_model);
+        Ok(CharacterUpgradePreview {
+            conversation_id: conversation.id,
+            character_id: conversation.character_id,
+            from_version: conversation.character_version,
+            to_version: profile.version,
+            changed: conversation.character_version != profile.version || !fields.is_empty(),
+            changed_fields: fields,
+            current_snapshot: conversation.character_snapshot,
+            proposed_snapshot: profile.snapshot(),
+            current_provider: conversation.provider,
+            proposed_provider,
+            current_model: conversation.model,
+            proposed_model,
+        })
+    }
+
+    pub fn upgrade_conversation_character(
+        &self,
+        conversation_id: &str,
+        expected_version: i64,
+    ) -> Result<Conversation> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let mut conversation = transaction
+            .query_row(
+                &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
+                params![conversation_id],
+                conversation_from_row,
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                    resource: "conversation".into(),
+                    id: conversation_id.into(),
+                },
+                other => other.into(),
+            })?;
+        if conversation.character_version != expected_version {
+            return Err(EngineError::InvalidArgument(format!(
+                "conversation character version conflict: expected {expected_version}"
+            )));
+        }
+        let profile =
+            get_character_from_connection(&transaction, &conversation.character_id, false)?;
+        let (provider, model) = resolved_upgrade_model(&profile, &conversation);
+        let snapshot = profile.snapshot();
+        let tags_json = serde_json::to_string(&snapshot.tags)?;
+        let updated_at = now_ms();
+        let rows = transaction.execute(
+            "UPDATE conversations SET
+                provider = ?1, model = ?2, character_version = ?3,
+                character_name_snapshot = ?4, character_avatar_snapshot = ?5,
+                character_description_snapshot = ?6, character_prompt_snapshot = ?7,
+                character_opening_snapshot = ?8, character_tags_snapshot = ?9,
+                updated_at = ?10
+             WHERE id = ?11 AND character_version = ?12",
+            params![
+                provider,
+                model,
+                profile.version,
+                snapshot.name,
+                snapshot.avatar,
+                snapshot.description,
+                snapshot.system_prompt,
+                snapshot.opening_message,
+                tags_json,
+                updated_at,
+                conversation_id,
+                expected_version,
+            ],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::InvalidArgument(format!(
+                "conversation character version conflict: expected {expected_version}"
+            )));
+        }
+        transaction.commit()?;
+
+        conversation.provider = provider;
+        conversation.model = model;
+        conversation.character_version = profile.version;
+        conversation.character_snapshot = snapshot;
+        conversation.updated_at = super::ts_to_dt(updated_at);
+        Ok(conversation)
+    }
+}

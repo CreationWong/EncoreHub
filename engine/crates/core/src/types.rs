@@ -7,6 +7,95 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// ===== Character Profile =====
+
+pub const DEFAULT_CHARACTER_ID: &str = "default";
+pub const DEFAULT_CHARACTER_NAME: &str = "Default character";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharacterSnapshot {
+    pub name: String,
+    pub avatar: String,
+    pub description: String,
+    pub system_prompt: String,
+    pub opening_message: String,
+    pub tags: Vec<String>,
+}
+
+impl CharacterSnapshot {
+    pub fn default_character() -> Self {
+        Self {
+            name: DEFAULT_CHARACTER_NAME.into(),
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterProfile {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+    pub description: String,
+    pub system_prompt: String,
+    pub default_provider: String,
+    pub default_model: String,
+    pub opening_message: String,
+    pub tags: Vec<String>,
+    pub version: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl CharacterProfile {
+    pub fn new(name: impl Into<String>) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            avatar: String::new(),
+            description: String::new(),
+            system_prompt: String::new(),
+            default_provider: String::new(),
+            default_model: String::new(),
+            opening_message: String::new(),
+            tags: Vec::new(),
+            version: 1,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    pub fn snapshot(&self) -> CharacterSnapshot {
+        CharacterSnapshot {
+            name: self.name.clone(),
+            avatar: self.avatar.clone(),
+            description: self.description.clone(),
+            system_prompt: self.system_prompt.clone(),
+            opening_message: self.opening_message.clone(),
+            tags: self.tags.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterUpgradePreview {
+    pub conversation_id: String,
+    pub character_id: String,
+    pub from_version: i64,
+    pub to_version: i64,
+    pub changed: bool,
+    pub changed_fields: Vec<String>,
+    pub current_snapshot: CharacterSnapshot,
+    pub proposed_snapshot: CharacterSnapshot,
+    pub current_provider: String,
+    pub proposed_provider: String,
+    pub current_model: String,
+    pub proposed_model: String,
+}
+
 // ===== Conversation =====
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +104,9 @@ pub struct Conversation {
     pub title: String,
     pub provider: String,
     pub model: String,
+    pub character_id: String,
+    pub character_version: i64,
+    pub character_snapshot: CharacterSnapshot,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,9 +123,24 @@ impl Conversation {
             title: title.into(),
             provider: provider.into(),
             model: model.into(),
+            character_id: DEFAULT_CHARACTER_ID.into(),
+            character_version: 1,
+            character_snapshot: CharacterSnapshot::default_character(),
             created_at: now,
             updated_at: now,
         }
+    }
+
+    pub fn with_character(
+        mut self,
+        character_id: impl Into<String>,
+        character_version: i64,
+        character_snapshot: CharacterSnapshot,
+    ) -> Self {
+        self.character_id = character_id.into();
+        self.character_version = character_version;
+        self.character_snapshot = character_snapshot;
+        self
     }
 }
 

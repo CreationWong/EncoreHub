@@ -190,6 +190,74 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN duration_ms INTEGER;
     ALTER TABLE messages ADD COLUMN finish_reason TEXT;
     ",
+    // 010: Versioned character profiles and immutable conversation snapshots.
+    //
+    // Character rows are soft-deleted so historical conversations retain an
+    // auditable identity. The version table keeps every accepted profile
+    // revision, while conversations copy the prompt-bearing fields used when
+    // they were created or explicitly upgraded.
+    "
+    CREATE TABLE character_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        avatar TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        system_prompt TEXT NOT NULL DEFAULT '',
+        default_provider TEXT NOT NULL DEFAULT '',
+        default_model TEXT NOT NULL DEFAULT '',
+        opening_message TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER
+    );
+
+    CREATE UNIQUE INDEX idx_character_profiles_active_name
+        ON character_profiles(name COLLATE NOCASE)
+        WHERE deleted_at IS NULL;
+    CREATE INDEX idx_character_profiles_updated
+        ON character_profiles(deleted_at, updated_at DESC);
+
+    CREATE TABLE character_profile_versions (
+        character_id TEXT NOT NULL REFERENCES character_profiles(id),
+        version INTEGER NOT NULL CHECK(version >= 1),
+        name TEXT NOT NULL,
+        avatar TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        system_prompt TEXT NOT NULL DEFAULT '',
+        default_provider TEXT NOT NULL DEFAULT '',
+        default_model TEXT NOT NULL DEFAULT '',
+        opening_message TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(character_id, version)
+    );
+
+    INSERT INTO character_profiles
+        (id, name, default_provider, default_model, version, created_at, updated_at)
+    VALUES
+        ('default', 'Default character', 'openai', 'gpt-4o', 1,
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+    INSERT INTO character_profile_versions
+        (character_id, version, name, default_provider, default_model, created_at)
+    VALUES
+        ('default', 1, 'Default character', 'openai', 'gpt-4o',
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+    ALTER TABLE conversations ADD COLUMN character_id TEXT NOT NULL DEFAULT 'default';
+    ALTER TABLE conversations ADD COLUMN character_version INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE conversations ADD COLUMN character_name_snapshot TEXT NOT NULL DEFAULT 'Default character';
+    ALTER TABLE conversations ADD COLUMN character_avatar_snapshot TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN character_description_snapshot TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN character_prompt_snapshot TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN character_opening_snapshot TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN character_tags_snapshot TEXT NOT NULL DEFAULT '[]';
+    CREATE INDEX idx_conversations_character
+        ON conversations(character_id, character_version, updated_at DESC);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -216,21 +284,36 @@ pub fn run(conn: &Connection) -> Result<()> {
             continue;
         }
 
-        conn.execute_batch(sql)
-            .map_err(|e| EngineError::Migration(format!("migration v{version} failed: {e}")))?;
-
-        let now = chrono::Utc::now().timestamp_millis();
-        conn.execute(
-            "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
-            rusqlite::params![version, now],
-        )
-        .map_err(|e| {
-            EngineError::Migration(format!("failed to record migration v{version}: {e}"))
-        })?;
+        apply_migration(conn, version, sql)?;
 
         tracing::info!("Applied migration v{}", version);
     }
 
+    Ok(())
+}
+
+fn apply_migration(conn: &Connection, version: i64, sql: &str) -> Result<()> {
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|e| EngineError::Migration(format!("migration v{version} begin failed: {e}")))?;
+    if let Err(error) = conn.execute_batch(sql) {
+        let _ = conn.execute_batch("ROLLBACK;");
+        return Err(EngineError::Migration(format!(
+            "migration v{version} failed: {error}"
+        )));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Err(error) = conn.execute(
+        "INSERT INTO _migrations (version, applied_at) VALUES (?1, ?2)",
+        rusqlite::params![version, now],
+    ) {
+        let _ = conn.execute_batch("ROLLBACK;");
+        return Err(EngineError::Migration(format!(
+            "failed to record migration v{version}: {error}"
+        )));
+    }
+    conn.execute_batch("COMMIT;")
+        .map_err(|e| EngineError::Migration(format!("migration v{version} commit failed: {e}")))?;
     Ok(())
 }
 
@@ -293,6 +376,105 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
+    }
+
+    #[test]
+    fn character_migration_projects_legacy_conversations_to_default_snapshot() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+
+        for (index, sql) in MIGRATIONS.iter().take(9).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, applied_at) VALUES (?1, 1)",
+                [index as i64 + 1],
+            )
+            .unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO conversations
+             (id, title, provider, model, created_at, updated_at)
+             VALUES ('legacy-conversation', 'Legacy', 'anthropic', 'claude', 1, 1);",
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        let snapshot: (String, i64, String, String) = conn
+            .query_row(
+                "SELECT character_id, character_version,
+                        character_name_snapshot, character_prompt_snapshot
+                 FROM conversations WHERE id = 'legacy-conversation'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            snapshot,
+            (
+                "default".into(),
+                1,
+                "Default character".into(),
+                String::new()
+            )
+        );
+
+        let default_character: (String, i64) = conn
+            .query_row(
+                "SELECT name, version FROM character_profiles WHERE id = 'default'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(default_character, ("Default character".into(), 1));
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 10);
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_schema_and_version_record() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+
+        let result = apply_migration(
+            &conn,
+            99,
+            "CREATE TABLE rollback_probe (id INTEGER);
+             INSERT INTO missing_table VALUES (1);",
+        );
+        assert!(result.is_err());
+
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'rollback_probe'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE version = 99",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_count, 0);
+        assert_eq!(version_count, 0);
     }
 }

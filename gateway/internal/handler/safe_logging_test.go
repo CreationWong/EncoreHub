@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/encorehub/gateway/internal/engine"
 	"github.com/encorehub/gateway/internal/provider"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -51,6 +52,29 @@ func TestToolLoopLogOmitsChatPayload(t *testing.T) {
 			t.Fatalf("safe metadata %s missing from log: %s", field, output)
 		}
 	}
+}
+
+func TestCharacterSnapshotPromptLogOmitsCanary(t *testing.T) {
+	request := buildChatRequest(
+		&engine.ConversationDetail{
+			CharacterID:      "private-character",
+			CharacterVersion: 7,
+			CharacterSnapshot: engine.CharacterSnapshot{
+				Name:         "Private",
+				SystemPrompt: logCanary,
+			},
+		},
+		SendMessageRequest{Model: "test-model"},
+		promptContext{},
+		nil,
+		nil,
+	)
+
+	output := captureHandlerLogs(t, func() {
+		logToolLoopFollowup(request, 1)
+	})
+
+	assertLogOmitsCanary(t, output)
 }
 
 func TestExternalErrorLogOmitsErrorBody(t *testing.T) {

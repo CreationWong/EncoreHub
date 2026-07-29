@@ -373,6 +373,21 @@ describe("newConversation", () => {
 			model: "claude-sonnet-4",
 		});
 	});
+
+	it("binds a selected character when creating a conversation", async () => {
+		await useConversationStore.getState().newConversation({
+			provider: "anthropic",
+			model: "claude-sonnet-4",
+			characterId: "archivist",
+		});
+
+		expect(createConversationApi).toHaveBeenCalledWith(
+			"New Chat",
+			"anthropic",
+			"claude-sonnet-4",
+			"archivist",
+		);
+	});
 });
 
 describe("renameConversation", () => {

@@ -7,7 +7,8 @@ use axum::{
     Json,
 };
 use encorehub_core::{
-    Conversation, Memory, MemoryScope, MemoryType, Message, MessageStatus, Role, ToolCall,
+    CharacterSnapshot, CharacterUpgradePreview, Conversation, Memory, MemoryScope, MemoryType,
+    Message, MessageStatus, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,22 +18,17 @@ use serde::{Deserialize, Serialize};
 pub struct CreateConversationRequest {
     #[serde(default = "default_title")]
     pub title: String,
-    #[serde(default = "default_provider")]
+    #[serde(default)]
     pub provider: String,
-    #[serde(default = "default_model")]
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub character_id: Option<String>,
 }
 
 fn default_title() -> String {
     "New Chat".into()
 }
-fn default_provider() -> String {
-    "openai".into()
-}
-fn default_model() -> String {
-    "gpt-4o".into()
-}
-
 #[derive(Debug, Deserialize)]
 pub struct SendMessageRequest {
     pub content: String,
@@ -44,6 +40,9 @@ pub struct ConversationResponse {
     pub title: String,
     pub provider: String,
     pub model: String,
+    pub character_id: String,
+    pub character_version: i64,
+    pub character_snapshot: CharacterSnapshot,
     pub message_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -55,6 +54,9 @@ pub struct ConversationDetail {
     pub title: String,
     pub provider: String,
     pub model: String,
+    pub character_id: String,
+    pub character_version: i64,
+    pub character_snapshot: CharacterSnapshot,
     pub messages: Vec<MessageResponse>,
     pub summary: Option<String>,
     pub created_at: String,
@@ -111,21 +113,35 @@ pub async fn create(
     State(state): State<SharedState>,
     Json(req): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let conv = Conversation::new(&req.title, &req.provider, &req.model);
-    state
+    let provider = req.provider.trim();
+    let model = req.model.trim();
+    if provider.is_empty() != model.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "provider and model must be set together".into(),
+            }),
+        ));
+    }
+    let selection = if provider.is_empty() {
+        None
+    } else {
+        Some((provider, model))
+    };
+    let title = req.title.trim();
+    let title = if title.is_empty() { "New Chat" } else { title };
+    let character_id = req
+        .character_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(DEFAULT_CHARACTER_ID);
+    let conv = state
         .db
-        .create_conversation(&conv)
-        .map_err(internal_error)?;
+        .create_conversation_for_character(title, selection, character_id)
+        .map_err(domain_error)?;
 
-    Ok(Json(ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        provider: conv.provider,
-        model: conv.model,
-        message_count: 0,
-        created_at: conv.created_at.to_rfc3339(),
-        updated_at: conv.updated_at.to_rfc3339(),
-    }))
+    Ok(Json(build_conversation_response(conv, 0)))
 }
 
 pub async fn list(
@@ -146,15 +162,7 @@ pub async fn list(
                 .get_messages(&c.id)
                 .map(|msgs| msgs.len())
                 .unwrap_or(0);
-            ConversationResponse {
-                id: c.id,
-                title: c.title,
-                provider: c.provider,
-                model: c.model,
-                message_count: count,
-                created_at: c.created_at.to_rfc3339(),
-                updated_at: c.updated_at.to_rfc3339(),
-            }
+            build_conversation_response(c, count)
         })
         .collect();
 
@@ -216,6 +224,9 @@ pub async fn get_one(
         title: conv.title,
         provider: conv.provider,
         model: conv.model,
+        character_id: conv.character_id,
+        character_version: conv.character_version,
+        character_snapshot: conv.character_snapshot,
         messages: message_responses,
         summary,
         created_at: conv.created_at.to_rfc3339(),
@@ -293,15 +304,51 @@ pub async fn update(
             .map_err(internal_error)?;
     }
     let conv = state.db.get_conversation(&id).map_err(not_found)?;
-    Ok(Json(ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        provider: conv.provider,
-        model: conv.model,
-        message_count: 0,
-        created_at: conv.created_at.to_rfc3339(),
-        updated_at: conv.updated_at.to_rfc3339(),
-    }))
+    Ok(Json(build_conversation_response(conv, 0)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpgradeCharacterRequest {
+    pub expected_character_version: i64,
+}
+
+pub async fn preview_character_upgrade(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<Json<CharacterUpgradePreview>, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .db
+        .preview_character_upgrade(&id)
+        .map(Json)
+        .map_err(domain_error)
+}
+
+pub async fn upgrade_character(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpgradeCharacterRequest>,
+) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if request.expected_character_version < 1 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "expected_character_version must be positive".into(),
+            }),
+        ));
+    }
+    let conversation = state
+        .db
+        .upgrade_conversation_character(&id, request.expected_character_version)
+        .map_err(domain_error)?;
+    let message_count = state
+        .db
+        .get_messages(&id)
+        .map(|messages| messages.len())
+        .unwrap_or(0);
+    Ok(Json(build_conversation_response(
+        conversation,
+        message_count,
+    )))
 }
 
 /// Update conversation title specifically for tool-based updates.
@@ -339,15 +386,7 @@ pub async fn update_title(
         .update_conversation_title(&id, title)
         .map_err(internal_error)?;
     let conv = state.db.get_conversation(&id).map_err(not_found)?;
-    Ok(Json(ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        provider: conv.provider,
-        model: conv.model,
-        message_count: 0,
-        created_at: conv.created_at.to_rfc3339(),
-        updated_at: conv.updated_at.to_rfc3339(),
-    }))
+    Ok(Json(build_conversation_response(conv, 0)))
 }
 
 pub async fn get_messages(
@@ -794,6 +833,24 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
     }
 }
 
+fn build_conversation_response(
+    conversation: Conversation,
+    message_count: usize,
+) -> ConversationResponse {
+    ConversationResponse {
+        id: conversation.id,
+        title: conversation.title,
+        provider: conversation.provider,
+        model: conversation.model,
+        character_id: conversation.character_id,
+        character_version: conversation.character_version,
+        character_snapshot: conversation.character_snapshot,
+        message_count,
+        created_at: conversation.created_at.to_rfc3339(),
+        updated_at: conversation.updated_at.to_rfc3339(),
+    }
+}
+
 // ===== Error helpers =====
 
 fn not_found(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResponse>) {
@@ -810,6 +867,25 @@ fn internal_error(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResp
     tracing::error!("Internal error: {}", e);
     (
         StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            error: e.to_string(),
+        }),
+    )
+}
+
+fn domain_error(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match &e {
+        encorehub_core::EngineError::NotFound { .. } => StatusCode::NOT_FOUND,
+        encorehub_core::EngineError::AlreadyExists { .. }
+        | encorehub_core::EngineError::InvalidArgument(_) => StatusCode::CONFLICT,
+        encorehub_core::EngineError::Validation { .. } => StatusCode::BAD_REQUEST,
+        _ => {
+            tracing::error!(error_type = %std::any::type_name_of_val(&e), "conversation domain operation failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    };
+    (
+        status,
         Json(ErrorResponse {
             error: e.to_string(),
         }),

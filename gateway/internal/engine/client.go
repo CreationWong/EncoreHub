@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,27 +24,65 @@ type Client struct {
 	httpClient        *http.Client
 }
 
+// HTTPError preserves the Engine status for Gateway policy without requiring
+// handlers to parse error strings or expose the Engine response body.
+type HTTPError struct {
+	StatusCode int
+	body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("engine error %d: %s", e.StatusCode, e.body)
+}
+
+// ErrorStatus returns an Engine HTTP status or zero for transport/local errors.
+func ErrorStatus(err error) int {
+	var httpError *HTTPError
+	if errors.As(err, &httpError) {
+		return httpError.StatusCode
+	}
+	return 0
+}
+
 // Conversation represents a conversation from the engine.
 type Conversation struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	MessageCount int    `json:"message_count"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	ID                string            `json:"id"`
+	Title             string            `json:"title"`
+	Provider          string            `json:"provider"`
+	Model             string            `json:"model"`
+	CharacterID       string            `json:"character_id"`
+	CharacterVersion  int64             `json:"character_version"`
+	CharacterSnapshot CharacterSnapshot `json:"character_snapshot"`
+	MessageCount      int               `json:"message_count"`
+	CreatedAt         string            `json:"created_at"`
+	UpdatedAt         string            `json:"updated_at"`
+}
+
+// CharacterSnapshot is the immutable character content attached to a
+// conversation. Gateway chat composition must never replace it with the
+// character's latest mutable profile.
+type CharacterSnapshot struct {
+	Name           string   `json:"name"`
+	Avatar         string   `json:"avatar"`
+	Description    string   `json:"description"`
+	SystemPrompt   string   `json:"system_prompt"`
+	OpeningMessage string   `json:"opening_message"`
+	Tags           []string `json:"tags"`
 }
 
 // ConversationDetail includes messages.
 type ConversationDetail struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Provider  string    `json:"provider"`
-	Model     string    `json:"model"`
-	Messages  []Message `json:"messages"`
-	Summary   *string   `json:"summary"`
-	CreatedAt string    `json:"created_at"`
-	UpdatedAt string    `json:"updated_at"`
+	ID                string            `json:"id"`
+	Title             string            `json:"title"`
+	Provider          string            `json:"provider"`
+	Model             string            `json:"model"`
+	CharacterID       string            `json:"character_id"`
+	CharacterVersion  int64             `json:"character_version"`
+	CharacterSnapshot CharacterSnapshot `json:"character_snapshot"`
+	Messages          []Message         `json:"messages"`
+	Summary           *string           `json:"summary"`
+	CreatedAt         string            `json:"created_at"`
+	UpdatedAt         string            `json:"updated_at"`
 }
 
 // Message represents a single message.
@@ -97,11 +136,17 @@ func NewClient(baseURL, internalAuthToken string) *Client {
 }
 
 // CreateConversation creates a new conversation in the engine.
-func (c *Client) CreateConversation(ctx context.Context, title, provider, model string) (*Conversation, error) {
-	body := map[string]string{
-		"title":    title,
-		"provider": provider,
-		"model":    model,
+func (c *Client) CreateConversation(ctx context.Context, title, provider, model, characterID string) (*Conversation, error) {
+	body := struct {
+		Title       string `json:"title"`
+		Provider    string `json:"provider,omitempty"`
+		Model       string `json:"model,omitempty"`
+		CharacterID string `json:"character_id,omitempty"`
+	}{
+		Title:       title,
+		Provider:    provider,
+		Model:       model,
+		CharacterID: characterID,
 	}
 	var conv Conversation
 	if err := c.doJSON(ctx, "POST", "/api/conversations", body, &conv); err != nil {
@@ -449,7 +494,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interf
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("engine error %d: %s", resp.StatusCode, string(bodyBytes))
+		return &HTTPError{StatusCode: resp.StatusCode, body: string(bodyBytes)}
 	}
 
 	if respBody != nil && resp.StatusCode != 204 {
