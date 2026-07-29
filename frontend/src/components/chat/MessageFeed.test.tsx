@@ -8,10 +8,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamToolCall } from "../../services/chat";
-import type { Message } from "../../services/conversation";
+import type { Conversation, Message } from "../../services/conversation";
 
 let feedState: {
 	activeId: string | null;
+	conversations: Conversation[];
 	messages: Message[];
 	streaming: boolean;
 	streamingContent: string;
@@ -87,6 +88,7 @@ beforeEach(() => {
 	});
 	feedState = {
 		activeId: "c1",
+		conversations: [],
 		messages: [],
 		streaming: false,
 		streamingContent: "",
@@ -98,6 +100,37 @@ beforeEach(() => {
 			feedState.scrollPositions[id] = scrollTop;
 		}),
 	};
+});
+
+describe("MessageFeed character opening", () => {
+	it("shows the saved opening message and snapshot identity before the first turn", () => {
+		feedState.conversations = [
+			{
+				id: "c1",
+				title: "New Chat",
+				provider: "openai",
+				model: "gpt-4.1",
+				character_id: "archivist",
+				character_version: 2,
+				character_snapshot: {
+					name: "Saved archivist",
+					avatar: "",
+					description: "",
+					system_prompt: "",
+					opening_message: "What should we inspect?",
+					tags: [],
+				},
+				message_count: 0,
+				created_at: "",
+				updated_at: "",
+			},
+		];
+		render(<MessageFeed />);
+
+		expect(screen.getByText("Saved archivist")).toBeDefined();
+		expect(screen.getByText("What should we inspect?")).toBeDefined();
+		expect(screen.queryByText("No messages yet.")).toBeNull();
+	});
 });
 
 afterEach(() => {

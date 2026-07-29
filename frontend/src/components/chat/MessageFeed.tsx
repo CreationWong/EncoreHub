@@ -9,6 +9,8 @@ import {
 import type { MutableRefObject } from "react";
 import type { Message } from "../../services/conversation";
 import { useConversationStore } from "../../stores/conversationStore";
+import AnswerBody from "./AnswerBody";
+import AssistantIdentity from "./AssistantIdentity";
 import MessageBubble from "./MessageBubble";
 
 const FOLLOW_THRESHOLD_PX = 96;
@@ -46,6 +48,9 @@ function cancelFrame(frameRef: MutableRefObject<number | null>) {
 export default function MessageFeed() {
 	const activeId = useConversationStore((state) => state.activeId);
 	const messages = useConversationStore((state) => state.messages);
+	const conversation = useConversationStore((state) =>
+		state.conversations?.find((item) => item.id === state.activeId),
+	);
 	const streaming = useConversationStore((state) => state.streaming);
 	const streamingContent = useConversationStore(
 		(state) => state.streamingContent,
@@ -76,6 +81,8 @@ export default function MessageFeed() {
 	const streamingTokenEstimate = estimateStreamingTokens(
 		streamingContent + streamingReasoning,
 	);
+	const openingMessage =
+		conversation?.character_snapshot?.opening_message?.trim();
 
 	const writeScrollPosition = useCallback(
 		(scrollTop: number) => {
@@ -189,7 +196,17 @@ export default function MessageFeed() {
 				className="app-message-feed-scroller h-full overflow-y-auto overscroll-contain"
 			>
 				<div className="mx-auto w-full max-w-[1080px]">
-					{messages.length === 0 && !streaming && (
+					{messages.length === 0 && !streaming && openingMessage && (
+						<article
+							aria-label="Character opening message"
+							className="app-message app-message-assistant px-4 py-5"
+						>
+							<AssistantIdentity />
+							<AnswerBody content={openingMessage} />
+						</article>
+					)}
+
+					{messages.length === 0 && !streaming && !openingMessage && (
 						<div className="flex items-center justify-center py-24">
 							<p className="text-sm text-text-muted">No messages yet.</p>
 						</div>

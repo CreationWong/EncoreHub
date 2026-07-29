@@ -7,10 +7,14 @@ import {
 	Plus,
 	Settings,
 	Sun,
+	UsersRound,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCustomTitlebar } from "../../hooks/useCustomTitlebar";
+import { DEFAULT_CHARACTER_ID } from "../../services/characters";
 import { toggleCurrentWindowMaximize } from "../../services/windowControls";
+import { useCharacterManagerStore } from "../../stores/characterManagerStore";
+import { useCharacterStore } from "../../stores/characterStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { type Theme, useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
@@ -36,6 +40,13 @@ export default function GlobalNav() {
 	const newConversation = useConversationStore(
 		(state) => state.newConversation,
 	);
+	const activeId = useConversationStore((state) => state.activeId);
+	const conversations = useConversationStore((state) => state.conversations);
+	const charactersLoaded = useCharacterStore((state) => state.loaded);
+	const characters = useCharacterStore((state) => state.characters);
+	const openCharacter = useCharacterManagerStore(
+		(state) => state.openCharacter,
+	);
 	const theme = useSettingsStore((state) => state.theme);
 	const setTheme = useSettingsStore((state) => state.setTheme);
 	const openSettings = useSettingsStore((state) => state.openSettings);
@@ -45,6 +56,9 @@ export default function GlobalNav() {
 	const appearanceButtonRef = useRef<HTMLButtonElement>(null);
 	const themeOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const ThemeIcon = currentThemeIcon(theme);
+	const activeCharacterId =
+		conversations.find((conversation) => conversation.id === activeId)
+			?.character_id ?? DEFAULT_CHARACTER_ID;
 	const windowsTitleBar = useCustomTitlebar();
 	const toggleTitlebarMaximize = () => {
 		if (!windowsTitleBar) return;
@@ -108,6 +122,20 @@ export default function GlobalNav() {
 					<Home className="h-4 w-4" />
 					<span className="max-[679px]:hidden">Home</span>
 				</button>
+				{charactersLoaded && characters.length > 0 && (
+					<button
+						type="button"
+						onClick={() => {
+							closeSettings();
+							openCharacter(activeCharacterId);
+						}}
+						title="Manage characters"
+						className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-control hover:text-text-primary max-[760px]:h-8 max-[760px]:w-8 max-[760px]:justify-center max-[760px]:px-0"
+					>
+						<UsersRound className="h-4 w-4" />
+						<span className="max-[760px]:hidden">Characters</span>
+					</button>
+				)}
 				<button
 					type="button"
 					onClick={() => void newConversation()}

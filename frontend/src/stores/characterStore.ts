@@ -22,6 +22,7 @@ interface CharacterState {
 		changes: CharacterProfileChanges,
 	) => Promise<CharacterProfile>;
 	remove: (id: string) => Promise<void>;
+	clearError: () => void;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -100,4 +101,6 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
 			throw error;
 		}
 	},
+
+	clearError: () => set({ error: null }),
 }));

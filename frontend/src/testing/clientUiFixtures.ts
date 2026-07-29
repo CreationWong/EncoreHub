@@ -1,3 +1,4 @@
+import type { CharacterProfile } from "../services/characters";
 import type { StreamToolCall } from "../services/chat";
 import type { Conversation, Message } from "../services/conversation";
 import type { ProviderProfile } from "../services/providers";
@@ -51,6 +52,40 @@ export interface ClientUiScenario {
 
 const CREATED_AT = "2026-07-24T08:00:00.000Z";
 const UPDATED_AT = "2026-07-24T09:30:00.000Z";
+
+export const CLIENT_UI_BASELINE_CHARACTERS: CharacterProfile[] = [
+	{
+		id: "default",
+		name: "Default character",
+		avatar: "",
+		description: "",
+		system_prompt: "",
+		default_provider: "",
+		default_model: "",
+		opening_message: "",
+		tags: [],
+		version: 1,
+		created_at: CREATED_AT,
+		updated_at: UPDATED_AT,
+		deleted_at: null,
+	},
+	{
+		id: "research-archivist",
+		name: "跨平台发布研究档案管理员",
+		avatar: "",
+		description: "Verifies release claims against repository evidence.",
+		system_prompt:
+			"Use primary repository evidence. Separate verified facts from assumptions and cite the relevant file or command result.",
+		default_provider: "openai",
+		default_model: "gpt-4.1",
+		opening_message: "What release claim should we verify?",
+		tags: ["research", "release"],
+		version: 2,
+		created_at: CREATED_AT,
+		updated_at: UPDATED_AT,
+		deleted_at: null,
+	},
+];
 
 export const CLIENT_UI_BASELINE_PROVIDERS: ProviderProfile[] = [
 	{
@@ -165,6 +200,16 @@ export const CLIENT_UI_BASELINE_CONVERSATIONS: Conversation[] = [
 		title: "Tool execution",
 		provider: "openai",
 		model: "gpt-4.1",
+		character_id: "research-archivist",
+		character_version: 1,
+		character_snapshot: {
+			name: "Release archivist",
+			avatar: "",
+			description: "Checks release evidence.",
+			system_prompt: "Use repository evidence.",
+			opening_message: "What should we verify?",
+			tags: ["release"],
+		},
 		message_count: 2,
 		created_at: "2026-07-20T07:00:00.000Z",
 		updated_at: "2026-07-20T09:00:00.000Z",

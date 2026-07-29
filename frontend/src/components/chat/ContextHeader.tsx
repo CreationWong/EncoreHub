@@ -8,14 +8,16 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { DEFAULT_CHARACTER_ID } from "../../services/characters";
 import type { Conversation } from "../../services/conversation";
+import { useCharacterManagerStore } from "../../stores/characterManagerStore";
+import { useCharacterStore } from "../../stores/characterStore";
 import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import {
-	DEFAULT_CHARACTER_NAME,
-	DefaultCharacterAvatar,
-} from "../character/DefaultCharacter";
+import CharacterAvatar from "../character/CharacterAvatar";
+import CharacterUpgradeDialog from "../character/CharacterUpgradeDialog";
+import { DEFAULT_CHARACTER_NAME } from "../character/DefaultCharacter";
 import ProviderSwitcher from "./ProviderSwitcher";
 
 function ConversationActions({
@@ -157,11 +159,24 @@ function ConversationActions({
 export default function ContextHeader() {
 	const activeId = useConversationStore((state) => state.activeId);
 	const conversations = useConversationStore((state) => state.conversations);
+	const characters = useCharacterStore((state) => state.characters);
+	const openCharacter = useCharacterManagerStore(
+		(state) => state.openCharacter,
+	);
 	const loading = useConversationStore((state) => state.loading);
 	const streaming = useConversationStore((state) => state.streaming);
 	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
 	const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
 	const conversation = conversations.find((item) => item.id === activeId);
+	const characterId = conversation?.character_id ?? DEFAULT_CHARACTER_ID;
+	const latestCharacter = characters.find((item) => item.id === characterId);
+	const characterSnapshot = conversation?.character_snapshot;
+	const characterName =
+		(characterSnapshot ? characterSnapshot.name : latestCharacter?.name) ||
+		DEFAULT_CHARACTER_NAME;
+	const characterAvatar = characterSnapshot
+		? characterSnapshot.avatar
+		: (latestCharacter?.avatar ?? "");
 	const title =
 		conversation?.title ?? (activeId ? "Conversation" : "New conversation");
 	const status = loading
@@ -189,16 +204,23 @@ export default function ContextHeader() {
 				)}
 			</button>
 
-			<div
-				aria-label={`Current character: ${DEFAULT_CHARACTER_NAME}`}
-				className="flex min-w-24 max-w-40 flex-[0_3_auto] items-center gap-2 px-1"
-				title={DEFAULT_CHARACTER_NAME}
+			<button
+				type="button"
+				onClick={() => latestCharacter && openCharacter(latestCharacter.id)}
+				disabled={!latestCharacter}
+				aria-label={`Current character: ${characterName}`}
+				className="flex min-w-24 max-w-40 flex-[0_3_auto] items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-control disabled:pointer-events-none"
+				title={characterName}
 			>
-				<DefaultCharacterAvatar />
+				<CharacterAvatar
+					avatar={characterAvatar}
+					characterId={characterId}
+					name={characterName}
+				/>
 				<span className="min-w-0 max-w-32 truncate text-sm font-medium text-text-primary">
-					{DEFAULT_CHARACTER_NAME}
+					{characterName}
 				</span>
-			</div>
+			</button>
 
 			<ChevronRight
 				aria-hidden="true"
@@ -211,6 +233,13 @@ export default function ContextHeader() {
 			>
 				{title}
 			</h1>
+
+			{conversation && latestCharacter && (
+				<CharacterUpgradeDialog
+					conversation={conversation}
+					latestVersion={latestCharacter.version}
+				/>
+			)}
 
 			{status && (
 				<output

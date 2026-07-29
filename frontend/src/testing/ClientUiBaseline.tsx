@@ -1,13 +1,18 @@
+import CharacterManager from "../components/character/CharacterManager";
 import ChatView from "../components/chat/ChatView";
 import GlobalNav from "../components/layout/GlobalNav";
 import SettingsModal from "../components/settings/SettingsModal";
 import Sidebar from "../components/sidebar/Sidebar";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ToastHost from "../components/ui/ToastHost";
+import { useCharacterManagerStore } from "../stores/characterManagerStore";
+import { useCharacterStore } from "../stores/characterStore";
 import { useConversationStore } from "../stores/conversationStore";
 import { useProviderStore } from "../stores/providerStore";
 import { useSecretsStore } from "../stores/secretsStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
+	CLIENT_UI_BASELINE_CHARACTERS,
 	CLIENT_UI_BASELINE_CONVERSATIONS,
 	CLIENT_UI_BASELINE_PROVIDERS,
 	type ClientUiBaselineOptions,
@@ -109,6 +114,9 @@ export function seedClientUiBaseline({
 		deleteConversation: async () => {},
 		renameConversation: async () => {},
 		updateConversationModel: async () => {},
+		upgradeConversationCharacter: async (id) =>
+			CLIENT_UI_BASELINE_CONVERSATIONS.find((item) => item.id === id) ??
+			CLIENT_UI_BASELINE_CONVERSATIONS[0],
 		sendMessage: async () => {},
 		stopStreaming: () => {
 			useConversationStore.setState({ streaming: false });
@@ -124,6 +132,66 @@ export function seedClientUiBaseline({
 			useConversationStore.setState({ error: null });
 		},
 		generateTitle: async () => {},
+	});
+
+	useCharacterStore.setState({
+		characters: CLIENT_UI_BASELINE_CHARACTERS.map((character) => ({
+			...character,
+			tags: [...character.tags],
+		})),
+		loading: false,
+		loaded: true,
+		error: null,
+		load: async () => {},
+		create: async (input) => {
+			const character = {
+				...CLIENT_UI_BASELINE_CHARACTERS[1],
+				...input,
+				id: "baseline-created",
+				avatar: input.avatar ?? "",
+				description: input.description ?? "",
+				system_prompt: input.system_prompt ?? "",
+				default_provider: input.default_provider ?? "",
+				default_model: input.default_model ?? "",
+				opening_message: input.opening_message ?? "",
+				tags: input.tags ?? [],
+				version: 1,
+			};
+			useCharacterStore.setState((state) => ({
+				characters: [...state.characters, character],
+			}));
+			return character;
+		},
+		update: async (id, changes) => {
+			const current = useCharacterStore
+				.getState()
+				.characters.find((item) => item.id === id);
+			if (!current) throw new Error("Character not found");
+			const updated = {
+				...current,
+				...changes,
+				version: current.version + 1,
+				updated_at: new Date().toISOString(),
+			};
+			useCharacterStore.setState((state) => ({
+				characters: state.characters.map((item) =>
+					item.id === id ? updated : item,
+				),
+			}));
+			return updated;
+		},
+		remove: async (id) => {
+			useCharacterStore.setState((state) => ({
+				characters: state.characters.filter((item) => item.id !== id),
+			}));
+		},
+		clearError: () => useCharacterStore.setState({ error: null }),
+	});
+
+	useCharacterManagerStore.setState({
+		open: false,
+		characterId: null,
+		creating: false,
 	});
 
 	return scenario;
@@ -142,6 +210,8 @@ export default function ClientUiBaseline() {
 				</div>
 			</div>
 			<SettingsModal />
+			<CharacterManager />
+			<ConfirmDialog />
 			<ToastHost />
 		</>
 	);

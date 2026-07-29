@@ -8,6 +8,8 @@ import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
 import { applyServicePorts, gatewayReadinessUrl } from "./services/config";
 import { devtools, inTauri } from "./services/devtools";
+import { useCharacterManagerStore } from "./stores/characterManagerStore";
+import { useCharacterStore } from "./stores/characterStore";
 import { useConversationStore } from "./stores/conversationStore";
 import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
@@ -19,14 +21,19 @@ type ServiceStatus = {
 };
 
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
+const CharacterManager = lazy(
+	() => import("./components/character/CharacterManager"),
+);
 
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
+	const loadCharacters = useCharacterStore((s) => s.load);
 	const loadProviders = useProviderStore((s) => s.load);
 	const refreshSecrets = useSecretsStore((s) => s.refresh);
 	const loadKeys = useSettingsStore((s) => s.loadKeys);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const settingsOpen = useSettingsStore((s) => s.settingsOpen);
+	const characterManagerOpen = useCharacterManagerStore((s) => s.open);
 	const devMode = useSettingsStore((s) => s.devMode);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
@@ -126,6 +133,7 @@ export default function App() {
 				setChecking(false);
 				if (gatewayOk) {
 					loadList();
+					loadCharacters();
 					loadProviders();
 					refreshSecrets();
 					loadKeys();
@@ -141,7 +149,14 @@ export default function App() {
 			cancelled = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [portsReady, loadList, loadProviders, refreshSecrets, loadKeys]);
+	}, [
+		portsReady,
+		loadList,
+		loadCharacters,
+		loadProviders,
+		refreshSecrets,
+		loadKeys,
+	]);
 
 	// Splash screen while waiting for backend
 	if (checking) {
@@ -194,6 +209,11 @@ export default function App() {
 			{settingsOpen && (
 				<Suspense fallback={null}>
 					<SettingsModal />
+				</Suspense>
+			)}
+			{characterManagerOpen && (
+				<Suspense fallback={null}>
+					<CharacterManager />
 				</Suspense>
 			)}
 			<UnlockGate />

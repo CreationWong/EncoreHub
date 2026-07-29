@@ -11,6 +11,11 @@ const newConversation = vi.fn();
 const setTheme = vi.fn();
 const openSettings = vi.fn();
 const closeSettings = vi.fn();
+const openCharacter = vi.fn();
+let characterState = {
+	loaded: false,
+	characters: [] as Array<{ id: string }>,
+};
 const titlebarMocks = vi.hoisted(() => ({
 	platform: "web" as "web" | "windows",
 	toggleMaximize: vi.fn(),
@@ -36,8 +41,28 @@ vi.mock("./WindowControls", () => ({
 
 vi.mock("../../stores/conversationStore", () => ({
 	useConversationStore: (
-		selector: (state: { newConversation: typeof newConversation }) => unknown,
-	) => selector({ newConversation }),
+		selector: (state: {
+			newConversation: typeof newConversation;
+			activeId: string;
+			conversations: Array<{ id: string; character_id: string }>;
+		}) => unknown,
+	) =>
+		selector({
+			newConversation,
+			activeId: "conversation-1",
+			conversations: [{ id: "conversation-1", character_id: "archivist" }],
+		}),
+}));
+
+vi.mock("../../stores/characterStore", () => ({
+	useCharacterStore: (selector: (state: typeof characterState) => unknown) =>
+		selector(characterState),
+}));
+
+vi.mock("../../stores/characterManagerStore", () => ({
+	useCharacterManagerStore: (
+		selector: (state: { openCharacter: typeof openCharacter }) => unknown,
+	) => selector({ openCharacter }),
 }));
 
 vi.mock("../../stores/settingsStore", () => ({
@@ -66,8 +91,19 @@ describe("GlobalNav", () => {
 		setTheme.mockReset();
 		openSettings.mockReset();
 		closeSettings.mockReset();
+		openCharacter.mockReset();
+		characterState = { loaded: false, characters: [] };
 		titlebarMocks.platform = "web";
 		titlebarMocks.toggleMaximize.mockReset().mockResolvedValue(undefined);
+	});
+
+	it("shows character management only after profiles are available", () => {
+		characterState = { loaded: true, characters: [{ id: "archivist" }] };
+		render(<GlobalNav />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Characters" }));
+		expect(closeSettings).toHaveBeenCalled();
+		expect(openCharacter).toHaveBeenCalledWith("archivist");
 	});
 
 	afterEach(cleanup);

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { upgradeConversationCharacter as upgradeCharacterSnapshot } from "../services/characters";
 import {
 	type DeepThinkingRequest,
 	type StreamDonePayload,
@@ -45,8 +46,8 @@ interface ConvCacheEntry {
 }
 
 export interface NewConversationSelection {
-	provider: string;
-	model: string;
+	provider?: string;
+	model?: string;
 	characterId?: string;
 }
 
@@ -200,6 +201,10 @@ interface ConversationState {
 		provider: string,
 		model: string,
 	) => Promise<void>;
+	upgradeConversationCharacter: (
+		id: string,
+		expectedVersion: number,
+	) => Promise<Conversation>;
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
@@ -529,6 +534,26 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				error: "Failed to update conversation model",
 			}));
 			toast.error("Failed to update conversation model");
+		}
+	},
+
+	upgradeConversationCharacter: async (id, expectedVersion) => {
+		try {
+			const updated = await upgradeCharacterSnapshot<Conversation>(
+				id,
+				expectedVersion,
+			);
+			set((state) => ({
+				conversations: state.conversations.map((conversation) =>
+					conversation.id === id ? updated : conversation,
+				),
+				error: null,
+			}));
+			return updated;
+		} catch (error) {
+			logStoreError("Conversation character upgrade failed", error);
+			set({ error: "Failed to upgrade the conversation character" });
+			throw error;
 		}
 	},
 

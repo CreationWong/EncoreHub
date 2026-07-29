@@ -109,7 +109,7 @@ flowchart LR
 | CUI-08 | Engine + Gateway + Frontend | UG2 | usage 拆分、生成耗时、结束原因持久化与展示 | `Done`（本地自动化与兼容性验收） |
 | CUI-09 | Frontend + Tauri | UG2 | 响应式侧栏、低高度模式、Windows 窗口控制 | `Done`（本地自动化、视觉与 Windows debug smoke） |
 | CUI-10 | Engine + Gateway + Frontend contracts | UG3 + UG4 | CharacterProfile、版本、快照、prompt composition | `Done`（本地跨栈自动化与契约验收） |
-| CUI-11 | Frontend character UI | CUI-10 | 角色创建、编辑、复制、删除与对话版本升级 | `Not started` |
+| CUI-11 | Frontend character UI | CUI-10 | 角色创建、编辑、复制、删除与对话版本升级 | `Done`（本地自动化与视觉验收） |
 | CUI-12 | Engine/domain adapter + Frontend | CUI-11 | JSON/PNG 角色卡导入导出、预览、冲突处理 | `Not started` |
 
 ## 4. UI 迭代 A：主聊天界面
@@ -380,7 +380,7 @@ CUI-04A 已完成；下一项为 CUI-05 Composer、草稿与滚动控制。UG2 �
 - 应用内 Browser 实测 680x480 下 Slash/搜索菜单、220px textarea、字符状态和回到最新按钮无重叠；用户上滚约 420px 后跟随暂停，点击按钮恢复到底部。`docs/ui-baseline/2026-07-25-cui-05/` 生成 17 张亮暗、多视口和 streaming/failed/stopped/tool-call 图片及 manifest，全部保持 Git 忽略。
 - Frontend 29 个测试文件/218 项测试、类型检查、lint、production build 和文档契约通过；初始 JavaScript gzip 为 119.21 KiB / 300 KiB。
 
-CUI-05 至 CUI-10 与 UG2、UG3 已完成；当前下一项为 CUI-11 角色管理界面。
+CUI-05 至 CUI-11 与 UG2、UG3 已完成；当前下一项为 CUI-12 角色卡兼容适配。
 
 ## 5. 配置迭代 B：供应商与回复遥测
 
@@ -521,7 +521,7 @@ CUI-05 至 CUI-10 与 UG2、UG3 已完成；当前下一项为 CUI-11 角色管�
 - Gateway 可执行文件和 Tauri sidecar 在 Windows、macOS、Linux 统一命名为 `encorehub-gateway[.exe]`，目标 sidecar 保持 Tauri 的 `<name>-<target>[.exe]` 解析约定。
 - 验证通过：Frontend 36 files / 265 tests、Gateway 全量 tests + vet、Engine workspace 与 standalone tests + clippy、Tauri 22 tests + clippy、17 项 workspace/docs contracts；Frontend 初始 JavaScript gzip 为 121.93 KiB，低于 300 KiB 预算。
 
-CUI-08 至 CUI-10 已完成；当前下一项为 CUI-11 角色管理界面。
+CUI-08 至 CUI-11 已完成；当前下一项为 CUI-12 角色卡兼容适配。
 
 ## 6. 桌面迭代 C：响应式与标题栏
 
@@ -573,7 +573,7 @@ CUI-08 至 CUI-10 已完成；当前下一项为 CUI-11 角色管理界面。
 - 亮暗主题的 `1600x1120`、`1200x800`、`900x700`、`680x480` 矩阵及 680px Settings/侧栏关闭状态均完成视觉验收；截图只写入临时目录，未加入 Git。
 - 验证通过：Frontend 40 个测试文件/298 项测试、TypeScript、受影响文件 Biome、production build 和 300 KiB bundle budget；Tauri 23 项测试、fmt、clippy 与 Windows debug build 通过，初始 JavaScript gzip 为 123.93 KiB。
 
-CUI-09 与后续 CUI-10 已完成；下一项为 CUI-11 角色管理界面。Windows 发布包及 macOS/Linux 安装 smoke 仍属于发布声明前置条件。
+CUI-09 至 CUI-11 已完成；下一项为 CUI-12 角色卡兼容适配。Windows 发布包及 macOS/Linux 安装 smoke 仍属于发布声明前置条件。
 
 ## 7. 角色迭代 D：角色与角色卡
 
@@ -620,27 +620,38 @@ CUI-09 与后续 CUI-10 已完成；下一项为 CUI-11 角色管理界面。Win
 - ADR-0005 固定角色权威、历史快照与 prompt 信任顺序；`docs/openapi.json` 已覆盖角色 CRUD、Conversation 快照和显式升级。CUI-10 是无新增可见页面的契约工作项，因此不生成或提交视觉验证图片。
 - 验证通过：Engine workspace tests、standalone all-target tests、fmt 与两组 clippy；Gateway 全量 tests 与 vet；Frontend 42 个测试文件/305 项测试、TypeScript、受影响文件 Biome、3 项 bundle tests 和 production build；18 项 workspace/docs contracts。初始 JavaScript gzip 为 123.96 KiB / 300 KiB。
 
-CUI-10 实现已完成；下一项为 CUI-11 角色管理界面。CUI-12 继续依赖 CUI-11，不提前在页面组件解析 Tavern/SillyTavern 数据。
+CUI-10 与 CUI-11 已完成；下一项为 CUI-12 角色卡兼容适配。CUI-12 继续遵守领域适配边界，不在页面组件解析 Tavern/SillyTavern 数据。
 
-### CUI-11 实现角色管理界面
+### CUI-11 实现角色管理界面（Done）
 
 **目标**：角色 tab 从默认投影升级为完整的创建、选择和版本管理入口。
 
 **任务**
 
-- [ ] 接通“添加角色”，提供名称、头像、描述、开场白、默认模型和大尺寸全局提示词编辑器。
-- [ ] 提供保存、复制配置、删除和测试对话；默认角色不可删除。
-- [ ] 显示提示词 token 估算与变量帮助，估算值不得冒充 provider usage。
-- [ ] 角色选择打开最近对话或空白新对话；新对话继承角色默认配置。
-- [ ] 角色版本变化时，旧对话显示当前快照与可选升级预览，不自动更新。
-- [ ] CharacterProfile 可用后才在顶部导航显示完整“角色”管理入口。
-- [ ] 补空、加载、错误、名称冲突、模型不可用和超长提示词状态。
+- [x] 接通“添加角色”，提供名称、头像、描述、开场白、默认模型和大尺寸全局提示词编辑器。
+- [x] 提供保存、复制配置、删除和测试对话；默认角色不可删除。
+- [x] 显示提示词 token 估算与变量帮助，估算值不得冒充 provider usage。
+- [x] 角色选择打开最近对话或空白新对话；新对话继承角色默认配置。
+- [x] 角色版本变化时，旧对话显示当前快照与可选升级预览，不自动更新。
+- [x] CharacterProfile 可用后才在顶部导航显示完整“角色”管理入口。
+- [x] 补空、加载、错误、名称冲突、模型不可用和超长提示词状态。
 
 **完成定义**
 
 - 创建角色后可以发起真实对话，Gateway 收到正确 prompt 快照。
 - 修改角色不会改变既有对话；显式升级后版本和快照同步更新。
 - 全程键盘可操作，头像缺失和长 CJK 名称不会破坏布局。
+
+**完成记录（2026-07-29）**
+
+- 角色侧栏改为真实 `CharacterProfile` 列表，支持加载、空、错误和重试状态；选择角色会打开该角色最近对话，没有历史时按角色默认 provider/model 创建对话。顶部角色入口只在角色列表成功加载后显示。
+- 新增角色管理器，接通创建、编辑、保存、复制、删除和测试对话；覆盖名称、头像、描述、标签、开场白、默认模型和全局提示词。默认角色保持不可删除，取消与关闭会还原未保存状态，并对重复名称、字段长度、provider/model 配对、模型不可用及 HTTP 409 版本冲突给出明确状态。
+- 提示词计数明确标为本地 UTF-8 估算，不冒充 provider usage；变量帮助如实说明当前版本不会展开模板变量。缺失或加载失败的头像使用稳定图标/首字回退，默认角色继续使用 Bot 图标。
+- Conversation 标题栏、assistant 身份和空对话开场白统一读取不可变角色快照；角色更新只显示显式升级入口和字段差异预览，确认后才替换所选 Conversation 的快照。历史快照中的空头像不会回退到新版可变头像。
+- 角色管理器使用对话框内 Escape 与 Tab 焦点循环，关闭后恢复触发按钮焦点。`1200x800` 与 `680x480`、亮暗主题、既有/新建角色、长 CJK 名称、底栏换行和升级错误状态已在应用内 Browser 验收，控制台无 error/warning；截图只存在浏览器内存，未写入 Git 工作区。
+- 验证通过：Frontend 52 个测试文件/351 项测试、TypeScript、25 个受影响文件 Biome、3 项 bundle tests 和 production build；初始 JavaScript gzip 为 128.65 KiB / 300 KiB。全仓 Biome 仍报告 23 个本次未改文件的既存 CRLF formatter 诊断，CUI-11 未批量改写这些无关文件。
+
+CUI-11 实现已完成；下一项为 CUI-12 角色卡兼容适配。
 
 ### CUI-12 建立 Tavern/SillyTavern 角色卡适配器
 
@@ -806,7 +817,7 @@ git status --short
 
 ## 13. 第一批工作安排
 
-第一批已按顺序完成 CUI-00 至 CUI-10。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B、桌面迭代 C 与 CharacterProfile 领域链路也已完成。下一项 CUI-11 实现角色管理界面。
+第一批已按顺序完成 CUI-00 至 CUI-11。用户对 Image #1 的补充标注已完成上下文层级、assistant 角色身份、侧栏边界和工具记录纠正；配置迭代 B、桌面迭代 C、CharacterProfile 领域链路与角色管理界面也已完成。下一项 CUI-12 建立角色卡兼容适配器。
 
 建议首批提交顺序：
 
@@ -818,4 +829,4 @@ git status --short
 6. `refactor(frontend): layer chat messages and reply status`
 7. `fix(frontend): align conversation workspace details`
 
-UG1、UG2、UG3 已通过，CUI-06 至 CUI-10 已完成。当前下一项为 CUI-11 角色管理界面；Windows 发布包及 macOS/Linux 安装 smoke 继续作为平台发布声明的前置条件。
+UG1、UG2、UG3 已通过，CUI-06 至 CUI-11 已完成。当前下一项为 CUI-12 角色卡兼容适配；Windows 发布包及 macOS/Linux 安装 smoke 继续作为平台发布声明的前置条件。

@@ -23,6 +23,7 @@ const getConversationApi = vi.fn();
 const listConversationsApi = vi.fn();
 const createConversationApi = vi.fn();
 const updateConversationModelApi = vi.fn();
+const upgradeConversationCharacterApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: (...args: unknown[]) => listConversationsApi(...args),
 	createConversation: (...args: unknown[]) => createConversationApi(...args),
@@ -32,6 +33,10 @@ vi.mock("../services/conversation", () => ({
 	updateConversationModel: (...args: unknown[]) =>
 		updateConversationModelApi(...args),
 	generateTitle: (...args: unknown[]) => generateTitleApi(...args),
+}));
+vi.mock("../services/characters", () => ({
+	upgradeConversationCharacter: (...args: unknown[]) =>
+		upgradeConversationCharacterApi(...args),
 }));
 
 // Force module evaluation order: import store after the mocks above.
@@ -66,6 +71,7 @@ beforeEach(() => {
 	sendMessageStream.mockReset();
 	renameConversationApi.mockReset();
 	updateConversationModelApi.mockReset();
+	upgradeConversationCharacterApi.mockReset();
 	generateTitleApi.mockReset();
 	generateTitleApi.mockResolvedValue({
 		id: "c1",
@@ -476,6 +482,35 @@ describe("updateConversationModel", () => {
 		expect(useConversationStore.getState().error).toBe(
 			"Failed to update conversation model",
 		);
+	});
+});
+
+describe("upgradeConversationCharacter", () => {
+	it("adopts the explicitly upgraded snapshot without touching other conversations", async () => {
+		seedConversation("c1");
+		seedConversation("c2");
+		upgradeConversationCharacterApi.mockResolvedValueOnce({
+			...useConversationStore.getState().conversations[0],
+			character_id: "archivist",
+			character_version: 3,
+			character_snapshot: {
+				name: "Archivist",
+				avatar: "",
+				description: "Latest",
+				system_prompt: "Use sources",
+				opening_message: "",
+				tags: [],
+			},
+		});
+
+		await useConversationStore.getState().upgradeConversationCharacter("c1", 2);
+
+		expect(upgradeConversationCharacterApi).toHaveBeenCalledWith("c1", 2);
+		expect(useConversationStore.getState().conversations[0]).toMatchObject({
+			character_id: "archivist",
+			character_version: 3,
+		});
+		expect(useConversationStore.getState().conversations[1].id).toBe("c2");
 	});
 });
 
