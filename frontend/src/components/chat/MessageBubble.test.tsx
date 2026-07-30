@@ -53,6 +53,26 @@ describe("MessageBubble user presentation", () => {
 		expect(container.querySelector(".max-w-\\[72\\%\\]")).not.toBeNull();
 		expect(screen.queryByText("User")).toBeNull();
 	});
+
+	it("edits a user turn in place and keeps cancellation local", () => {
+		const cancel = vi.fn();
+		const submit = vi.fn();
+		render(
+			<MessageBubble
+				message={msg({ role: "user", content: "original question" })}
+				editing
+				onEditCancel={cancel}
+				onEditSubmit={submit}
+			/>,
+		);
+
+		const editor = screen.getByRole("textbox", { name: "Edit user message" });
+		expect((editor as HTMLTextAreaElement).value).toBe("original question");
+		fireEvent.change(editor, { target: { value: "revised question" } });
+		fireEvent.click(screen.getByRole("button", { name: "Cancel editing" }));
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(submit).not.toHaveBeenCalled();
+	});
 });
 
 describe("MessageBubble assistant document flow", () => {
@@ -139,6 +159,10 @@ describe("MessageBubble reasoning", () => {
 		);
 
 		const toggle = screen.getByRole("button", { name: "Processed" });
+		expect(toggle.className).not.toContain("w-full");
+		expect(
+			toggle.querySelector("svg:last-child")?.getAttribute("class"),
+		).not.toContain("ml-auto");
 		expect(toggle.getAttribute("aria-expanded")).toBe("false");
 		expect(screen.queryByText(/first I considered X/)).toBeNull();
 		expect(screen.queryByText(/\d+s/)).toBeNull();

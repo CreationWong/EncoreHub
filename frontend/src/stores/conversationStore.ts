@@ -182,7 +182,7 @@ interface ConversationState {
 	error: string | null;
 	abortController: AbortController | null;
 	pendingDraft: string | null;
-	pendingDraftReplace: boolean;
+	editingMessageId: string | null;
 	drafts: Record<string, string>;
 	scrollPositions: Record<string, number>;
 
@@ -197,7 +197,9 @@ interface ConversationState {
 	newConversation: (selection?: NewConversationSelection) => Promise<string>;
 	deleteConversation: (id: string) => Promise<void>;
 	deleteMessage: (id: string) => Promise<void>;
-	editMessage: (id: string) => Promise<void>;
+	startEditingMessage: (id: string) => void;
+	cancelEditingMessage: () => void;
+	submitEditedMessage: (id: string, content: string) => Promise<void>;
 	regenerateMessage: (id: string) => Promise<void>;
 	renameConversation: (id: string, title: string) => Promise<void>;
 	updateConversationModel: (
@@ -209,10 +211,13 @@ interface ConversationState {
 		id: string,
 		expectedVersion: number,
 	) => Promise<Conversation>;
-	sendMessage: (content: string) => Promise<void>;
+	sendMessage: (
+		content: string,
+		options?: { replaceMessageId?: string },
+	) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
-	setDraft: (content: string, replace?: boolean) => void;
+	setDraft: (content: string) => void;
 	clearDraft: () => void;
 	setConversationDraft: (id: string | null, content: string) => void;
 	clearConversationDraft: (id: string | null) => void;
@@ -236,7 +241,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	error: null,
 	abortController: null,
 	pendingDraft: null,
-	pendingDraftReplace: false,
+	editingMessageId: null,
 	drafts: {},
 	scrollPositions: {},
 	convCache: {},
@@ -317,6 +322,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				abortController: cached.abortController,
 				loading: false,
 				error: null,
+				editingMessageId: null,
 				convCache,
 				prefetchedConversationIds,
 			});
@@ -333,6 +339,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			streamingDurationMs: 0,
 			streamingToolCalls: [],
 			error: null,
+			editingMessageId: null,
 			convCache,
 			prefetchedConversationIds,
 		});
@@ -399,6 +406,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
+					editingMessageId: null,
 					error: null,
 					drafts,
 					convCache: { ...saveActiveViewToCache(s), [conv.id]: entry },
@@ -445,6 +453,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					streamingDurationMs: 0,
 					streamingToolCalls: [],
 					abortController: null,
+					editingMessageId: null,
 					convCache: newCache,
 					prefetchedConversationIds: nextPrefetchedConversationIds,
 					drafts: nextDrafts,
@@ -562,7 +571,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 	},
 
-	sendMessage: async (content: string) => {
+	sendMessage: async (content, options) => {
 		const { activeId, messages } = get();
 		let convId = activeId;
 
@@ -605,6 +614,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		);
 		const externalSearchEnabled = searchEnabled && !nativeWebSearch;
 
+		const previousMessages = get().convCache[convId]?.messages ?? messages;
+		const replaceIndex = options?.replaceMessageId
+			? previousMessages.findIndex(
+					(message) =>
+						message.id === options.replaceMessageId && message.role === "user",
+				)
+			: -1;
+		if (options?.replaceMessageId && replaceIndex < 0) return;
+		const optimisticBase =
+			replaceIndex >= 0
+				? previousMessages.slice(0, replaceIndex)
+				: previousMessages;
+
 		// Optimistic user message
 		const userMsg: Message = {
 			id: `user-${Date.now()}`,
@@ -621,7 +643,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		// Write optimistic user message to BOTH the view (if active) and cache.
 		set((s) => {
 			const patch = cacheUpdate(s, convId, {
-				messages: [...(s.convCache[convId]?.messages ?? messages), userMsg],
+				messages: [...optimisticBase, userMsg],
 				streaming: true,
 				streamingContent: "",
 				streamingReasoning: "",
@@ -678,9 +700,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 						error.assistant_message,
 					);
 				} else if (!authoritativeTurnID) {
-					nextMessages = entry.messages.filter(
-						(message) => message.id !== userMsg.id,
-					);
+					nextMessages = options?.replaceMessageId
+						? previousMessages
+						: entry.messages.filter((message) => message.id !== userMsg.id);
 				}
 				const patch = cacheUpdate(s, convId, {
 					messages: nextMessages,
@@ -839,6 +861,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			externalSearchEnabled,
 			searchProvider,
 			thinking,
+			options,
 		);
 
 		// Gateway persists Stop with a detached, bounded cleanup context. Reload
@@ -882,24 +905,38 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					.filter((message) => message.id === id || message.parent_id === id)
 					.map((message) => message.id),
 			);
-			return cacheUpdate(s, activeId, {
-				messages: currentMessages.filter(
-					(message) => !removedIds.has(message.id),
-				),
-			});
+			return {
+				...cacheUpdate(s, activeId, {
+					messages: currentMessages.filter(
+						(message) => !removedIds.has(message.id),
+					),
+				}),
+				...(s.editingMessageId === id ? { editingMessageId: null } : {}),
+			};
 		});
 		void get().loadList();
 	},
 
-	editMessage: async (id: string) => {
-		const { activeId, messages } = get();
+	startEditingMessage: (id) => {
+		const { messages, streaming } = get();
 		const message = messages.find(
 			(item) => item.id === id && item.role === "user",
 		);
-		if (!message || !activeId) return;
-		await get().deleteMessage(id);
-		get().clearConversationDraft(activeId);
-		get().setDraft(message.content, true);
+		if (!message || streaming) return;
+		set({ editingMessageId: id });
+	},
+
+	cancelEditingMessage: () => set({ editingMessageId: null }),
+
+	submitEditedMessage: async (id, content) => {
+		const message = get().messages.find(
+			(item) => item.id === id && item.role === "user",
+		);
+		const nextContent = content.trim();
+		if (!message || !nextContent || nextContent === message.content.trim())
+			return;
+		set({ editingMessageId: null });
+		await get().sendMessage(nextContent, { replaceMessageId: id });
 	},
 
 	regenerateMessage: async (id: string) => {
@@ -938,9 +975,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		});
 	},
 
-	setDraft: (content: string, replace = false) =>
-		set({ pendingDraft: content, pendingDraftReplace: replace }),
-	clearDraft: () => set({ pendingDraft: null, pendingDraftReplace: false }),
+	setDraft: (content: string) => set({ pendingDraft: content }),
+	clearDraft: () => set({ pendingDraft: null }),
 	setConversationDraft: (id, content) => {
 		const key = id ?? NEW_CONVERSATION_DRAFT_KEY;
 		set((s) => {

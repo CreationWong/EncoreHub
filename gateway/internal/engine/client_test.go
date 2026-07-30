@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,29 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestBeginTurnReplacingSendsReplacementID(t *testing.T) {
+	var body map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/conversations/c1/turns" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"turn-2","role":"user","content":"revised","status":"pending"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "internal-engine-token")
+	if _, err := client.BeginTurnReplacing(context.Background(), "c1", "revised", "turn-1"); err != nil {
+		t.Fatalf("begin replacement turn: %v", err)
+	}
+	if body["content"] != "revised" || body["replace_message_id"] != "turn-1" {
+		t.Fatalf("request body = %#v", body)
+	}
+}
 
 func TestClientAddsInternalBearerToEveryRequestPath(t *testing.T) {
 	t.Setenv("ENCOREHUB_AUTH_TOKEN", "unrelated-external-token")

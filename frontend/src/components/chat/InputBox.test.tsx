@@ -36,11 +36,6 @@ const convState = {
 	clearDraft: vi.fn(() => {
 		convState.pendingDraft = null;
 	}),
-	// minimal subset of the rest the slash commands might call from
-	// useConversationStore.getState():
-	newConversation: vi.fn(),
-	deleteConversation: vi.fn(),
-	pushSystemMessage: vi.fn(),
 };
 
 const setSearchEnabled = vi.fn((enabled: boolean) => {
@@ -132,131 +127,58 @@ beforeEach(() => {
 	settingsState.model = "gpt-4o";
 	providerState.profiles = [];
 	toastInfo.mockReset();
-	// jsdom doesn't implement scrollIntoView; SlashCommandMenu uses it.
-	if (!Element.prototype.scrollIntoView) {
-		Element.prototype.scrollIntoView = () => {};
-	}
 });
 
 afterEach(cleanup);
 
 function getTextarea(): HTMLTextAreaElement {
-	return screen.getByPlaceholderText(
-		/Type a message or \/ for commands/,
-	) as HTMLTextAreaElement;
+	return screen.getByPlaceholderText("Type a message") as HTMLTextAreaElement;
 }
 
-describe("InputBox slash menu", () => {
-	it("typing '/' surfaces the command menu with multiple entries", () => {
+describe("InputBox slash tool requests", () => {
+	it("shows only callable tools and completes the selected tool", () => {
 		render(<InputBox />);
-		const ta = getTextarea();
-		fireEvent.change(ta, { target: { value: "/" } });
-		// Menu items render command names like /new, /clear...
-		expect(
-			screen.getAllByText(
-				/^\/(new|clear|help|stop|settings|skills|knowledge|memory|inspect|model)$/,
-			).length,
-		).toBeGreaterThan(3);
-		const listbox = screen.getByRole("listbox", { name: "Slash commands" });
-		expect(listbox).toBeDefined();
-		expect(within(listbox).getAllByRole("group")).toHaveLength(3);
-		expect(ta.getAttribute("aria-activedescendant")).toMatch(
-			/^slash-command-option-/,
+		const textarea = getTextarea();
+		fireEvent.change(textarea, { target: { value: "/" } });
+
+		const menu = screen.getByRole("listbox", { name: "Slash tools" });
+		expect(within(menu).getByText("/web_search")).toBeTruthy();
+		expect(within(menu).queryByText("/settings")).toBeNull();
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(textarea.value).toBe("/web_search ");
+		expect(sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("sends a completed slash tool request to the Gateway", async () => {
+		render(<InputBox />);
+		const textarea = getTextarea();
+		fireEvent.change(textarea, {
+			target: { value: "/web_search 搜索2026消息" },
+		});
+		fireEvent.keyDown(textarea, { key: "Enter" });
+
+		await waitFor(() =>
+			expect(sendMessage).toHaveBeenCalledWith("/web_search 搜索2026消息"),
 		);
-		expect(listbox.parentElement?.classList.contains("bottom-full")).toBe(true);
-		expect(listbox.parentElement?.classList.contains("bottom-12")).toBe(false);
 	});
 
-	it("Tab autocompletes the highlighted command", () => {
+	it("filters the extensible tool menu by prefix", () => {
 		render(<InputBox />);
-		const ta = getTextarea();
-		fireEvent.change(ta, { target: { value: "/n" } });
-		fireEvent.keyDown(ta, { key: "Tab" });
-		// /n -> /new (only command starting with n)
-		expect(ta.value).toBe("/new ");
-	});
+		fireEvent.change(getTextarea(), { target: { value: "/web" } });
 
-	it("ArrowDown moves selection — second prefix match becomes active", () => {
-		render(<InputBox />);
-		const ta = getTextarea();
-		// /s matches /stop /settings /skills — at least 3 entries
-		fireEvent.change(ta, { target: { value: "/s" } });
-		fireEvent.keyDown(ta, { key: "ArrowDown" });
-		fireEvent.keyDown(ta, { key: "Tab" });
-		// After one ArrowDown the second match wins; just assert the input
-		// got a command name (not the literal "/s ")
-		expect(ta.value).toMatch(/^\/(stop|settings|skills) $/);
-	});
-
-	it("Escape closes the menu, preserves the draft, and returns focus", () => {
-		render(<InputBox />);
-		const ta = getTextarea();
-		fireEvent.change(ta, { target: { value: "/he" } });
-		fireEvent.keyDown(ta, { key: "Escape" });
-		expect(ta.value).toBe("/he");
-		expect(
-			screen.queryByRole("listbox", { name: "Slash commands" }),
-		).toBeNull();
-		expect(document.activeElement).toBe(ta);
-	});
-
-	it("reopens the command menu when the slash draft is already present", () => {
-		render(<InputBox />);
-		const trigger = screen.getByRole("button", { name: "Open commands" });
-
-		fireEvent.click(trigger);
-		expect(
-			screen.getByRole("listbox", { name: "Slash commands" }),
-		).toBeDefined();
-		fireEvent.click(trigger);
-		expect(
-			screen.queryByRole("listbox", { name: "Slash commands" }),
-		).toBeNull();
-		fireEvent.click(trigger);
-		expect(
-			screen.getByRole("listbox", { name: "Slash commands" }),
-		).toBeDefined();
-	});
-
-	it("scrolls the active command for keyboard navigation but not pointer hover", () => {
-		const scrollIntoView = vi.fn();
-		Element.prototype.scrollIntoView = scrollIntoView;
-		render(<InputBox />);
-		const ta = getTextarea();
-		fireEvent.change(ta, { target: { value: "/" } });
-		scrollIntoView.mockClear();
-
-		fireEvent.mouseEnter(screen.getAllByRole("option")[1]);
-		expect(scrollIntoView).not.toHaveBeenCalled();
-
-		fireEvent.keyDown(ta, { key: "ArrowDown" });
-		expect(scrollIntoView).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps pointer hover and selected command styling visually stable", () => {
-		render(<InputBox />);
-		fireEvent.change(getTextarea(), { target: { value: "/" } });
-		const option = screen.getAllByRole("option")[1];
-
-		expect(option.classList.contains("hover:bg-surface-hover")).toBe(true);
-		fireEvent.mouseEnter(option);
-		expect(option.getAttribute("aria-selected")).toBe("true");
-		expect(option.classList.contains("bg-surface-hover")).toBe(true);
-		expect(option.classList.contains("bg-accent/10")).toBe(false);
+		expect(screen.getByRole("listbox", { name: "Slash tools" })).toBeTruthy();
+		expect(screen.getByText("/web_search")).toBeTruthy();
 	});
 });
 
 describe("InputBox composer surface", () => {
-	it("keeps textarea, commands, search, and send inside one composer", () => {
+	it("keeps textarea, model tools, and send inside one composer", () => {
 		render(<InputBox />);
 		const composer = screen.getByRole("group", { name: "Message composer" });
 		const ta = getTextarea();
 
 		expect(ta.rows).toBe(2);
 		expect(composer.contains(ta)).toBe(true);
-		expect(
-			composer.contains(screen.getByRole("button", { name: "Open commands" })),
-		).toBe(true);
 		expect(
 			composer.contains(
 				screen.getByRole("group", { name: "Web search controls" }),

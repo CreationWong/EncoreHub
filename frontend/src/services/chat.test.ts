@@ -193,6 +193,41 @@ describe("chatApi.sendMessageStream", () => {
 		});
 	});
 
+	it("sends the replaced user message id for inline edits", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			sseResponse([
+				{
+					event: "error",
+					data: { code: "test_end", message: "stop fixture" },
+				},
+			]),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await chatApi.sendMessageStream(
+			"c1",
+			"revised question",
+			"key",
+			{
+				onDelta: vi.fn(),
+				onDone: vi.fn(),
+				onError: vi.fn(),
+			},
+			undefined,
+			false,
+			undefined,
+			undefined,
+			{ replaceMessageId: "user-original" },
+		);
+
+		const request = fetchMock.mock.calls[0][1] as RequestInit;
+		expect(JSON.parse(String(request.body))).toEqual({
+			content: "revised question",
+			stream: true,
+			replace_message_id: "user-original",
+		});
+	});
+
 	it("decodes structured terminal errors without treating them as done", async () => {
 		const failedUser = message({ status: "failed" });
 		vi.stubGlobal(

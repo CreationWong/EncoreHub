@@ -65,7 +65,7 @@ beforeEach(() => {
 		error: null,
 		abortController: null,
 		pendingDraft: null,
-		pendingDraftReplace: false,
+		editingMessageId: null,
 		drafts: {},
 		scrollPositions: {},
 		convCache: {},
@@ -286,7 +286,7 @@ describe("draft mailbox", () => {
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
 	});
 
-	it("marks an edit-and-resend draft as a replacement", async () => {
+	it("keeps editing local until submit and then replaces the old branch", async () => {
 		const user = serverMessage({ id: "user-edit", content: "original" });
 		const assistant = serverMessage({
 			id: "assistant-edit",
@@ -309,12 +309,27 @@ describe("draft mailbox", () => {
 			},
 		});
 
-		await useConversationStore.getState().editMessage(user.id);
+		useConversationStore.getState().startEditingMessage(user.id);
+		expect(useConversationStore.getState().editingMessageId).toBe(user.id);
+		expect(useConversationStore.getState().messages).toEqual([user, assistant]);
+		expect(deleteMessageApi).not.toHaveBeenCalled();
 
-		expect(deleteMessageApi).toHaveBeenCalledWith("c1", user.id);
-		expect(useConversationStore.getState().messages).toEqual([]);
-		expect(useConversationStore.getState().pendingDraft).toBe("original");
-		expect(useConversationStore.getState().pendingDraftReplace).toBe(true);
+		useConversationStore.getState().cancelEditingMessage();
+		expect(useConversationStore.getState().editingMessageId).toBeNull();
+		expect(useConversationStore.getState().messages).toEqual([user, assistant]);
+
+		useConversationStore.getState().startEditingMessage(user.id);
+		await useConversationStore
+			.getState()
+			.submitEditedMessage(user.id, "revised");
+
+		expect(useConversationStore.getState().editingMessageId).toBeNull();
+		expect(sendMessageStream.mock.calls[0][1]).toBe("revised");
+		expect(sendMessageStream.mock.calls[0][8]).toEqual({
+			replaceMessageId: user.id,
+		});
+		expect(useConversationStore.getState().messages).toHaveLength(1);
+		expect(useConversationStore.getState().messages[0].content).toBe("revised");
 	});
 
 	it("stores independent drafts for conversations and the new-chat workspace", () => {

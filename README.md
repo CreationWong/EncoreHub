@@ -17,7 +17,7 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 
 | 模块 | 语言 | 角色 |
 |------|------|------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 命令；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
+| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 工具补全；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，内置联网搜索工具，认证/限流/CORS，引擎反向代理 |
 | `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill/密钥 存储与 API；AES-256-GCM 密钥加密；token 计数器（conversation crate）；桌面模式下 Tauri 在进程内启动 axum，无头模式编译为独立二进制 |
 | `data-services/` | Python 3.12 (FastAPI) | 可选 `data` profile；已定义 embed/parse/chunk 合约，当前统一返回 `501`，未加载 ML/解析依赖 |
@@ -99,7 +99,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 - **流式 SSE**：可中断（前端 InputBox 的 Stop 按钮 / Esc）；支持 reasoning（chain-of-thought）可见可折叠
 - **Token 计数**：每次对话后 assistant 回复右下角显示 input+output token 总数（如 `1.2k tokens`）；引擎 `conversation` crate 提供 char/4 近似估算 + API 用量追踪
 - **端口自动协商**：Tauri 桌面模式下从 10000 自动找可用端口，避免多实例冲突；headless 模式走 env 固定端口
-- **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/retitle` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/help`
+- **Slash 工具请求**：输入 `/` 显示可扩展的 LLM 工具补全，不包含设置、新建等应用快捷入口。`/web_search 查询内容` 会忽略普通联网搜索开关，先强制调用 Web Search 设置中选定的 Provider，再把原问题与搜索结果一并交给 LLM
 - **工作区标签**：Home 常驻；Workbench 与 Settings 可按需打开、切换和关闭，设置快捷键为 `Ctrl/Cmd + ,`
 - **设置工作区**：Providers / Web Search / Skills / Knowledge / Memories / Security / Appearance / About（开启开发者模式后多一个 Developer 分区）
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
@@ -115,7 +115,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 │   ├── src/components/   chat / sidebar / settings / workspace
 │   ├── src/services/     api / chat / config / webSearch (Engine-backed settings)
 │   ├── src/stores/       zustand
-│   ├── src/commands/     slash 命令注册表
+│   ├── src/tools/        Slash LLM 工具展示元数据
 │   └── src-tauri/        Tauri 桌面壳：engine in-process、gateway sidecar、端口协商、日志落盘、打包配置
 ├── gateway/internal/
 │   ├── handler/          chat / conversation / engine_proxy / search + config / loglevel / 供应商档案

@@ -143,7 +143,9 @@ export default function AppContextMenu() {
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const messages = useConversationStore((state) => state.messages);
 	const streaming = useConversationStore((state) => state.streaming);
-	const editMessage = useConversationStore((state) => state.editMessage);
+	const startEditingMessage = useConversationStore(
+		(state) => state.startEditingMessage,
+	);
 	const regenerateMessage = useConversationStore(
 		(state) => state.regenerateMessage,
 	);
@@ -272,7 +274,7 @@ export default function AppContextMenu() {
 							label: "Edit",
 							icon: Edit3,
 							disabled: streaming,
-							action: () => editMessage(message.id),
+							action: () => startEditingMessage(message.id),
 						} satisfies MenuItem,
 					]
 				: [

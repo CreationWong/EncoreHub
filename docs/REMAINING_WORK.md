@@ -69,7 +69,7 @@
 - [ ] Keep code block copy button consistently available.
 - [ ] Revalidate conversation list grouping and selected-state accent after the browser-style workspace changes.
 - [ ] Add composer progress indicator with warning color near input limits.
-- [ ] Revalidate slash-command menu icons, groups, ARIA role, and flicker behavior after command panel placement changes.
+- [ ] Revalidate Slash tool menu icons, keyboard navigation, ARIA roles, and mobile placement as more LLM tools are registered.
 - [ ] Revalidate compact and drawer behavior for windows below 768px after settings moved into workspace tabs.
 
 ## 8. Release Governance

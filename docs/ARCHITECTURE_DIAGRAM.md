@@ -31,9 +31,9 @@ graph TB
             direction LR
             C1["App.tsx<br/>Root Layout"]
             C2["ChatView.tsx<br/>Message List"]
-            C3["InputBox.tsx<br/>Text Input + /Cmd"]
+            C3["InputBox.tsx<br/>Conversation Input + /Tool"]
             C4["MessageBubble.tsx<br/>Markdown Renderer"]
-            C5["SlashCommandMenu.tsx<br/>Command Palette"]
+            C5["SlashToolMenu.tsx<br/>LLM Tool Completion"]
             C6["Sidebar.tsx<br/>Theme + Nav"]
             C7["ConversationList.tsx<br/>Chat History"]
             C8["ProviderSwitcher.tsx<br/>Model Selector"]
@@ -62,14 +62,6 @@ graph TB
             V6["webSearch.ts<br/>Engine-backed config + test"]
         end
 
-        subgraph COMMANDS["Slash Commands"]
-            direction LR
-            M1["/new /clear /stop"]
-            M2["/model /settings"]
-            M3["/skills /memory /knowledge"]
-            M4["/inspect /help"]
-        end
-
         subgraph TAURI["Tauri Shell"]
             T1["src-tauri/main.rs<br/>in-process Engine + random token"]
             T2["tauri.conf.json<br/>externalBin: encorehub-gateway"]
@@ -91,7 +83,6 @@ graph TB
         C9 --> C15
         STORES --> COMPONENTS
         SERVICES --> STORES
-        COMMANDS --> C5
         TAURI --- C1
     end
 
@@ -225,7 +216,7 @@ graph TB
         F1["💬 Chat Flow:<br/>User → InputBox → apiFetch()<br/>→ Gateway POST /chat<br/>→ Provider Adapter.ChatStream()<br/>→ SSE delta events → MessageBubble"]
         F2["📝 CRUD Flow:<br/>Frontend Service → Gateway<br/>→ Engine Proxy / Handler<br/>→ SQLite → JSON response"]
         F3["🔍 RAG Context Injection:<br/>Each chat request: memory.search()<br/>+ knowledge.search() → top_k=3<br/>→ appended to system prompt"]
-        F4["⚡ Slash Command Flow:<br/>User types '/' → SlashCommandMenu<br/>→ matchCommands(prefix)<br/>→ run(args, {conv, settings})"]
+        F4["⚡ Slash Tool Request:<br/>User types '/' → tool completion<br/>→ Gateway pre-executes registered tool<br/>→ original request + result → LLM"]
         F5["🔑 API Key Flow:<br/>Settings Modal → settingsStore<br/>→ session memory (default)<br/>→ X-Provider-Key header<br/>→ Gateway → Provider API"]
         F6["🌐 Web Search Flow:<br/>SearchPanel → Engine config + secrets<br/>→ Gateway web_search system tool<br/>→ selected provider → cited tool result"]
     end

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,12 +52,14 @@ func (a *scriptedAdapter) ListModels(context.Context, string) ([]provider.ModelI
 func (a *scriptedAdapter) ValidateKey(context.Context, string) error { return nil }
 
 type chatEngineStub struct {
-	mu                   sync.Mutex
-	beginStatus          int
-	finalizeStatus       int
-	beginRequests        int
-	finalizeRequests     []engine.FinalizeTurnRequest
-	conversationMessages []engine.Message
+	mu                    sync.Mutex
+	beginStatus           int
+	finalizeStatus        int
+	beginRequests         int
+	beginReplaceMessageID string
+	finalizeRequests      []engine.FinalizeTurnRequest
+	conversationMessages  []engine.Message
+	searchConfig          string
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +74,9 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.Method == http.MethodGet && (r.URL.Path == "/api/memories/search" || r.URL.Path == "/api/knowledge/search"):
 		writeTestJSON(w, http.StatusOK, map[string]any{"results": []any{}})
+	case r.Method == http.MethodGet && r.URL.Path == "/api/config/web_search_settings" && s.searchConfig != "":
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(s.searchConfig))
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/secrets/"):
 		w.WriteHeader(http.StatusNotFound)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/turns":
@@ -83,9 +89,13 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var request struct {
-			Content string `json:"content"`
+			Content          string `json:"content"`
+			ReplaceMessageID string `json:"replace_message_id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.mu.Lock()
+		s.beginReplaceMessageID = request.ReplaceMessageID
+		s.mu.Unlock()
 		writeTestJSON(w, http.StatusOK, engine.Message{
 			ID:        "turn-1",
 			Role:      "user",
@@ -138,6 +148,119 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: "Renamed"})
 	default:
 		http.Error(w, "unexpected engine request: "+r.Method+" "+r.URL.String(), http.StatusNotFound)
+	}
+}
+
+func TestSendMessage_InlineEditTruncatesProviderHistoryAndReplacesTurn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{conversationMessages: []engine.Message{
+		{ID: "user-1", Role: "user", Content: "first"},
+		{ID: "assistant-1", Role: "assistant", Content: "first answer"},
+		{ID: "user-2", Role: "user", Content: "old question"},
+		{ID: "assistant-2", Role: "assistant", Content: "old answer"},
+	}}
+	var providerMessages []provider.Message
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			providerMessages = append([]provider.Message(nil), request.Messages...)
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"revised question","provider":"test","model":"model-test","stream":true,"replace_message_id":"user-2"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	stub.mu.Lock()
+	replacedID := stub.beginReplaceMessageID
+	stub.mu.Unlock()
+	if replacedID != "user-2" {
+		t.Fatalf("replace message id = %q", replacedID)
+	}
+	if len(providerMessages) != 3 || providerMessages[0].Content != "first" || providerMessages[1].Content != "first answer" || providerMessages[2].Content != "revised question" {
+		t.Fatalf("provider history = %#v", providerMessages)
+	}
+}
+
+func TestSendMessage_SlashWebSearchUsesConfiguredProviderBeforeLLM(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var searchFinished atomic.Bool
+	searchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if query := r.URL.Query().Get("query"); query != "搜索2026消息" {
+			t.Fatalf("search query = %q", query)
+		}
+		searchFinished.Store(true)
+		writeTestJSON(w, http.StatusOK, map[string]any{
+			"results": []map[string]string{{
+				"title":   "2026 update",
+				"url":     "https://example.com/2026",
+				"snippet": "Current result",
+			}},
+		})
+	}))
+	defer searchServer.Close()
+
+	stub := &chatEngineStub{searchConfig: fmt.Sprintf(
+		`{"enabled":false,"provider":"custom","max_results":2,"custom":{"name":"Configured search","endpoint":%q,"query_parameter":"query","limit_parameter":"limit","results_path":"results","title_path":"title","url_path":"url","snippet_path":"snippet"}}`,
+		searchServer.URL,
+	)}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			if !searchFinished.Load() {
+				t.Fatal("LLM was called before Slash search completed")
+			}
+			if len(request.Messages) != 1 || request.Messages[0].Content != "/web_search 搜索2026消息" {
+				t.Fatalf("original Slash request missing: %+v", request.Messages)
+			}
+			if !strings.Contains(request.SystemPrompt, "2026 update") || !strings.Contains(request.SystemPrompt, preexecutedToolPrompt) {
+				t.Fatalf("search result missing from model context: %s", request.SystemPrompt)
+			}
+			for _, tool := range request.Tools {
+				if tool.Function != nil && tool.Function.Name == "web_search" {
+					t.Fatal("pre-executed web search was registered for duplicate execution")
+				}
+			}
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "final answer", FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"/web_search 搜索2026消息","provider":"test","model":"model-test","stream":true,"search":false,"search_provider":"bing"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: tool_call") || !strings.Contains(body, "event: tool_result") ||
+		!strings.Contains(body, `"name":"web_search"`) {
+		t.Fatalf("Slash tool lifecycle missing from stream: %s", body)
+	}
+	finalizations := stub.finalizations()
+	if len(finalizations) != 1 || finalizations[0].Assistant == nil ||
+		len(finalizations[0].Assistant.ToolCalls) != 1 ||
+		finalizations[0].Assistant.ToolCalls[0].Name != "web_search" ||
+		finalizations[0].Assistant.ToolCalls[0].Status != "success" {
+		t.Fatalf("Slash tool call was not persisted: %+v", finalizations)
 	}
 }
 

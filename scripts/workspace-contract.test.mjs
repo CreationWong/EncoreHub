@@ -106,7 +106,6 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		read("frontend/src/components/chat/HighlightedCodeBlock.tsx"),
 		read("frontend/src/services/devtools.ts"),
 		Promise.all([
-			read("frontend/src/commands/slash.ts"),
 			read("frontend/src/components/sidebar/ConversationList.tsx"),
 			read("frontend/src/components/settings/ProvidersPanel.tsx"),
 			read("frontend/src/components/settings/SecurityPanel.tsx"),

@@ -178,6 +178,20 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/messages/{message_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/MessageId" }
+      ],
+      "delete": {
+        "tags": ["Conversations"],
+        "operationId": "deleteConversationMessage",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/generate-title": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" },
@@ -900,6 +914,12 @@
         "required": true,
         "schema": { "type": "string", "format": "uuid" }
       },
+      "MessageId": {
+        "name": "message_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
       "ConfigKey": {
         "name": "key",
         "in": "path",
@@ -1298,7 +1318,11 @@
           "seed": { "type": ["integer", "null"] },
           "json_mode": { "type": "boolean" },
           "reasoning_effort": { "type": "string", "enum": ["low", "medium", "high"] },
-          "thinking_budget": { "type": "integer", "minimum": 0 }
+          "thinking_budget": { "type": "integer", "minimum": 0 },
+          "replace_message_id": {
+            "type": "string",
+            "description": "User message ID to replace before regenerating the conversation from that turn"
+          }
         }
       },
       "Usage": {

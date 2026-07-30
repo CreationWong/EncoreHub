@@ -5,15 +5,43 @@ use rusqlite::{params, Transaction};
 impl Database {
     /// Persist a pending user message as the root of a new chat turn.
     pub fn begin_chat_turn(&self, user_message: &Message) -> Result<()> {
-        if user_message.role != Role::User
-            || user_message.status != MessageStatus::Pending
-            || user_message.parent_id.is_some()
-        {
-            return Err(invalid_turn("begin requires a root pending user message"));
-        }
+        validate_pending_user(user_message)?;
 
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
+        insert_message(&tx, user_message)?;
+        touch_conversation(&tx, &user_message.conversation_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Replace a user turn and truncate everything after it in one transaction.
+    pub fn replace_chat_turn(
+        &self,
+        user_message: &Message,
+        replaced_message_id: &str,
+    ) -> Result<()> {
+        validate_pending_user(user_message)?;
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let replaced_rowid = tx
+            .query_row(
+                "SELECT rowid FROM messages
+                  WHERE id = ?1 AND conversation_id = ?2 AND role = 'user'",
+                params![replaced_message_id, user_message.conversation_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                    resource: "user message".into(),
+                    id: replaced_message_id.into(),
+                },
+                other => other.into(),
+            })?;
+        tx.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND rowid >= ?2",
+            params![user_message.conversation_id, replaced_rowid],
+        )?;
         insert_message(&tx, user_message)?;
         touch_conversation(&tx, &user_message.conversation_id)?;
         tx.commit()?;
@@ -110,6 +138,16 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+}
+
+fn validate_pending_user(user_message: &Message) -> Result<()> {
+    if user_message.role != Role::User
+        || user_message.status != MessageStatus::Pending
+        || user_message.parent_id.is_some()
+    {
+        return Err(invalid_turn("begin requires a root pending user message"));
+    }
+    Ok(())
 }
 
 fn insert_message(tx: &Transaction<'_>, message: &Message) -> Result<()> {

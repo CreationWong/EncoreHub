@@ -63,6 +63,15 @@ export default function MessageFeed() {
 	const streamingToolCalls = useConversationStore(
 		(state) => state.streamingToolCalls,
 	);
+	const editingMessageId = useConversationStore(
+		(state) => state.editingMessageId,
+	);
+	const cancelEditingMessage = useConversationStore(
+		(state) => state.cancelEditingMessage,
+	);
+	const submitEditedMessage = useConversationStore(
+		(state) => state.submitEditedMessage,
+	);
 	const setConversationScrollPosition = useConversationStore(
 		(state) => state.setConversationScrollPosition,
 	);
@@ -218,6 +227,11 @@ export default function MessageFeed() {
 							<MessageBubble
 								key={message.id}
 								message={message}
+								editing={message.id === editingMessageId}
+								onEditCancel={cancelEditingMessage}
+								onEditSubmit={(content) =>
+									submitEditedMessage(message.id, content)
+								}
 								reasoningExpanded={reasoningExpansion[expansionKey]}
 								onReasoningExpandedChange={(expanded) =>
 									setReasoningExpansion((current) => ({

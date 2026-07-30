@@ -19,6 +19,9 @@ let feedState: {
 	streamingReasoning: string;
 	streamingDurationMs: number;
 	streamingToolCalls: StreamToolCall[];
+	editingMessageId: string | null;
+	cancelEditingMessage: () => void;
+	submitEditedMessage: (id: string, content: string) => Promise<void>;
 	scrollPositions: Record<string, number>;
 	setConversationScrollPosition: (id: string, scrollTop: number) => void;
 };
@@ -95,11 +98,37 @@ beforeEach(() => {
 		streamingReasoning: "",
 		streamingDurationMs: 0,
 		streamingToolCalls: [],
+		editingMessageId: null,
+		cancelEditingMessage: vi.fn(),
+		submitEditedMessage: vi.fn().mockResolvedValue(undefined),
 		scrollPositions: {},
 		setConversationScrollPosition: vi.fn((id, scrollTop) => {
 			feedState.scrollPositions[id] = scrollTop;
 		}),
 	};
+});
+
+describe("MessageFeed inline user editing", () => {
+	it("renders the editor at the selected user message and submits its id", () => {
+		feedState.messages = [
+			message("user-1", "user", "original question"),
+			message("assistant-1", "assistant", "answer", { parent_id: "user-1" }),
+		];
+		feedState.editingMessageId = "user-1";
+		render(<MessageFeed />);
+
+		const editor = screen.getByRole("textbox", { name: "Edit user message" });
+		fireEvent.change(editor, { target: { value: "revised question" } });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Update and regenerate" }),
+		);
+
+		expect(feedState.submitEditedMessage).toHaveBeenCalledWith(
+			"user-1",
+			"revised question",
+		);
+		expect(screen.getByText("answer")).toBeDefined();
+	});
 });
 
 describe("MessageFeed character opening", () => {

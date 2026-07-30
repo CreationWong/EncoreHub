@@ -34,6 +34,10 @@ export interface DeepThinkingRequest {
 	thinking_budget?: number;
 }
 
+export interface ChatTurnOptions {
+	replaceMessageId?: string;
+}
+
 export interface StreamDonePayload {
 	user_message: Message;
 	assistant_message: Message | null;
@@ -151,6 +155,7 @@ export const chatApi = {
 		search?: boolean,
 		searchProvider?: SearchProvider,
 		deepThinking?: DeepThinkingRequest,
+		turnOptions?: ChatTurnOptions,
 	): Promise<void> {
 		const extra: Record<string, string> = {};
 		if (providerKey) extra["X-Provider-Key"] = providerKey;
@@ -164,6 +169,9 @@ export const chatApi = {
 					body: JSON.stringify({
 						content,
 						stream: true,
+						...(turnOptions?.replaceMessageId && {
+							replace_message_id: turnOptions.replaceMessageId,
+						}),
 						...(search && { search: true, search_provider: searchProvider }),
 						...deepThinking,
 					}),

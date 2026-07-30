@@ -268,39 +268,32 @@ test("EncoreHub OpenAPI is small, internally valid, and matches Gateway routes",
 	}
 });
 
-test("CLAUDE and README slash commands match the TypeScript registry", async () => {
-	const [source, claude, readme] = await Promise.all([
-		read("frontend/src/commands/slash.ts"),
-		read("CLAUDE.md"),
-		read("README.md"),
-	]);
-	const sourceCommands = [
-		...source.matchAll(
-			/name:\s*"(\/[^\"]+)",\s*\r?\n\s*description:\s*"([^\"]+)"/g,
-		),
-	].map((match) => ({ name: match[1], description: match[2] }));
-	assert.ok(sourceCommands.length > 0, "Slash command registry is empty");
-
-	const block = claude.match(
-		/<!-- slash-commands:start -->([\s\S]*?)<!-- slash-commands:end -->/,
-	)?.[1];
-	assert.ok(block, "CLAUDE slash command markers are missing");
-	const documented = [
-		...block.matchAll(/^\|\s*`(\/[^`]+)`\s*\|\s*([^|]+?)\s*\|$/gm),
-	].map((match) => ({ name: match[1], description: match[2].trim() }));
-
-	assert.deepEqual(documented, sourceCommands);
-	assert.doesNotMatch(claude, /`\/export`/);
-	const readmeSlashLine = readme
-		.split(/\r?\n/)
-		.find((line) => line.startsWith("- **Slash 命令**"));
-	assert.ok(readmeSlashLine, "README slash command summary is missing");
-	for (const command of sourceCommands) {
-		assert.ok(
-			readmeSlashLine.includes(`\`${command.name}\``),
-			`README misses ${command.name}`,
-		);
-	}
+test("Slash completion exposes Gateway tools without local application handlers", async () => {
+	const [inputBox, registry, gatewayRegistry, claude, readme] =
+		await Promise.all([
+			read("frontend/src/components/chat/InputBox.tsx"),
+			read("frontend/src/tools/slashTools.ts"),
+			read("gateway/internal/handler/slash_tools.go"),
+			read("CLAUDE.md"),
+			read("README.md"),
+		]);
+	await assert.rejects(
+		access(path.join(root, "frontend/src/commands/slash.ts")),
+	);
+	assert.match(inputBox, /SlashToolMenu/);
+	assert.match(registry, /name: "\/web_search"/);
+	assert.doesNotMatch(registry, /\brun\s*:/);
+	assert.doesNotMatch(registry, /\/settings|\/new|\/clear/);
+	assert.match(gatewayRegistry, /"web_search"/);
+	assert.match(
+		gatewayRegistry,
+		/resolveWebSearchProvider\(ctx, handler\.engine, ""\)/,
+	);
+	assert.match(
+		claude,
+		/`\/web_search <query>` is an explicit, pre-executed tool request/,
+	);
+	assert.match(readme, /\*\*Slash 工具请求\*\*/);
 });
 
 test("documentation decisions and CI command smoke stay connected", async () => {

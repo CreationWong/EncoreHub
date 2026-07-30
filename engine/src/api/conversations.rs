@@ -482,6 +482,8 @@ pub struct AddToolCall {
 #[derive(Debug, Deserialize)]
 pub struct BeginTurnRequest {
     pub content: String,
+    #[serde(default)]
+    pub replace_message_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -533,7 +535,19 @@ pub async fn begin_turn(
 
     let mut user = Message::new(&conv_id, Role::User, req.content, None);
     user.status = MessageStatus::Pending;
-    state.db.begin_chat_turn(&user).map_err(internal_error)?;
+    if let Some(replaced_message_id) = req
+        .replace_message_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        state
+            .db
+            .replace_chat_turn(&user, replaced_message_id)
+            .map_err(domain_error)?;
+    } else {
+        state.db.begin_chat_turn(&user).map_err(domain_error)?;
+    }
     Ok(Json(build_msg_response(&user, &[])))
 }
 

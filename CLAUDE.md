@@ -188,7 +188,7 @@ When the user toggles search on (globe icon in the input box):
 
 1. **Gateway** registers a `web_search` function tool on the provider request. The model decides when — and with what query — to invoke it.
 2. The provider adapter passes tools via `ChatRequest.Tools` → `go-openai` SDK. The adapter's `toOpenAITools()` maps `provider.Tool` → `goopenai.Tool`, passing `FunctionDefinition.Parameters` as `map[string]any` (**never** `[]byte` — `encoding/json` base64-encodes `[]byte` and providers reject it).
-3. **Model returns tool_calls** → gateway's `providerStream()` loop intercepts `web_search`, executes it via `executeWebSearch()` (DuckDuckGo HTML scraping by default; Bing/Google require env API keys, fall back to DuckDuckGo with a warning SSE event), formats results, builds a follow-up request via `cloneRequestForNextRound()` that appends an assistant message (with `ToolCalls`) and a tool message (with `ToolCallID`), then calls the model again (max 3 rounds).
+3. **Model returns tool_calls** → gateway's `providerStream()` loop intercepts `web_search`, executes the selected configured Provider without silently switching providers, formats results, builds a follow-up request via `cloneRequestForNextRound()` that appends an assistant message (with `ToolCalls`) and a tool message (with `ToolCallID`), then calls the model again (max 3 rounds).
 4. **Frontend** receives `tool_call` and `tool_result` SSE events → `conversationStore` tracks `streamingToolCalls` → rendered in `MessageBubble.ToolCallCard` (collapsed by default, click to expand). The `warning` SSE event triggers `toast.warning()`.
 5. Search providers live in `gateway/internal/search/`. DuckDuckGo uses `html.duckduckgo.com` (no-JS version, parsed with `golang.org/x/net/html`). The Instant Answer API (`api.duckduckgo.com`) is **not used** — it only returns Wikipedia abstracts, not web results.
 
@@ -197,7 +197,7 @@ When the user toggles search on (globe icon in the input box):
 - **Manual rename** has highest priority: user-edited titles must not be overwritten by automatic generation
 - **Requested rename** uses the `update_conversation_title` tool and shows the tool call/result in chat
 - **Automatic title generation** runs as a hidden non-streaming gateway request after the first user message, in parallel with the visible chat response; it emits `title_update` or `title_error` SSE before `done`
-- **Gateway** provides `POST /api/v1/conversations/:id/generate-title` for explicit `/retitle` requests (`force: true`) and guarded automatic requests (`force: false`)
+- **Gateway** provides `POST /api/v1/conversations/:id/generate-title` for explicit title regeneration (`force: true`) and guarded automatic requests (`force: false`)
 - **Engine** stores title updates via conversation PATCH/title update endpoints; it does not own AI title generation
 - Automatic generation uses the conversation's configured model and must not automatically switch to a non-reasoning or lighter model; provider-native reasoning disable flags are allowed for the hidden title request (DeepSeek V4 uses `thinking.type=disabled`)
 - Limits: Chinese-only ≤20 chars, English-only ≤15 words, mixed Chinese/English ≤15 chars; timeout 30s; 3 retries with redacted metadata-only failure logging
@@ -221,27 +221,11 @@ When the user toggles search on (globe icon in the input box):
 - `confirmStore` — promise-based confirmation dialog (`confirm.ask(title, msg, danger?)`); replaces all browser `window.confirm()` calls
 - `toastStore` — 4 kinds: `success` / `error` / `info` / `warning`; imperative `toast.*()` helpers
 
-### Slash Command System
+### Slash Tool Requests
 
-Commands are declared in `frontend/src/commands/slash.ts` as a `SlashCommand[]` array. Each command has an `id`, `name`, `description`, and `run(args, ctx)` where `ctx` provides access to conversation and settings stores. Add new commands by appending to the array — they auto-register in the input box's `/` completion menu.
+Typing `/` opens an LLM-tool completion menu backed by metadata in `frontend/src/tools/slashTools.ts`. This menu must not contain or execute application shortcuts such as settings, new conversation, or clear conversation. Add future LLM tools to the Frontend metadata registry and the trusted Gateway executor registry together.
 
-**Current Commands**:
-
-<!-- slash-commands:start -->
-| Command | Description |
-|---------|-------------|
-| `/new` | Start a new conversation |
-| `/clear` | Delete the current conversation |
-| `/stop` | Stop the current generation |
-| `/retitle` | Generate an AI title for this conversation |
-| `/model` | Open settings to switch model |
-| `/settings` | Open settings panel |
-| `/skills` | Open skills panel |
-| `/memory` | Open memory panel |
-| `/knowledge` | Open knowledge base panel |
-| `/inspect` | Dump the current conversation state for debugging |
-| `/help` | Show available commands |
-<!-- slash-commands:end -->
+`/web_search <query>` is an explicit, pre-executed tool request. The Gateway ignores the ordinary web-search toggle and any request-selected provider, resolves the Provider from Engine-backed Web Search Settings, runs the search before generation, and gives the original user message plus untrusted search results to the LLM. The stream emits `tool_call` and `tool_result`, and the final assistant message persists the call. A Slash request cannot register or authorize an unknown tool.
 
 ### Engine Crate Structure
 

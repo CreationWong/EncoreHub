@@ -13,6 +13,9 @@ interface MessageBubbleProps {
 	isStreaming?: boolean;
 	reasoningExpanded?: boolean;
 	onReasoningExpandedChange?: (expanded: boolean) => void;
+	editing?: boolean;
+	onEditCancel?: () => void;
+	onEditSubmit?: (content: string) => void | Promise<void>;
 }
 
 function SystemMessage({ message }: { message: Message }) {
@@ -56,9 +59,21 @@ export default function MessageBubble({
 	isStreaming = false,
 	reasoningExpanded,
 	onReasoningExpandedChange,
+	editing,
+	onEditCancel,
+	onEditSubmit,
 }: MessageBubbleProps) {
 	const toolCalls = message.tool_calls ?? [];
-	if (message.role === "user") return <UserBubble message={message} />;
+	if (message.role === "user") {
+		return (
+			<UserBubble
+				message={message}
+				editing={editing}
+				onEditCancel={onEditCancel}
+				onEditSubmit={onEditSubmit}
+			/>
+		);
+	}
 	if (message.role === "system") return <SystemMessage message={message} />;
 	if (message.role === "tool") return <ToolMessage message={message} />;
 

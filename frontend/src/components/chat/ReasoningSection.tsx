@@ -85,14 +85,14 @@ export default function ReasoningSection({
 				onClick={toggle}
 				aria-expanded={open}
 				aria-controls={contentId}
-				className={`flex h-7 w-full items-center gap-1.5 text-left text-[11px] font-medium transition-colors hover:text-text-primary ${state.className}`}
+				className={`flex h-7 items-center gap-1.5 rounded pr-1 text-left text-[11px] font-medium transition-colors hover:text-text-primary ${state.className}`}
 			>
 				<StateIcon
 					className={`h-3.5 w-3.5 shrink-0 ${state.animate ? "animate-spin" : ""}`}
 				/>
 				<span>{state.label}</span>
 				<ChevronDown
-					className={`ml-auto h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+					className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
 				/>
 			</button>
 			{open && (

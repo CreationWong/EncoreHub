@@ -15,7 +15,7 @@ const newConversation = vi.fn().mockResolvedValue("conversation-1");
 const openSettings = vi.fn();
 const readText = vi.fn().mockResolvedValue(" pasted");
 const writeText = vi.fn().mockResolvedValue(undefined);
-const editMessage = vi.fn().mockResolvedValue(undefined);
+const startEditingMessage = vi.fn();
 const regenerateMessage = vi.fn().mockResolvedValue(undefined);
 const deleteMessage = vi.fn().mockResolvedValue(undefined);
 
@@ -24,14 +24,14 @@ beforeEach(() => {
 	openSettings.mockClear();
 	readText.mockClear();
 	writeText.mockClear();
-	editMessage.mockClear();
+	startEditingMessage.mockClear();
 	regenerateMessage.mockClear();
 	deleteMessage.mockClear();
 	useConversationStore.setState({
 		newConversation,
 		messages: [],
 		streaming: false,
-		editMessage,
+		startEditingMessage,
 		regenerateMessage,
 		deleteMessage,
 	});
@@ -174,7 +174,9 @@ describe("AppContextMenu", () => {
 
 		expect(screen.getByRole("menuitem", { name: /^Copy/ })).toBeDefined();
 		fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
-		await waitFor(() => expect(editMessage).toHaveBeenCalledWith("user-1"));
+		await waitFor(() =>
+			expect(startEditingMessage).toHaveBeenCalledWith("user-1"),
+		);
 	});
 
 	it("shows regenerate and delete for an assistant message", async () => {

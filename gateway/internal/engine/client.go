@@ -275,7 +275,15 @@ func (c *Client) AppendMessageFull(ctx context.Context, convID string, body Appe
 
 // BeginTurn persists the pending user message that identifies a chat turn.
 func (c *Client) BeginTurn(ctx context.Context, convID, content string) (*Message, error) {
+	return c.BeginTurnReplacing(ctx, convID, content, "")
+}
+
+// BeginTurnReplacing atomically replaces an earlier user turn when an id is supplied.
+func (c *Client) BeginTurnReplacing(ctx context.Context, convID, content, replaceMessageID string) (*Message, error) {
 	body := map[string]string{"content": content}
+	if replaceMessageID != "" {
+		body["replace_message_id"] = replaceMessageID
+	}
 	var message Message
 	if err := c.doJSON(ctx, http.MethodPost, "/api/conversations/"+url.PathEscape(convID)+"/turns", body, &message); err != nil {
 		return nil, err

@@ -142,6 +142,42 @@ fn deleting_a_user_message_removes_its_assistant_reply() {
 }
 
 #[test]
+fn replacing_a_chat_turn_atomically_truncates_the_old_branch() {
+    let (_dir, db) = fresh_db();
+    let conv = encorehub_core::Conversation::new("edit", "x", "y");
+    db.create_conversation(&conv).unwrap();
+    let first_user = Message::new(&conv.id, Role::User, "first", None);
+    let first_reply = Message::new(
+        &conv.id,
+        Role::Assistant,
+        "first reply",
+        Some(first_user.id.clone()),
+    );
+    let old_user = Message::new(&conv.id, Role::User, "old", None);
+    let old_reply = Message::new(
+        &conv.id,
+        Role::Assistant,
+        "old reply",
+        Some(old_user.id.clone()),
+    );
+    for message in [&first_user, &first_reply, &old_user, &old_reply] {
+        db.append_message(message).unwrap();
+    }
+    let mut replacement = Message::new(&conv.id, Role::User, "revised", None);
+    replacement.status = MessageStatus::Pending;
+
+    db.replace_chat_turn(&replacement, &old_user.id).unwrap();
+
+    let messages = db.get_messages(&conv.id).unwrap();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0].id, first_user.id);
+    assert_eq!(messages[1].id, first_reply.id);
+    assert_eq!(messages[2].id, replacement.id);
+    assert_eq!(messages[2].content, "revised");
+    assert_eq!(messages[2].status, MessageStatus::Pending);
+}
+
+#[test]
 fn message_status_schema_defaults_and_rejects_invalid_states() {
     let (_dir, db, db_path) = fresh_db_with_path();
     let conv = encorehub_core::Conversation::new("status", "openai", "gpt-4o");

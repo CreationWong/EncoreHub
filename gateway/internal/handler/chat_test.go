@@ -125,6 +125,27 @@ func TestBuildChatRequest_EmptyHistory(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequest_IncludesPreexecutedSlashToolContext(t *testing.T) {
+	request := buildChatRequest(
+		&engine.ConversationDetail{},
+		SendMessageRequest{Content: "/web_search current release"},
+		promptContext{ToolResults: "Tool: web_search\nStatus: success\nResult"},
+		nil,
+		nil,
+	)
+
+	if len(request.Messages) != 1 || request.Messages[0].Content != "/web_search current release" {
+		t.Fatalf("slash request was not preserved as user content: %#v", request.Messages)
+	}
+	if !strings.Contains(request.SystemPrompt, preexecutedToolPrompt) ||
+		!strings.Contains(request.SystemPrompt, "Tool: web_search") {
+		t.Fatalf("pre-executed tool context missing from prompt: %q", request.SystemPrompt)
+	}
+	if len(request.Tools) != 0 {
+		t.Fatalf("pre-executed tool should not be registered again: %#v", request.Tools)
+	}
+}
+
 func TestComposeChatSystemPrompt_OmitsEmptyOptionalSections(t *testing.T) {
 	prompt := composeChatSystemPrompt(
 		engine.CharacterSnapshot{Name: "Default character"},
