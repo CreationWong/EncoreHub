@@ -116,7 +116,7 @@ pub struct LogBuffer {
     /// entries at or above this level. Defaults to Info.
     file_level: Mutex<Level>,
     /// Preserve explicitly marked communication bodies only after the user has
-    /// acknowledged the developer-mode warning.
+    /// enabled the dedicated full-communication logging control.
     preserve_diagnostics: AtomicBool,
     /// Optional file mirror. `None` when no log dir was configured (e.g. tests).
     file: Option<Mutex<FileSink>>,
@@ -383,7 +383,7 @@ impl LogBuffer {
             redact(&stripped)
         };
         // Communication bodies are mirrored only after the user explicitly
-        // enables developer diagnostics; all other lines remain redacted.
+        // enables full communication logging; all other lines remain redacted.
         let file_level = self.file_level();
         if level.should_write_to_file(file_level) {
             if let Some(file) = self.file.as_ref() {
@@ -816,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_only_marked_communication_payloads_in_developer_mode() {
+    fn preserves_only_marked_communication_payloads_with_full_logging() {
         const CANARY: &str = "developer-visible-prompt";
         let buf = LogBuffer::new();
         buf.set_preserve_diagnostics(true);

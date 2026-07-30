@@ -46,8 +46,8 @@ export default function AboutPanel() {
 		}
 
 		const accepted = await confirm.ask(
-			"Enable developer diagnostics?",
-			"Developer mode exposes diagnostic controls and may retain sensitive local activity in logs. API keys and authentication headers remain redacted. Only enable it while actively diagnosing a problem.",
+			"Enable developer features?",
+			"Developer mode exposes local process controls, logs, and a read-only database browser. Full communication logging remains disabled until you enable it separately in Logs.",
 		);
 		if (accepted) setDevMode(true);
 	};
@@ -135,7 +135,8 @@ export default function AboutPanel() {
 							Developer tools
 						</p>
 						<p className="mt-0.5 text-xs text-text-muted">
-							Show service diagnostics, log controls, and the live log viewer.
+							Show the developer index, process controls, logs, and the
+							read-only database browser.
 						</p>
 					</div>
 					<button

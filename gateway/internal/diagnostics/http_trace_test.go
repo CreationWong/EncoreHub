@@ -1,11 +1,15 @@
 package diagnostics
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 func TestEnvironmentEnabled(t *testing.T) {
@@ -17,6 +21,43 @@ func TestEnvironmentEnabled(t *testing.T) {
 	for _, value := range []string{"", "0", "false", "off"} {
 		if environmentEnabled(value) {
 			t.Fatalf("expected %q to disable diagnostics", value)
+		}
+	}
+}
+
+func TestRestrictedTraceRecordsMetadataWithoutBodies(t *testing.T) {
+	SetEnabled(false)
+	var output bytes.Buffer
+	previousLogger := log.Logger
+	log.Logger = zerolog.New(&output)
+	t.Cleanup(func() { log.Logger = previousLogger })
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, `{"answer":"private-response"}`)
+	}))
+	defer server.Close()
+
+	client := &http.Client{Transport: TraceTransport(http.DefaultTransport)}
+	response, err := client.Post(
+		server.URL+"?api_key=private-query",
+		"application/json",
+		strings.NewReader(`{"prompt":"private-request"}`),
+	)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+
+	logged := output.String()
+	for _, secret := range []string{"private-request", "private-response", "private-query"} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("restricted trace leaked %q: %s", secret, logged)
+		}
+	}
+	for _, metadata := range []string{"restricted communication trace", `"method":"POST"`, `"status":200`} {
+		if !strings.Contains(logged, metadata) {
+			t.Fatalf("restricted trace missing %q: %s", metadata, logged)
 		}
 	}
 }

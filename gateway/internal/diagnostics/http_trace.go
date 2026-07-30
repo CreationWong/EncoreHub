@@ -20,7 +20,7 @@ const maxCapturedBodyBytes = 512 * 1024
 var enabled atomic.Bool
 
 func init() {
-	enabled.Store(environmentEnabled(os.Getenv("ENCOREHUB_DEVELOPER_MODE")))
+	enabled.Store(environmentEnabled(os.Getenv("ENCOREHUB_FULL_COMMUNICATION_LOGS")))
 }
 
 // Enabled reports whether full local communication diagnostics are active.
@@ -35,7 +35,7 @@ func SetEnabled(value bool) {
 }
 
 // NewHTTPClient returns a client whose transport records request and response
-// bodies only while developer diagnostics are enabled.
+// bodies only while full communication logging is enabled.
 func NewHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Transport: TraceTransport(http.DefaultTransport),
@@ -58,7 +58,21 @@ type roundTripper struct {
 
 func (transport roundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	if !Enabled() {
-		return transport.base.RoundTrip(request)
+		started := time.Now()
+		response, err := transport.base.RoundTrip(request)
+		event := log.Info().
+			Str("channel", "communication").
+			Str("activity", databaseActivity(request)).
+			Str("direction", "outbound").
+			Str("method", request.Method).
+			Str("url", sanitizedURL(request.URL)).
+			Dur("duration", time.Since(started))
+		if err != nil {
+			event.Bool("failed", true).Msg("restricted communication trace")
+			return nil, err
+		}
+		event.Int("status", response.StatusCode).Msg("restricted communication trace")
+		return response, nil
 	}
 
 	started := time.Now()
@@ -72,7 +86,7 @@ func (transport roundTripper) RoundTrip(request *http.Request) (*http.Response, 
 			Str("method", request.Method).
 			Str("url", sanitizedURL(request.URL)).
 			Str("capture_error", err.Error()).
-			Msg("developer communication trace")
+			Msg("full communication trace")
 	} else {
 		log.Info().
 			Str("channel", "communication").
@@ -83,7 +97,7 @@ func (transport roundTripper) RoundTrip(request *http.Request) (*http.Response, 
 			Interface("headers", sanitizedHeaders(request.Header)).
 			Str("body", requestBody).
 			Bool("body_truncated", requestTruncated).
-			Msg("developer communication trace")
+			Msg("full communication trace")
 	}
 
 	response, err := transport.base.RoundTrip(request)
@@ -96,7 +110,7 @@ func (transport roundTripper) RoundTrip(request *http.Request) (*http.Response, 
 			Str("url", sanitizedURL(request.URL)).
 			Dur("duration", time.Since(started)).
 			Str("error", err.Error()).
-			Msg("developer communication trace")
+			Msg("full communication trace")
 		return nil, err
 	}
 
@@ -115,7 +129,7 @@ func (transport roundTripper) RoundTrip(request *http.Request) (*http.Response, 
 				Dur("duration", time.Since(started)).
 				Str("body", body).
 				Bool("body_truncated", truncated).
-				Msg("developer communication trace")
+				Msg("full communication trace")
 		},
 	}
 	return response, nil

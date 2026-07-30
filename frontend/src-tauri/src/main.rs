@@ -94,6 +94,7 @@ struct ServiceState {
     runtime_paths: RuntimePaths,
     log_control: LogControl,
     developer_mode: AtomicBool,
+    full_communication_logs: AtomicBool,
 }
 
 /// Port info returned to the frontend so it can build API URLs.
@@ -247,7 +248,7 @@ fn export_logs(
         download_dir.as_deref(),
         &state.log_dir,
         &entries,
-        state.developer_mode.load(Ordering::Acquire),
+        state.full_communication_logs.load(Ordering::Acquire),
     )
     .map_err(|error| format!("failed to export logs: {error}"))?;
     Ok(path.to_string_lossy().into_owned())
@@ -303,19 +304,52 @@ async fn set_developer_mode(
     enabled: bool,
 ) -> Result<bool, String> {
     let previous = state.developer_mode.swap(enabled, Ordering::AcqRel);
+    if previous != enabled {
+        tracing::info!(
+            "developer features {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
+    }
+
+    let disabled_full_logs =
+        !enabled && state.full_communication_logs.swap(false, Ordering::AcqRel);
+    if disabled_full_logs {
+        state.logs.set_preserve_diagnostics(false);
+        tracing::info!("full communication logging disabled with developer features");
+        restart_gateway_process(&app, &state).await?;
+    }
+    Ok(enabled)
+}
+
+#[tauri::command]
+fn get_full_communication_logs(state: State<ServiceState>) -> bool {
+    state.full_communication_logs.load(Ordering::Acquire)
+}
+
+#[tauri::command]
+async fn set_full_communication_logs(
+    app: tauri::AppHandle,
+    state: State<'_, ServiceState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    if enabled {
+        require_developer_mode(&state)?;
+    }
+    let previous = state
+        .full_communication_logs
+        .swap(enabled, Ordering::AcqRel);
     if previous == enabled {
         return Ok(enabled);
     }
-    state.logs.set_preserve_diagnostics(enabled);
 
+    state.logs.set_preserve_diagnostics(enabled);
     if enabled {
         tracing::warn!(
-            "developer diagnostics enabled; communication bodies may contain sensitive data"
+            "full communication logging enabled; request and response bodies may contain sensitive data"
         );
     } else {
-        tracing::info!("developer diagnostics disabled");
+        tracing::info!("restricted logging restored");
     }
-
     restart_gateway_process(&app, &state).await?;
     Ok(enabled)
 }
@@ -500,7 +534,7 @@ async fn restart_gateway_process(
         state.engine_port,
         state.gateway_port,
         &state.internal_auth_token,
-        state.developer_mode.load(Ordering::Acquire),
+        state.full_communication_logs.load(Ordering::Acquire),
     )
     .ok_or_else(|| "failed to start Gateway; inspect desktop logs".to_string())?;
     state.gateway.lock().unwrap().replace(handle);
@@ -591,6 +625,8 @@ fn main() {
             write_client_log,
             get_developer_mode,
             set_developer_mode,
+            get_full_communication_logs,
+            set_full_communication_logs,
             restart_gateway,
             restart_engine,
             get_database_overview,
@@ -663,6 +699,7 @@ fn main() {
                 runtime_paths: runtime_paths.clone(),
                 log_control: log_control.clone(),
                 developer_mode: AtomicBool::new(false),
+                full_communication_logs: AtomicBool::new(false),
             });
 
             // ---- Start engine in-process ----
@@ -834,14 +871,14 @@ fn spawn_gateway(
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
-    developer_mode: bool,
+    full_communication_logs: bool,
 ) -> Option<ServiceHandle> {
     let command = match app.shell().sidecar("encorehub-gateway") {
         Ok(command) => command.envs(gateway_environment(
             engine_port,
             gateway_port,
             internal_auth_token,
-            developer_mode,
+            full_communication_logs,
         )),
         Err(error) => {
             tracing::error!("failed to resolve Gateway sidecar: {error}");
@@ -925,7 +962,7 @@ fn gateway_environment(
     engine_port: u16,
     gateway_port: u16,
     internal_auth_token: &str,
-    developer_mode: bool,
+    full_communication_logs: bool,
 ) -> [(String, String); 5] {
     [
         (
@@ -936,8 +973,8 @@ fn gateway_environment(
         ("GIN_MODE".into(), "release".into()),
         (ENGINE_AUTH_TOKEN_ENV.into(), internal_auth_token.into()),
         (
-            "ENCOREHUB_DEVELOPER_MODE".into(),
-            if developer_mode { "1" } else { "0" }.into(),
+            "ENCOREHUB_FULL_COMMUNICATION_LOGS".into(),
+            if full_communication_logs { "1" } else { "0" }.into(),
         ),
     ]
 }
@@ -995,7 +1032,8 @@ mod tests {
             Some("127.0.0.1:10001")
         );
         assert_eq!(
-            env.get("ENCOREHUB_DEVELOPER_MODE").map(String::as_str),
+            env.get("ENCOREHUB_FULL_COMMUNICATION_LOGS")
+                .map(String::as_str),
             Some("1")
         );
 

@@ -10,6 +10,9 @@ beforeEach(() => {
 		sidebarWidth: 300,
 		deepThinking: false,
 		trafficLightWindowControls: false,
+		settingsTab: "about",
+		devMode: false,
+		fullCommunicationLogs: false,
 	});
 	useWorkspaceStore.setState({
 		activeTab: "home",
@@ -69,5 +72,39 @@ describe("settingsStore sidebar preferences", () => {
 			activeTab: "home",
 			openTabs: ["home"],
 		});
+	});
+
+	it("persists full communication logging separately from developer mode", () => {
+		useSettingsStore.getState().setDevMode(true);
+		useSettingsStore.getState().setFullCommunicationLogs(true);
+
+		expect(useSettingsStore.getState()).toMatchObject({
+			devMode: true,
+			fullCommunicationLogs: true,
+		});
+		expect(localStorage.getItem("encorehub-dev-mode")).toBe("1");
+		expect(localStorage.getItem("encorehub-full-communication-logs")).toBe("1");
+	});
+
+	it("rejects full communication logging until developer mode is enabled", () => {
+		useSettingsStore.getState().setFullCommunicationLogs(true);
+
+		expect(useSettingsStore.getState().fullCommunicationLogs).toBe(false);
+		expect(localStorage.getItem("encorehub-full-communication-logs")).toBe("0");
+	});
+
+	it("restores restricted logging and About when developer mode is disabled", () => {
+		useSettingsStore.getState().setDevMode(true);
+		useSettingsStore.getState().setFullCommunicationLogs(true);
+		useSettingsStore.setState({ settingsTab: "logs" });
+
+		useSettingsStore.getState().setDevMode(false);
+
+		expect(useSettingsStore.getState()).toMatchObject({
+			settingsTab: "about",
+			devMode: false,
+			fullCommunicationLogs: false,
+		});
+		expect(localStorage.getItem("encorehub-full-communication-logs")).toBe("0");
 	});
 });

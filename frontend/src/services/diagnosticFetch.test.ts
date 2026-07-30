@@ -12,8 +12,8 @@ describe("diagnosticFetch", () => {
 		Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 	});
 
-	it("requires both desktop runtime and the explicit developer preference", () => {
-		localStorage.setItem("encorehub-dev-mode", "1");
+	it("requires both desktop runtime and the explicit full-logging preference", () => {
+		localStorage.setItem("encorehub-full-communication-logs", "1");
 		expect(diagnosticFetchInternals.diagnosticsEnabled()).toBe(false);
 
 		Object.defineProperty(window, "__TAURI_INTERNALS__", {

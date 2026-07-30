@@ -13,7 +13,7 @@ function diagnosticsEnabled(): boolean {
 	return (
 		typeof window !== "undefined" &&
 		"__TAURI_INTERNALS__" in window &&
-		localStorage.getItem("encorehub-dev-mode") === "1"
+		localStorage.getItem("encorehub-full-communication-logs") === "1"
 	);
 }
 

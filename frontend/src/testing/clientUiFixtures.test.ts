@@ -103,5 +103,10 @@ describe("client UI baseline fixtures", () => {
 		expect(
 			parseClientUiBaselineOptions("?settings=developer").settingsTab,
 		).toBe("developer");
+		for (const tab of ["processes", "logs", "database"]) {
+			expect(parseClientUiBaselineOptions(`?settings=${tab}`).settingsTab).toBe(
+				tab,
+			);
+		}
 	});
 });

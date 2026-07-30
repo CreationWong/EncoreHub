@@ -9,6 +9,7 @@ import { useConversationStore } from "../stores/conversationStore";
 import { useProviderStore } from "../stores/providerStore";
 import { useSecretsStore } from "../stores/secretsStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { isDeveloperSettingsTab } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
 	CLIENT_UI_BASELINE_CHARACTERS,
@@ -42,7 +43,8 @@ export function seedClientUiBaseline({
 		sidebarWidth: 300,
 		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
 		settingsTab: settingsTab ?? "providers",
-		devMode: settingsTab === "developer",
+		devMode: settingsTab !== null && isDeveloperSettingsTab(settingsTab),
+		fullCommunicationLogs: false,
 		searchEnabled: scenario.searchEnabled,
 		searchProvider: "duckduckgo",
 		setApiKey: () => {},

@@ -1,16 +1,22 @@
 import {
 	BookOpen,
 	Bot,
+	Cpu,
 	Database,
 	Info,
 	Loader2,
 	Palette,
+	ScrollText,
 	ShieldCheck,
 	Sparkles,
 	Terminal,
 } from "lucide-react";
 import { Suspense, lazy, useEffect } from "react";
-import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
+import {
+	type SettingsTab,
+	isDeveloperSettingsTab,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
@@ -19,6 +25,9 @@ import SecurityPanel from "./SecurityPanel";
 import SkillsPanel from "./SkillsPanel";
 
 const DeveloperPanel = lazy(() => import("./DeveloperPanel"));
+const ProcessesPanel = lazy(() => import("./ProcessesPanel"));
+const LogsPanel = lazy(() => import("./LogsPanel"));
+const DatabasePanel = lazy(() => import("./DatabasePanel"));
 const AboutPanel = lazy(() => import("./AboutPanel"));
 
 interface TabDefinition {
@@ -58,18 +67,26 @@ const TAB_GROUPS: TabGroup[] = [
 	},
 ];
 
-const DEV_TAB: TabDefinition = {
-	id: "developer",
-	label: "Developer",
-	icon: Terminal,
-};
+const DEV_TABS: TabDefinition[] = [
+	{ id: "developer", label: "Developer", icon: Terminal },
+	{ id: "processes", label: "Processes", icon: Cpu },
+	{ id: "logs", label: "Logs", icon: ScrollText },
+	{ id: "database", label: "Database", icon: Database },
+];
 
 const TAB_LABELS = Object.fromEntries(
-	[...TAB_GROUPS.flatMap((group) => group.tabs), DEV_TAB].map((tab) => [
+	[...TAB_GROUPS.flatMap((group) => group.tabs), ...DEV_TABS].map((tab) => [
 		tab.id,
 		tab.label,
 	]),
 ) as Record<SettingsTab, string>;
+
+const FULL_BLEED_TABS: readonly SettingsTab[] = [
+	"providers",
+	"processes",
+	"logs",
+	"database",
+];
 
 function LoadingPanel({ label }: { label: string }) {
 	return (
@@ -89,12 +106,12 @@ export default function SettingsModal() {
 
 	const tabGroups = TAB_GROUPS.map((group) =>
 		group.label === "System" && devMode
-			? { ...group, tabs: [...group.tabs, DEV_TAB] }
+			? { ...group, tabs: [...group.tabs, ...DEV_TABS] }
 			: group,
 	);
 
 	useEffect(() => {
-		if (!devMode && tab === "developer") setTab("about");
+		if (!devMode && isDeveloperSettingsTab(tab)) setTab("about");
 	}, [devMode, setTab, tab]);
 
 	return (
@@ -144,7 +161,7 @@ export default function SettingsModal() {
 				</header>
 				<div
 					className={
-						tab === "providers"
+						FULL_BLEED_TABS.includes(tab)
 							? "min-h-0 flex-1 overflow-hidden"
 							: "min-h-0 flex-1 overflow-y-auto p-5"
 					}
@@ -169,6 +186,21 @@ export default function SettingsModal() {
 							fallback={<LoadingPanel label="Loading developer tools" />}
 						>
 							<DeveloperPanel />
+						</Suspense>
+					)}
+					{tab === "processes" && (
+						<Suspense fallback={<LoadingPanel label="Loading processes" />}>
+							<ProcessesPanel />
+						</Suspense>
+					)}
+					{tab === "logs" && (
+						<Suspense fallback={<LoadingPanel label="Loading logs" />}>
+							<LogsPanel />
+						</Suspense>
+					)}
+					{tab === "database" && (
+						<Suspense fallback={<LoadingPanel label="Loading database" />}>
+							<DatabasePanel />
 						</Suspense>
 					)}
 				</div>

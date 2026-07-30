@@ -32,6 +32,12 @@ export default function App() {
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const characterManagerOpen = useCharacterManagerStore((s) => s.open);
 	const devMode = useSettingsStore((s) => s.devMode);
+	const fullCommunicationLogs = useSettingsStore(
+		(s) => s.fullCommunicationLogs,
+	);
+	const setFullCommunicationLogs = useSettingsStore(
+		(s) => s.setFullCommunicationLogs,
+	);
 	const [status, setStatus] = useState<ServiceStatus>({
 		engine: false,
 		gateway: false,
@@ -41,10 +47,20 @@ export default function App() {
 
 	useEffect(() => {
 		if (!inTauri()) return;
-		void devtools.setDeveloperMode(devMode).catch((error) => {
-			console.error("Failed to synchronize developer diagnostics", error);
-		});
-	}, [devMode]);
+		void (async () => {
+			try {
+				await devtools.setDeveloperMode(devMode);
+				const applied = await devtools.setFullCommunicationLogs(
+					devMode && fullCommunicationLogs,
+				);
+				if (applied !== fullCommunicationLogs) {
+					setFullCommunicationLogs(applied);
+				}
+			} catch (error) {
+				console.error("Failed to synchronize developer feature state", error);
+			}
+		})();
+	}, [devMode, fullCommunicationLogs, setFullCommunicationLogs]);
 
 	// Cmd/Ctrl + , opens Settings — convention from VS Code / Chrome.
 	useEffect(() => {

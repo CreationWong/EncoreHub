@@ -7,6 +7,7 @@ const loadProviders = vi.fn();
 const refreshSecrets = vi.fn();
 const loadKeys = vi.fn();
 const openSettings = vi.fn();
+const setFullCommunicationLogs = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
 	invoke: (...args: unknown[]) => invoke(...args),
@@ -43,8 +44,18 @@ vi.mock("./stores/settingsStore", () => ({
 		selector: (state: {
 			loadKeys: typeof loadKeys;
 			openSettings: typeof openSettings;
+			devMode: boolean;
+			fullCommunicationLogs: boolean;
+			setFullCommunicationLogs: typeof setFullCommunicationLogs;
 		}) => unknown,
-	) => selector({ loadKeys, openSettings }),
+	) =>
+		selector({
+			loadKeys,
+			openSettings,
+			devMode: true,
+			fullCommunicationLogs: false,
+			setFullCommunicationLogs,
+		}),
 }));
 
 import App from "./App";
@@ -68,6 +79,7 @@ describe("App startup", () => {
 		refreshSecrets.mockReset();
 		loadKeys.mockReset();
 		openSettings.mockReset();
+		setFullCommunicationLogs.mockReset();
 		vi.stubGlobal(
 			"fetch",
 			vi.fn().mockResolvedValue({
@@ -118,5 +130,25 @@ describe("App startup", () => {
 		await waitFor(() => expect(fetch).toHaveBeenCalled());
 		expect(loadList).not.toHaveBeenCalled();
 		expect(loadProviders).not.toHaveBeenCalled();
+	});
+
+	it("synchronizes developer access and communication logging independently", async () => {
+		invoke.mockImplementation(async (command: string) => {
+			if (command === "get_service_ports") return { gateway_port: 10001 };
+			if (command === "set_developer_mode") return true;
+			if (command === "set_full_communication_logs") return false;
+			return undefined;
+		});
+
+		render(<App />);
+
+		await waitFor(() =>
+			expect(invoke).toHaveBeenCalledWith("set_developer_mode", {
+				enabled: true,
+			}),
+		);
+		expect(invoke).toHaveBeenCalledWith("set_full_communication_logs", {
+			enabled: false,
+		});
 	});
 });

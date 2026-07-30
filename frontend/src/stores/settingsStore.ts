@@ -12,7 +12,21 @@ export type SettingsTab =
 	| "appearance"
 	| "security"
 	| "about"
-	| "developer";
+	| "developer"
+	| "processes"
+	| "logs"
+	| "database";
+
+export const DEVELOPER_SETTINGS_TABS: readonly SettingsTab[] = [
+	"developer",
+	"processes",
+	"logs",
+	"database",
+];
+
+export function isDeveloperSettingsTab(tab: SettingsTab): boolean {
+	return DEVELOPER_SETTINGS_TABS.includes(tab);
+}
 
 export type SearchProvider = "duckduckgo" | "bing" | "google";
 
@@ -26,6 +40,7 @@ interface SettingsState {
 	sidebarMode: SidebarMode;
 	settingsTab: SettingsTab;
 	devMode: boolean;
+	fullCommunicationLogs: boolean;
 	trafficLightWindowControls: boolean;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
@@ -44,6 +59,7 @@ interface SettingsState {
 	openSettings: (tab?: SettingsTab) => void;
 	closeSettings: () => void;
 	setDevMode: (on: boolean) => void;
+	setFullCommunicationLogs: (on: boolean) => void;
 	setTrafficLightWindowControls: (on: boolean) => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
@@ -172,6 +188,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-dev-mode") === "1"
 			: false,
+	fullCommunicationLogs:
+		typeof window !== "undefined"
+			? localStorage.getItem("encorehub-dev-mode") === "1" &&
+				localStorage.getItem("encorehub-full-communication-logs") === "1"
+			: false,
 	trafficLightWindowControls:
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-traffic-light-window-controls") === "1"
@@ -290,11 +311,30 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	setDevMode: (on: boolean) => {
 		set((state) => ({
 			devMode: on,
+			fullCommunicationLogs: on ? state.fullCommunicationLogs : false,
 			settingsTab:
-				!on && state.settingsTab === "developer" ? "about" : state.settingsTab,
+				!on && isDeveloperSettingsTab(state.settingsTab)
+					? "about"
+					: state.settingsTab,
 		}));
 		try {
 			localStorage.setItem("encorehub-dev-mode", on ? "1" : "0");
+			if (!on) {
+				localStorage.setItem("encorehub-full-communication-logs", "0");
+			}
+		} catch {
+			/* ignore */
+		}
+	},
+
+	setFullCommunicationLogs: (on: boolean) => {
+		const enabled = on && get().devMode;
+		set({ fullCommunicationLogs: enabled });
+		try {
+			localStorage.setItem(
+				"encorehub-full-communication-logs",
+				enabled ? "1" : "0",
+			);
 		} catch {
 			/* ignore */
 		}

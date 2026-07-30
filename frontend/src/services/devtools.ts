@@ -101,6 +101,16 @@ export const devtools = {
 		return invokeCommand<boolean>("set_developer_mode", { enabled });
 	},
 
+	async getFullCommunicationLogs(): Promise<boolean> {
+		if (!inTauri()) return false;
+		return invokeCommand<boolean>("get_full_communication_logs");
+	},
+
+	async setFullCommunicationLogs(enabled: boolean): Promise<boolean> {
+		if (!inTauri()) return enabled;
+		return invokeCommand<boolean>("set_full_communication_logs", { enabled });
+	},
+
 	async restartService(service: "engine" | "gateway"): Promise<ServiceStatus> {
 		if (!inTauri()) {
 			throw new Error("Service restart is only available in the desktop app");

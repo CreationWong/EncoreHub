@@ -14,9 +14,18 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element #root not found");
 
 const options = parseClientUiBaselineOptions(window.location.search);
-if (options.settingsTab === "developer") {
+const developerTabs = ["developer", "processes", "logs", "database"];
+if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 	mockIPC((command, args) => {
 		switch (command) {
+			case "get_developer_mode":
+				return true;
+			case "set_developer_mode":
+				return Boolean((args as { enabled?: boolean } | undefined)?.enabled);
+			case "get_full_communication_logs":
+				return false;
+			case "set_full_communication_logs":
+				return Boolean((args as { enabled?: boolean } | undefined)?.enabled);
 			case "get_service_status":
 				return [
 					{
@@ -50,7 +59,7 @@ if (options.settingsTab === "developer") {
 						seq: 1,
 						source: "desktop",
 						level: "warn",
-						message: "developer diagnostics enabled",
+						message: "full communication logging enabled",
 					},
 					{
 						seq: 2,

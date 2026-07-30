@@ -38,7 +38,10 @@ describe("AboutPanel", () => {
 			target_os: "windows",
 			target_arch: "x86_64",
 		});
-		useSettingsStore.setState({ devMode: false });
+		useSettingsStore.setState({
+			devMode: false,
+			fullCommunicationLogs: false,
+		});
 	});
 
 	afterEach(cleanup);
@@ -53,13 +56,18 @@ describe("AboutPanel", () => {
 		expect(screen.getByText("Debug")).toBeDefined();
 	});
 
-	it("warns before enabling the persistent developer diagnostics", async () => {
+	it("warns before enabling developer features without enabling full logging", async () => {
 		render(<AboutPanel />);
 		const toggle = screen.getByRole("switch", { name: "Developer tools" });
 		fireEvent.click(toggle);
 
 		await waitFor(() => expect(useSettingsStore.getState().devMode).toBe(true));
 		expect(confirmAsk).toHaveBeenCalledOnce();
+		expect(confirmAsk).toHaveBeenCalledWith(
+			"Enable developer features?",
+			expect.stringContaining("Full communication logging remains disabled"),
+		);
+		expect(useSettingsStore.getState().fullCommunicationLogs).toBe(false);
 		expect(localStorage.getItem("encorehub-dev-mode")).toBe("1");
 	});
 

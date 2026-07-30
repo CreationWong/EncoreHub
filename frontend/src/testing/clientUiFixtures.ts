@@ -591,6 +591,9 @@ const CLIENT_UI_SETTINGS_TABS: readonly SettingsTab[] = [
 	"security",
 	"about",
 	"developer",
+	"processes",
+	"logs",
+	"database",
 ];
 
 export function isClientUiScenarioId(
