@@ -47,7 +47,7 @@ func Setup(cfg Config) *gin.Engine {
 	convHandler := handler.NewConversationHandler(cfg.Engine)
 	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine)
 	providerHandler := handler.NewProviderHandler(cfg.Registry, cfg.ProfileStore)
-	searchHandler := handler.NewSearchHandler()
+	searchHandler := handler.NewSearchHandler(cfg.Engine)
 	engineProxy := handler.NewEngineProxy(cfg.Engine)
 	healthHandler := handler.NewHealthHandler(cfg.Engine)
 	logLevelHandler := handler.NewLogLevelHandler(cfg.Engine)
@@ -104,7 +104,7 @@ func Setup(cfg Config) *gin.Engine {
 		// proxy. All standard CRUD verbs land on the proxy; engine enforces shape.
 		// Secrets carry key material — they ride the same localhost trust boundary
 		// as the X-Provider-Key header the gateway already forwards.
-		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters"} {
+		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters", "config"} {
 			api.Any("/"+res, engineProxy.Forward)
 			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}

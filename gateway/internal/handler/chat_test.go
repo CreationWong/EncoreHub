@@ -172,6 +172,17 @@ func TestValidateChatRequest_RejectsNegativeThinkingBudget(t *testing.T) {
 	}
 }
 
+func TestValidateChatRequest_AcceptsCustomSearchProvider(t *testing.T) {
+	err := validateChatRequest(SendMessageRequest{
+		Content:        "hello",
+		Search:         true,
+		SearchProvider: "custom",
+	})
+	if err != nil {
+		t.Fatalf("custom search provider was rejected: %v", err)
+	}
+}
+
 func TestContainsLower_Cases(t *testing.T) {
 	cases := []struct {
 		hay  string

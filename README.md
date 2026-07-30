@@ -17,8 +17,8 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 
 | 模块 | 语言 | 角色 |
 |------|------|------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Security/Developer 面板、Slash 命令；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
-| `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，认证/限流/CORS，引擎反向代理 |
+| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 命令；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
+| `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，内置联网搜索工具，认证/限流/CORS，引擎反向代理 |
 | `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill/密钥 存储与 API；AES-256-GCM 密钥加密；token 计数器（conversation crate）；桌面模式下 Tauri 在进程内启动 axum，无头模式编译为独立二进制 |
 | `data-services/` | Python 3.12 (FastAPI) | 可选 `data` profile；已定义 embed/parse/chunk 合约，当前统一返回 `501`，未加载 ML/解析依赖 |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
@@ -57,6 +57,9 @@ pnpm dev
 | `ENCOREHUB_RATE_LIMIT_MAX_CLIENTS` | `10000` | limiter store 硬容量；满时淘汰最久未使用项 |
 | `ENCOREHUB_TRUSTED_PROXIES` | _空_ | 可提供转发 IP 的代理 IP/CIDR（逗号分隔）；桌面/直连模式保持为空 |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
+| `BING_SEARCH_API_KEY` | _空_ | Bing 搜索密钥的 headless 环境变量回退；桌面端优先使用 Web Search 设置中保存的密钥 |
+| `GOOGLE_SEARCH_API_KEY` | _空_ | Google Custom Search 密钥的 headless 环境变量回退 |
+| `GOOGLE_CSE_CX` | _空_ | Google Programmable Search Engine ID 的 headless 环境变量回退 |
 
 前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`。React 不配置或直连 Engine。
 
@@ -98,11 +101,11 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 - **端口自动协商**：Tauri 桌面模式下从 10000 自动找可用端口，避免多实例冲突；headless 模式走 env 固定端口
 - **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/retitle` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/help`
 - **工作区标签**：Home 常驻；Workbench 与 Settings 可按需打开、切换和关闭，设置快捷键为 `Ctrl/Cmd + ,`
-- **设置工作区**：Providers / Skills / Knowledge / Memories / Security / Appearance / About（开启开发者模式后多一个 Developer 分区）
+- **设置工作区**：Providers / Web Search / Skills / Knowledge / Memories / Security / Appearance / About（开启开发者模式后多一个 Developer 分区）
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
-- **联网搜索**：输入区地球菜单统一管理启用开关与 DuckDuckGo/Bing/Google Provider；开启后模型获得 `web_search` 工具，可主动搜索网页。搜索结果作为 tool result 返回模型，模型引用来源生成回复
+- **联网搜索**：Gateway 内置 `web_search` 系统工具，不依赖或暴露为 Skill。输入区地球菜单控制当前对话是否允许搜索；默认开关、结果数量和 DuckDuckGo/Bing/Google/自定义 JSON Provider 在 Web Search 设置中统一配置。Bing、Google 和自定义 Provider 的密钥独立存入 Engine Secrets，不进入普通配置或 `localStorage`；自定义 Provider 可配置 HTTP(S) 端点、查询参数、鉴权 Header 与点路径响应映射
 
 ## 仓库导航
 
@@ -110,14 +113,15 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 .
 ├── frontend/             React + Tauri
 │   ├── src/components/   chat / sidebar / settings / workspace
-│   ├── src/services/     api / chat / config (env-driven + Tauri port negotiation)
+│   ├── src/services/     api / chat / config / webSearch (Engine-backed settings)
 │   ├── src/stores/       zustand
 │   ├── src/commands/     slash 命令注册表
 │   └── src-tauri/        Tauri 桌面壳：engine in-process、gateway sidecar、端口协商、日志落盘、打包配置
 ├── gateway/internal/
-│   ├── handler/          chat / conversation / engine_proxy / search / loglevel / 供应商档案
+│   ├── handler/          chat / conversation / engine_proxy / search + config / loglevel / 供应商档案
 │   ├── provider/         openaicompat(模板) / anthropic 适配 + 运行时 registry
 │   ├── router/           CORS / auth / rate-limit
+│   ├── search/           DuckDuckGo / Bing / Google / 自定义 JSON Provider
 │   └── engine/           Rust 引擎 HTTP 客户端
 ├── engine/
 │   ├── src/api/          axum routes (conversations / memories / knowledge / skills / config / secrets)

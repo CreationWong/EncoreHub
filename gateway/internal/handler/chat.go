@@ -59,7 +59,7 @@ type SendMessageRequest struct {
 	Model               string   `json:"model"`
 	Stream              bool     `json:"stream"`
 	Search              bool     `json:"search"`
-	SearchProvider      string   `json:"search_provider"` // "duckduckgo" | "bing" | "google"
+	SearchProvider      string   `json:"search_provider"` // "duckduckgo" | "bing" | "google" | "custom"
 	Temperature         float32  `json:"temperature"`
 	TopP                float32  `json:"top_p"`
 	MaxTokens           int      `json:"max_tokens"`
@@ -557,7 +557,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				if query == "" {
 					query = fullContent // fallback
 				}
-				results, warnMsg, sErr := executeWebSearch(ctx, cr, query)
+				results, sErr := executeWebSearch(ctx, h.engine, cr, query)
 				if sErr != nil {
 					safeExternalError(log.Warn().
 						Str("request_id", requestID).
@@ -567,9 +567,6 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 					tc.Result = fmt.Sprintf("Search failed: %v", sErr)
 					tc.Status = "error"
 				} else {
-					if warnMsg != "" {
-						writeFrame("warning", map[string]string{"message": warnMsg})
-					}
 					searchResults = append(searchResults, results...)
 					tc.Result = formatSearchToolResult(results)
 					tc.Status = "success"
@@ -1123,7 +1120,8 @@ func validateChatRequest(req SendMessageRequest) error {
 		return fmt.Errorf("penalties must be between -2 and 2")
 	}
 	if req.SearchProvider != "" && req.SearchProvider != "duckduckgo" &&
-		req.SearchProvider != "bing" && req.SearchProvider != "google" {
+		req.SearchProvider != "bing" && req.SearchProvider != "google" &&
+		req.SearchProvider != "custom" {
 		return fmt.Errorf("unsupported search_provider")
 	}
 	if req.ReasoningEffort != "" && req.ReasoningEffort != "low" &&
@@ -1331,7 +1329,7 @@ func parseSearchQuery(arguments string) string {
 // executeWebSearch performs a web search using the engine's search provider.
 // The provider choice is read from the request's Tools list (baked in by
 // newWebSearchTool).
-func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query string) (results []search.Result, warning string, err error) {
+func executeWebSearch(ctx context.Context, engineClient *engine.Client, req *provider.ChatRequest, query string) ([]search.Result, error) {
 	// Determine which search provider the user selected by inspecting the
 	// tool description (set by newWebSearchTool).
 	sp := "duckduckgo"
@@ -1342,37 +1340,25 @@ func executeWebSearch(ctx context.Context, req *provider.ChatRequest, query stri
 				sp = "bing"
 			} else if strings.Contains(desc, "GOOGLE") {
 				sp = "google"
+			} else if strings.Contains(desc, "CUSTOM") {
+				sp = "custom"
 			}
 			break
 		}
 	}
 
-	var apiKey string
-	switch sp {
-	case "bing":
-		apiKey = os.Getenv("BING_SEARCH_API_KEY")
-	case "google":
-		apiKey = os.Getenv("GOOGLE_SEARCH_API_KEY")
-	}
-
-	searchProv, provErr := search.NewProvider(sp, apiKey,
-		search.WithGoogleCSEcx(os.Getenv("GOOGLE_CSE_CX")),
-	)
+	searchProv, settings, provErr := resolveWebSearchProvider(ctx, engineClient, sp)
 	if provErr != nil {
-		// If the user picked Bing/Google but no API key is configured, fall
-		// back to DuckDuckGo and return a warning for the frontend.
-		log.Warn().Err(provErr).Str("fallback", "duckduckgo").Msg("web_search provider unavailable, falling back to DuckDuckGo")
-		searchProv = search.NewDuckDuckGo()
-		warning = fmt.Sprintf("Search provider %q is not configured (missing API key). Using DuckDuckGo instead.", sp)
+		return nil, provErr
 	}
 
-	resp, err := searchProv.Search(ctx, query, 5)
+	resp, err := searchProv.Search(ctx, query, settings.MaxResults)
 	if err != nil {
-		return nil, "", fmt.Errorf("search failed: %w", err)
+		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
 	logSearchCompleted(searchProv.Name(), query, len(resp.Results))
-	return resp.Results, warning, nil
+	return resp.Results, nil
 }
 
 // formatSearchToolResult formats search results as a text block the model can

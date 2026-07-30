@@ -6,6 +6,7 @@ const loadList = vi.fn();
 const loadProviders = vi.fn();
 const refreshSecrets = vi.fn();
 const loadKeys = vi.fn();
+const loadWebSearchSettings = vi.fn();
 const openSettings = vi.fn();
 const setFullCommunicationLogs = vi.fn();
 
@@ -43,6 +44,7 @@ vi.mock("./stores/settingsStore", () => ({
 	useSettingsStore: (
 		selector: (state: {
 			loadKeys: typeof loadKeys;
+			loadWebSearchSettings: typeof loadWebSearchSettings;
 			openSettings: typeof openSettings;
 			devMode: boolean;
 			fullCommunicationLogs: boolean;
@@ -51,6 +53,7 @@ vi.mock("./stores/settingsStore", () => ({
 	) =>
 		selector({
 			loadKeys,
+			loadWebSearchSettings,
 			openSettings,
 			devMode: true,
 			fullCommunicationLogs: false,
@@ -78,6 +81,7 @@ describe("App startup", () => {
 		loadProviders.mockReset();
 		refreshSecrets.mockReset();
 		loadKeys.mockReset();
+		loadWebSearchSettings.mockReset();
 		openSettings.mockReset();
 		setFullCommunicationLogs.mockReset();
 		vi.stubGlobal(
@@ -114,6 +118,7 @@ describe("App startup", () => {
 				"http://127.0.0.1:10001/api/v1/health/ready",
 			),
 		);
+		await waitFor(() => expect(loadWebSearchSettings).toHaveBeenCalledOnce());
 	});
 
 	it("does not load application data while Engine is not ready", async () => {
@@ -130,6 +135,7 @@ describe("App startup", () => {
 		await waitFor(() => expect(fetch).toHaveBeenCalled());
 		expect(loadList).not.toHaveBeenCalled();
 		expect(loadProviders).not.toHaveBeenCalled();
+		expect(loadWebSearchSettings).not.toHaveBeenCalled();
 	});
 
 	it("synchronizes developer access and communication logging independently", async () => {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,69 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestCustomProviderMapsConfiguredJSONResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("query") != "release notes" {
+			t.Fatalf("query = %q", request.URL.Query().Get("query"))
+		}
+		if request.URL.Query().Get("limit") != "2" {
+			t.Fatalf("limit = %q", request.URL.Query().Get("limit"))
+		}
+		if request.Header.Get("X-Search-Key") != "Bearer stored-secret" {
+			t.Fatalf("authorization header was not applied")
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"data":{"items":[{"headline":"First","link":"https://example.com/1","summary":"One"},{"headline":"Second","link":"https://example.com/2","summary":"Two"}]}}`)
+	}))
+	defer server.Close()
+
+	provider, err := NewProvider("custom", "stored-secret", WithCustomConfig(CustomConfig{
+		Name:           "Team Search",
+		Endpoint:       server.URL + "/search",
+		QueryParameter: "query",
+		LimitParameter: "limit",
+		APIKeyHeader:   "X-Search-Key",
+		APIKeyPrefix:   "Bearer ",
+		ResultsPath:    "data.items",
+		TitlePath:      "headline",
+		URLPath:        "link",
+		SnippetPath:    "summary",
+	}))
+	if err != nil {
+		t.Fatalf("new custom provider: %v", err)
+	}
+
+	response, err := provider.Search(context.Background(), "release notes", 2)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if response.Provider != "Team Search" || len(response.Results) != 2 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	if response.Results[0].Title != "First" || response.Results[0].URL != "https://example.com/1" {
+		t.Fatalf("unexpected first result: %#v", response.Results[0])
+	}
+}
+
+func TestCustomProviderRejectsUnsafeConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		key    string
+		config CustomConfig
+	}{
+		{name: "relative endpoint", config: CustomConfig{Endpoint: "/search"}},
+		{name: "embedded credentials", config: CustomConfig{Endpoint: "https://user:pass@example.com/search"}},
+		{name: "invalid header", key: "secret", config: CustomConfig{Endpoint: "https://example.com/search", APIKeyHeader: "Bad Header"}},
+		{name: "missing key", config: CustomConfig{Endpoint: "https://example.com/search", APIKeyHeader: "X-Key"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewProvider("custom", test.key, WithCustomConfig(test.config)); err == nil {
+				t.Fatal("expected invalid custom provider configuration")
+			}
+		})
+	}
 }
 
 type panicReader struct{}

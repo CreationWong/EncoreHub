@@ -584,6 +584,7 @@ export interface ClientUiBaselineOptions {
 
 const CLIENT_UI_SETTINGS_TABS: readonly SettingsTab[] = [
 	"providers",
+	"search",
 	"skills",
 	"knowledge",
 	"memories",

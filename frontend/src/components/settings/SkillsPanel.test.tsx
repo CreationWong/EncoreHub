@@ -21,13 +21,13 @@ import SkillsPanel from "./SkillsPanel";
 
 const skillFixture = {
 	id: "skill-1",
-	name: "Web Search",
-	description: "Searches DuckDuckGo on demand",
+	name: "Code Explainer",
+	description: "Explains code on demand",
 	version: "0.1.0",
 	author: "EncoreHub",
 	enabled: true,
 	builtin: true,
-	triggers: ["search", "find"],
+	triggers: ["explain", "review"],
 	tool_count: 2,
 };
 
@@ -44,10 +44,10 @@ describe("SkillsPanel", () => {
 		render(<SkillsPanel />);
 		await waitFor(() => expect(list).toHaveBeenCalled());
 		await waitFor(() => {
-			expect(screen.getByText("Web Search")).toBeDefined();
+			expect(screen.getByText("Code Explainer")).toBeDefined();
 			expect(screen.getByText("builtin")).toBeDefined();
 			expect(screen.getByText(/2 tools/)).toBeDefined();
-			expect(screen.getByText("search")).toBeDefined();
+			expect(screen.getByText("explain")).toBeDefined();
 		});
 	});
 

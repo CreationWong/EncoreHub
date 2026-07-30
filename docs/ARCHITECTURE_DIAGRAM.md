@@ -43,12 +43,13 @@ graph TB
             C12["MemoryPanel.tsx<br/>Memory Mgmt"]
             C13["KnowledgePanel.tsx<br/>Knowledge Base"]
             C14["AppearancePanel.tsx<br/>Theme Config"]
+            C15["SearchPanel.tsx<br/>Provider + Secure Config"]
         end
 
         subgraph STORES["Zustand Stores"]
             direction LR
             S1["conversationStore<br/>• conversations[]<br/>• activeId<br/>• messages[]<br/>• streaming/loading<br/>• sendMessage()<br/>• stopStreaming()<br/>• optimistic rename"]
-            S2["settingsStore<br/>• theme<br/>• provider/model<br/>• apiKeys{}<br/>• sidebarOpen<br/>• settingsOpen/tab"]
+            S2["settingsStore<br/>• theme<br/>• provider/model<br/>• apiKeys{}<br/>• web search defaults<br/>• sidebarOpen<br/>• settingsOpen/tab"]
         end
 
         subgraph SERVICES["Services Layer"]
@@ -58,6 +59,7 @@ graph TB
             V3["chat.ts — SSE stream parser (delta/usage/error/done)"]
             V4["conversation.ts — CRUD"]
             V5["skills.ts / memories.ts / knowledge.ts"]
+            V6["webSearch.ts<br/>Engine-backed config + test"]
         end
 
         subgraph COMMANDS["Slash Commands"]
@@ -86,6 +88,7 @@ graph TB
         C9 --> C12
         C9 --> C13
         C9 --> C14
+        C9 --> C15
         STORES --> COMPONENTS
         SERVICES --> STORES
         COMMANDS --> C5
@@ -113,7 +116,7 @@ graph TB
             H3["conversation.go<br/>CRUD proxy → engine"]
             H4["engine_proxy.go<br/>/*skills,memories,knowledge*/"]
             H5["provider_handler.go<br/>list providers + models"]
-            H6["search_handler.go<br/>POST /search → DuckDuckGo"]
+            H6["search_handler.go + search_config.go<br/>POST /search<br/>resolve config + secrets"]
         end
 
         subgraph PROVIDERS["Provider Adapters"]
@@ -129,7 +132,7 @@ graph TB
             direction LR
             G1["engine/client.go<br/>HTTP client → Rust engine<br/>internal Bearer + X-Request-ID"]
             G2["metrics/metrics.go<br/>encorehub_gateway_requests_total<br/>encorehub_gateway_request_duration_seconds<br/>encorehub_gateway_in_flight_requests"]
-            G3["search/search.go<br/>DuckDuckGo integration"]
+            G3["search/search.go<br/>DuckDuckGo / Bing / Google<br/>Custom JSON mapping"]
         end
 
         MIDDLEWARE --> HANDLERS
@@ -152,6 +155,7 @@ graph TB
             R6["GET /api/memories + /search + DELETE"]
             R7["GET /api/knowledge + /search + POST + DELETE"]
             R8["GET/POST /api/plugins"]
+            R9["GET/PUT /api/config/:key<br/>GET/PUT/DELETE /api/secrets/:id"]
         end
 
         subgraph CRATES["Cargo Workspace Crates"]
@@ -192,7 +196,8 @@ graph TB
         E1["OpenAI API<br/>api.openai.com"]
         E2["Anthropic API<br/>api.anthropic.com"]
         E3["DeepSeek API<br/>api.deepseek.com"]
-        E4["DuckDuckGo<br/>Web Search"]
+        E4["DuckDuckGo / Bing / Google<br/>Web Search"]
+        E5["User-configured HTTP(S)<br/>JSON Search Endpoint"]
     end
 
     %% ===== CONNECTIONS: Frontend → Gateway =====
@@ -206,6 +211,7 @@ graph TB
 
     %% ===== CONNECTIONS: Gateway → Search =====
     GATEWAY -->|"HTTPS"| E4
+    GATEWAY -->|"HTTPS + optional key header"| E5
 
     %% ===== CONNECTIONS: Engine → Storage =====
     ENGINE -->|"embedded"| B1
@@ -221,6 +227,7 @@ graph TB
         F3["🔍 RAG Context Injection:<br/>Each chat request: memory.search()<br/>+ knowledge.search() → top_k=3<br/>→ appended to system prompt"]
         F4["⚡ Slash Command Flow:<br/>User types '/' → SlashCommandMenu<br/>→ matchCommands(prefix)<br/>→ run(args, {conv, settings})"]
         F5["🔑 API Key Flow:<br/>Settings Modal → settingsStore<br/>→ session memory (default)<br/>→ X-Provider-Key header<br/>→ Gateway → Provider API"]
+        F6["🌐 Web Search Flow:<br/>SearchPanel → Engine config + secrets<br/>→ Gateway web_search system tool<br/>→ selected provider → cited tool result"]
     end
 
     %% ===== CROSS-CUTTING =====

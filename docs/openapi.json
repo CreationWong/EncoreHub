@@ -449,6 +449,42 @@
         }
       }
     },
+    "/api/v1/config/{key}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConfigKey" }
+      ],
+      "get": {
+        "tags": ["Settings"],
+        "operationId": "getConfigValue",
+        "description": "Returns an Engine-backed JSON configuration value, or null when the key is unset.",
+        "responses": {
+          "200": {
+            "description": "Opaque JSON configuration value",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Settings"],
+        "operationId": "setConfigValue",
+        "description": "Stores an opaque JSON configuration value. Secrets must use the Secrets API instead.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" }
+        }
+      }
+    },
     "/api/v1/providers/{provider}/models": {
       "parameters": [
         { "$ref": "#/components/parameters/ProviderId" },
@@ -864,6 +900,12 @@
         "required": true,
         "schema": { "type": "string", "format": "uuid" }
       },
+      "ConfigKey": {
+        "name": "key",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 }
+      },
       "ResourceId": {
         "name": "id",
         "in": "path",
@@ -1245,7 +1287,7 @@
           "model": { "type": "string" },
           "stream": { "type": "boolean" },
           "search": { "type": "boolean" },
-          "search_provider": { "enum": ["duckduckgo", "bing", "google"] },
+          "search_provider": { "enum": ["duckduckgo", "bing", "google", "custom"] },
           "temperature": { "type": "number" },
           "top_p": { "type": "number" },
           "max_tokens": { "type": "integer" },
@@ -1289,7 +1331,8 @@
         "required": ["query"],
         "properties": {
           "query": { "type": "string", "minLength": 1, "maxLength": 500 },
-          "max_results": { "type": "integer", "minimum": 1, "maximum": 10 }
+          "max_results": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "provider": { "enum": ["duckduckgo", "bing", "google", "custom"] }
         }
       },
       "SearchResult": {

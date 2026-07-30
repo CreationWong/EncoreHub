@@ -198,18 +198,6 @@ fn handle_tools_list(req: &JsonRpcRequest) -> JsonRpcResponse {
             }),
         },
         Tool {
-            name: "web_search".into(),
-            description: "Search the web using DuckDuckGo (free, no API key required)".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Search query" },
-                    "max_results": { "type": "integer", "default": 5 }
-                },
-                "required": ["query"]
-            }),
-        },
-        Tool {
             name: "list_skills".into(),
             description: "List available EncoreHub skills and their triggers".into(),
             input_schema: serde_json::json!({
@@ -299,21 +287,9 @@ fn handle_tools_call(req: &JsonRpcRequest, db: &Database) -> JsonRpcResponse {
                 Err(e) => serde_json::json!({"error": e.to_string()}),
             }
         }
-        "web_search" => {
-            let query = params
-                .arguments
-                .get("query")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            // For now, return a note that web search is done via the gateway
-            serde_json::json!({
-                "message": format!("Web search for '{}' would be performed via the gateway's DuckDuckGo integration. Use the /api/v1/search endpoint.", query)
-            })
-        }
         "list_skills" => {
             serde_json::json!({
                 "skills": [
-                    {"name": "web-search", "description": "Search the web using DuckDuckGo", "triggers": ["search for", "look up", "@web"]},
                     {"name": "code-explainer", "description": "Explain code snippets", "triggers": ["explain this code", "what does this code do", "@explain"]}
                 ]
             })

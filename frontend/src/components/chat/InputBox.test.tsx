@@ -46,9 +46,6 @@ const convState = {
 const setSearchEnabled = vi.fn((enabled: boolean) => {
 	settingsState.searchEnabled = enabled;
 });
-const setSearchProvider = vi.fn((provider: SearchProvider) => {
-	settingsState.searchProvider = provider;
-});
 const setDeepThinking = vi.fn((enabled: boolean) => {
 	settingsState.deepThinking = enabled;
 });
@@ -59,9 +56,9 @@ const settingsState: {
 	model: string;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
+	customSearchSettings: { name: string };
 	deepThinking: boolean;
 	setSearchEnabled: typeof setSearchEnabled;
-	setSearchProvider: typeof setSearchProvider;
 	setDeepThinking: typeof setDeepThinking;
 } = {
 	openSettings: vi.fn(),
@@ -69,9 +66,9 @@ const settingsState: {
 	model: "gpt-4o",
 	searchEnabled: false,
 	searchProvider: "duckduckgo",
+	customSearchSettings: { name: "Custom search" },
 	deepThinking: false,
 	setSearchEnabled,
-	setSearchProvider,
 	setDeepThinking,
 };
 const providerState = {
@@ -126,7 +123,7 @@ beforeEach(() => {
 	setConversationDraft.mockClear();
 	clearConversationDraft.mockClear();
 	setSearchEnabled.mockClear();
-	setSearchProvider.mockClear();
+	settingsState.openSettings.mockClear();
 	setDeepThinking.mockClear();
 	settingsState.searchEnabled = false;
 	settingsState.searchProvider = "duckduckgo";
@@ -368,10 +365,12 @@ describe("InputBox composer surface", () => {
 		expect(
 			screen.getByRole("menuitemcheckbox", { name: "Enable web search" }),
 		).toBeDefined();
-		expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+		expect(screen.getByText("DuckDuckGo")).toBeDefined();
 
-		fireEvent.click(screen.getByRole("menuitemradio", { name: "Bing" }));
-		expect(setSearchProvider).toHaveBeenCalledWith("bing");
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Configure web search" }),
+		);
+		expect(settingsState.openSettings).toHaveBeenCalledWith("search");
 	});
 
 	it("locks search on and hides external search settings for a native web model", () => {

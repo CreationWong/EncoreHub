@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
 	"com.0d000721.encorehub/gateway/internal/search"
 	"github.com/gin-gonic/gin"
 )
@@ -14,19 +15,21 @@ const maxSearchRequestBytes = 8 << 10
 
 type SearchHandler struct {
 	provider search.Provider
+	engine   *engine.Client
 }
 
-func NewSearchHandler(providers ...search.Provider) *SearchHandler {
-	provider := search.Provider(search.NewDuckDuckGo())
+func NewSearchHandler(engineClient *engine.Client, providers ...search.Provider) *SearchHandler {
+	var provider search.Provider
 	if len(providers) > 0 && providers[0] != nil {
 		provider = providers[0]
 	}
-	return &SearchHandler{provider: provider}
+	return &SearchHandler{provider: provider, engine: engineClient}
 }
 
 type SearchRequest struct {
 	Query      string `json:"query" binding:"required"`
 	MaxResults int    `json:"max_results"`
+	Provider   string `json:"provider"`
 }
 
 func (h *SearchHandler) Search(c *gin.Context) {
@@ -41,7 +44,22 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.MaxResults == 0 {
+	provider := h.provider
+	if provider == nil {
+		resolved, settings, err := resolveWebSearchProvider(
+			c.Request.Context(),
+			h.engine,
+			req.Provider,
+		)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		provider = resolved
+		if req.MaxResults == 0 {
+			req.MaxResults = settings.MaxResults
+		}
+	} else if req.MaxResults == 0 {
 		req.MaxResults = search.DefaultMaxResults
 	}
 	req.Query = strings.TrimSpace(req.Query)
@@ -50,7 +68,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.provider.Search(c.Request.Context(), req.Query, req.MaxResults)
+	resp, err := provider.Search(c.Request.Context(), req.Query, req.MaxResults)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "search provider request failed"})
 		return

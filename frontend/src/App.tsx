@@ -29,6 +29,9 @@ export default function App() {
 	const loadProviders = useProviderStore((s) => s.load);
 	const refreshSecrets = useSecretsStore((s) => s.refresh);
 	const loadKeys = useSettingsStore((s) => s.loadKeys);
+	const loadWebSearchSettings = useSettingsStore(
+		(s) => s.loadWebSearchSettings,
+	);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const characterManagerOpen = useCharacterManagerStore((s) => s.open);
 	const devMode = useSettingsStore((s) => s.devMode);
@@ -150,6 +153,7 @@ export default function App() {
 					loadProviders();
 					refreshSecrets();
 					loadKeys();
+					loadWebSearchSettings();
 				}
 			} else {
 				attempts++;
@@ -169,6 +173,7 @@ export default function App() {
 		loadProviders,
 		refreshSecrets,
 		loadKeys,
+		loadWebSearchSettings,
 	]);
 
 	// Splash screen while waiting for backend

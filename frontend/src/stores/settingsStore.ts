@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import { secretsApi } from "../services/secrets";
+import {
+	type CustomSearchSettings,
+	DEFAULT_WEB_SEARCH_SETTINGS,
+	type SearchProvider,
+	type WebSearchSettings,
+	normalizeWebSearchSettings,
+	webSearchApi,
+} from "../services/webSearch";
 import { useWorkspaceStore } from "./workspaceStore";
+
+export type { SearchProvider } from "../services/webSearch";
 
 export type Theme = "system" | "dark" | "light";
 export type SidebarMode = "characters" | "conversations";
@@ -9,6 +19,7 @@ export type SettingsTab =
 	| "skills"
 	| "knowledge"
 	| "memories"
+	| "search"
 	| "appearance"
 	| "security"
 	| "about"
@@ -28,8 +39,6 @@ export function isDeveloperSettingsTab(tab: SettingsTab): boolean {
 	return DEVELOPER_SETTINGS_TABS.includes(tab);
 }
 
-export type SearchProvider = "duckduckgo" | "bing" | "google";
-
 interface SettingsState {
 	theme: Theme;
 	provider: string;
@@ -44,6 +53,10 @@ interface SettingsState {
 	trafficLightWindowControls: boolean;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
+	searchMaxResults: number;
+	googleSearchEngineId: string;
+	customSearchSettings: CustomSearchSettings;
+	searchSettingsLoaded: boolean;
 	deepThinking: boolean;
 
 	setTheme: (theme: Theme) => void;
@@ -63,6 +76,8 @@ interface SettingsState {
 	setTrafficLightWindowControls: (on: boolean) => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
+	loadWebSearchSettings: () => Promise<void>;
+	saveWebSearchSettings: (settings: WebSearchSettings) => Promise<void>;
 	setDeepThinking: (on: boolean) => void;
 }
 
@@ -121,6 +136,7 @@ async function loadKeysFromEngine(): Promise<Record<string, string>> {
 			const { provider_ids } = await secretsApi.list();
 			const keys: Record<string, string> = {};
 			for (const pid of provider_ids) {
+				if (pid.startsWith("system.search.")) continue;
 				try {
 					const { key } = await secretsApi.getKey(pid);
 					keys[pid] = key;
@@ -207,6 +223,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 					"encorehub-search-provider",
 				) as SearchProvider | null)
 			: null) ?? "duckduckgo",
+	searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
+	googleSearchEngineId: DEFAULT_WEB_SEARCH_SETTINGS.google_cse_id,
+	customSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.custom },
+	searchSettingsLoaded: false,
 	deepThinking:
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-deep-thinking") === "1"
@@ -359,6 +379,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		} catch {
 			/* ignore */
 		}
+		const state = get();
+		void webSearchApi
+			.saveSettings(webSearchSettingsFromState(state))
+			.catch(() => undefined);
 	},
 
 	setSearchProvider: (p: SearchProvider) => {
@@ -368,6 +392,33 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		} catch {
 			/* ignore */
 		}
+		const state = get();
+		void webSearchApi
+			.saveSettings(webSearchSettingsFromState(state))
+			.catch(() => undefined);
+	},
+
+	loadWebSearchSettings: async () => {
+		const state = get();
+		const fallback = webSearchSettingsFromState(state);
+		try {
+			const stored = await webSearchApi.getSettings();
+			const settings = normalizeWebSearchSettings(stored, fallback);
+			set(webSearchState(settings));
+			persistSearchSelection(settings);
+			if (stored == null) {
+				await webSearchApi.saveSettings(settings);
+			}
+		} catch {
+			set({ searchSettingsLoaded: true });
+		}
+	},
+
+	saveWebSearchSettings: async (settings: WebSearchSettings) => {
+		const normalized = normalizeWebSearchSettings(settings);
+		await webSearchApi.saveSettings(normalized);
+		set(webSearchState(normalized));
+		persistSearchSelection(normalized);
 	},
 
 	setDeepThinking: (on: boolean) => {
@@ -379,6 +430,39 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		}
 	},
 }));
+
+function webSearchSettingsFromState(state: SettingsState): WebSearchSettings {
+	return {
+		enabled: state.searchEnabled,
+		provider: state.searchProvider,
+		max_results: state.searchMaxResults,
+		google_cse_id: state.googleSearchEngineId,
+		custom: { ...state.customSearchSettings },
+	};
+}
+
+function webSearchState(settings: WebSearchSettings) {
+	return {
+		searchEnabled: settings.enabled,
+		searchProvider: settings.provider,
+		searchMaxResults: settings.max_results,
+		googleSearchEngineId: settings.google_cse_id,
+		customSearchSettings: { ...settings.custom },
+		searchSettingsLoaded: true,
+	};
+}
+
+function persistSearchSelection(settings: WebSearchSettings) {
+	try {
+		localStorage.setItem(
+			"encorehub-search-enabled",
+			settings.enabled ? "1" : "0",
+		);
+		localStorage.setItem("encorehub-search-provider", settings.provider);
+	} catch {
+		/* ignore */
+	}
+}
 
 if (typeof window !== "undefined") {
 	const saved = localStorage.getItem("encorehub-theme") as Theme | null;

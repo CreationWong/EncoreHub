@@ -1,9 +1,31 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const webSearchMocks = vi.hoisted(() => ({
+	getSettings: vi.fn(),
+	saveSettings: vi.fn(),
+}));
+
+vi.mock("../services/webSearch", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../services/webSearch")>();
+	return {
+		...actual,
+		webSearchApi: {
+			...actual.webSearchApi,
+			getSettings: (...args: unknown[]) => webSearchMocks.getSettings(...args),
+			saveSettings: (...args: unknown[]) =>
+				webSearchMocks.saveSettings(...args),
+		},
+	};
+});
+
+import { DEFAULT_WEB_SEARCH_SETTINGS } from "../services/webSearch";
 import { useSettingsStore } from "./settingsStore";
 import { useWorkspaceStore } from "./workspaceStore";
 
 beforeEach(() => {
 	localStorage.clear();
+	webSearchMocks.getSettings.mockReset();
+	webSearchMocks.saveSettings.mockReset().mockResolvedValue(undefined);
 	useSettingsStore.setState({
 		sidebarOpen: true,
 		sidebarMode: "conversations",
@@ -13,10 +35,58 @@ beforeEach(() => {
 		settingsTab: "about",
 		devMode: false,
 		fullCommunicationLogs: false,
+		searchEnabled: false,
+		searchProvider: "duckduckgo",
+		searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
+		googleSearchEngineId: "",
+		customSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.custom },
+		searchSettingsLoaded: false,
 	});
 	useWorkspaceStore.setState({
 		activeTab: "home",
 		openTabs: ["home"],
+	});
+});
+
+describe("settingsStore web search configuration", () => {
+	it("loads Engine-backed search settings as the source of truth", async () => {
+		webSearchMocks.getSettings.mockResolvedValue({
+			enabled: true,
+			provider: "custom",
+			max_results: 8,
+			custom: {
+				name: "Internal index",
+				endpoint: "https://search.example.com/api",
+			},
+		});
+
+		await useSettingsStore.getState().loadWebSearchSettings();
+
+		expect(useSettingsStore.getState()).toMatchObject({
+			searchEnabled: true,
+			searchProvider: "custom",
+			searchMaxResults: 8,
+			customSearchSettings: {
+				name: "Internal index",
+				endpoint: "https://search.example.com/api",
+			},
+			searchSettingsLoaded: true,
+		});
+		expect(localStorage.getItem("encorehub-search-provider")).toBe("custom");
+	});
+
+	it("migrates the previous local selection when Engine has no configuration", async () => {
+		localStorage.setItem("encorehub-search-enabled", "1");
+		localStorage.setItem("encorehub-search-provider", "bing");
+		useSettingsStore.setState({ searchEnabled: true, searchProvider: "bing" });
+		webSearchMocks.getSettings.mockResolvedValue(null);
+
+		await useSettingsStore.getState().loadWebSearchSettings();
+
+		expect(webSearchMocks.saveSettings).toHaveBeenCalledWith(
+			expect.objectContaining({ enabled: true, provider: "bing" }),
+		);
+		expect(useSettingsStore.getState().searchSettingsLoaded).toBe(true);
 	});
 });
 

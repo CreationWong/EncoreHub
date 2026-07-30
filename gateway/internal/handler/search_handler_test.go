@@ -54,7 +54,7 @@ func TestSearchRejectsInvalidInputBeforeProviderCall(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			provider := &searchStub{}
-			recorder := performSearchRequest(NewSearchHandler(provider), []byte(test.body))
+			recorder := performSearchRequest(NewSearchHandler(nil, provider), []byte(test.body))
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 			}
@@ -69,7 +69,7 @@ func TestSearchRejectsOversizedJSONBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	provider := &searchStub{}
 	body := []byte(`{"query":"go","padding":"` + strings.Repeat("x", maxSearchRequestBytes) + `"}`)
-	recorder := performSearchRequest(NewSearchHandler(provider), body)
+	recorder := performSearchRequest(NewSearchHandler(nil, provider), body)
 
 	if recorder.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
@@ -90,7 +90,7 @@ func TestSearchBoundsAndDefaultsMaxResults(t *testing.T) {
 		{body: `{"query":"go","max_results":10}`, want: search.MaxResults},
 	} {
 		provider := &searchStub{}
-		recorder := performSearchRequest(NewSearchHandler(provider), []byte(test.body))
+		recorder := performSearchRequest(NewSearchHandler(nil, provider), []byte(test.body))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 		}
@@ -103,7 +103,7 @@ func TestSearchBoundsAndDefaultsMaxResults(t *testing.T) {
 func TestSearchMapsProviderFailureToBadGateway(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	provider := &searchStub{err: errors.New("upstream failed")}
-	recorder := performSearchRequest(NewSearchHandler(provider), []byte(`{"query":"go"}`))
+	recorder := performSearchRequest(NewSearchHandler(nil, provider), []byte(`{"query":"go"}`))
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}

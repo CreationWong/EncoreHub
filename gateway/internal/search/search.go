@@ -4,6 +4,7 @@
 // - DuckDuckGo HTML search (free, no API key; scrapes html.duckduckgo.com)
 // - Bing Web Search API v7 (requires BING_SEARCH_API_KEY)
 // - Google Custom Search JSON API (requires GOOGLE_SEARCH_API_KEY + GOOGLE_CSE_CX)
+// - Custom JSON endpoints with configurable query parameters and result mapping
 //
 // Results are injected into chat context for RAG-like behavior.
 package search
@@ -90,7 +91,7 @@ type Provider interface {
 
 // NewProvider creates a search provider by name.
 //
-// Supported names: "duckduckgo", "bing", "google".
+// Supported names: "duckduckgo", "bing", "google", "custom".
 //   - duckduckgo: no key required
 //   - bing: pass apiKey (BING_SEARCH_API_KEY)
 //   - google: pass apiKey (GOOGLE_SEARCH_API_KEY); the key is used with GOOGLE_CSE_CX
@@ -116,8 +117,20 @@ func NewProvider(name, apiKey string, opts ...ProviderOption) (Provider, error) 
 			return nil, fmt.Errorf("google search: missing CSE CX (set via WithGoogleCSEcx or GOOGLE_CSE_CX env)")
 		}
 		return p, nil
+	case "custom":
+		p := &Custom{
+			apiKey: apiKey,
+			client: diagnostics.NewHTTPClient(10 * time.Second),
+		}
+		for _, opt := range opts {
+			opt(p)
+		}
+		if err := p.validate(); err != nil {
+			return nil, err
+		}
+		return p, nil
 	default:
-		return nil, fmt.Errorf("unknown search provider: %q (supported: duckduckgo, bing, google)", name)
+		return nil, fmt.Errorf("unknown search provider: %q (supported: duckduckgo, bing, google, custom)", name)
 	}
 }
 
@@ -129,6 +142,30 @@ func WithGoogleCSEcx(cx string) ProviderOption {
 	return func(p interface{}) {
 		if g, ok := p.(*Google); ok {
 			g.cseCX = cx
+		}
+	}
+}
+
+// CustomConfig describes a JSON search endpoint. The endpoint must return an
+// array at ResultsPath; each item is mapped through the configured field paths.
+type CustomConfig struct {
+	Name           string
+	Endpoint       string
+	QueryParameter string
+	LimitParameter string
+	APIKeyHeader   string
+	APIKeyPrefix   string
+	ResultsPath    string
+	TitlePath      string
+	URLPath        string
+	SnippetPath    string
+}
+
+// WithCustomConfig applies the endpoint and response mapping to a custom provider.
+func WithCustomConfig(config CustomConfig) ProviderOption {
+	return func(p interface{}) {
+		if custom, ok := p.(*Custom); ok {
+			custom.config = config
 		}
 	}
 }
@@ -520,6 +557,149 @@ func (g *Google) Search(ctx context.Context, query string, maxResults int) (*Sea
 		Provider: "google",
 		Query:    query,
 	}, nil
+}
+
+// ============================================================
+// Custom JSON search provider
+// ============================================================
+
+type Custom struct {
+	client *http.Client
+	apiKey string
+	config CustomConfig
+}
+
+func (c *Custom) Name() string {
+	if name := strings.TrimSpace(c.config.Name); name != "" {
+		return name
+	}
+	return "custom"
+}
+
+var customHeaderNameRx = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+func (c *Custom) validate() error {
+	endpoint, err := url.Parse(strings.TrimSpace(c.config.Endpoint))
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+		return fmt.Errorf("custom search: endpoint must be an absolute HTTP(S) URL")
+	}
+	if endpoint.User != nil {
+		return fmt.Errorf("custom search: endpoint credentials are not allowed")
+	}
+	if header := strings.TrimSpace(c.config.APIKeyHeader); header != "" {
+		if !customHeaderNameRx.MatchString(header) {
+			return fmt.Errorf("custom search: invalid API key header")
+		}
+		if c.apiKey == "" {
+			return fmt.Errorf("custom search: missing API key")
+		}
+	}
+	return nil
+}
+
+func (c *Custom) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
+	}
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
+
+	endpoint, _ := url.Parse(strings.TrimSpace(c.config.Endpoint))
+	params := endpoint.Query()
+	queryParameter := strings.TrimSpace(c.config.QueryParameter)
+	if queryParameter == "" {
+		queryParameter = "q"
+	}
+	limitParameter := strings.TrimSpace(c.config.LimitParameter)
+	if limitParameter == "" {
+		limitParameter = "count"
+	}
+	params.Set(queryParameter, query)
+	params.Set(limitParameter, fmt.Sprintf("%d", maxResults))
+	endpoint.RawQuery = params.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "EncoreHub/0.1")
+	if header := strings.TrimSpace(c.config.APIKeyHeader); header != "" {
+		request.Header.Set(header, c.config.APIKeyPrefix+c.apiKey)
+	}
+
+	response, err := c.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("custom search request: %w", err)
+	}
+	defer response.Body.Close()
+	body, err := readProviderResponse(c.Name(), response)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("custom search decode: %w", err)
+	}
+	itemsValue, ok := lookupJSONPath(payload, defaultPath(c.config.ResultsPath, "results"))
+	if !ok {
+		return nil, fmt.Errorf("custom search: results path not found")
+	}
+	items, ok := itemsValue.([]any)
+	if !ok {
+		return nil, fmt.Errorf("custom search: results path must contain an array")
+	}
+
+	results := make([]Result, 0, min(maxResults, len(items)))
+	for _, item := range items {
+		if len(results) >= maxResults {
+			break
+		}
+		result := Result{
+			Title:   stringAtPath(item, defaultPath(c.config.TitlePath, "title")),
+			URL:     stringAtPath(item, defaultPath(c.config.URLPath, "url")),
+			Snippet: stringAtPath(item, defaultPath(c.config.SnippetPath, "snippet")),
+		}
+		if result.URL != "" {
+			results = append(results, result)
+		}
+	}
+
+	return &SearchResponse{Results: results, Provider: c.Name(), Query: query}, nil
+}
+
+func defaultPath(path, fallback string) string {
+	if path = strings.TrimSpace(path); path != "" {
+		return path
+	}
+	return fallback
+}
+
+func lookupJSONPath(value any, path string) (any, bool) {
+	current := value
+	for _, segment := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[segment]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func stringAtPath(value any, path string) string {
+	found, ok := lookupJSONPath(value, path)
+	if !ok {
+		return ""
+	}
+	text, _ := found.(string)
+	return strings.TrimSpace(text)
 }
 
 // ============================================================

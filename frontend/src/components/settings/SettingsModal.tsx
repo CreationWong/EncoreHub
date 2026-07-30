@@ -7,6 +7,7 @@ import {
 	Loader2,
 	Palette,
 	ScrollText,
+	Search,
 	ShieldCheck,
 	Sparkles,
 	Terminal,
@@ -29,6 +30,7 @@ const ProcessesPanel = lazy(() => import("./ProcessesPanel"));
 const LogsPanel = lazy(() => import("./LogsPanel"));
 const DatabasePanel = lazy(() => import("./DatabasePanel"));
 const AboutPanel = lazy(() => import("./AboutPanel"));
+const SearchPanel = lazy(() => import("./SearchPanel"));
 
 interface TabDefinition {
 	id: SettingsTab;
@@ -52,6 +54,7 @@ const TAB_GROUPS: TabGroup[] = [
 	{
 		label: "Capabilities",
 		tabs: [
+			{ id: "search", label: "Web search", icon: Search },
 			{ id: "skills", label: "Skills", icon: Sparkles },
 			{ id: "knowledge", label: "Knowledge", icon: Database },
 			{ id: "memories", label: "Memories", icon: BookOpen },
@@ -168,6 +171,13 @@ export default function SettingsModal() {
 				>
 					{tab === "providers" && <ProvidersPanel />}
 					{tab === "skills" && <SkillsPanel />}
+					{tab === "search" && (
+						<Suspense
+							fallback={<LoadingPanel label="Loading web search settings" />}
+						>
+							<SearchPanel />
+						</Suspense>
+					)}
 					{tab === "knowledge" && <KnowledgePanel />}
 					{tab === "memories" && <MemoryPanel />}
 					{tab === "security" && <SecurityPanel />}

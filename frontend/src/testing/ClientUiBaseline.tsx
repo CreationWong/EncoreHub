@@ -3,6 +3,7 @@ import GlobalNav from "../components/layout/GlobalNav";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ToastHost from "../components/ui/ToastHost";
 import WorkspaceSurface from "../components/workspace/WorkspaceSurface";
+import { DEFAULT_WEB_SEARCH_SETTINGS } from "../services/webSearch";
 import { useCharacterManagerStore } from "../stores/characterManagerStore";
 import { useCharacterStore } from "../stores/characterStore";
 import { useConversationStore } from "../stores/conversationStore";
@@ -47,9 +48,15 @@ export function seedClientUiBaseline({
 		fullCommunicationLogs: false,
 		searchEnabled: scenario.searchEnabled,
 		searchProvider: "duckduckgo",
+		searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
+		googleSearchEngineId: "",
+		customSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.custom },
+		searchSettingsLoaded: true,
 		setApiKey: () => {},
 		clearApiKey: async () => {},
 		loadKeys: async () => {},
+		loadWebSearchSettings: async () => {},
+		saveWebSearchSettings: async () => {},
 	});
 	const settingsActive = scenario.settingsOpen || settingsTab !== null;
 	useWorkspaceStore.setState({

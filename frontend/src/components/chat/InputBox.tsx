@@ -1,11 +1,11 @@
 import {
 	Brain,
-	Check,
 	ChevronDown,
 	Command,
 	Globe,
 	Loader2,
 	Send,
+	Settings2,
 	Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,10 +19,7 @@ import {
 	useConversationStore,
 } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
-import {
-	type SearchProvider,
-	useSettingsStore,
-} from "../../stores/settingsStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import { modelHasCapability } from "../../utils/modelCapabilities";
 import SlashCommandMenu, { slashCommandOptionId } from "./SlashCommandMenu";
@@ -36,12 +33,6 @@ const SLASH_MENU_ID = "chat-slash-command-menu";
 const SEARCH_MENU_ID = "chat-search-menu";
 const NATIVE_WEB_SEARCH_MESSAGE =
 	"This model has built-in web search, so web search cannot be turned off.";
-
-const SEARCH_PROVIDERS: { value: SearchProvider; label: string }[] = [
-	{ value: "duckduckgo", label: "DuckDuckGo" },
-	{ value: "bing", label: "Bing" },
-	{ value: "google", label: "Google" },
-];
 
 function draftKey(id: string | null): string {
 	return id ?? NEW_CONVERSATION_DRAFT_KEY;
@@ -107,13 +98,14 @@ export default function InputBox() {
 	);
 	const searchEnabled = useSettingsStore((state) => state.searchEnabled);
 	const searchProvider = useSettingsStore((state) => state.searchProvider);
+	const customSearchName = useSettingsStore(
+		(state) => state.customSearchSettings.name,
+	);
 	const defaultProvider = useSettingsStore((state) => state.provider);
 	const defaultModel = useSettingsStore((state) => state.model);
 	const deepThinking = useSettingsStore((state) => state.deepThinking);
 	const setSearchEnabled = useSettingsStore((state) => state.setSearchEnabled);
-	const setSearchProvider = useSettingsStore(
-		(state) => state.setSearchProvider,
-	);
+	const openSettings = useSettingsStore((state) => state.openSettings);
 	const setDeepThinking = useSettingsStore((state) => state.setDeepThinking);
 	const providerProfiles = useProviderStore((state) => state.profiles);
 	const activeProvider = activeConversation?.provider || defaultProvider;
@@ -374,8 +366,13 @@ export default function InputBox() {
 	const charCount = input.length;
 	const showCharacterStatus = charCount >= WARN_AT;
 	const selectedSearchProvider =
-		SEARCH_PROVIDERS.find((provider) => provider.value === searchProvider) ??
-		SEARCH_PROVIDERS[0];
+		searchProvider === "duckduckgo"
+			? "DuckDuckGo"
+			: searchProvider === "bing"
+				? "Bing"
+				: searchProvider === "google"
+					? "Google"
+					: customSearchName || "Custom search";
 	const activeSlashCommand = slashMatches[menuIndex];
 
 	return (
@@ -480,7 +477,7 @@ export default function InputBox() {
 									nativeWebSearch
 										? "Built-in web search is always enabled for this model"
 										: searchEnabled
-											? `Disable web search (${selectedSearchProvider.label})`
+											? `Disable web search (${selectedSearchProvider})`
 											: "Enable web search"
 								}
 								className={`flex h-9 w-8 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text-primary ${
@@ -539,34 +536,24 @@ export default function InputBox() {
 										</span>
 									</button>
 									<hr className="my-1 border-0 border-t border-border" />
-									<div className="px-2.5 py-1 text-[10px] font-semibold uppercase text-text-muted">
-										Search provider
+									<div className="flex items-center justify-between gap-3 px-2.5 py-2 text-xs text-text-muted">
+										<span>Provider</span>
+										<span className="truncate text-text-secondary">
+											{selectedSearchProvider}
+										</span>
 									</div>
-									{SEARCH_PROVIDERS.map((provider) => {
-										const selected = searchProvider === provider.value;
-										return (
-											<button
-												key={provider.value}
-												type="button"
-												role="menuitemradio"
-												aria-checked={selected}
-												onClick={() => {
-													setSearchProvider(provider.value);
-													closeSearchMenu(true);
-												}}
-												className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs ${
-													selected
-														? "bg-accent/10 text-accent"
-														: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-												}`}
-											>
-												<span>{provider.label}</span>
-												{selected && (
-													<Check aria-hidden="true" className="h-3.5 w-3.5" />
-												)}
-											</button>
-										);
-									})}
+									<button
+										type="button"
+										role="menuitem"
+										onClick={() => {
+											closeSearchMenu(false);
+											openSettings("search");
+										}}
+										className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+									>
+										<Settings2 className="h-3.5 w-3.5" />
+										Configure web search
+									</button>
 								</div>
 							)}
 						</fieldset>

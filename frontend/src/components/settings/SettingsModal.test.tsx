@@ -7,6 +7,7 @@ vi.mock("./AppearancePanel", () => ({
 	default: () => <p>Appearance panel</p>,
 }));
 vi.mock("./SkillsPanel", () => ({ default: () => <p>Skills panel</p> }));
+vi.mock("./SearchPanel", () => ({ default: () => <p>Search panel</p> }));
 vi.mock("./KnowledgePanel", () => ({ default: () => <p>Knowledge panel</p> }));
 vi.mock("./MemoryPanel", () => ({ default: () => <p>Memories panel</p> }));
 vi.mock("./SecurityPanel", () => ({ default: () => <p>Security panel</p> }));
@@ -24,6 +25,14 @@ describe("Settings workspace information architecture", () => {
 			settingsTab: "about",
 			devMode: false,
 		});
+	});
+
+	it("opens system web search configuration as a capability", async () => {
+		render(<SettingsModal />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Web search" }));
+		expect(await screen.findByText("Search panel")).toBeDefined();
+		expect(useSettingsStore.getState().settingsTab).toBe("search");
 	});
 
 	afterEach(cleanup);
