@@ -1,9 +1,8 @@
 # EncoreHub
 
-AI 聊天桌面客户端 — 一个客户端聚合多家供应商，附带知识库、记忆、Skill、Plugin、MCP 能力。
+AI 聊天桌面客户端 — 在一个跨平台桌面工作区中聚合多家模型供应商，并提供角色档案、知识库、记忆、Skill、Plugin 与 MCP 能力。
 
-> 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、模板化供应商、密钥加密、token 计数、端口协商、开发者模式），但 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。详见
-> [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md) 与 [`docs/IMPROVEMENT_REPORT.md`](docs/IMPROVEMENT_REPORT.md) 中按 P0/P1/P2 标注的差距清单。
+> 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、角色档案、模板化供应商、密钥加密、token 计数、端口协商、开发者模式），但语义 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。统一待办见 [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md)。
 > 当前尚未声明正式平台支持：Windows 开发路径可用，Windows/macOS/Linux 均进入 CI 编译与 no-bundle smoke；各平台完成安装后启动验收前都视为预发布。
 
 ## 架构速览
@@ -28,14 +27,16 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 
 ## Quickstart（开发模式）
 
-需要：Node 22+ / pnpm 10 / Go 1.25 / Rust stable。
+需要：Node 20+ / pnpm 10 / Go 1.25 / Rust stable，以及 [Tauri 2 对应平台的系统依赖](https://v2.tauri.app/start/prerequisites/)。
 
 ```bash
 pnpm setup
 pnpm dev
 ```
 
-`pnpm dev` 会构建当前平台的 Gateway sidecar 并启动 Tauri；Engine 在桌面进程内运行，内部 token 自动生成。在右下 Settings (`Ctrl/Cmd + ,`) → Providers 填一个 API key 即可对话。只调试单个组件时使用 `pnpm dev:frontend`、`pnpm dev:gateway`、`pnpm dev:engine` 或 `pnpm dev:data`。
+`pnpm dev` 会构建当前平台的 Gateway sidecar 并启动 Tauri；Engine 在桌面进程内运行，内部 token 自动生成。通过右上角 Settings 齿轮（或 `Ctrl/Cmd + ,`）打开设置工作区，在 Providers 中填入 API key 即可对话。
+
+只调试单个组件时使用 `pnpm dev:frontend`、`pnpm dev:gateway` 或 `pnpm dev:engine`。如需运行可选的 data-services，请先安装 Python 3.12 与 `uv`，执行 `pnpm setup:all`，再运行 `pnpm dev:data`。
 
 ## 配置
 
@@ -96,7 +97,8 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 - **Token 计数**：每次对话后 assistant 回复右下角显示 input+output token 总数（如 `1.2k tokens`）；引擎 `conversation` crate 提供 char/4 近似估算 + API 用量追踪
 - **端口自动协商**：Tauri 桌面模式下从 10000 自动找可用端口，避免多实例冲突；headless 模式走 env 固定端口
 - **Slash 命令**：在输入框打 `/` 出补全 — `/new` `/clear` `/stop` `/retitle` `/model` `/settings` `/skills` `/memory` `/knowledge` `/inspect` `/help`
-- **设置面板**（`Ctrl/Cmd + ,`）：Providers / Skills / Knowledge / Memories / Security / Appearance（开启开发者模式后多一个 Developer 标签）
+- **工作区标签**：Home 常驻；Workbench 与 Settings 可按需打开、切换和关闭，设置快捷键为 `Ctrl/Cmd + ,`
+- **设置工作区**：Providers / Skills / Knowledge / Memories / Security / Appearance / About（开启开发者模式后多一个 Developer 分区）
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
@@ -107,7 +109,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 ```
 .
 ├── frontend/             React + Tauri
-│   ├── src/components/   chat / sidebar / settings
+│   ├── src/components/   chat / sidebar / settings / workspace
 │   ├── src/services/     api / chat / config (env-driven + Tauri port negotiation)
 │   ├── src/stores/       zustand
 │   ├── src/commands/     slash 命令注册表
@@ -126,8 +128,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 ├── scripts/              workspace contract、sidecar 准备及平台构建脚本
 ├── data-services/        Python contract service（可选 data profile）
 ├── docs/
-│   ├── REMAINING_WORK.md      剩余工作 + 最近完成
-│   ├── IMPROVEMENT_REPORT.md  审计 + P0/P1/P2 差距
+│   ├── REMAINING_WORK.md      统一待办与发布验收清单
 │   ├── openapi.json           EncoreHub Gateway API 契约
 │   ├── vendor/                第三方 API 参考快照（非项目契约）
 │   └── adr/                   架构决策记录
