@@ -15,10 +15,9 @@ vi.mock("./DeveloperPanel", () => ({ default: () => <p>Developer panel</p> }));
 
 import SettingsModal from "./SettingsModal";
 
-describe("SettingsModal information architecture", () => {
+describe("Settings workspace information architecture", () => {
 	beforeEach(() => {
 		useSettingsStore.setState({
-			settingsOpen: true,
 			settingsTab: "about",
 			devMode: false,
 		});
@@ -29,6 +28,9 @@ describe("SettingsModal information architecture", () => {
 	it("groups settings and keeps About permanently available", async () => {
 		render(<SettingsModal />);
 
+		expect(screen.getByRole("region", { name: "Settings" })).toBeDefined();
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Close settings" })).toBeNull();
 		expect(
 			screen.getByRole("navigation", { name: "Settings sections" }),
 		).toBeDefined();

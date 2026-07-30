@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { secretsApi } from "../services/secrets";
+import { useWorkspaceStore } from "./workspaceStore";
 
 export type Theme = "system" | "dark" | "light";
 export type SidebarMode = "characters" | "conversations";
@@ -23,7 +24,6 @@ interface SettingsState {
 	sidebarOpen: boolean;
 	sidebarWidth: number;
 	sidebarMode: SidebarMode;
-	settingsOpen: boolean;
 	settingsTab: SettingsTab;
 	devMode: boolean;
 	trafficLightWindowControls: boolean;
@@ -167,7 +167,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 	sidebarOpen: true,
 	sidebarWidth: loadSidebarWidth(),
 	sidebarMode: loadSidebarMode(),
-	settingsOpen: false,
 	settingsTab: "providers",
 	devMode:
 		typeof window !== "undefined"
@@ -282,9 +281,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			/* ignore */
 		}
 	},
-	openSettings: (tab?: SettingsTab) =>
-		set({ settingsOpen: true, settingsTab: tab ?? get().settingsTab }),
-	closeSettings: () => set({ settingsOpen: false }),
+	openSettings: (tab?: SettingsTab) => {
+		set({ settingsTab: tab ?? get().settingsTab });
+		useWorkspaceStore.getState().openTab("settings");
+	},
+	closeSettings: () => useWorkspaceStore.getState().closeTab("settings"),
 
 	setDevMode: (on: boolean) => {
 		set((state) => ({

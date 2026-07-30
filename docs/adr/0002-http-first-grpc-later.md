@@ -45,5 +45,5 @@
 
 ## 参考
 
-- `docs/IMPROVEMENT_REPORT.md` §三 — 把这件事归类为 P1 差距
+- `docs/REMAINING_WORK.md` §6 — 跟踪 proto 与传输层的后续决策
 - `docs/adr/0001-language-split.md` — 多语言切分的代价里也提到了类型同步问题

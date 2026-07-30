@@ -157,6 +157,23 @@ describe("ProvidersPanel selection preference", () => {
 		);
 	});
 
+	it("supports compact navigation between the provider list and detail", () => {
+		render(<ProvidersPanel />);
+
+		const detailPane = document.querySelector(
+			'[data-mobile-pane="provider-detail"]',
+		);
+		expect(detailPane?.className).toContain("max-[700px]:hidden");
+
+		fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+		expect(detailPane?.className).not.toContain("max-[700px]:hidden");
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Back to provider list" }),
+		);
+		expect(detailPane?.className).toContain("max-[700px]:hidden");
+	});
+
 	it("updates the selected provider indicator from live connection status", () => {
 		render(<ProvidersPanel />);
 

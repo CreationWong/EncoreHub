@@ -1,11 +1,10 @@
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
-import ChatView from "./components/chat/ChatView";
 import GlobalNav from "./components/layout/GlobalNav";
 import UnlockGate from "./components/settings/UnlockGate";
-import Sidebar from "./components/sidebar/Sidebar";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
+import WorkspaceSurface from "./components/workspace/WorkspaceSurface";
 import { applyServicePorts, gatewayReadinessUrl } from "./services/config";
 import { devtools, inTauri } from "./services/devtools";
 import { useCharacterManagerStore } from "./stores/characterManagerStore";
@@ -20,7 +19,6 @@ type ServiceStatus = {
 	gateway: boolean;
 };
 
-const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
 const CharacterManager = lazy(
 	() => import("./components/character/CharacterManager"),
 );
@@ -32,7 +30,6 @@ export default function App() {
 	const refreshSecrets = useSecretsStore((s) => s.refresh);
 	const loadKeys = useSettingsStore((s) => s.loadKeys);
 	const openSettings = useSettingsStore((s) => s.openSettings);
-	const settingsOpen = useSettingsStore((s) => s.settingsOpen);
 	const characterManagerOpen = useCharacterManagerStore((s) => s.open);
 	const devMode = useSettingsStore((s) => s.devMode);
 	const [status, setStatus] = useState<ServiceStatus>({
@@ -200,17 +197,7 @@ export default function App() {
 	return (
 		<div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-canvas text-text-primary">
 			<GlobalNav />
-			<div className="app-shell-body relative flex min-h-0 flex-1 gap-2 px-2 pb-2">
-				<Sidebar />
-				<main className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace">
-					<ChatView />
-				</main>
-			</div>
-			{settingsOpen && (
-				<Suspense fallback={null}>
-					<SettingsModal />
-				</Suspense>
-			)}
+			<WorkspaceSurface />
 			{characterManagerOpen && (
 				<Suspense fallback={null}>
 					<CharacterManager />

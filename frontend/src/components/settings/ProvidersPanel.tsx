@@ -1,4 +1,4 @@
-import { Plus, Search, Server } from "lucide-react";
+import { ArrowLeft, Plus, Search, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProviderProfile } from "../../services/providers";
 import { confirm } from "../../stores/confirmStore";
@@ -67,6 +67,7 @@ export default function ProvidersPanel() {
 	);
 	const [creating, setCreating] = useState(false);
 	const [query, setQuery] = useState("");
+	const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 	const [runtimeStatuses, setRuntimeStatuses] = useState<
 		Record<string, ProviderRuntimeStatus>
 	>({});
@@ -125,12 +126,16 @@ export default function ProvidersPanel() {
 		setSelectedId(draft.id);
 		rememberSettingsProvider(draft.id);
 		setCreating(false);
+		setMobileDetailOpen(true);
 	};
 
 	const handleDelete = async (profile: ProviderProfile) => {
 		if (!profiles.some((item) => item.id === profile.id)) {
 			setDrafts((current) => current.filter((item) => item.id !== profile.id));
-			if (selectedId === profile.id) setSelectedId(null);
+			if (selectedId === profile.id) {
+				setSelectedId(null);
+				setMobileDetailOpen(false);
+			}
 			return;
 		}
 		if (
@@ -144,7 +149,10 @@ export default function ProvidersPanel() {
 		}
 		try {
 			await removeProfile(profile.id);
-			if (selectedId === profile.id) setSelectedId(null);
+			if (selectedId === profile.id) {
+				setSelectedId(null);
+				setMobileDetailOpen(false);
+			}
 			toast.success(`Removed ${profile.name}`);
 		} catch (error) {
 			toast.error(
@@ -162,7 +170,12 @@ export default function ProvidersPanel() {
 				/>
 			)}
 
-			<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[900px]:w-48">
+			<aside
+				data-mobile-pane="provider-list"
+				className={`flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[900px]:w-48 max-[700px]:w-full max-[700px]:border-r-0 ${
+					mobileDetailOpen ? "max-[700px]:hidden" : ""
+				}`}
+			>
 				<div className="border-b border-border p-3">
 					<div className="relative">
 						<Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
@@ -202,6 +215,7 @@ export default function ProvidersPanel() {
 									onClick={() => {
 										setSelectedId(profile.id);
 										rememberSettingsProvider(profile.id);
+										setMobileDetailOpen(true);
 									}}
 									aria-current={selectedProfile ? "page" : undefined}
 									className={`mb-1 flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors ${
@@ -256,26 +270,49 @@ export default function ProvidersPanel() {
 				</div>
 			</aside>
 
-			<div className="min-w-0 flex-1">
+			<div
+				data-mobile-pane="provider-detail"
+				className={`min-w-0 flex-1 flex-col ${
+					mobileDetailOpen ? "flex" : "flex max-[700px]:hidden"
+				}`}
+			>
 				{selected ? (
-					<ProviderDetail
-						key={selected.id}
-						profile={selected}
-						isDraft={isDraft}
-						apiKey={apiKeys[selected.id] ?? ""}
-						vaultLocked={vaultLocked}
-						keyStored={keyStored}
-						onStatusChange={handleRuntimeStatusChange}
-						onSetKey={(value) => setApiKey(selected.id, value)}
-						onClearKey={() => clearApiKey(selected.id)}
-						onSave={async (next) => {
-							await upsert(next);
-							setDrafts((current) =>
-								current.filter((draft) => draft.id !== next.id),
-							);
-						}}
-						onDelete={() => void handleDelete(selected)}
-					/>
+					<>
+						<div className="hidden h-11 shrink-0 items-center gap-2 border-b border-border bg-surface px-2 max-[700px]:flex">
+							<button
+								type="button"
+								onClick={() => setMobileDetailOpen(false)}
+								aria-label="Back to provider list"
+								className="flex h-8 items-center gap-1 rounded-md px-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+							>
+								<ArrowLeft className="h-4 w-4" />
+								Providers
+							</button>
+							<span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
+								{selected.name}
+							</span>
+						</div>
+						<div className="min-h-0 flex-1">
+							<ProviderDetail
+								key={selected.id}
+								profile={selected}
+								isDraft={isDraft}
+								apiKey={apiKeys[selected.id] ?? ""}
+								vaultLocked={vaultLocked}
+								keyStored={keyStored}
+								onStatusChange={handleRuntimeStatusChange}
+								onSetKey={(value) => setApiKey(selected.id, value)}
+								onClearKey={() => clearApiKey(selected.id)}
+								onSave={async (next) => {
+									await upsert(next);
+									setDrafts((current) =>
+										current.filter((draft) => draft.id !== next.id),
+									);
+								}}
+								onDelete={() => void handleDelete(selected)}
+							/>
+						</div>
+					</>
 				) : (
 					<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-text-muted">
 						<Server className="h-6 w-6" />

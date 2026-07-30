@@ -12,13 +12,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 	invoke: (...args: unknown[]) => invoke(...args),
 }));
 
-vi.mock("./components/chat/ChatView", () => ({ default: () => null }));
 vi.mock("./components/layout/GlobalNav", () => ({ default: () => null }));
-vi.mock("./components/settings/SettingsModal", () => ({ default: () => null }));
 vi.mock("./components/settings/UnlockGate", () => ({ default: () => null }));
-vi.mock("./components/sidebar/Sidebar", () => ({ default: () => null }));
 vi.mock("./components/ui/ConfirmDialog", () => ({ default: () => null }));
 vi.mock("./components/ui/ToastHost", () => ({ default: () => null }));
+vi.mock("./components/workspace/WorkspaceSurface", () => ({
+	default: () => null,
+}));
 
 vi.mock("./stores/conversationStore", () => ({
 	useConversationStore: (
@@ -43,9 +43,8 @@ vi.mock("./stores/settingsStore", () => ({
 		selector: (state: {
 			loadKeys: typeof loadKeys;
 			openSettings: typeof openSettings;
-			settingsOpen: boolean;
 		}) => unknown,
-	) => selector({ loadKeys, openSettings, settingsOpen: false }),
+	) => selector({ loadKeys, openSettings }),
 }));
 
 import App from "./App";

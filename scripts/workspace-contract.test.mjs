@@ -92,6 +92,7 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 test("Frontend keeps non-critical features outside the initial module graph", async () => {
 	const [
 		app,
+		workspaceSurface,
 		settingsModal,
 		markdownRenderer,
 		highlightedCodeBlock,
@@ -99,6 +100,7 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		confirmConsumers,
 	] = await Promise.all([
 		read("frontend/src/App.tsx"),
+		read("frontend/src/components/workspace/WorkspaceSurface.tsx"),
 		read("frontend/src/components/settings/SettingsModal.tsx"),
 		read("frontend/src/components/chat/MarkdownRenderer.tsx"),
 		read("frontend/src/components/chat/HighlightedCodeBlock.tsx"),
@@ -111,12 +113,20 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		]).then((files) => files.join("\n")),
 	]);
 
-	assert.match(
-		app,
-		/lazy\(\s*\(\) => import\("\.\/components\/settings\/SettingsModal"\)/,
-	);
-	assert.match(app, /settingsOpen &&/);
+	assert.match(app, /^import WorkspaceSurface from /m);
 	assert.doesNotMatch(app, /^import SettingsModal/m);
+	assert.match(
+		workspaceSurface,
+		/lazy\(\(\) => import\("\.\.\/settings\/SettingsModal"\)\)/,
+	);
+	assert.match(
+		workspaceSurface,
+		/lazy\(\(\) => import\("\.\/WorkspaceLauncher"\)\)/,
+	);
+	assert.match(workspaceSurface, /openTabs\.includes\("settings"\)/);
+	assert.match(workspaceSurface, /hidden=\{activeTab !== "settings"\}/);
+	assert.doesNotMatch(workspaceSurface, /^import SettingsModal/m);
+	assert.doesNotMatch(workspaceSurface, /^import WorkspaceLauncher/m);
 	assert.match(settingsModal, /lazy\(\(\) => import\("\.\/DeveloperPanel"\)\)/);
 	assert.doesNotMatch(settingsModal, /^import DeveloperPanel/m);
 	assert.match(
@@ -220,11 +230,48 @@ test("Unix desktop build uses argument arrays and target-triple sidecars", async
 	const script = await read("scripts/build.sh");
 	assert.match(script, /TAURI_ARGS=\([^\n]*tauri[^\n]*(build|dev)/);
 	assert.match(script, /pnpm "\$\{TAURI_ARGS\[@\]\}"/);
-	assert.match(script, /encorehub-gateway-\$\{?TARGET_TRIPLE\}?/);
+	assert.match(script, /encorehub-gateway-\$\{?target_triple\}?/i);
 	assert.doesNotMatch(
 		script,
 		/TAURI_CMD="tauri build"|pnpm "tauri" "\$TAURI_CMD"/,
 	);
+});
+
+test("Local build workflows keep Tauri development outside timed release steps", async () => {
+	const [powershell, shell, attributes] = await Promise.all([
+		read("scripts/build.ps1"),
+		read("scripts/build.sh"),
+		read(".gitattributes"),
+	]);
+
+	assert.doesNotMatch(
+		powershell,
+		/Invoke-TimedStep[^\n]*Start-TauriDevelopment/,
+	);
+	assert.match(
+		powershell,
+		/if \(\$Debug\) \{\s*Write-BuildSummary "Preparation complete"\s*Start-TauriDevelopment/,
+	);
+	assert.match(
+		powershell,
+		/if \(\$Tauri -and -not \$Debug\) \{[\s\S]*?MSI:[\s\S]*?NSIS:/,
+	);
+	assert.match(powershell, /Start-Job[^\n]*-ArgumentList/);
+	assert.doesNotMatch(powershell, /\$\{function:Build-(?:Engine|Gateway)\}/);
+
+	assert.doesNotMatch(shell, /time_step[^\n]*run_tauri_development/);
+	assert.match(
+		shell,
+		/if \[ "\$DEBUG_BUILD" = true \]; then\s*print_summary "Preparation complete"\s*run_tauri_development/,
+	);
+	assert.match(
+		shell,
+		/if \[ "\$TAURI_BUILD" = true \] && \[ "\$DEBUG_BUILD" = false \]; then\s*print_release_locations/,
+	);
+	assert.match(shell, /wait "\$engine_pid" \|\| engine_status=\$\?/);
+	assert.match(shell, /wait "\$gateway_pid" \|\| gateway_status=\$\?/);
+	assert.match(attributes, /^\*\.sh text eol=lf$/m);
+	assert.match(attributes, /^\*\.ps1 text eol=crlf$/m);
 });
 
 test("Expensive builds only run from the manual workflow", async () => {

@@ -1,16 +1,15 @@
 import CharacterManager from "../components/character/CharacterManager";
-import ChatView from "../components/chat/ChatView";
 import GlobalNav from "../components/layout/GlobalNav";
-import SettingsModal from "../components/settings/SettingsModal";
-import Sidebar from "../components/sidebar/Sidebar";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ToastHost from "../components/ui/ToastHost";
+import WorkspaceSurface from "../components/workspace/WorkspaceSurface";
 import { useCharacterManagerStore } from "../stores/characterManagerStore";
 import { useCharacterStore } from "../stores/characterStore";
 import { useConversationStore } from "../stores/conversationStore";
 import { useProviderStore } from "../stores/providerStore";
 import { useSecretsStore } from "../stores/secretsStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useWorkspaceStore } from "../stores/workspaceStore";
 import {
 	CLIENT_UI_BASELINE_CHARACTERS,
 	CLIENT_UI_BASELINE_CONVERSATIONS,
@@ -42,7 +41,6 @@ export function seedClientUiBaseline({
 		sidebarOpen: sidebar !== "closed",
 		sidebarWidth: 300,
 		sidebarMode: sidebar === "characters" ? "characters" : "conversations",
-		settingsOpen: scenario.settingsOpen || settingsTab !== null,
 		settingsTab: settingsTab ?? "providers",
 		devMode: settingsTab === "developer",
 		searchEnabled: scenario.searchEnabled,
@@ -50,6 +48,11 @@ export function seedClientUiBaseline({
 		setApiKey: () => {},
 		clearApiKey: async () => {},
 		loadKeys: async () => {},
+	});
+	const settingsActive = scenario.settingsOpen || settingsTab !== null;
+	useWorkspaceStore.setState({
+		activeTab: settingsActive ? "settings" : "home",
+		openTabs: settingsActive ? ["home", "settings"] : ["home"],
 	});
 
 	useProviderStore.setState({
@@ -202,14 +205,8 @@ export default function ClientUiBaseline() {
 		<>
 			<div className="flex h-screen min-h-0 flex-col overflow-hidden bg-app-canvas text-text-primary">
 				<GlobalNav />
-				<div className="app-shell-body relative flex min-h-0 flex-1 gap-2 px-2 pb-2">
-					<Sidebar />
-					<main className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace">
-						<ChatView />
-					</main>
-				</div>
+				<WorkspaceSurface />
 			</div>
-			<SettingsModal />
 			<CharacterManager />
 			<ConfirmDialog />
 			<ToastHost />

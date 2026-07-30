@@ -7,14 +7,15 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const newConversation = vi.fn();
 const setTheme = vi.fn();
 const openSettings = vi.fn();
 const closeSettings = vi.fn();
-const openCharacter = vi.fn();
-let characterState = {
-	loaded: false,
-	characters: [] as Array<{ id: string }>,
+const openWorkspaceTab = vi.fn();
+const activateTab = vi.fn();
+const closeTab = vi.fn();
+let workspaceState = {
+	activeTab: "home" as "home" | "workbench" | "settings",
+	openTabs: ["home"] as Array<"home" | "workbench" | "settings">,
 };
 const titlebarMocks = vi.hoisted(() => ({
 	platform: "web" as "web" | "windows",
@@ -39,32 +40,6 @@ vi.mock("./WindowControls", () => ({
 		enabled ? <fieldset aria-label="Window controls" /> : null,
 }));
 
-vi.mock("../../stores/conversationStore", () => ({
-	useConversationStore: (
-		selector: (state: {
-			newConversation: typeof newConversation;
-			activeId: string;
-			conversations: Array<{ id: string; character_id: string }>;
-		}) => unknown,
-	) =>
-		selector({
-			newConversation,
-			activeId: "conversation-1",
-			conversations: [{ id: "conversation-1", character_id: "archivist" }],
-		}),
-}));
-
-vi.mock("../../stores/characterStore", () => ({
-	useCharacterStore: (selector: (state: typeof characterState) => unknown) =>
-		selector(characterState),
-}));
-
-vi.mock("../../stores/characterManagerStore", () => ({
-	useCharacterManagerStore: (
-		selector: (state: { openCharacter: typeof openCharacter }) => unknown,
-	) => selector({ openCharacter }),
-}));
-
 vi.mock("../../stores/settingsStore", () => ({
 	useSettingsStore: (
 		selector: (state: {
@@ -82,33 +57,43 @@ vi.mock("../../stores/settingsStore", () => ({
 		}),
 }));
 
+vi.mock("../../stores/workspaceStore", () => ({
+	useWorkspaceStore: (
+		selector: (state: {
+			activeTab: typeof workspaceState.activeTab;
+			openTabs: typeof workspaceState.openTabs;
+			openTab: typeof openWorkspaceTab;
+			activateTab: typeof activateTab;
+			closeTab: typeof closeTab;
+		}) => unknown,
+	) =>
+		selector({
+			...workspaceState,
+			openTab: openWorkspaceTab,
+			activateTab,
+			closeTab,
+		}),
+}));
+
 import GlobalNav from "./GlobalNav";
 
 describe("GlobalNav", () => {
 	beforeEach(() => {
 		document.documentElement.classList.remove("dark");
-		newConversation.mockReset().mockResolvedValue("conversation-1");
 		setTheme.mockReset();
 		openSettings.mockReset();
 		closeSettings.mockReset();
-		openCharacter.mockReset();
-		characterState = { loaded: false, characters: [] };
+		openWorkspaceTab.mockReset();
+		activateTab.mockReset();
+		closeTab.mockReset();
+		workspaceState = { activeTab: "home", openTabs: ["home"] };
 		titlebarMocks.platform = "web";
 		titlebarMocks.toggleMaximize.mockReset().mockResolvedValue(undefined);
 	});
 
-	it("shows character management only after profiles are available", () => {
-		characterState = { loaded: true, characters: [{ id: "archivist" }] };
-		render(<GlobalNav />);
-
-		fireEvent.click(screen.getByRole("button", { name: "Characters" }));
-		expect(closeSettings).toHaveBeenCalled();
-		expect(openCharacter).toHaveBeenCalledWith("archivist");
-	});
-
 	afterEach(cleanup);
 
-	it("exposes only the connected home, new, appearance, and settings commands", () => {
+	it("exposes Home, the workbench launcher, appearance, and settings", () => {
 		render(<GlobalNav />);
 
 		expect(
@@ -116,7 +101,7 @@ describe("GlobalNav", () => {
 		).toBeDefined();
 		expect(screen.getByRole("button", { name: "Home" })).toBeDefined();
 		expect(
-			screen.getByRole("button", { name: "New conversation" }),
+			screen.getByRole("button", { name: "Open workbench" }),
 		).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Switch appearance" }),
@@ -127,6 +112,19 @@ describe("GlobalNav", () => {
 		expect(screen.getByRole("button", { name: "Settings" })).toBeDefined();
 		expect(screen.queryByRole("button", { name: "Characters" })).toBeNull();
 		expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
+	});
+
+	it("keeps the workbench plus adjacent to the browser tab strip", () => {
+		workspaceState = {
+			activeTab: "workbench",
+			openTabs: ["home", "workbench"],
+		};
+		render(<GlobalNav />);
+
+		const nav = screen.getByRole("navigation", { name: "Global navigation" });
+		expect(nav.className).not.toContain("w-full");
+		expect(nav.firstElementChild?.className).not.toContain("flex-1");
+		expect(screen.queryByRole("button", { name: "Characters" })).toBeNull();
 	});
 
 	it("marks only Windows titlebar whitespace as draggable", () => {
@@ -150,16 +148,34 @@ describe("GlobalNav", () => {
 		expect(titlebarMocks.toggleMaximize).toHaveBeenCalledTimes(1);
 	});
 
-	it("routes home, new conversation, and settings to the existing stores", () => {
+	it("routes Home, plus, and Settings through their workspace actions", () => {
 		render(<GlobalNav />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Home" }));
-		fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+		fireEvent.click(screen.getByRole("button", { name: "Open workbench" }));
 		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-		expect(closeSettings).toHaveBeenCalledTimes(1);
-		expect(newConversation).toHaveBeenCalledTimes(1);
+		expect(activateTab).toHaveBeenCalledWith("home");
+		expect(openWorkspaceTab).toHaveBeenCalledWith("workbench");
 		expect(openSettings).toHaveBeenCalledTimes(1);
+	});
+
+	it("activates and closes dynamic workspace tabs without duplicates", () => {
+		workspaceState = {
+			activeTab: "settings",
+			openTabs: ["home", "workbench", "settings"],
+		};
+		render(<GlobalNav />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Workbench" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Close Workbench tab" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Close Settings tab" }));
+
+		expect(activateTab).toHaveBeenCalledWith("workbench");
+		expect(closeTab).toHaveBeenCalledWith("workbench");
+		expect(closeSettings).toHaveBeenCalledTimes(1);
 	});
 
 	it("selects a theme from the appearance menu", () => {

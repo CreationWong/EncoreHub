@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSettingsStore } from "./settingsStore";
+import { useWorkspaceStore } from "./workspaceStore";
 
 beforeEach(() => {
 	localStorage.clear();
@@ -9,6 +10,10 @@ beforeEach(() => {
 		sidebarWidth: 300,
 		deepThinking: false,
 		trafficLightWindowControls: false,
+	});
+	useWorkspaceStore.setState({
+		activeTab: "home",
+		openTabs: ["home"],
 	});
 });
 
@@ -49,5 +54,20 @@ describe("settingsStore sidebar preferences", () => {
 		expect(
 			localStorage.getItem("encorehub-traffic-light-window-controls"),
 		).toBe("1");
+	});
+
+	it("opens and closes Settings through the shared workspace tabs", () => {
+		useSettingsStore.getState().openSettings("appearance");
+		expect(useSettingsStore.getState().settingsTab).toBe("appearance");
+		expect(useWorkspaceStore.getState()).toMatchObject({
+			activeTab: "settings",
+			openTabs: ["home", "settings"],
+		});
+
+		useSettingsStore.getState().closeSettings();
+		expect(useWorkspaceStore.getState()).toMatchObject({
+			activeTab: "home",
+			openTabs: ["home"],
+		});
 	});
 });

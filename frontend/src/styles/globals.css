@@ -354,6 +354,14 @@ pre {
 	animation: toastIn 0.18s ease-out;
 }
 
+.workspace-tab-strip {
+	scrollbar-width: none;
+}
+
+.workspace-tab-strip::-webkit-scrollbar {
+	display: none;
+}
+
 .app-sidebar {
 	width: var(--sidebar-width);
 }
@@ -428,16 +436,5 @@ pre {
 	.app-message-tool {
 		padding-top: 8px;
 		padding-bottom: 8px;
-	}
-
-	.settings-overlay {
-		padding: 0;
-	}
-
-	.settings-dialog {
-		height: 100%;
-		max-height: 100%;
-		border-radius: 0;
-		border-width: 0;
 	}
 }

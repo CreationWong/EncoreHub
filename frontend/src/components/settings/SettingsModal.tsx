@@ -8,7 +8,6 @@ import {
 	ShieldCheck,
 	Sparkles,
 	Terminal,
-	X,
 } from "lucide-react";
 import { Suspense, lazy, useEffect } from "react";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
@@ -84,10 +83,8 @@ function LoadingPanel({ label }: { label: string }) {
 }
 
 export default function SettingsModal() {
-	const open = useSettingsStore((s) => s.settingsOpen);
 	const tab = useSettingsStore((s) => s.settingsTab);
 	const setTab = useSettingsStore((s) => s.openSettings);
-	const close = useSettingsStore((s) => s.closeSettings);
 	const devMode = useSettingsStore((s) => s.devMode);
 
 	const tabGroups = TAB_GROUPS.map((group) =>
@@ -97,124 +94,85 @@ export default function SettingsModal() {
 	);
 
 	useEffect(() => {
-		if (!open) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (
-				e.key === "Escape" &&
-				document.querySelectorAll("dialog[open]").length === 1
-			) {
-				close();
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [open, close]);
-
-	useEffect(() => {
 		if (!devMode && tab === "developer") setTab("about");
 	}, [devMode, setTab, tab]);
 
-	if (!open) return null;
-
 	return (
-		<div
-			className="settings-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-			onClick={close}
-			onKeyDown={(e) => {
-				if (e.key === "Escape") close();
-			}}
-			role="presentation"
+		<section
+			aria-label="Settings"
+			className="flex h-full min-h-0 w-full overflow-hidden bg-workspace text-text-primary"
 		>
-			<dialog
-				open
-				className="settings-dialog flex h-[780px] max-h-full w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-surface text-text-primary shadow-2xl"
-				onClick={(e) => e.stopPropagation()}
-				onKeyDown={(e) => e.stopPropagation()}
-				aria-modal="true"
-			>
-				{/* Sidebar */}
-				<aside className="flex w-52 flex-col overflow-y-auto border-r border-border bg-surface-alt p-3 max-[760px]:w-14 max-[760px]:px-2">
-					<div className="mb-4 px-2 text-sm font-semibold text-text-primary max-[760px]:hidden">
-						Settings
-					</div>
-					<nav aria-label="Settings sections" className="space-y-3">
-						{tabGroups.map((group) => (
-							<div key={group.label}>
-								<p className="mb-1 px-2 text-[10px] font-semibold text-text-muted max-[760px]:sr-only">
-									{group.label}
-								</p>
-								{group.tabs.map((item) => (
-									<button
-										key={item.id}
-										type="button"
-										onClick={() => setTab(item.id)}
-										aria-current={tab === item.id ? "page" : undefined}
-										title={item.label}
-										className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors max-[760px]:justify-center max-[760px]:px-2 ${
-											tab === item.id
-												? "bg-selected text-text-primary"
-												: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-										}`}
-									>
-										<item.icon className="h-4 w-4 shrink-0" />
-										<span className="truncate max-[760px]:hidden">
-											{item.label}
-										</span>
-									</button>
-								))}
-							</div>
-						))}
-					</nav>
-				</aside>
-
-				{/* Content */}
-				<div className="flex min-w-0 flex-1 flex-col">
-					<header className="flex items-center justify-between border-b border-border px-5 py-3">
-						<h2 className="text-sm font-semibold text-text-primary">
-							{TAB_LABELS[tab]}
-						</h2>
-						<button
-							type="button"
-							onClick={close}
-							aria-label="Close settings"
-							title="Close (Esc)"
-							className="rounded-md p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-						>
-							<X className="h-4 w-4" />
-						</button>
-					</header>
-					<div
-						className={
-							tab === "providers"
-								? "min-h-0 flex-1 overflow-hidden"
-								: "flex-1 overflow-y-auto p-5"
-						}
-					>
-						{tab === "providers" && <ProvidersPanel />}
-						{tab === "skills" && <SkillsPanel />}
-						{tab === "knowledge" && <KnowledgePanel />}
-						{tab === "memories" && <MemoryPanel />}
-						{tab === "security" && <SecurityPanel />}
-						{tab === "appearance" && <AppearancePanel />}
-						{tab === "about" && (
-							<Suspense
-								fallback={
-									<LoadingPanel label="Loading application information" />
-								}
-							>
-								<AboutPanel />
-							</Suspense>
-						)}
-						{tab === "developer" && (
-							<Suspense
-								fallback={<LoadingPanel label="Loading developer tools" />}
-							>
-								<DeveloperPanel />
-							</Suspense>
-						)}
-					</div>
+			<aside className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-alt p-3 max-[760px]:w-14 max-[760px]:px-2">
+				<div className="mb-4 px-2 text-sm font-semibold text-text-primary max-[760px]:hidden">
+					Settings
 				</div>
-			</dialog>
-		</div>
+				<nav aria-label="Settings sections" className="space-y-3">
+					{tabGroups.map((group) => (
+						<div key={group.label}>
+							<p className="mb-1 px-2 text-[10px] font-semibold text-text-muted max-[760px]:sr-only">
+								{group.label}
+							</p>
+							{group.tabs.map((item) => (
+								<button
+									key={item.id}
+									type="button"
+									onClick={() => setTab(item.id)}
+									aria-current={tab === item.id ? "page" : undefined}
+									title={item.label}
+									className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors max-[760px]:justify-center max-[760px]:px-2 ${
+										tab === item.id
+											? "bg-selected text-text-primary"
+											: "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+									}`}
+								>
+									<item.icon className="h-4 w-4 shrink-0" />
+									<span className="truncate max-[760px]:hidden">
+										{item.label}
+									</span>
+								</button>
+							))}
+						</div>
+					))}
+				</nav>
+			</aside>
+
+			<div className="flex min-w-0 flex-1 flex-col">
+				<header className="flex h-14 shrink-0 items-center border-b border-border px-5">
+					<h2 className="text-sm font-semibold text-text-primary">
+						{TAB_LABELS[tab]}
+					</h2>
+				</header>
+				<div
+					className={
+						tab === "providers"
+							? "min-h-0 flex-1 overflow-hidden"
+							: "min-h-0 flex-1 overflow-y-auto p-5"
+					}
+				>
+					{tab === "providers" && <ProvidersPanel />}
+					{tab === "skills" && <SkillsPanel />}
+					{tab === "knowledge" && <KnowledgePanel />}
+					{tab === "memories" && <MemoryPanel />}
+					{tab === "security" && <SecurityPanel />}
+					{tab === "appearance" && <AppearancePanel />}
+					{tab === "about" && (
+						<Suspense
+							fallback={
+								<LoadingPanel label="Loading application information" />
+							}
+						>
+							<AboutPanel />
+						</Suspense>
+					)}
+					{tab === "developer" && (
+						<Suspense
+							fallback={<LoadingPanel label="Loading developer tools" />}
+						>
+							<DeveloperPanel />
+						</Suspense>
+					)}
+				</div>
+			</div>
+		</section>
 	);
 }

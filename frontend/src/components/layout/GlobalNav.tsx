@@ -2,22 +2,23 @@ import {
 	Check,
 	ChevronDown,
 	Home,
+	LayoutGrid,
 	Monitor,
 	Moon,
 	Plus,
 	Settings,
 	Sun,
-	UsersRound,
+	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCustomTitlebar } from "../../hooks/useCustomTitlebar";
-import { DEFAULT_CHARACTER_ID } from "../../services/characters";
 import { toggleCurrentWindowMaximize } from "../../services/windowControls";
-import { useCharacterManagerStore } from "../../stores/characterManagerStore";
-import { useCharacterStore } from "../../stores/characterStore";
-import { useConversationStore } from "../../stores/conversationStore";
 import { type Theme, useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
+import {
+	type WorkspaceTabId,
+	useWorkspaceStore,
+} from "../../stores/workspaceStore";
 import WindowControls from "./WindowControls";
 
 const THEME_OPTIONS: {
@@ -30,6 +31,14 @@ const THEME_OPTIONS: {
 	{ value: "system", label: "System", icon: Monitor },
 ];
 
+const WORKSPACE_TABS: Record<
+	Exclude<WorkspaceTabId, "home">,
+	{ label: string; icon: typeof Settings }
+> = {
+	workbench: { label: "Workbench", icon: LayoutGrid },
+	settings: { label: "Settings", icon: Settings },
+};
+
 function currentThemeIcon(theme: Theme) {
 	if (theme === "light") return Sun;
 	if (theme === "dark") return Moon;
@@ -37,29 +46,25 @@ function currentThemeIcon(theme: Theme) {
 }
 
 export default function GlobalNav() {
-	const newConversation = useConversationStore(
-		(state) => state.newConversation,
-	);
-	const activeId = useConversationStore((state) => state.activeId);
-	const conversations = useConversationStore((state) => state.conversations);
-	const charactersLoaded = useCharacterStore((state) => state.loaded);
-	const characters = useCharacterStore((state) => state.characters);
-	const openCharacter = useCharacterManagerStore(
-		(state) => state.openCharacter,
-	);
 	const theme = useSettingsStore((state) => state.theme);
 	const setTheme = useSettingsStore((state) => state.setTheme);
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const closeSettings = useSettingsStore((state) => state.closeSettings);
+	const activeTab = useWorkspaceStore((state) => state.activeTab);
+	const openTabs = useWorkspaceStore((state) => state.openTabs);
+	const openWorkspaceTab = useWorkspaceStore((state) => state.openTab);
+	const activateTab = useWorkspaceStore((state) => state.activateTab);
+	const closeTab = useWorkspaceStore((state) => state.closeTab);
 	const [appearanceOpen, setAppearanceOpen] = useState(false);
 	const appearanceRef = useRef<HTMLDivElement>(null);
 	const appearanceButtonRef = useRef<HTMLButtonElement>(null);
 	const themeOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const ThemeIcon = currentThemeIcon(theme);
-	const activeCharacterId =
-		conversations.find((conversation) => conversation.id === activeId)
-			?.character_id ?? DEFAULT_CHARACTER_ID;
 	const windowsTitleBar = useCustomTitlebar();
+	const dynamicTabs = openTabs.filter(
+		(tab): tab is Exclude<WorkspaceTabId, "home"> => tab !== "home",
+	);
+
 	const toggleTitlebarMaximize = () => {
 		if (!windowsTitleBar) return;
 		void toggleCurrentWindowMaximize().catch(() => {
@@ -75,6 +80,13 @@ export default function GlobalNav() {
 	const focusThemeOption = (index: number) => {
 		const target = (index + THEME_OPTIONS.length) % THEME_OPTIONS.length;
 		themeOptionRefs.current[target]?.focus();
+	};
+	const closeWorkspaceTab = (tab: Exclude<WorkspaceTabId, "home">) => {
+		if (tab === "settings") {
+			closeSettings();
+			return;
+		}
+		closeTab(tab);
 	};
 
 	useEffect(() => {
@@ -105,43 +117,72 @@ export default function GlobalNav() {
 			onDoubleClick={(event) => {
 				if (event.target === event.currentTarget) toggleTitlebarMaximize();
 			}}
-			className={`flex h-16 shrink-0 items-center gap-2 bg-app-canvas pl-3 ${
+			className={`flex h-16 shrink-0 items-center gap-2 bg-app-canvas pl-2 ${
 				windowsTitleBar ? "pr-0" : "pr-3"
 			}`}
 		>
 			<nav
 				aria-label="Global navigation"
-				className="flex min-w-0 items-center gap-1"
+				className="flex min-w-0 max-w-[calc(100vw-12rem)] items-center gap-1"
 			>
-				<button
-					type="button"
-					onClick={closeSettings}
-					aria-current="page"
-					className="flex h-9 items-center gap-2 rounded-md border border-border bg-selected px-3 text-sm font-medium text-text-primary"
-				>
-					<Home className="h-4 w-4" />
-					<span className="max-[679px]:hidden">Home</span>
-				</button>
-				{charactersLoaded && characters.length > 0 && (
+				<div className="workspace-tab-strip flex min-w-0 items-center gap-1 overflow-x-auto py-1">
 					<button
 						type="button"
-						onClick={() => {
-							closeSettings();
-							openCharacter(activeCharacterId);
-						}}
-						title="Manage characters"
-						className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-control hover:text-text-primary max-[760px]:h-8 max-[760px]:w-8 max-[760px]:justify-center max-[760px]:px-0"
+						onClick={() => activateTab("home")}
+						aria-current={activeTab === "home" ? "page" : undefined}
+						className={`flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors ${
+							activeTab === "home"
+								? "border-border bg-workspace text-text-primary shadow-sm"
+								: "border-transparent text-text-secondary hover:bg-control hover:text-text-primary"
+						}`}
 					>
-						<UsersRound className="h-4 w-4" />
-						<span className="max-[760px]:hidden">Characters</span>
+						<Home className="h-4 w-4" />
+						<span>Home</span>
 					</button>
-				)}
+
+					{dynamicTabs.map((tab) => {
+						const definition = WORKSPACE_TABS[tab];
+						const Icon = definition.icon;
+						const selected = activeTab === tab;
+						return (
+							<div
+								key={tab}
+								data-workspace-tab={tab}
+								className={`flex h-9 shrink-0 items-stretch overflow-hidden rounded-md border transition-colors ${
+									selected
+										? "border-border bg-workspace text-text-primary shadow-sm"
+										: "border-transparent text-text-secondary hover:bg-control hover:text-text-primary"
+								}`}
+							>
+								<button
+									type="button"
+									onClick={() => activateTab(tab)}
+									aria-current={selected ? "page" : undefined}
+									className="flex min-w-0 max-w-36 items-center gap-2 pl-3 pr-1 text-sm font-medium"
+								>
+									<Icon className="h-4 w-4 shrink-0" />
+									<span className="truncate">{definition.label}</span>
+								</button>
+								<button
+									type="button"
+									onClick={() => closeWorkspaceTab(tab)}
+									aria-label={`Close ${definition.label} tab`}
+									title={`Close ${definition.label}`}
+									className="flex w-7 items-center justify-center text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+								>
+									<X className="h-3.5 w-3.5" />
+								</button>
+							</div>
+						);
+					})}
+				</div>
+
 				<button
 					type="button"
-					onClick={() => void newConversation()}
-					aria-label="New conversation"
-					title="New conversation"
-					className="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
+					onClick={() => openWorkspaceTab("workbench")}
+					aria-label="Open workbench"
+					title="Open workbench"
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
 				>
 					<Plus className="h-4 w-4" />
 				</button>
@@ -152,7 +193,7 @@ export default function GlobalNav() {
 				data-tauri-drag-region={windowsTitleBar ? "" : undefined}
 				onDoubleClick={toggleTitlebarMaximize}
 				aria-hidden="true"
-				className="h-full min-w-3 flex-1"
+				className="h-full min-w-2 flex-1"
 			/>
 
 			<div className="flex h-full shrink-0 items-center gap-1">
@@ -173,8 +214,9 @@ export default function GlobalNav() {
 							type="button"
 							onClick={() => setAppearanceOpen((open) => !open)}
 							onKeyDown={(event) => {
-								if (event.key !== "ArrowDown" && event.key !== "ArrowUp")
+								if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
 									return;
+								}
 								event.preventDefault();
 								setAppearanceOpen(true);
 								requestAnimationFrame(() => {
@@ -249,7 +291,11 @@ export default function GlobalNav() {
 					onClick={() => openSettings()}
 					aria-label="Settings"
 					title="Settings (Ctrl+,)"
-					className="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
+					className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+						activeTab === "settings"
+							? "bg-control text-text-primary"
+							: "text-text-secondary hover:bg-control hover:text-text-primary"
+					}`}
 				>
 					<Settings className="h-4 w-4" />
 				</button>

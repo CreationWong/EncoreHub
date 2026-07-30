@@ -103,5 +103,5 @@ Standalone paths remain explicitly configurable through environment variables.
   supersedes only its desktop packaging consequence.
 - [ADR-0002](0002-http-first-grpc-later.md) keeps HTTP/JSON as the current
   Gateway-to-Engine transport.
-- [Improvement workflow](../IMPROVEMENT_WORKFLOW.md) WF-02 and WF-09 record the
-  authentication and packaging implementation evidence.
+- [Remaining work](../REMAINING_WORK.md) tracks the outstanding platform,
+  authentication, and packaging validation.

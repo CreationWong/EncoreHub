@@ -771,7 +771,7 @@ export default function ProviderDetail({
 				/>
 			)}
 
-			<header className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-5 py-3">
+			<header className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-5 py-3 max-[700px]:px-4">
 				<div className="min-w-0">
 					<div className="flex min-w-0 items-center gap-2">
 						<h3 className="truncate text-base font-semibold text-text-primary">
@@ -823,7 +823,7 @@ export default function ProviderDetail({
 			</header>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				<section className="border-b border-border px-5 py-5">
+				<section className="border-b border-border px-5 py-5 max-[700px]:px-4 max-[700px]:py-4">
 					<div className="mb-3 flex items-center justify-between gap-3">
 						<div>
 							<h4 className="text-sm font-semibold text-text-primary">
@@ -865,7 +865,7 @@ export default function ProviderDetail({
 					</div>
 				</section>
 
-				<section className="border-b border-border px-5 py-5">
+				<section className="border-b border-border px-5 py-5 max-[700px]:px-4 max-[700px]:py-4">
 					<div className="mb-3 flex flex-wrap items-start justify-between gap-3">
 						<div>
 							<div className="flex items-center gap-2">
@@ -1055,7 +1055,7 @@ export default function ProviderDetail({
 					</p>
 				</section>
 
-				<section className="border-b border-border px-5 py-5">
+				<section className="border-b border-border px-5 py-5 max-[700px]:px-4 max-[700px]:py-4">
 					<div className="mb-3 flex flex-wrap items-start justify-between gap-3">
 						<div>
 							<div className="flex items-center gap-2">
@@ -1127,7 +1127,7 @@ export default function ProviderDetail({
 									key={endpoint.id}
 									className="border-b border-border p-3 last:border-b-0"
 								>
-									<div className="flex items-center gap-2">
+									<div className="flex items-center gap-2 max-[700px]:flex-wrap">
 										<span
 											className={`h-2 w-2 shrink-0 rounded-full ${
 												statusPresentation.className
@@ -1141,7 +1141,7 @@ export default function ProviderDetail({
 												updateEndpoint(index, { name: event.target.value })
 											}
 											aria-label={`Endpoint ${index + 1} name`}
-											className="w-28 rounded-md border border-transparent bg-transparent px-2 py-1 text-xs font-medium text-text-secondary hover:border-border focus:border-border"
+											className="w-28 rounded-md border border-transparent bg-transparent px-2 py-1 text-xs font-medium text-text-secondary hover:border-border focus:border-border max-[700px]:min-w-0 max-[700px]:flex-1"
 										/>
 										<input
 											value={endpoint.base_url}
@@ -1154,7 +1154,7 @@ export default function ProviderDetail({
 											}
 											placeholder={defaultBaseUrl(draft.protocol)}
 											aria-label={`Endpoint ${index + 1} URL`}
-											className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted"
+											className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted max-[700px]:order-last max-[700px]:w-full max-[700px]:flex-none"
 										/>
 										<button
 											type="button"
@@ -1214,7 +1214,7 @@ export default function ProviderDetail({
 										</button>
 									</div>
 									{isValidBaseUrl(endpoint.base_url) && (
-										<div className="mt-2 flex min-w-0 items-center gap-2 pl-4 text-[11px] text-text-muted">
+										<div className="mt-2 flex min-w-0 items-center gap-2 pl-4 text-[11px] text-text-muted max-[700px]:hidden">
 											<span className="truncate">
 												Chat:{" "}
 												{chatRequestPreview(draft.protocol, endpoint.base_url)}
@@ -1229,7 +1229,7 @@ export default function ProviderDetail({
 							);
 						})}
 					</div>
-					<div className="mt-3 flex items-center justify-between gap-3">
+					<div className="mt-3 flex items-center justify-between gap-3 max-[700px]:flex-col max-[700px]:items-start">
 						<p className="flex items-center gap-1.5 text-xs text-text-muted">
 							<Info className="h-3.5 w-3.5" />
 							{draft.routingStrategy === "failover"
@@ -1249,7 +1249,7 @@ export default function ProviderDetail({
 								updateConnection();
 							}}
 							disabled={draft.endpoints.length >= 16}
-							className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
+							className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 max-[700px]:self-end"
 						>
 							<Plus className="h-3.5 w-3.5" />
 							Add endpoint
@@ -1257,7 +1257,7 @@ export default function ProviderDetail({
 					</div>
 				</section>
 
-				<section className="px-5 py-5">
+				<section className="px-5 py-5 max-[700px]:px-4 max-[700px]:py-4">
 					<div className="mb-3 flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<h4 className="text-sm font-semibold text-text-primary">
@@ -1432,8 +1432,8 @@ export default function ProviderDetail({
 					{error}
 				</p>
 			)}
-			<footer className="flex min-h-16 items-center justify-between gap-3 border-t border-border bg-surface px-5 py-3">
-				<p className="min-w-0 truncate text-xs text-text-muted">
+			<footer className="flex min-h-16 items-center justify-between gap-3 border-t border-border bg-surface px-5 py-3 max-[700px]:justify-end max-[700px]:px-4">
+				<p className="min-w-0 truncate text-xs text-text-muted max-[700px]:hidden">
 					{validationError ?? (dirty ? "Unsaved changes" : "All changes saved")}
 				</p>
 				<div className="flex shrink-0 items-center gap-2">

@@ -1,13 +1,14 @@
-# EncoreHub build script — Windows PowerShell
+# EncoreHub build workflow - Windows PowerShell
 # Usage: .\scripts\build.ps1 [-SkipEngine] [-SkipGateway] [-SkipFrontend] [-Debug] [-Tauri] [-Parallel] [-SkipInstall]
 #
 # Examples:
-#   .\scripts\build.ps1                        # full release build (no installer)
-#   .\scripts\build.ps1 -Debug                 # debug build (fast iteration)
-#   .\scripts\build.ps1 -Tauri                 # release + desktop installer (.msi + .exe)
-#   .\scripts\build.ps1 -Parallel              # build engine + gateway concurrently
-#   .\scripts\build.ps1 -SkipEngine -SkipGateway  # frontend only
-#   .\scripts\build.ps1 -SkipInstall           # skip pnpm install (offline / pre-installed)
+#   .\scripts\build.ps1
+#   .\scripts\build.ps1 -Debug
+#   .\scripts\build.ps1 -Tauri
+#   .\scripts\build.ps1 -Tauri -Debug
+#   .\scripts\build.ps1 -Parallel
+#   .\scripts\build.ps1 -SkipEngine -SkipGateway
+#   .\scripts\build.ps1 -SkipInstall
 
 param(
     [switch]$SkipEngine,
@@ -19,191 +20,432 @@ param(
     [switch]$SkipInstall
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 
-# ---- profile / flags ----
-$cargoProfile = if ($Debug) { "" } else { "--release" }
-$cargoTarget  = if ($Debug) { "debug" } else { "release" }
-$goBuildBase  = @("build", "-trimpath")
-if (-not $Debug) { $goBuildBase += @("-ldflags", "-s -w") }
-if ($Debug)     { $goBuildBase += @("-gcflags", "all=-N -l") }
-
-$tauriCmd     = if ($Debug) { "dev" } else { "build" }
-$binaryDir    = "$repoRoot\frontend\src-tauri\binaries"
-$engineSrc    = "$repoRoot\engine\target\$cargoTarget\encorehub-engine.exe"
-$gatewaySrc   = "$repoRoot\gateway\bin\encorehub-gateway.exe"
-
-# ---- helpers ----
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$frontendDir = Join-Path $repoRoot "frontend"
+$engineDir = Join-Path $repoRoot "engine"
+$gatewayDir = Join-Path $repoRoot "gateway"
+$cargoTarget = if ($Debug) { "debug" } else { "release" }
+$binaryDir = Join-Path $frontendDir "src-tauri\binaries"
+$engineSource = Join-Path $engineDir "target\$cargoTarget\encorehub-engine.exe"
+$gatewaySource = Join-Path $gatewayDir "bin\encorehub-gateway.exe"
 $timings = [ordered]@{}
-function Write-Step($msg) {
-    Write-Host "`n$([char]0x2500) $msg $([char]0x2500)" -ForegroundColor Cyan
-}
-function Write-Ok($msg)  { Write-Host "    $([char]0x2714) $msg" -ForegroundColor Green }
-function Write-Warn($msg) { Write-Host "    $([char]0x26A0) $msg" -ForegroundColor Yellow }
-function Write-Err($msg) { Write-Host "    $([char]0x2718) $msg" -ForegroundColor Red; exit 1 }
 
-function Step($name, $script) {
-    Write-Step $name
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    try {
-        & $script
-        $sw.Stop()
-        $timings[$name] = $sw.Elapsed
-        Write-Ok "$name done ($($sw.Elapsed.ToString('s\.ff')))"
-    } catch {
-        $sw.Stop()
-        $timings[$name] = $sw.Elapsed
-        Write-Err "$name FAILED ($($sw.Elapsed.ToString('s\.ff')))$([Environment]::NewLine)  $($_.Exception.Message)"
+function Write-Section {
+    param([Parameter(Mandatory)][string]$Message)
+    Write-Host ""
+    Write-Host "-- $Message --" -ForegroundColor Cyan
+}
+
+function Write-Success {
+    param([Parameter(Mandatory)][string]$Message)
+    Write-Host "    [OK] $Message" -ForegroundColor Green
+}
+
+function Write-WarningMessage {
+    param([Parameter(Mandatory)][string]$Message)
+    Write-Host "    [WARN] $Message" -ForegroundColor Yellow
+}
+
+function Write-Failure {
+    param([Parameter(Mandatory)][string]$Message)
+    Write-Host "    [FAIL] $Message" -ForegroundColor Red
+}
+
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [string[]]$Arguments = @()
+    )
+
+    & $Command @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Command exited with code $LASTEXITCODE"
     }
 }
 
-# ---- preflight ----
-Write-Step "Prerequisites"
-$tools = @(
-    @{Name="node";  Skip=$false;       Cmd="node --version"},
-    @{Name="pnpm";  Skip=$false;       Cmd="pnpm --version"},
-    @{Name="go";    Skip=$SkipGateway; Cmd="go version"},
-    @{Name="cargo"; Skip=$SkipEngine;  Cmd="cargo --version"}
-)
-foreach ($t in $tools) {
+function Invoke-TimedStep {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+
+    Write-Section $Name
+    $timer = [Diagnostics.Stopwatch]::StartNew()
     try {
-        $null = & cmd /c "$($t.Cmd) 2>nul"
-        if ($LASTEXITCODE -eq 0) { Write-Ok $t.Name } else { throw }
+        & $Action
     } catch {
-        if ($t.Skip) {
-            Write-Warn "$($t.Name) skipped (build disabled)"
-        } else {
-            Write-Err "$($t.Name) not found in PATH"
+        $timer.Stop()
+        $timings[$Name] = $timer.Elapsed
+        throw "$Name failed after $(Format-Duration $timer.Elapsed): $($_.Exception.Message)"
+    }
+
+    $timer.Stop()
+    $timings[$Name] = $timer.Elapsed
+    Write-Success "$Name completed in $(Format-Duration $timer.Elapsed)"
+}
+
+function Test-Prerequisite {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][bool]$Required,
+        [string[]]$VersionArguments = @("--version")
+    )
+
+    if (-not $Required) {
+        return
+    }
+
+    try {
+        $null = Get-Command $Name -ErrorAction Stop
+        & $Name @VersionArguments *> $null
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Name version check exited with code $LASTEXITCODE"
         }
+        Write-Success $Name
+    } catch {
+        throw "$Name is required but was not found in PATH"
     }
 }
 
-# ---- build steps (defined as functions so they can be timed) ----
+function Format-FileSize {
+    param([Parameter(Mandatory)][long]$Bytes)
+    return "{0:N1} MB" -f ($Bytes / 1MB)
+}
+
+function Format-Duration {
+    param([Parameter(Mandatory)][TimeSpan]$Elapsed)
+    $seconds = $Elapsed.TotalSeconds.ToString(
+        "0.00",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    return $seconds + "s"
+}
 
 function Build-Engine {
-    if ($Tauri) {
-        Write-Warn "engine is NOT a Tauri sidecar; cargo check lib only"
-        Push-Location "$repoRoot\engine"
-        try {
-            $args = @("check")
-            if (-not $Debug) { $args += "--release" }
-            cargo @args
-            if ($LASTEXITCODE -ne 0) { throw "cargo check failed" }
-            Write-Ok "engine lib checked (in-process for Tauri)"
-        } finally { Pop-Location }
-    } else {
-        Push-Location "$repoRoot\engine"
-        try {
-            $args = @("build", "--features", "standalone")
-            if (-not $Debug) { $args += "--release" }
-            cargo @args
-            if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-            if (Test-Path $engineSrc) {
-                $sz = [math]::Round((Get-Item $engineSrc).Length / 1MB, 1)
-                Write-Ok "engine built ($sz MB)"
-            } else {
-                Write-Ok "engine built"
+    Push-Location $engineDir
+    try {
+        if ($Tauri) {
+            Write-WarningMessage "The engine runs in-process for Tauri; checking the library only"
+            $cargoArguments = @("check")
+            if (-not $Debug) {
+                $cargoArguments += "--release"
             }
-        } finally { Pop-Location }
+            Invoke-NativeCommand -Command "cargo" -Arguments $cargoArguments
+            Write-Success "engine library checked"
+            return
+        }
+
+        $cargoArguments = @("build", "--features", "standalone")
+        if (-not $Debug) {
+            $cargoArguments += "--release"
+        }
+        Invoke-NativeCommand -Command "cargo" -Arguments $cargoArguments
+
+        if (Test-Path -LiteralPath $engineSource) {
+            Write-Success "engine built ($(Format-FileSize (Get-Item -LiteralPath $engineSource).Length))"
+        } else {
+            Write-Success "engine built"
+        }
+    } finally {
+        Pop-Location
     }
 }
 
 function Build-Gateway {
-    Push-Location "$repoRoot\gateway"
+    Push-Location $gatewayDir
     try {
-        New-Item -ItemType Directory -Force -Path bin | Out-Null
-        $args = $goBuildBase + @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
-        go @args
-        if ($LASTEXITCODE -ne 0) { throw "go build failed" }
-        if (Test-Path $gatewaySrc) {
-            $sz = [math]::Round((Get-Item $gatewaySrc).Length / 1MB, 1)
-            Write-Ok "gateway built ($sz MB)"
+        New-Item -ItemType Directory -Force -Path "bin" | Out-Null
+        $goArguments = @("build", "-trimpath")
+        if ($Debug) {
+            $goArguments += @("-gcflags", "all=-N -l")
         } else {
-            Write-Ok "gateway built"
+            $goArguments += @("-ldflags", "-s -w")
         }
-    } finally { Pop-Location }
+        $goArguments += @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
+        Invoke-NativeCommand -Command "go" -Arguments $goArguments
+
+        if (Test-Path -LiteralPath $gatewaySource) {
+            Write-Success "gateway built ($(Format-FileSize (Get-Item -LiteralPath $gatewaySource).Length))"
+        } else {
+            throw "gateway command completed without producing $gatewaySource"
+        }
+    } finally {
+        Pop-Location
+    }
 }
 
 function Build-Frontend {
-    Push-Location "$repoRoot\frontend"
+    Push-Location $frontendDir
     try {
         if (-not $SkipInstall) {
-            pnpm install --frozen-lockfile
-            if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
+            Invoke-NativeCommand -Command "pnpm" -Arguments @("install", "--frozen-lockfile")
         }
-        if (-not $Tauri) {
-            pnpm build
-            if ($LASTEXITCODE -ne 0) { throw "pnpm build failed" }
-        }
-        if (Test-Path "$repoRoot\frontend\dist\index.html") {
-            Write-Ok "frontend built (dist/ ready)"
-        } else {
-            Write-Ok "frontend prepared (Tauri will build internally)"
-        }
-    } finally { Pop-Location }
-}
 
-# ---- execute (parallel or sequential) ----
-if ($Parallel -and -not $SkipEngine -and -not $SkipGateway) {
-    $jobE = Start-Job -Name "engine"  -ScriptBlock ${function:Build-Engine}
-    $jobG = Start-Job -Name "gateway" -ScriptBlock ${function:Build-Gateway}
-    # Wait for both, but track completion in order for timing
-    $null = Wait-Job -Job $jobE, $jobG
-    foreach ($j in $jobE, $jobG) {
-        $out = Receive-Job -Job $j
-        if ($out) { $out | ForEach-Object { Write-Host $_ } }
-        $state = $j.State
-        if ($state -eq "Failed") { Write-Err "$($j.Name) FAILED"; Remove-Job -Job $j; exit 1 }
-        Write-Ok "$($j.Name) done ($state)"
-        Remove-Job -Job $j
+        if ($Tauri) {
+            Write-Success "frontend dependencies ready; Tauri owns the Vite lifecycle"
+            return
+        }
+
+        Invoke-NativeCommand -Command "pnpm" -Arguments @("build")
+        $indexPath = Join-Path $frontendDir "dist\index.html"
+        if (-not (Test-Path -LiteralPath $indexPath)) {
+            throw "frontend build completed without producing dist\index.html"
+        }
+        Write-Success "frontend built (dist ready)"
+    } finally {
+        Pop-Location
     }
-    if (-not $SkipFrontend) { Step "frontend" { Build-Frontend } }
-} else {
-    if (-not $SkipEngine)   { Step "engine"   { Build-Engine } }
-    if (-not $SkipGateway)  { Step "gateway"  { Build-Gateway } }
-    if (-not $SkipFrontend) { Step "frontend" { Build-Frontend } }
 }
 
-# ---- copy gateway sidecar + Tauri bundle ----
-if ($Tauri) {
-    Write-Step "Tauri external binaries"
+function Invoke-ParallelCoreBuilds {
+    Write-Section "engine + gateway (parallel)"
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $jobs = @()
+    $failure = $null
+
+    try {
+        $engineJobArguments = @($repoRoot, [bool]$Tauri, [bool]$Debug, $engineSource)
+        $jobs += Start-Job -Name "encorehub-engine-build" -ArgumentList $engineJobArguments -ScriptBlock {
+            param($Root, $UseTauri, $UseDebug, $EngineOutput)
+            $ErrorActionPreference = "Stop"
+            Set-Location (Join-Path $Root "engine")
+
+            if ($UseTauri) {
+                $cargoArguments = @("check")
+                if (-not $UseDebug) {
+                    $cargoArguments += "--release"
+                }
+                & cargo @cargoArguments
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cargo check exited with code $LASTEXITCODE"
+                }
+                [pscustomobject]@{
+                    EncoreHubBuildResult = $true
+                    Component = "engine"
+                    Operation = "checked"
+                    SizeBytes = 0
+                }
+            } else {
+                $cargoArguments = @("build", "--features", "standalone")
+                if (-not $UseDebug) {
+                    $cargoArguments += "--release"
+                }
+                & cargo @cargoArguments
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cargo build exited with code $LASTEXITCODE"
+                }
+                $sizeBytes = if (Test-Path -LiteralPath $EngineOutput) {
+                    (Get-Item -LiteralPath $EngineOutput).Length
+                } else {
+                    0
+                }
+                [pscustomobject]@{
+                    EncoreHubBuildResult = $true
+                    Component = "engine"
+                    Operation = "built"
+                    SizeBytes = $sizeBytes
+                }
+            }
+        }
+
+        $gatewayJobArguments = @($repoRoot, [bool]$Debug, $gatewaySource)
+        $jobs += Start-Job -Name "encorehub-gateway-build" -ArgumentList $gatewayJobArguments -ScriptBlock {
+            param($Root, $UseDebug, $GatewayOutput)
+            $ErrorActionPreference = "Stop"
+            $gatewayDirectory = Join-Path $Root "gateway"
+            Set-Location $gatewayDirectory
+            New-Item -ItemType Directory -Force -Path "bin" | Out-Null
+
+            $goArguments = @("build", "-trimpath")
+            if ($UseDebug) {
+                $goArguments += @("-gcflags", "all=-N -l")
+            } else {
+                $goArguments += @("-ldflags", "-s -w")
+            }
+            $goArguments += @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
+            & go @goArguments
+            if ($LASTEXITCODE -ne 0) {
+                throw "go build exited with code $LASTEXITCODE"
+            }
+            if (-not (Test-Path -LiteralPath $GatewayOutput)) {
+                throw "gateway command completed without producing $GatewayOutput"
+            }
+            [pscustomobject]@{
+                EncoreHubBuildResult = $true
+                Component = "gateway"
+                Operation = "built"
+                SizeBytes = (Get-Item -LiteralPath $GatewayOutput).Length
+            }
+        }
+
+        $null = Wait-Job -Job $jobs
+        $results = @()
+        foreach ($job in $jobs) {
+            $receiveErrors = @()
+            $jobOutput = @(
+                Receive-Job -Job $job -ErrorVariable receiveErrors -ErrorAction SilentlyContinue
+            )
+            foreach ($item in $jobOutput) {
+                if ($null -ne $item -and $null -ne $item.PSObject.Properties["EncoreHubBuildResult"]) {
+                    $results += $item
+                } else {
+                    Write-Host $item
+                }
+            }
+
+            if ($job.State -ne "Completed") {
+                foreach ($errorRecord in $receiveErrors) {
+                    Write-Host "    $($errorRecord.ToString())" -ForegroundColor Red
+                }
+                $reason = $job.JobStateInfo.Reason
+                $detail = if ($null -ne $reason) { $reason.Message } else { $job.State }
+                throw "$($job.Name) failed: $detail"
+            }
+        }
+
+        foreach ($result in $results) {
+            if ($result.Operation -eq "checked") {
+                Write-Success "$($result.Component) library checked"
+            } elseif ([long]$result.SizeBytes -gt 0) {
+                Write-Success "$($result.Component) built ($(Format-FileSize ([long]$result.SizeBytes)))"
+            } else {
+                Write-Success "$($result.Component) built"
+            }
+        }
+    } catch {
+        $failure = $_
+    } finally {
+        foreach ($job in $jobs) {
+            if ($job.State -eq "Running") {
+                Stop-Job -Job $job -ErrorAction SilentlyContinue
+            }
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $timer.Stop()
+    $timings["engine + gateway"] = $timer.Elapsed
+    if ($null -ne $failure) {
+        throw "parallel core build failed after $(Format-Duration $timer.Elapsed): $($failure.Exception.Message)"
+    }
+    Write-Success "parallel core build completed in $(Format-Duration $timer.Elapsed)"
+}
+
+function Prepare-TauriSidecar {
     New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
 
-    $triple = (rustc -vV | Select-String '^host:\s*(.+)$').Matches.Groups[1].Value.Trim()
-    Write-Ok "host target triple: $triple"
+    $rustcDetails = @(& rustc -vV)
+    if ($LASTEXITCODE -ne 0) {
+        throw "rustc -vV exited with code $LASTEXITCODE"
+    }
+    $hostLine = $rustcDetails | Where-Object { $_ -match "^host:\s*" } | Select-Object -First 1
+    if ($null -eq $hostLine -or $hostLine -notmatch "^host:\s*(.+)$") {
+        throw "could not determine the Rust host target triple"
+    }
+    $targetTriple = $Matches[1].Trim()
+    Write-Success "host target triple: $targetTriple"
 
-    # Only gateway is a Tauri sidecar now — engine runs in-process.
-    if (Test-Path $gatewaySrc) {
-        Copy-Item -Force $gatewaySrc "$binaryDir\encorehub-gateway.exe"
-        Copy-Item -Force $gatewaySrc "$binaryDir\encorehub-gateway-$triple.exe"
-        $sz = [math]::Round((Get-Item $gatewaySrc).Length / 1MB, 1)
-        Write-Ok "encorehub-gateway.exe → binaries/ ($sz MB, also $triple alias)"
+    if ($SkipGateway) {
+        Write-WarningMessage "gateway build was skipped; using the existing binary when available"
+    }
+    if (-not (Test-Path -LiteralPath $gatewaySource)) {
+        throw "gateway sidecar not found at $gatewaySource"
+    }
+
+    $plainSidecar = Join-Path $binaryDir "encorehub-gateway.exe"
+    $targetSidecar = Join-Path $binaryDir "encorehub-gateway-$targetTriple.exe"
+    Copy-Item -Force -LiteralPath $gatewaySource -Destination $plainSidecar
+    Copy-Item -Force -LiteralPath $gatewaySource -Destination $targetSidecar
+    $size = Format-FileSize (Get-Item -LiteralPath $gatewaySource).Length
+    Write-Success "gateway sidecar copied ($size; target $targetTriple)"
+}
+
+function Start-TauriDevelopment {
+    Write-Section "Tauri desktop development"
+    Write-Host "    Development sessions are not timed. Press Ctrl+C to stop." -ForegroundColor Yellow
+    Push-Location $frontendDir
+    try {
+        Invoke-NativeCommand -Command "pnpm" -Arguments @("tauri", "dev")
+    } finally {
+        Pop-Location
+    }
+}
+
+function Build-TauriInstaller {
+    Push-Location $frontendDir
+    try {
+        Invoke-NativeCommand -Command "pnpm" -Arguments @("tauri", "build")
+    } finally {
+        Pop-Location
+    }
+}
+
+function Write-BuildSummary {
+    param([Parameter(Mandatory)][string]$Title)
+
+    $line = "=" * 54
+    Write-Host ""
+    Write-Host $line -ForegroundColor Green
+    Write-Host "  $Title" -ForegroundColor Green
+    Write-Host $line -ForegroundColor Green
+    foreach ($name in $timings.Keys) {
+        $seconds = [math]::Round($timings[$name].TotalSeconds, 1)
+        Write-Host ("  {0,-30} {1,7}s" -f $name, $seconds)
+    }
+    Write-Host $line -ForegroundColor Green
+}
+
+try {
+    $needsNode = (-not $SkipFrontend) -or $Tauri
+    $needsGo = -not $SkipGateway
+    $needsCargo = (-not $SkipEngine) -or $Tauri
+
+    Write-Section "Prerequisites"
+    Test-Prerequisite -Name "node" -Required $needsNode
+    Test-Prerequisite -Name "pnpm" -Required $needsNode
+    Test-Prerequisite -Name "go" -Required $needsGo -VersionArguments @("version")
+    Test-Prerequisite -Name "cargo" -Required $needsCargo
+    Test-Prerequisite -Name "rustc" -Required ([bool]$Tauri) -VersionArguments @("--version")
+
+    if ($Parallel -and -not $SkipEngine -and -not $SkipGateway) {
+        Invoke-ParallelCoreBuilds
     } else {
-        Write-Warn "encorehub-gateway.exe not found — Tauri may use a stale cached binary"
+        if (-not $SkipEngine) {
+            Invoke-TimedStep -Name "engine" -Action { Build-Engine }
+        }
+        if (-not $SkipGateway) {
+            Invoke-TimedStep -Name "gateway" -Action { Build-Gateway }
+        }
     }
 
-    Step "tauri-installer" {
-        Push-Location "$repoRoot\frontend"
-        try {
-            pnpm tauri $tauriCmd
-            if ($LASTEXITCODE -ne 0) { throw "tauri $tauriCmd failed" }
-            Write-Ok "Tauri installer generated"
-        } finally { Pop-Location }
+    if (-not $SkipFrontend) {
+        Invoke-TimedStep -Name "frontend" -Action { Build-Frontend }
     }
-}
 
-# ---- summary ----
-Write-Host "`n$('=' * 50)" -ForegroundColor Green
-Write-Host "  Build complete" -ForegroundColor Green
-Write-Host "$('=' * 50)" -ForegroundColor Green
-foreach ($k in $timings.Keys) {
-    $s = [math]::Round($timings[$k].TotalSeconds, 1)
-    Write-Host ("  {0,-20} {1,6}s" -f $k, $s)
-}
-Write-Host "$('=' * 50)" -ForegroundColor Green
+    if ($Tauri) {
+        Invoke-TimedStep -Name "tauri sidecar" -Action { Prepare-TauriSidecar }
 
-if ($Tauri) {
-    Write-Host "`n  MSI:   $repoRoot\frontend\src-tauri\target\release\bundle\msi"
-    Write-Host "  NSIS:  $repoRoot\frontend\src-tauri\target\release\bundle\nsis`n"
+        if ($Debug) {
+            Write-BuildSummary "Preparation complete"
+            Start-TauriDevelopment
+            return
+        }
+
+        Invoke-TimedStep -Name "tauri installer" -Action { Build-TauriInstaller }
+    }
+
+    Write-BuildSummary "Build complete"
+
+    if ($Tauri -and -not $Debug) {
+        Write-Host ""
+        Write-Host "  MSI:  $frontendDir\src-tauri\target\release\bundle\msi"
+        Write-Host "  NSIS: $frontendDir\src-tauri\target\release\bundle\nsis"
+        Write-Host ""
+    }
+} catch {
+    Write-Failure $_.Exception.Message
+    exit 1
 }

@@ -92,8 +92,8 @@ Engine directly and does not compose authoritative prompts.
 
 ## Related work
 
-- [Client UI optimization workflow](../CLIENT_UI_OPTIMIZATION_WORKFLOW.md) CUI-10
-  records implementation and verification evidence.
+- [Remaining work](../REMAINING_WORK.md) tracks character-card compatibility and
+  final UI validation.
 - [EncoreHub OpenAPI](../openapi.json) is the browser-facing CharacterProfile
   and upgrade contract.
 - [ADR-0004](0004-engine-in-process-and-internal-auth.md) keeps Engine behind the
