@@ -6,7 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/encorehub/gateway/internal/engine"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )

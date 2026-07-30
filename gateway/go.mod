@@ -1,4 +1,4 @@
-module github.com/encorehub/gateway
+module com.0d000721.encorehub/gateway
 
 go 1.25.0
 

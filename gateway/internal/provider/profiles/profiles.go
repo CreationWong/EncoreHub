@@ -7,9 +7,10 @@ package profiles
 import (
 	"fmt"
 
-	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/provider/anthropic"
-	"github.com/encorehub/gateway/internal/provider/openaicompat"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/provider"
+	"com.0d000721.encorehub/gateway/internal/provider/anthropic"
+	"com.0d000721.encorehub/gateway/internal/provider/openaicompat"
 )
 
 // Builtins returns the default provider set shipped with the app. These are

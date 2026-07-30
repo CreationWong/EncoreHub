@@ -8,7 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/encorehub/gateway/internal/provider"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/provider"
 	"github.com/gin-gonic/gin"
 )
 

@@ -3,8 +3,9 @@ package handler
 import (
 	"testing"
 
-	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/provider/profiles"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/provider"
+	"com.0d000721.encorehub/gateway/internal/provider/profiles"
 )
 
 func validProfile() provider.ProviderProfile {

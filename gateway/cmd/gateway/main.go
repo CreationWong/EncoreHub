@@ -19,10 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/encorehub/gateway/internal/engine"
-	"github.com/encorehub/gateway/internal/handler"
-	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/router"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
+	"com.0d000721.encorehub/gateway/internal/handler"
+	"com.0d000721.encorehub/gateway/internal/provider"
+	"com.0d000721.encorehub/gateway/internal/router"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )

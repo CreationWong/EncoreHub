@@ -14,8 +14,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/encorehub/gateway/internal/diagnostics"
-	"github.com/encorehub/gateway/internal/provider"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/diagnostics"
+	"com.0d000721.encorehub/gateway/internal/provider"
 )
 
 const anthropicBaseURL = "https://api.anthropic.com/v1"

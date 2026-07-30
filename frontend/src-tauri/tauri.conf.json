@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicedoc/schemas/refs/heads/master/tauri/tauri.conf.schema.json",
   "productName": "EncoreHub",
   "version": "0.1.0",
-  "identifier": "com.encorehub.desktop",
+  "identifier": "com.0d000721.encorehub.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

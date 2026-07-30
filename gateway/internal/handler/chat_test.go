@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/encorehub/gateway/internal/engine"
-	"github.com/encorehub/gateway/internal/provider"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
+	"com.0d000721.encorehub/gateway/internal/provider"
 )
 
 func TestBuildChatRequest_AppendsSystemExtra(t *testing.T) {

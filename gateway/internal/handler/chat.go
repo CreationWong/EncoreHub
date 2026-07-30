@@ -12,9 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/encorehub/gateway/internal/engine"
-	"github.com/encorehub/gateway/internal/provider"
-	"github.com/encorehub/gateway/internal/search"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
+	"com.0d000721.encorehub/gateway/internal/provider"
+	"com.0d000721.encorehub/gateway/internal/search"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )

@@ -21,7 +21,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/encorehub/gateway/internal/diagnostics"
+	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/diagnostics"
 	"golang.org/x/net/html"
 )
 

@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/encorehub/proto/gen/go
+      value: com.0d000721.encorehub/proto/gen/go
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: proto/gen/go
