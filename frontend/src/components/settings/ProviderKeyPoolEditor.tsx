@@ -130,7 +130,7 @@ export default function ProviderKeyPoolEditor({
 										className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 text-xs font-medium text-text-secondary placeholder:text-text-muted"
 									/>
 								</div>
-								<div className="flex min-w-0">
+								<div className="provider-key-value-control flex min-w-0 rounded-md">
 									<input
 										type={isRevealed ? "text" : "password"}
 										value={key.value}

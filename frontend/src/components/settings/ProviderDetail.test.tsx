@@ -179,6 +179,17 @@ describe("ProviderDetail", () => {
 		expect(screen.getByText("Discovered Model")).toBeDefined();
 	});
 
+	it("draws API key focus around the complete value control", () => {
+		renderDetail();
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+
+		const valueInput = screen.getByLabelText("API key 1 value");
+
+		expect(valueInput.parentElement?.className).toContain(
+			"provider-key-value-control",
+		);
+	});
+
 	it("automatically checks completed connection input and reports normal health", async () => {
 		const onStatusChange = vi.fn();
 		renderDetail({

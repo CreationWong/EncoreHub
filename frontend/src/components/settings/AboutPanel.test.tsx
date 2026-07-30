@@ -88,9 +88,11 @@ describe("AboutPanel", () => {
 			screen.getByRole("button", { name: /open-source components/i }),
 		);
 
-		expect(
-			screen.getByRole("dialog", { name: "Open-source components" }),
-		).toBeDefined();
+		const dialog = screen.getByRole("dialog", {
+			name: "Open-source components",
+		});
+		expect(dialog).toBeDefined();
+		expect(dialog.className).toContain("overflow-hidden");
 		expect(screen.getByText("React")).toBeDefined();
 		expect(screen.getAllByText("18.3.1").length).toBeGreaterThan(0);
 		expect(screen.getByText("Gin")).toBeDefined();

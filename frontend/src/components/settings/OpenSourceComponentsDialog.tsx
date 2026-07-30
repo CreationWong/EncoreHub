@@ -48,7 +48,7 @@ export default function OpenSourceComponentsDialog({
 		<dialog
 			ref={dialogRef}
 			aria-labelledby="open-source-components-title"
-			className="fixed inset-0 z-[70] m-0 h-full max-h-none w-full max-w-none border-0 bg-black/50 p-4 text-text-primary"
+			className="fixed inset-0 z-[70] m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-black/50 p-4 text-text-primary"
 			onCancel={(event) => {
 				event.preventDefault();
 				onClose();
@@ -95,7 +95,7 @@ export default function OpenSourceComponentsDialog({
 						</button>
 					</header>
 
-					<div className="min-h-0 flex-1 overflow-y-auto p-5 max-[560px]:p-3">
+					<div className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-5 max-[560px]:p-3">
 						<div className="overflow-hidden rounded-md border border-border">
 							{groupedComponents.map(({ layer, components }, groupIndex) => (
 								<div
