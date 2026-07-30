@@ -24,11 +24,13 @@ const listConversationsApi = vi.fn();
 const createConversationApi = vi.fn();
 const updateConversationModelApi = vi.fn();
 const upgradeConversationCharacterApi = vi.fn();
+const deleteMessageApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: (...args: unknown[]) => listConversationsApi(...args),
 	createConversation: (...args: unknown[]) => createConversationApi(...args),
 	getConversation: (...args: unknown[]) => getConversationApi(...args),
 	deleteConversation: vi.fn().mockResolvedValue(undefined),
+	deleteMessage: (...args: unknown[]) => deleteMessageApi(...args),
 	renameConversation: (...args: unknown[]) => renameConversationApi(...args),
 	updateConversationModel: (...args: unknown[]) =>
 		updateConversationModelApi(...args),
@@ -63,6 +65,7 @@ beforeEach(() => {
 		error: null,
 		abortController: null,
 		pendingDraft: null,
+		pendingDraftReplace: false,
 		drafts: {},
 		scrollPositions: {},
 		convCache: {},
@@ -72,6 +75,8 @@ beforeEach(() => {
 	renameConversationApi.mockReset();
 	updateConversationModelApi.mockReset();
 	upgradeConversationCharacterApi.mockReset();
+	deleteMessageApi.mockReset();
+	deleteMessageApi.mockResolvedValue(undefined);
 	generateTitleApi.mockReset();
 	generateTitleApi.mockResolvedValue({
 		id: "c1",
@@ -279,6 +284,37 @@ describe("draft mailbox", () => {
 		);
 		useConversationStore.getState().clearDraft();
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
+	});
+
+	it("marks an edit-and-resend draft as a replacement", async () => {
+		const user = serverMessage({ id: "user-edit", content: "original" });
+		const assistant = serverMessage({
+			id: "assistant-edit",
+			role: "assistant",
+			parent_id: user.id,
+		});
+		useConversationStore.setState({
+			activeId: "c1",
+			messages: [user, assistant],
+			convCache: {
+				c1: {
+					messages: [user, assistant],
+					streaming: false,
+					streamingContent: "",
+					streamingReasoning: "",
+					streamingDurationMs: 0,
+					streamingToolCalls: [],
+					abortController: null,
+				},
+			},
+		});
+
+		await useConversationStore.getState().editMessage(user.id);
+
+		expect(deleteMessageApi).toHaveBeenCalledWith("c1", user.id);
+		expect(useConversationStore.getState().messages).toEqual([]);
+		expect(useConversationStore.getState().pendingDraft).toBe("original");
+		expect(useConversationStore.getState().pendingDraftReplace).toBe(true);
 	});
 
 	it("stores independent drafts for conversations and the new-chat workspace", () => {

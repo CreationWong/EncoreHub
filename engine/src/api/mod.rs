@@ -143,6 +143,10 @@ pub fn build_router_with(
             get(conversations::get_messages).post(conversations::send_message),
         )
         .route(
+            "/api/conversations/:id/messages/:message_id",
+            delete(conversations::delete_message),
+        )
+        .route(
             "/api/conversations/:id/turns",
             post(conversations::begin_turn),
         )

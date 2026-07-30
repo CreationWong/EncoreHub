@@ -65,6 +65,8 @@ export default function MessageBubble({
 	return (
 		<article
 			aria-label="Assistant message"
+			data-message-id={isStreaming ? undefined : message.id}
+			data-message-role="assistant"
 			className="app-message app-message-assistant px-4 py-5"
 		>
 			<AssistantIdentity />

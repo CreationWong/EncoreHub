@@ -149,6 +149,16 @@ export async function deleteConversation(id: string): Promise<void> {
 	await apiFetch<void>(`/conversations/${id}`, { method: "DELETE" });
 }
 
+export async function deleteMessage(
+	conversationId: string,
+	messageId: string,
+): Promise<void> {
+	await apiFetch<void>(
+		`/conversations/${conversationId}/messages/${messageId}`,
+		{ method: "DELETE" },
+	);
+}
+
 export async function renameConversation(
 	id: string,
 	title: string,

@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.fn();
@@ -16,6 +16,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("./components/layout/GlobalNav", () => ({ default: () => null }));
 vi.mock("./components/settings/UnlockGate", () => ({ default: () => null }));
+vi.mock("./components/ui/AppContextMenu", () => ({
+	default: () => <div data-testid="app-context-menu" />,
+}));
 vi.mock("./components/ui/ConfirmDialog", () => ({ default: () => null }));
 vi.mock("./components/ui/ToastHost", () => ({ default: () => null }));
 vi.mock("./components/workspace/WorkspaceSurface", () => ({
@@ -119,6 +122,14 @@ describe("App startup", () => {
 			),
 		);
 		await waitFor(() => expect(loadWebSearchSettings).toHaveBeenCalledOnce());
+	});
+
+	it("mounts the application context menu during startup", () => {
+		invoke.mockReturnValue(new Promise(() => undefined));
+
+		render(<App />);
+
+		expect(screen.getByTestId("app-context-menu")).toBeDefined();
 	});
 
 	it("does not load application data while Engine is not ready", async () => {

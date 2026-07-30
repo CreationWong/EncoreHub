@@ -182,6 +182,7 @@ interface ConversationState {
 	error: string | null;
 	abortController: AbortController | null;
 	pendingDraft: string | null;
+	pendingDraftReplace: boolean;
 	drafts: Record<string, string>;
 	scrollPositions: Record<string, number>;
 
@@ -195,6 +196,9 @@ interface ConversationState {
 	selectConversation: (id: string) => Promise<void>;
 	newConversation: (selection?: NewConversationSelection) => Promise<string>;
 	deleteConversation: (id: string) => Promise<void>;
+	deleteMessage: (id: string) => Promise<void>;
+	editMessage: (id: string) => Promise<void>;
+	regenerateMessage: (id: string) => Promise<void>;
 	renameConversation: (id: string, title: string) => Promise<void>;
 	updateConversationModel: (
 		id: string,
@@ -208,7 +212,7 @@ interface ConversationState {
 	sendMessage: (content: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
-	setDraft: (content: string) => void;
+	setDraft: (content: string, replace?: boolean) => void;
 	clearDraft: () => void;
 	setConversationDraft: (id: string | null, content: string) => void;
 	clearConversationDraft: (id: string | null) => void;
@@ -232,6 +236,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	error: null,
 	abortController: null,
 	pendingDraft: null,
+	pendingDraftReplace: false,
 	drafts: {},
 	scrollPositions: {},
 	convCache: {},
@@ -865,6 +870,55 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		}
 	},
 
+	deleteMessage: async (id: string) => {
+		const { activeId } = get();
+		if (!activeId) return;
+		await convApi.deleteMessage(activeId, id);
+		set((s) => {
+			const entry = s.convCache[activeId];
+			const currentMessages = entry?.messages ?? s.messages;
+			const removedIds = new Set(
+				currentMessages
+					.filter((message) => message.id === id || message.parent_id === id)
+					.map((message) => message.id),
+			);
+			return cacheUpdate(s, activeId, {
+				messages: currentMessages.filter(
+					(message) => !removedIds.has(message.id),
+				),
+			});
+		});
+		void get().loadList();
+	},
+
+	editMessage: async (id: string) => {
+		const { activeId, messages } = get();
+		const message = messages.find(
+			(item) => item.id === id && item.role === "user",
+		);
+		if (!message || !activeId) return;
+		await get().deleteMessage(id);
+		get().clearConversationDraft(activeId);
+		get().setDraft(message.content, true);
+	},
+
+	regenerateMessage: async (id: string) => {
+		const { messages, streaming } = get();
+		if (streaming) return;
+		const assistant = messages.find(
+			(message) => message.id === id && message.role === "assistant",
+		);
+		const user = assistant?.parent_id
+			? messages.find(
+					(message) =>
+						message.id === assistant.parent_id && message.role === "user",
+				)
+			: undefined;
+		if (!user) return;
+		await get().deleteMessage(user.id);
+		await get().sendMessage(user.content);
+	},
+
 	pushSystemMessage: (content: string) => {
 		const msg: Message = {
 			id: `sys-${Date.now()}`,
@@ -884,8 +938,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		});
 	},
 
-	setDraft: (content: string) => set({ pendingDraft: content }),
-	clearDraft: () => set({ pendingDraft: null }),
+	setDraft: (content: string, replace = false) =>
+		set({ pendingDraft: content, pendingDraftReplace: replace }),
+	clearDraft: () => set({ pendingDraft: null, pendingDraftReplace: false }),
 	setConversationDraft: (id, content) => {
 		const key = id ?? NEW_CONVERSATION_DRAFT_KEY;
 		set((s) => {

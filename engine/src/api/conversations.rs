@@ -433,6 +433,17 @@ pub async fn get_messages(
     Ok(Json(responses))
 }
 
+pub async fn delete_message(
+    State(state): State<SharedState>,
+    Path((conversation_id, message_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .db
+        .delete_message_branch(&conversation_id, &message_id)
+        .map_err(domain_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AddMessageRequest {
     pub content: String,

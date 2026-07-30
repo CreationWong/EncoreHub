@@ -127,6 +127,21 @@ fn message_append_and_retrieve_keeps_order() {
 }
 
 #[test]
+fn deleting_a_user_message_removes_its_assistant_reply() {
+    let (_dir, db) = fresh_db();
+    let conv = encorehub_core::Conversation::new("branch", "x", "y");
+    db.create_conversation(&conv).unwrap();
+    let user = Message::new(&conv.id, Role::User, "question", None);
+    let assistant = Message::new(&conv.id, Role::Assistant, "answer", Some(user.id.clone()));
+    db.append_message(&user).unwrap();
+    db.append_message(&assistant).unwrap();
+
+    db.delete_message_branch(&conv.id, &user.id).unwrap();
+
+    assert!(db.get_messages(&conv.id).unwrap().is_empty());
+}
+
+#[test]
 fn message_status_schema_defaults_and_rejects_invalid_states() {
     let (_dir, db, db_path) = fresh_db_with_path();
     let conv = encorehub_core::Conversation::new("status", "openai", "gpt-4o");

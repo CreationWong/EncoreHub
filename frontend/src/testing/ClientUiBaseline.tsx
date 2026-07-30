@@ -1,5 +1,6 @@
 import CharacterManager from "../components/character/CharacterManager";
 import GlobalNav from "../components/layout/GlobalNav";
+import AppContextMenu from "../components/ui/AppContextMenu";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ToastHost from "../components/ui/ToastHost";
 import WorkspaceSurface from "../components/workspace/WorkspaceSurface";
@@ -219,6 +220,7 @@ export default function ClientUiBaseline() {
 			<CharacterManager />
 			<ConfirmDialog />
 			<ToastHost />
+			<AppContextMenu />
 		</>
 	);
 }

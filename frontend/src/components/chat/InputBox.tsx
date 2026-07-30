@@ -89,6 +89,9 @@ export default function InputBox() {
 	);
 	const messages = useConversationStore((state) => state.messages);
 	const pendingDraft = useConversationStore((state) => state.pendingDraft);
+	const pendingDraftReplace = useConversationStore(
+		(state) => state.pendingDraftReplace,
+	);
 	const clearDraft = useConversationStore((state) => state.clearDraft);
 	const setConversationDraft = useConversationStore(
 		(state) => state.setConversationDraft,
@@ -151,14 +154,25 @@ export default function InputBox() {
 		if (pendingDraft == null) return;
 		const state = useConversationStore.getState();
 		const current = state.drafts[draftKey(activeId)] ?? input;
-		const next = current ? `${current}\n\n${pendingDraft}` : pendingDraft;
+		const next = pendingDraftReplace
+			? pendingDraft
+			: current
+				? `${current}\n\n${pendingDraft}`
+				: pendingDraft;
 		updateInput(next);
 		clearDraft();
 		queueMicrotask(() => {
 			resizeTextarea(textareaRef.current);
 			textareaRef.current?.focus();
 		});
-	}, [activeId, clearDraft, input, pendingDraft, updateInput]);
+	}, [
+		activeId,
+		clearDraft,
+		input,
+		pendingDraft,
+		pendingDraftReplace,
+		updateInput,
+	]);
 
 	const userHistory = useMemo(
 		() =>

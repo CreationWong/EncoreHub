@@ -312,6 +312,34 @@ impl Database {
         Ok(())
     }
 
+    /// Deletes one message and replies directly attached to it as a single unit.
+    pub fn delete_message_branch(&self, conversation_id: &str, id: &str) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let belongs_to_conversation: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND conversation_id = ?2)",
+            params![id, conversation_id],
+            |row| row.get(0),
+        )?;
+        if !belongs_to_conversation {
+            return Err(EngineError::NotFound {
+                resource: "message".into(),
+                id: id.into(),
+            });
+        }
+        tx.execute(
+            "DELETE FROM messages
+             WHERE conversation_id = ?1 AND (id = ?2 OR parent_id = ?2)",
+            params![conversation_id, id],
+        )?;
+        tx.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            params![now_ms(), conversation_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     // ===== Tool Call CRUD =====
 
     pub fn insert_tool_call(&self, tc: &ToolCall) -> Result<()> {
