@@ -28,6 +28,7 @@ export const DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS: readonly GlobalContextMenuItemPr
 	];
 export type SettingsTab =
 	| "providers"
+	| "model-metadata"
 	| "skills"
 	| "knowledge"
 	| "memories"

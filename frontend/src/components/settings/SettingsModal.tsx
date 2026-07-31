@@ -11,6 +11,7 @@ import {
 	Search,
 	ShieldCheck,
 	Sparkles,
+	Tags,
 	Terminal,
 } from "lucide-react";
 import { Suspense, lazy, useEffect } from "react";
@@ -23,6 +24,7 @@ import AppearancePanel from "./AppearancePanel";
 import ContextMenuPanel from "./ContextMenuPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
+import ModelMetadataPanel from "./ModelMetadataPanel";
 import ProvidersPanel from "./ProvidersPanel";
 import SecurityPanel from "./SecurityPanel";
 import SkillsPanel from "./SkillsPanel";
@@ -57,6 +59,7 @@ const TAB_GROUPS: TabGroup[] = [
 		label: "AI & tools",
 		tabs: [
 			{ id: "providers", label: "Providers", icon: Bot },
+			{ id: "model-metadata", label: "Model metadata", icon: Tags },
 			{ id: "search", label: "Web search", icon: Search },
 			{ id: "skills", label: "Skills", icon: Sparkles },
 		],
@@ -91,6 +94,7 @@ const TAB_LABELS = Object.fromEntries(
 
 const FULL_BLEED_TABS: readonly SettingsTab[] = [
 	"providers",
+	"model-metadata",
 	"processes",
 	"logs",
 	"database",
@@ -175,6 +179,7 @@ export default function SettingsModal() {
 					}
 				>
 					{tab === "providers" && <ProvidersPanel />}
+					{tab === "model-metadata" && <ModelMetadataPanel />}
 					{tab === "skills" && <SkillsPanel />}
 					{tab === "search" && (
 						<Suspense
