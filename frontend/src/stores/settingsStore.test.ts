@@ -19,7 +19,10 @@ vi.mock("../services/webSearch", async (importOriginal) => {
 });
 
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "../services/webSearch";
-import { useSettingsStore } from "./settingsStore";
+import {
+	DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS,
+	useSettingsStore,
+} from "./settingsStore";
 import { useWorkspaceStore } from "./workspaceStore";
 
 beforeEach(() => {
@@ -32,6 +35,10 @@ beforeEach(() => {
 		sidebarWidth: 300,
 		deepThinking: false,
 		trafficLightWindowControls: false,
+		globalContextMenuEnabled: true,
+		globalContextMenuItems: DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({
+			...item,
+		})),
 		settingsTab: "about",
 		devMode: false,
 		fullCommunicationLogs: false,
@@ -176,5 +183,38 @@ describe("settingsStore sidebar preferences", () => {
 			fullCommunicationLogs: false,
 		});
 		expect(localStorage.getItem("encorehub-full-communication-logs")).toBe("0");
+	});
+});
+
+describe("settingsStore global context menu preferences", () => {
+	it("persists the global menu switch", () => {
+		useSettingsStore.getState().setGlobalContextMenuEnabled(false);
+
+		expect(useSettingsStore.getState().globalContextMenuEnabled).toBe(false);
+		expect(localStorage.getItem("encorehub-global-context-menu-enabled")).toBe(
+			"0",
+		);
+	});
+
+	it("persists item visibility and drag order", () => {
+		useSettingsStore
+			.getState()
+			.setGlobalContextMenuItemVisible("new-chat", false);
+		useSettingsStore
+			.getState()
+			.moveGlobalContextMenuItem("settings", "new-chat");
+
+		expect(useSettingsStore.getState().globalContextMenuItems).toEqual([
+			{ id: "settings", visible: true },
+			{ id: "new-chat", visible: false },
+		]);
+		expect(
+			JSON.parse(
+				localStorage.getItem("encorehub-global-context-menu-items") ?? "[]",
+			),
+		).toEqual([
+			{ id: "settings", visible: true },
+			{ id: "new-chat", visible: false },
+		]);
 	});
 });

@@ -3,6 +3,7 @@ import {
 	Bug,
 	Cpu,
 	Database,
+	MousePointer2,
 	ScrollText,
 	ShieldCheck,
 } from "lucide-react";
@@ -40,6 +41,12 @@ export default function DeveloperPanel() {
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const fullCommunicationLogs = useSettingsStore(
 		(state) => state.fullCommunicationLogs,
+	);
+	const globalContextMenuEnabled = useSettingsStore(
+		(state) => state.globalContextMenuEnabled,
+	);
+	const setGlobalContextMenuEnabled = useSettingsStore(
+		(state) => state.setGlobalContextMenuEnabled,
 	);
 	const tauri = inTauri();
 
@@ -130,6 +137,31 @@ export default function DeveloperPanel() {
 						{tauri ? "Open" : "Desktop only"}
 					</span>
 				</button>
+				<div className="flex min-h-14 items-center gap-3 border-b border-border px-1 py-3">
+					<MousePointer2 className="h-4 w-4 shrink-0 text-text-muted" />
+					<span className="min-w-0 flex-1 text-sm text-text-secondary">
+						Override system context menu
+					</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={globalContextMenuEnabled}
+						aria-label="Override system context menu"
+						onClick={() =>
+							setGlobalContextMenuEnabled(!globalContextMenuEnabled)
+						}
+						className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+							globalContextMenuEnabled ? "bg-accent" : "bg-surface-hover"
+						}`}
+					>
+						<span
+							aria-hidden="true"
+							className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+								globalContextMenuEnabled ? "translate-x-5" : "translate-x-1"
+							}`}
+						/>
+					</button>
+				</div>
 			</section>
 		</div>
 	);

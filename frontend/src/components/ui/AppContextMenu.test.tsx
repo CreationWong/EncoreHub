@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useConversationStore } from "../../stores/conversationStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import AppContextMenu from "./AppContextMenu";
 
 const newConversation = vi.fn().mockResolvedValue("conversation-1");
@@ -35,7 +38,13 @@ beforeEach(() => {
 		regenerateMessage,
 		deleteMessage,
 	});
-	useSettingsStore.setState({ openSettings });
+	useSettingsStore.setState({
+		openSettings,
+		globalContextMenuEnabled: true,
+		globalContextMenuItems: DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({
+			...item,
+		})),
+	});
 	Object.defineProperty(navigator, "clipboard", {
 		configurable: true,
 		value: { readText, writeText },
@@ -88,6 +97,67 @@ describe("AppContextMenu", () => {
 		);
 
 		expect(openSettings).toHaveBeenCalledOnce();
+	});
+
+	it("leaves the native menu available when takeover is off", () => {
+		useSettingsStore.setState({ globalContextMenuEnabled: false });
+		render(
+			<div data-testid="surface">
+				<AppContextMenu />
+			</div>,
+		);
+
+		const event = dispatchContextMenu(screen.getByTestId("surface"));
+
+		expect(event.defaultPrevented).toBe(false);
+		expect(
+			screen.queryByRole("menu", { name: "EncoreHub context menu" }),
+		).toBeNull();
+	});
+
+	it("uses the configured item order and visibility", () => {
+		useSettingsStore.setState({
+			globalContextMenuItems: [
+				{ id: "settings", visible: true },
+				{ id: "new-chat", visible: false },
+			],
+		});
+		render(
+			<div data-testid="surface">
+				<AppContextMenu />
+			</div>,
+		);
+
+		dispatchContextMenu(screen.getByTestId("surface"));
+
+		expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+		expect(
+			screen.getByRole("menuitem", { name: /^Settings (Ctrl\+|⌘)/ }),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("menuitem", { name: "New conversation" }),
+		).toBeNull();
+	});
+
+	it("shows no global menu when every item is removed", () => {
+		useSettingsStore.setState({
+			globalContextMenuItems: DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({
+				...item,
+				visible: false,
+			})),
+		});
+		render(
+			<div data-testid="surface">
+				<AppContextMenu />
+			</div>,
+		);
+
+		const event = dispatchContextMenu(screen.getByTestId("surface"));
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(
+			screen.queryByRole("menu", { name: "EncoreHub context menu" }),
+		).toBeNull();
 	});
 
 	it("does not replace a context menu handled by a nested surface", () => {

@@ -6,7 +6,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import { useToastStore } from "../../stores/toastStore";
 
 const status = vi.fn();
@@ -69,6 +72,7 @@ const logFixture = [
 ];
 
 beforeEach(() => {
+	localStorage.clear();
 	inTauri.mockReset().mockReturnValue(true);
 	status.mockReset().mockResolvedValue(statusFixture);
 	logs.mockReset().mockResolvedValue(logFixture);
@@ -103,6 +107,10 @@ beforeEach(() => {
 		settingsTab: "developer",
 		devMode: true,
 		fullCommunicationLogs: false,
+		globalContextMenuEnabled: true,
+		globalContextMenuItems: DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({
+			...item,
+		})),
 	});
 	useToastStore.setState({ toasts: [] });
 });
@@ -115,6 +123,20 @@ describe("Developer feature workspace", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: /System processes/ }));
 		expect(useSettingsStore.getState().settingsTab).toBe("processes");
+	});
+
+	it("controls the EncoreHub context menu from developer settings", () => {
+		render(<DeveloperPanel />);
+		const toggle = screen.getByRole("switch", {
+			name: "Override system context menu",
+		});
+
+		fireEvent.click(toggle);
+
+		expect(useSettingsStore.getState().globalContextMenuEnabled).toBe(false);
+		expect(localStorage.getItem("encorehub-global-context-menu-enabled")).toBe(
+			"0",
+		);
 	});
 
 	it("shows process state and restarts a managed service", async () => {

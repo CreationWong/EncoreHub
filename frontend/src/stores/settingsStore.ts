@@ -14,6 +14,18 @@ export type { SearchProvider } from "../services/webSearch";
 
 export type Theme = "system" | "dark" | "light";
 export type SidebarMode = "characters" | "conversations";
+export type GlobalContextMenuItemId = "new-chat" | "settings";
+
+export interface GlobalContextMenuItemPreference {
+	id: GlobalContextMenuItemId;
+	visible: boolean;
+}
+
+export const DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS: readonly GlobalContextMenuItemPreference[] =
+	[
+		{ id: "new-chat", visible: true },
+		{ id: "settings", visible: true },
+	];
 export type SettingsTab =
 	| "providers"
 	| "skills"
@@ -51,6 +63,8 @@ interface SettingsState {
 	devMode: boolean;
 	fullCommunicationLogs: boolean;
 	trafficLightWindowControls: boolean;
+	globalContextMenuEnabled: boolean;
+	globalContextMenuItems: GlobalContextMenuItemPreference[];
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
 	searchMaxResults: number;
@@ -74,6 +88,15 @@ interface SettingsState {
 	setDevMode: (on: boolean) => void;
 	setFullCommunicationLogs: (on: boolean) => void;
 	setTrafficLightWindowControls: (on: boolean) => void;
+	setGlobalContextMenuEnabled: (on: boolean) => void;
+	setGlobalContextMenuItemVisible: (
+		id: GlobalContextMenuItemId,
+		visible: boolean,
+	) => void;
+	moveGlobalContextMenuItem: (
+		id: GlobalContextMenuItemId,
+		targetId: GlobalContextMenuItemId,
+	) => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
 	loadWebSearchSettings: () => Promise<void>;
@@ -119,6 +142,70 @@ function loadSidebarMode(): SidebarMode {
 	return localStorage.getItem("encorehub-sidebar-mode") === "characters"
 		? "characters"
 		: "conversations";
+}
+
+const GLOBAL_CONTEXT_MENU_ENABLED_KEY = "encorehub-global-context-menu-enabled";
+const GLOBAL_CONTEXT_MENU_ITEMS_KEY = "encorehub-global-context-menu-items";
+
+function defaultGlobalContextMenuItems(): GlobalContextMenuItemPreference[] {
+	return DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({ ...item }));
+}
+
+function normalizeGlobalContextMenuItems(
+	value: unknown,
+): GlobalContextMenuItemPreference[] {
+	if (!Array.isArray(value)) return defaultGlobalContextMenuItems();
+	const defaults = new Map(
+		DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => [item.id, item]),
+	);
+	const seen = new Set<GlobalContextMenuItemId>();
+	const normalized: GlobalContextMenuItemPreference[] = [];
+	for (const candidate of value) {
+		if (!candidate || typeof candidate !== "object") continue;
+		const id = (candidate as { id?: unknown }).id;
+		if (
+			typeof id !== "string" ||
+			!defaults.has(id as GlobalContextMenuItemId)
+		) {
+			continue;
+		}
+		const typedId = id as GlobalContextMenuItemId;
+		if (seen.has(typedId)) continue;
+		seen.add(typedId);
+		normalized.push({
+			id: typedId,
+			visible:
+				typeof (candidate as { visible?: unknown }).visible === "boolean"
+					? (candidate as { visible: boolean }).visible
+					: (defaults.get(typedId)?.visible ?? true),
+		});
+	}
+	for (const item of DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS) {
+		if (!seen.has(item.id)) normalized.push({ ...item });
+	}
+	return normalized;
+}
+
+function loadGlobalContextMenuItems(): GlobalContextMenuItemPreference[] {
+	if (typeof window === "undefined") return defaultGlobalContextMenuItems();
+	try {
+		const raw = localStorage.getItem(GLOBAL_CONTEXT_MENU_ITEMS_KEY);
+		return raw
+			? normalizeGlobalContextMenuItems(JSON.parse(raw))
+			: defaultGlobalContextMenuItems();
+	} catch {
+		return defaultGlobalContextMenuItems();
+	}
+}
+
+function persistGlobalContextMenuItems(
+	items: GlobalContextMenuItemPreference[],
+): void {
+	try {
+		localStorage.setItem(GLOBAL_CONTEXT_MENU_ITEMS_KEY, JSON.stringify(items));
+	} catch {
+		/* ignore */
+	}
 }
 
 // API keys are always persisted to the engine DB (plaintext or encrypted
@@ -213,6 +300,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-traffic-light-window-controls") === "1"
 			: false,
+	globalContextMenuEnabled:
+		typeof window !== "undefined"
+			? localStorage.getItem(GLOBAL_CONTEXT_MENU_ENABLED_KEY) !== "0"
+			: true,
+	globalContextMenuItems: loadGlobalContextMenuItems(),
 	searchEnabled:
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-search-enabled") === "1"
@@ -370,6 +462,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		} catch {
 			/* ignore */
 		}
+	},
+
+	setGlobalContextMenuEnabled: (on: boolean) => {
+		set({ globalContextMenuEnabled: on });
+		try {
+			localStorage.setItem(GLOBAL_CONTEXT_MENU_ENABLED_KEY, on ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
+	},
+
+	setGlobalContextMenuItemVisible: (id, visible) => {
+		const items = get().globalContextMenuItems.map((item) =>
+			item.id === id ? { ...item, visible } : item,
+		);
+		set({ globalContextMenuItems: items });
+		persistGlobalContextMenuItems(items);
+	},
+
+	moveGlobalContextMenuItem: (id, targetId) => {
+		if (id === targetId) return;
+		const current = get().globalContextMenuItems;
+		const sourceIndex = current.findIndex((item) => item.id === id);
+		const targetIndex = current.findIndex((item) => item.id === targetId);
+		if (sourceIndex < 0 || targetIndex < 0) return;
+		const items = [...current];
+		const [moving] = items.splice(sourceIndex, 1);
+		if (!moving) return;
+		items.splice(targetIndex, 0, moving);
+		set({ globalContextMenuItems: items });
+		persistGlobalContextMenuItems(items);
 	},
 
 	setSearchEnabled: (on: boolean) => {

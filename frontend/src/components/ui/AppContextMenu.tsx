@@ -2,11 +2,9 @@ import {
 	ClipboardPaste,
 	Copy,
 	Edit3,
-	MessageSquarePlus,
 	Redo2,
 	RefreshCcw,
 	Scissors,
-	Settings,
 	TextSelect,
 	Trash2,
 	Undo2,
@@ -22,6 +20,7 @@ import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
+import { globalContextMenuItemDefinition } from "./globalContextMenuItems";
 
 type EditableTarget = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
 
@@ -141,6 +140,12 @@ export default function AppContextMenu() {
 		(state) => state.newConversation,
 	);
 	const openSettings = useSettingsStore((state) => state.openSettings);
+	const globalContextMenuEnabled = useSettingsStore(
+		(state) => state.globalContextMenuEnabled,
+	);
+	const globalContextMenuItems = useSettingsStore(
+		(state) => state.globalContextMenuItems,
+	);
 	const messages = useConversationStore((state) => state.messages);
 	const streaming = useConversationStore((state) => state.streaming);
 	const startEditingMessage = useConversationStore(
@@ -157,6 +162,8 @@ export default function AppContextMenu() {
 	useEffect(() => {
 		const open = (event: MouseEvent) => {
 			if (event.defaultPrevented) return;
+			if (!globalContextMenuEnabled) return;
+			// Once takeover is enabled, even an empty custom menu suppresses native UI.
 			event.preventDefault();
 			const target = event.target;
 			if (!(target instanceof HTMLElement)) return;
@@ -165,6 +172,15 @@ export default function AppContextMenu() {
 				"[data-message-id][data-message-role]",
 			);
 			const messageRole = messageElement?.dataset.messageRole;
+			const selectedText = editable
+				? editableSelection(editable)
+				: (window.getSelection()?.toString() ?? "");
+			const hasGlobalItems = globalContextMenuItems.some(
+				(item) => item.visible,
+			);
+			// All hidden means no global menu, while takeover keeps native UI suppressed.
+			if (!editable && !messageElement && !selectedText && !hasGlobalItems)
+				return;
 			const rect = target.getBoundingClientRect();
 			const x = event.clientX || rect.left;
 			const y = event.clientY || rect.bottom;
@@ -174,9 +190,7 @@ export default function AppContextMenu() {
 				y,
 				target,
 				editable,
-				selectedText: editable
-					? editableSelection(editable)
-					: (window.getSelection()?.toString() ?? ""),
+				selectedText,
 				messageId: messageElement?.dataset.messageId ?? null,
 				messageRole:
 					messageRole === "user" || messageRole === "assistant"
@@ -212,7 +226,7 @@ export default function AppContextMenu() {
 			window.removeEventListener("blur", close);
 			window.removeEventListener("keydown", closeOnEscape);
 		};
-	}, []);
+	}, [globalContextMenuEnabled, globalContextMenuItems]);
 
 	useLayoutEffect(() => {
 		if (!context || !menuRef.current) return;
@@ -372,24 +386,26 @@ export default function AppContextMenu() {
 			},
 		];
 	} else {
-		entries = [
-			{
-				id: "new-chat",
-				label: "New conversation",
-				icon: MessageSquarePlus,
-				action: async () => {
-					await newConversation();
-				},
-			},
-			{
-				id: "settings",
-				label: "Settings",
-				icon: Settings,
-				shortcut: shortcut(","),
-				action: () => openSettings(),
-			},
-		];
+		entries = globalContextMenuItems.flatMap((preference) => {
+			if (!preference.visible) return [];
+			const definition = globalContextMenuItemDefinition(preference.id);
+			if (!definition) return [];
+			const entry: MenuItem = {
+				id: preference.id,
+				label: definition.label,
+				icon: definition.icon,
+				shortcut: preference.id === "settings" ? shortcut(",") : undefined,
+				action:
+					preference.id === "new-chat"
+						? async () => {
+								await newConversation();
+							}
+						: () => openSettings(),
+			};
+			return [entry];
+		});
 	}
+	if (entries.length === 0) return null;
 
 	const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (!["ArrowDown", "ArrowUp", "Home", "End", "Tab"].includes(event.key)) {
