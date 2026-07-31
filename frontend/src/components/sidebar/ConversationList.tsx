@@ -7,7 +7,7 @@ import {
 	RefreshCw,
 	Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Conversation } from "../../services/conversation";
 import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
@@ -20,12 +20,16 @@ interface ConversationActionsProps {
 	conversation: Conversation;
 	active: boolean;
 	onRename: () => void;
+	contextMenuPosition: { x: number; y: number } | null;
+	onContextMenuClose: () => void;
 }
 
 function ConversationActions({
 	conversation,
 	active,
 	onRename,
+	contextMenuPosition,
+	onContextMenuClose,
 }: ConversationActionsProps) {
 	const deleteConversation = useConversationStore(
 		(state) => state.deleteConversation,
@@ -33,18 +37,24 @@ function ConversationActions({
 	const generateTitle = useConversationStore((state) => state.generateTitle);
 	const [open, setOpen] = useState(false);
 	const [openAbove, setOpenAbove] = useState(false);
+	const [fixedPosition, setFixedPosition] = useState({ x: 0, y: 0 });
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const menuRef = useRef<HTMLDivElement>(null);
+	const menuOpen = open || contextMenuPosition !== null;
 
 	useEffect(() => {
-		if (!open) return;
+		if (!menuOpen) return;
 		const closeOutside = (event: PointerEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+			if (rootRef.current?.contains(event.target as Node)) return;
+			setOpen(false);
+			onContextMenuClose();
 		};
 		const closeOnEscape = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
 			setOpen(false);
-			triggerRef.current?.focus();
+			onContextMenuClose();
+			if (open) triggerRef.current?.focus();
 		};
 		document.addEventListener("pointerdown", closeOutside);
 		window.addEventListener("keydown", closeOnEscape);
@@ -52,10 +62,37 @@ function ConversationActions({
 			document.removeEventListener("pointerdown", closeOutside);
 			window.removeEventListener("keydown", closeOnEscape);
 		};
-	}, [open]);
+	}, [menuOpen, onContextMenuClose, open]);
+
+	useLayoutEffect(() => {
+		if (!contextMenuPosition || !menuRef.current) return;
+		const bounds = menuRef.current.getBoundingClientRect();
+		const gutter = 8;
+		setFixedPosition({
+			x: Math.max(
+				gutter,
+				Math.min(
+					contextMenuPosition.x,
+					window.innerWidth - bounds.width - gutter,
+				),
+			),
+			y: Math.max(
+				gutter,
+				Math.min(
+					contextMenuPosition.y,
+					window.innerHeight - bounds.height - gutter,
+				),
+			),
+		});
+	}, [contextMenuPosition]);
+
+	const closeMenu = () => {
+		setOpen(false);
+		onContextMenuClose();
+	};
 
 	const remove = async () => {
-		setOpen(false);
+		closeMenu();
 		const accepted = await confirm.ask(
 			"Delete Conversation",
 			`Delete "${conversation.title}"? This cannot be undone.`,
@@ -70,6 +107,7 @@ function ConversationActions({
 				ref={triggerRef}
 				type="button"
 				onClick={() => {
+					onContextMenuClose();
 					if (!open) {
 						const rect = triggerRef.current?.getBoundingClientRect();
 						setOpenAbove(
@@ -80,28 +118,40 @@ function ConversationActions({
 				}}
 				aria-label={`Actions for ${conversation.title}`}
 				aria-haspopup="menu"
-				aria-expanded={open}
+				aria-expanded={menuOpen}
 				title="Conversation actions"
 				className={`flex h-7 w-7 items-center justify-center rounded text-text-muted transition-opacity hover:bg-control hover:text-text-primary focus:opacity-100 ${
-					active || open ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+					active || menuOpen
+						? "opacity-100"
+						: "opacity-0 group-hover:opacity-100"
 				}`}
 			>
 				<MoreHorizontal className="h-4 w-4" />
 			</button>
 
-			{open && (
+			{menuOpen && (
 				<div
+					ref={menuRef}
 					role="menu"
 					aria-label={`Actions for ${conversation.title}`}
-					className={`absolute right-0 z-40 w-44 rounded-md border border-border bg-workspace p-1 shadow-lg ${
-						openAbove ? "bottom-full mb-1" : "top-full mt-1"
+					className={`w-44 rounded-md border border-border bg-workspace p-1 shadow-lg ${
+						contextMenuPosition
+							? "fixed z-[110]"
+							: `absolute right-0 z-40 ${
+									openAbove ? "bottom-full mb-1" : "top-full mt-1"
+								}`
 					}`}
+					style={
+						contextMenuPosition
+							? { left: fixedPosition.x, top: fixedPosition.y }
+							: undefined
+					}
 				>
 					<button
 						type="button"
 						role="menuitem"
 						onClick={() => {
-							setOpen(false);
+							closeMenu();
 							onRename();
 						}}
 						className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
@@ -113,7 +163,7 @@ function ConversationActions({
 						type="button"
 						role="menuitem"
 						onClick={() => {
-							setOpen(false);
+							closeMenu();
 							void generateTitle(conversation.id, true);
 						}}
 						className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
@@ -173,6 +223,11 @@ export default function ConversationList() {
 	);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [draftTitle, setDraftTitle] = useState("");
+	const [contextMenu, setContextMenu] = useState<{
+		conversationId: string;
+		x: number;
+		y: number;
+	} | null>(null);
 	const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 	const evictionTimers = useRef(
 		new Map<string, ReturnType<typeof setTimeout>>(),
@@ -302,6 +357,17 @@ export default function ConversationList() {
 								return (
 									<div
 										key={conversation.id}
+										onContextMenu={(event) => {
+											event.preventDefault();
+											event.stopPropagation();
+											const bounds =
+												event.currentTarget.getBoundingClientRect();
+											setContextMenu({
+												conversationId: conversation.id,
+												x: event.clientX || bounds.left + 16,
+												y: event.clientY || bounds.top + 16,
+											});
+										}}
 										className={`group relative flex min-h-[54px] items-center rounded-md border px-2 py-1.5 ${
 											active
 												? "border-border bg-selected"
@@ -358,6 +424,12 @@ export default function ConversationList() {
 												conversation={conversation}
 												active={active}
 												onRename={() => beginRename(conversation)}
+												contextMenuPosition={
+													contextMenu?.conversationId === conversation.id
+														? contextMenu
+														: null
+												}
+												onContextMenuClose={() => setContextMenu(null)}
 											/>
 										)}
 									</div>

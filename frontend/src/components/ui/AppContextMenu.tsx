@@ -156,6 +156,7 @@ export default function AppContextMenu() {
 
 	useEffect(() => {
 		const open = (event: MouseEvent) => {
+			if (event.defaultPrevented) return;
 			event.preventDefault();
 			const target = event.target;
 			if (!(target instanceof HTMLElement)) return;
@@ -196,14 +197,15 @@ export default function AppContextMenu() {
 			if (event.key === "Escape") setContext(null);
 		};
 
-		window.addEventListener("contextmenu", open, true);
+		// Bubble after local surfaces so their purpose-built menus take precedence.
+		window.addEventListener("contextmenu", open);
 		window.addEventListener("pointerdown", close, true);
 		window.addEventListener("scroll", close, true);
 		window.addEventListener("resize", close);
 		window.addEventListener("blur", close);
 		window.addEventListener("keydown", closeOnEscape);
 		return () => {
-			window.removeEventListener("contextmenu", open, true);
+			window.removeEventListener("contextmenu", open);
 			window.removeEventListener("pointerdown", close, true);
 			window.removeEventListener("scroll", close, true);
 			window.removeEventListener("resize", close);

@@ -166,6 +166,23 @@ describe("ConversationList content", () => {
 });
 
 describe("ConversationList actions", () => {
+	it("opens conversation actions at the pointer on right click", () => {
+		render(<ConversationList />);
+		const item = screen.getByRole("button", { name: /Original gpt-4o/ });
+
+		fireEvent.contextMenu(item, { clientX: 144, clientY: 96 });
+
+		const menu = screen.getByRole("menu", { name: "Actions for Original" });
+		expect(menu.className).toContain("fixed");
+		expect(menu.style.left).toBe("144px");
+		expect(menu.style.top).toBe("96px");
+		expect(screen.getByRole("menuitem", { name: "Rename" })).toBeDefined();
+		expect(
+			screen.getByRole("menuitem", { name: "Regenerate title" }),
+		).toBeDefined();
+		expect(screen.getByRole("menuitem", { name: "Delete" })).toBeDefined();
+	});
+
 	it("keeps double-click rename and exposes rename through the menu", () => {
 		render(<ConversationList />);
 		fireEvent.doubleClick(screen.getByText("Original"));

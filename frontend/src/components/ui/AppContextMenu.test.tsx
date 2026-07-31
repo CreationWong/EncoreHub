@@ -90,6 +90,25 @@ describe("AppContextMenu", () => {
 		expect(openSettings).toHaveBeenCalledOnce();
 	});
 
+	it("does not replace a context menu handled by a nested surface", () => {
+		const handleContextMenu = vi.fn((event: React.MouseEvent) => {
+			event.preventDefault();
+		});
+		render(
+			<div data-testid="managed-surface" onContextMenu={handleContextMenu}>
+				Managed surface
+				<AppContextMenu />
+			</div>,
+		);
+
+		dispatchContextMenu(screen.getByTestId("managed-surface"));
+
+		expect(handleContextMenu).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByRole("menu", { name: "EncoreHub context menu" }),
+		).toBeNull();
+	});
+
 	it("copies and pastes through the custom editable menu", async () => {
 		render(
 			<>
