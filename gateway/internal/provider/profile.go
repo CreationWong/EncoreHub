@@ -36,12 +36,13 @@ type ProviderModelConfig struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Type separates utility models from models that may participate in chat.
 	// Empty remains equivalent to chat for profiles saved by older clients.
-	Type        string  `json:"type,omitempty"`
-	Dimensions  int     `json:"dimensions,omitempty"`
-	Streaming   bool    `json:"streaming"`
-	Currency    string  `json:"currency,omitempty"`
-	InputPrice  float64 `json:"input_price,omitempty"`
-	OutputPrice float64 `json:"output_price,omitempty"`
+	Type          string  `json:"type,omitempty"`
+	Dimensions    int     `json:"dimensions,omitempty"`
+	ContextWindow int     `json:"context_window,omitempty"`
+	Streaming     bool    `json:"streaming"`
+	Currency      string  `json:"currency,omitempty"`
+	InputPrice    float64 `json:"input_price,omitempty"`
+	OutputPrice   float64 `json:"output_price,omitempty"`
 }
 
 // ModelType returns the configured purpose for a model. The legacy embedding

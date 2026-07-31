@@ -30,6 +30,8 @@ export interface ProviderModelConfig {
 	type?: ProviderModelType;
 	/** Default output size for embedding calls; omitted to use provider default. */
 	dimensions?: number;
+	/** Maximum model context size used to bound user input. */
+	context_window?: number;
 	streaming: boolean;
 	currency?: string;
 	input_price?: number;

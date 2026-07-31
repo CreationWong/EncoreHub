@@ -1,10 +1,33 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MODEL_METADATA_PROVIDER } from "../../services/modelMetadata";
+import { useModelMetadataStore } from "../../stores/modelMetadataStore";
 import ProviderModelModal from "./ProviderModelModal";
 
 afterEach(cleanup);
 
 describe("ProviderModelModal", () => {
+	beforeEach(() => {
+		// Keep unit tests deterministic; individual metadata tests opt into records.
+		useModelMetadataStore.setState({
+			providers: [
+				{
+					...DEFAULT_MODEL_METADATA_PROVIDER,
+					enabled: false,
+					mapping: { ...DEFAULT_MODEL_METADATA_PROVIDER.mapping },
+				},
+			],
+			recordsByProvider: {},
+			loadingProviderIds: [],
+		});
+	});
+
 	it("creates a model with capability and pricing metadata", () => {
 		const onSave = vi.fn();
 		render(
@@ -104,6 +127,76 @@ describe("ProviderModelModal", () => {
 				dimensions: 256,
 				streaming: false,
 				output_price: 0,
+			}),
+		);
+	});
+
+	it("automatically applies matching metadata capabilities and context size", async () => {
+		useModelMetadataStore.setState({
+			providers: [
+				{
+					...DEFAULT_MODEL_METADATA_PROVIDER,
+					mapping: { ...DEFAULT_MODEL_METADATA_PROVIDER.mapping },
+				},
+			],
+			recordsByProvider: {
+				"models-dev": [
+					{
+						id: "model-with-metadata",
+						name: "Metadata model",
+						family: "Reasoning",
+						contextWindow: 128000,
+						reasoning: true,
+						toolCalling: true,
+						attachments: true,
+					},
+				],
+			},
+		});
+		const onSave = vi.fn();
+		render(
+			<ProviderModelModal
+				model={null}
+				existingIds={[]}
+				onSave={onSave}
+				onClose={vi.fn()}
+			/>,
+		);
+
+		fireEvent.change(screen.getByPlaceholderText("gpt-4.1-mini"), {
+			target: { value: "model-with-metadata" },
+		});
+
+		await waitFor(() =>
+			expect(
+				(screen.getByLabelText("Maximum context size") as HTMLInputElement)
+					.value,
+			).toBe("128000"),
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Vision" })
+				.getAttribute("aria-pressed"),
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("button", { name: "Deep thinking" })
+				.getAttribute("aria-pressed"),
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("button", { name: "Tools" })
+				.getAttribute("aria-pressed"),
+		).toBe("true");
+
+		fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+		expect(onSave).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "model-with-metadata",
+				name: "Metadata model",
+				group: "Reasoning",
+				capabilities: expect.arrayContaining(["vision", "reasoning", "tools"]),
+				context_window: 128000,
 			}),
 		);
 	});

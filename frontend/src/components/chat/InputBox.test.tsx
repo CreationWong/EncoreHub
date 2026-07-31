@@ -72,6 +72,7 @@ const providerState = {
 		model_configs?: Array<{
 			id: string;
 			capabilities?: Array<"web" | "reasoning">;
+			context_window?: number;
 		}>;
 	}>,
 };
@@ -247,18 +248,27 @@ describe("InputBox composer surface", () => {
 		expect(textareaClasses).toContain("focus-visible:shadow-none");
 	});
 
-	it("shows character status only after reaching 85 percent", () => {
+	it("uses the active model context size as the input limit", () => {
+		providerState.profiles = [
+			{
+				id: "openai",
+				model_configs: [{ id: "gpt-4o", context_window: 100 }],
+			},
+		];
 		render(<InputBox />);
 		const ta = getTextarea();
-		fireEvent.change(ta, { target: { value: "a".repeat(6799) } });
-		expect(
-			screen.queryByRole("status", { name: "Character limit" }),
-		).toBeNull();
+		expect(ta.maxLength).toBe(100);
 
-		fireEvent.change(ta, { target: { value: "a".repeat(6800) } });
+		fireEvent.change(ta, { target: { value: "a".repeat(84) } });
+		expect(screen.queryByRole("status", { name: "Context size" })).toBeNull();
+
+		fireEvent.change(ta, { target: { value: "a".repeat(85) } });
 		expect(
-			screen.getByRole("status", { name: "Character limit" }).textContent,
-		).toContain("6800 / 8000");
+			screen.getByRole("status", { name: "Context size" }).textContent,
+		).toContain("85 / 100");
+
+		fireEvent.change(ta, { target: { value: "a".repeat(101) } });
+		expect(ta.value).toHaveLength(100);
 	});
 
 	it("toggles search from the globe and opens settings from the chevron", () => {

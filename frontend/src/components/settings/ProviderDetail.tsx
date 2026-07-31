@@ -140,6 +140,10 @@ function normalizeModelConfigs(
 		output_price: Number(model.output_price) || 0,
 		dimensions:
 			model.dimensions && model.dimensions > 0 ? model.dimensions : undefined,
+		context_window:
+			model.context_window && model.context_window > 0
+				? Math.trunc(model.context_window)
+				: undefined,
 	}));
 }
 

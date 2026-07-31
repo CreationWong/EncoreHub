@@ -19,8 +19,6 @@ import { type SlashTool, matchSlashTools } from "../../tools/slashTools";
 import { modelHasCapability } from "../../utils/modelCapabilities";
 import SlashToolMenu, { slashToolOptionId } from "./SlashToolMenu";
 
-const MAX_CHARS = 8000;
-const WARN_AT = Math.ceil(MAX_CHARS * 0.85);
 const MAX_TEXTAREA_HEIGHT = 220;
 const COMPACT_TEXTAREA_HEIGHT = 44;
 const LOW_HEIGHT_QUERY = "(max-height: 619px)";
@@ -101,6 +99,13 @@ export default function InputBox() {
 	const providerProfiles = useProviderStore((state) => state.profiles);
 	const activeProvider = activeConversation?.provider || defaultProvider;
 	const activeModel = activeConversation?.model || defaultModel;
+	const activeModelConfig = providerProfiles
+		.find((profile) => profile.id === activeProvider)
+		?.model_configs?.find((model) => model.id === activeModel);
+	const maximumContextSize = activeModelConfig?.context_window;
+	const contextWarningAt = maximumContextSize
+		? Math.ceil(maximumContextSize * 0.85)
+		: undefined;
 	const nativeWebSearch = modelHasCapability(
 		providerProfiles,
 		activeProvider,
@@ -124,6 +129,11 @@ export default function InputBox() {
 		},
 		[activeId, setConversationDraft],
 	);
+
+	useEffect(() => {
+		if (!maximumContextSize || input.length <= maximumContextSize) return;
+		updateInput(input.slice(0, maximumContextSize));
+	}, [input, maximumContextSize, updateInput]);
 
 	// Restore the conversation-local draft only when the conversation changes.
 	useEffect(() => {
@@ -283,7 +293,9 @@ export default function InputBox() {
 	};
 
 	const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-		const next = event.target.value.slice(0, MAX_CHARS);
+		const next = maximumContextSize
+			? event.target.value.slice(0, maximumContextSize)
+			: event.target.value;
 		setHistoryIdx(-1);
 		setSlashToolIndex(0);
 		updateInput(next);
@@ -291,7 +303,8 @@ export default function InputBox() {
 	};
 
 	const charCount = input.length;
-	const showCharacterStatus = charCount >= WARN_AT;
+	const showContextStatus =
+		contextWarningAt !== undefined && charCount >= contextWarningAt;
 	const selectedSearchProvider =
 		searchProvider === "duckduckgo"
 			? "DuckDuckGo"
@@ -322,7 +335,7 @@ export default function InputBox() {
 						onKeyDown={handleKeyDown}
 						placeholder="Type a message"
 						rows={2}
-						maxLength={MAX_CHARS}
+						maxLength={maximumContextSize}
 						aria-autocomplete="list"
 						aria-controls={showSlashTools ? SLASH_TOOL_MENU_ID : undefined}
 						aria-activedescendant={
@@ -484,12 +497,12 @@ export default function InputBox() {
 					</div>
 
 					<div className="flex shrink-0 items-center gap-2">
-						{showCharacterStatus && (
+						{showContextStatus && (
 							<output
-								aria-label="Character limit"
+								aria-label="Context size"
 								className="text-[11px] tabular-nums text-warning"
 							>
-								{charCount} / {MAX_CHARS}
+								{charCount} / {maximumContextSize}
 							</output>
 						)}
 						<button

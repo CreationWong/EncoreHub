@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_MODEL_METADATA_MAPPING,
+	applyMetadataToModelConfig,
 	inferMetadataMapping,
 	normalizeModelMetadata,
 	parseModelMetadata,
@@ -59,5 +60,30 @@ describe("model metadata parsing", () => {
 				"provider/demo",
 			),
 		).toMatchObject({ id: "provider/demo", name: "Demo" });
+	});
+
+	it("applies metadata capabilities and context while preserving local-only flags", () => {
+		const configured = applyMetadataToModelConfig(
+			{
+				id: "demo",
+				name: "Old name",
+				capabilities: ["web", "vision"],
+				streaming: true,
+			},
+			{
+				id: "demo",
+				name: "Metadata name",
+				family: "demo-family",
+				capabilities: ["reasoning", "tools"],
+				contextWindow: 128000,
+			},
+		);
+
+		expect(configured).toMatchObject({
+			name: "Metadata name",
+			group: "demo-family",
+			capabilities: ["web", "reasoning", "tools"],
+			context_window: 128000,
+		});
 	});
 });

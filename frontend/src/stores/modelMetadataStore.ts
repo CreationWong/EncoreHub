@@ -3,16 +3,23 @@ import {
 	DEFAULT_MODEL_METADATA_PROVIDER,
 	type ModelMetadataMapping,
 	type ModelMetadataProvider,
+	type NormalizedModelMetadata,
+	fetchModelMetadata,
 } from "../services/modelMetadata";
 
 const STORAGE_KEY = "encorehub-model-metadata-providers";
 
-interface ModelMetadataState {
+export interface ModelMetadataState {
 	providers: ModelMetadataProvider[];
+	recordsByProvider: Record<string, NormalizedModelMetadata[]>;
+	loadingProviderIds: string[];
 	upsert: (provider: ModelMetadataProvider) => void;
 	remove: (id: string) => void;
 	setEnabled: (id: string, enabled: boolean) => void;
 	setMapping: (id: string, mapping: ModelMetadataMapping) => void;
+	setRecords: (id: string, records: NormalizedModelMetadata[]) => void;
+	refreshProvider: (id: string) => Promise<NormalizedModelMetadata[]>;
+	refreshEnabled: () => Promise<void>;
 }
 
 function cloneProvider(provider: ModelMetadataProvider): ModelMetadataProvider {
@@ -67,6 +74,8 @@ function persistProviders(providers: ModelMetadataProvider[]) {
 
 export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 	providers: loadProviders(),
+	recordsByProvider: {},
+	loadingProviderIds: [],
 	upsert: (provider) => {
 		const next = get().providers.filter((item) => item.id !== provider.id);
 		const providers = [...next, cloneProvider(provider)];
@@ -75,7 +84,9 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 	},
 	remove: (id) => {
 		const providers = get().providers.filter((item) => item.id !== id);
-		set({ providers });
+		const recordsByProvider = { ...get().recordsByProvider };
+		delete recordsByProvider[id];
+		set({ providers, recordsByProvider });
 		persistProviders(providers);
 	},
 	setEnabled: (id, enabled) => {
@@ -92,4 +103,50 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 		set({ providers });
 		persistProviders(providers);
 	},
+	setRecords: (id, records) =>
+		set((state) => ({
+			recordsByProvider: { ...state.recordsByProvider, [id]: records },
+		})),
+	refreshProvider: async (id) => {
+		const provider = get().providers.find((item) => item.id === id);
+		if (!provider?.enabled) return [];
+		set((state) => ({
+			loadingProviderIds: state.loadingProviderIds.includes(id)
+				? state.loadingProviderIds
+				: [...state.loadingProviderIds, id],
+		}));
+		try {
+			const result = await fetchModelMetadata(provider);
+			get().setRecords(id, result.records);
+			return result.records;
+		} finally {
+			set((state) => ({
+				loadingProviderIds: state.loadingProviderIds.filter(
+					(providerId) => providerId !== id,
+				),
+			}));
+		}
+	},
+	refreshEnabled: async () => {
+		const pending = get()
+			.providers.filter(
+				(provider) => provider.enabled && !get().recordsByProvider[provider.id],
+			)
+			.map((provider) => get().refreshProvider(provider.id));
+		await Promise.allSettled(pending);
+	},
 }));
+
+export function modelMetadataForId(
+	state: Pick<ModelMetadataState, "providers" | "recordsByProvider">,
+	modelId: string,
+): NormalizedModelMetadata | undefined {
+	for (const provider of state.providers) {
+		if (!provider.enabled) continue;
+		const match = state.recordsByProvider[provider.id]?.find(
+			(record) => record.id === modelId,
+		);
+		if (match) return match;
+	}
+	return undefined;
+}

@@ -1,3 +1,5 @@
+import type { ProviderModelCapability, ProviderModelConfig } from "./providers";
+
 export const MODEL_METADATA_SOURCE_URL = "https://models.dev/models.json";
 
 export type ModelMetadataFormat = "object" | "array";
@@ -280,4 +282,45 @@ export async function fetchModelMetadata(
 	if (!response.ok)
 		throw new Error(`Metadata request failed (${response.status})`);
 	return parseModelMetadata(await response.json(), provider);
+}
+
+const METADATA_MANAGED_CAPABILITIES = new Set<ProviderModelCapability>([
+	"vision",
+	"reasoning",
+	"tools",
+]);
+
+/** Apply authoritative metadata while preserving capabilities the catalog does not model. */
+export function applyMetadataToModelConfig(
+	model: ProviderModelConfig,
+	metadata: NormalizedModelMetadata,
+): ProviderModelConfig {
+	const capabilities = new Set(
+		(model.capabilities ?? []).filter(
+			(capability) => !METADATA_MANAGED_CAPABILITIES.has(capability),
+		),
+	);
+	const sourceCapabilities = new Set(metadata.capabilities ?? []);
+	if (
+		metadata.attachments ||
+		metadata.inputModalities?.some((modality) =>
+			["image", "video", "pdf"].includes(modality),
+		) ||
+		sourceCapabilities.has("vision")
+	) {
+		capabilities.add("vision");
+	}
+	if (metadata.reasoning || sourceCapabilities.has("reasoning")) {
+		capabilities.add("reasoning");
+	}
+	if (metadata.toolCalling || sourceCapabilities.has("tools")) {
+		capabilities.add("tools");
+	}
+	return {
+		...model,
+		name: metadata.name ?? model.name,
+		group: metadata.family ?? model.group,
+		capabilities: [...capabilities],
+		context_window: metadata.contextWindow ?? model.context_window,
+	};
 }

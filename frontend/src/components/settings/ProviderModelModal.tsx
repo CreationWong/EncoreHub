@@ -12,16 +12,22 @@ import {
 	MessageSquare,
 	RotateCcw,
 	Save,
+	Sparkles,
 	Wrench,
 	X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MODEL_CAPABILITIES } from "../../constants/providers";
+import { applyMetadataToModelConfig } from "../../services/modelMetadata";
 import type {
 	ProviderModelCapability,
 	ProviderModelConfig,
 	ProviderModelType,
 } from "../../services/providers";
+import {
+	modelMetadataForId,
+	useModelMetadataStore,
+} from "../../stores/modelMetadataStore";
 import { defaultModelConfig } from "./providerConfig";
 
 interface Props {
@@ -87,6 +93,14 @@ export default function ProviderModelModal({
 	);
 	const [advanced, setAdvanced] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const metadataProviders = useModelMetadataStore((state) => state.providers);
+	const recordsByProvider = useModelMetadataStore(
+		(state) => state.recordsByProvider,
+	);
+	const refreshMetadata = useModelMetadataStore(
+		(state) => state.refreshEnabled,
+	);
+	const appliedMetadataRef = useRef<string | null>(null);
 
 	const capabilities = useMemo(
 		() => new Set(draft.capabilities ?? []),
@@ -98,6 +112,33 @@ export default function ProviderModelModal({
 			? "embedding"
 			: "chat";
 	const currencySymbol = CURRENCY_SYMBOLS[draft.currency ?? "USD"] ?? "$";
+	const metadata = useMemo(
+		() =>
+			modelMetadataForId(
+				{ providers: metadataProviders, recordsByProvider },
+				draft.id.trim(),
+			),
+		[metadataProviders, recordsByProvider, draft.id],
+	);
+
+	useEffect(() => {
+		void refreshMetadata();
+	}, [refreshMetadata]);
+
+	useEffect(() => {
+		if (!metadata) {
+			appliedMetadataRef.current = null;
+			return;
+		}
+		const signature = JSON.stringify(metadata);
+		if (appliedMetadataRef.current === signature) return;
+		appliedMetadataRef.current = signature;
+		setDraft((current) =>
+			current.id.trim() === metadata.id
+				? applyMetadataToModelConfig(current, metadata)
+				: current,
+		);
+	}, [metadata]);
 
 	const update = <K extends keyof ProviderModelConfig>(
 		key: K,
@@ -142,6 +183,13 @@ export default function ProviderModelModal({
 			return;
 		}
 		if (
+			draft.context_window !== undefined &&
+			(!Number.isInteger(draft.context_window) || draft.context_window < 1)
+		) {
+			setError("Maximum context size must be a positive integer");
+			return;
+		}
+		if (
 			modelType === "embedding" &&
 			draft.dimensions !== undefined &&
 			(draft.dimensions < 1 || draft.dimensions > 3072)
@@ -166,6 +214,10 @@ export default function ProviderModelModal({
 			currency: draft.currency || "USD",
 			input_price: Number(draft.input_price) || 0,
 			output_price: modelType === "chat" ? Number(draft.output_price) || 0 : 0,
+			context_window:
+				Number(draft.context_window) > 0
+					? Number(draft.context_window)
+					: undefined,
 		});
 	};
 
@@ -324,13 +376,33 @@ export default function ProviderModelModal({
 									<div className="flex items-center justify-between gap-3 py-4">
 										<span className="flex items-center gap-1.5 text-sm font-medium text-text-secondary">
 											Model capabilities
-											<AlertTriangle className="h-3.5 w-3.5 text-warning" />
+											{metadata ? (
+												<span
+													aria-label="Configured from model metadata"
+													title="Configured from model metadata"
+													className="text-accent"
+												>
+													<Sparkles
+														aria-hidden="true"
+														className="h-3.5 w-3.5"
+													/>
+												</span>
+											) : (
+												<AlertTriangle className="h-3.5 w-3.5 text-warning" />
+											)}
 										</span>
 										<button
 											type="button"
-											onClick={() =>
-												update("capabilities", model?.capabilities ?? [])
-											}
+											onClick={() => {
+												setDraft((current) =>
+													metadata
+														? applyMetadataToModelConfig(current, metadata)
+														: {
+																...current,
+																capabilities: model?.capabilities ?? [],
+															},
+												);
+											}}
 											aria-label="Reset model capabilities"
 											title="Reset model capabilities"
 											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
@@ -392,6 +464,35 @@ export default function ProviderModelModal({
 							)}
 
 							<div className="grid gap-3 border-t border-border py-4 sm:grid-cols-[9rem_1fr] sm:items-center">
+								<label
+									htmlFor="model-context-window"
+									className="text-sm text-text-secondary"
+								>
+									Maximum context size
+								</label>
+								<div className="flex">
+									<input
+										id="model-context-window"
+										type="number"
+										min="1"
+										step="1"
+										value={draft.context_window ?? ""}
+										onChange={(event) =>
+											update(
+												"context_window",
+												event.target.value
+													? Number(event.target.value)
+													: undefined,
+											)
+										}
+										placeholder="From metadata"
+										className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
+									/>
+									<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
+										tokens
+									</span>
+								</div>
+
 								<label
 									htmlFor="model-currency"
 									className="text-sm text-text-secondary"

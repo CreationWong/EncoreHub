@@ -226,6 +226,9 @@ func validateProfiles(list []provider.ProviderProfile) error {
 			if config.Dimensions < 0 || config.Dimensions > maxEmbeddingDimensions {
 				return fmt.Errorf("provider %q model %q: dimensions must be between 1 and %d", id, modelID, maxEmbeddingDimensions)
 			}
+			if config.ContextWindow < 0 {
+				return fmt.Errorf("provider %q model %q: context window must not be negative", id, modelID)
+			}
 			if p.ModelType(modelID) == provider.ModelTypeEmbedding && p.Protocol != provider.ProtocolOpenAI {
 				return fmt.Errorf("provider %q model %q: embeddings require the OpenAI API format", id, modelID)
 			}

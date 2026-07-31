@@ -92,10 +92,20 @@ func TestValidateProfiles_RejectsDisabledEndpointSet(t *testing.T) {
 func TestValidateProfiles_AcceptsModelMetadata(t *testing.T) {
 	p := validProfile()
 	p.ModelConfigs = []provider.ProviderModelConfig{{
-		ID: "model-a", Name: "Model A", Group: "General", Streaming: true, Currency: "USD", InputPrice: 1.5,
+		ID: "model-a", Name: "Model A", Group: "General", Streaming: true, Currency: "USD", InputPrice: 1.5, ContextWindow: 128000,
 	}}
 	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
 		t.Fatalf("expected model metadata to be valid, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RejectsNegativeContextWindow(t *testing.T) {
+	p := validProfile()
+	p.ModelConfigs = []provider.ProviderModelConfig{{
+		ID: "model-a", ContextWindow: -1,
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected negative context-window rejection")
 	}
 }
 

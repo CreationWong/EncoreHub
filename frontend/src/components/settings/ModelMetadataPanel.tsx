@@ -61,6 +61,7 @@ export default function ModelMetadataPanel() {
 	const providers = useModelMetadataStore((state) => state.providers);
 	const upsert = useModelMetadataStore((state) => state.upsert);
 	const remove = useModelMetadataStore((state) => state.remove);
+	const setRecords = useModelMetadataStore((state) => state.setRecords);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelectedId);
 	const [query, setQuery] = useState("");
 	const [draft, setDraft] = useState<ModelMetadataProvider | null>(null);
@@ -124,6 +125,7 @@ export default function ModelMetadataPanel() {
 		try {
 			const result = await fetchModelMetadata(draft);
 			setPreview(result);
+			setRecords(draft.id, result.records);
 		} catch (reason) {
 			setError(
 				reason instanceof Error ? reason.message : "Metadata request failed",
