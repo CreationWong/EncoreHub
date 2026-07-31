@@ -5,6 +5,7 @@ import {
 	Database,
 	Info,
 	Loader2,
+	MousePointer2,
 	Palette,
 	ScrollText,
 	Search,
@@ -19,6 +20,7 @@ import {
 	useSettingsStore,
 } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
+import ContextMenuPanel from "./ContextMenuPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ProvidersPanel from "./ProvidersPanel";
@@ -45,24 +47,27 @@ interface TabGroup {
 
 const TAB_GROUPS: TabGroup[] = [
 	{
-		label: "General",
+		label: "Interface",
+		tabs: [
+			{ id: "appearance", label: "Appearance", icon: Palette },
+			{ id: "context-menu", label: "Context menu", icon: MousePointer2 },
+		],
+	},
+	{
+		label: "AI & tools",
 		tabs: [
 			{ id: "providers", label: "Providers", icon: Bot },
-			{ id: "appearance", label: "Appearance", icon: Palette },
-		],
-	},
-	{
-		label: "Capabilities",
-		tabs: [
 			{ id: "search", label: "Web search", icon: Search },
 			{ id: "skills", label: "Skills", icon: Sparkles },
-			{ id: "knowledge", label: "Knowledge", icon: Database },
-			{ id: "memories", label: "Memories", icon: BookOpen },
 		],
 	},
 	{
-		label: "Data & safety",
-		tabs: [{ id: "security", label: "Security", icon: ShieldCheck }],
+		label: "Data & privacy",
+		tabs: [
+			{ id: "knowledge", label: "Knowledge", icon: Database },
+			{ id: "memories", label: "Memories", icon: BookOpen },
+			{ id: "security", label: "Security", icon: ShieldCheck },
+		],
 	},
 	{
 		label: "System",
@@ -128,10 +133,10 @@ export default function SettingsModal() {
 				</div>
 				<nav aria-label="Settings sections" className="space-y-3">
 					{tabGroups.map((group) => (
-						<div key={group.label}>
-							<p className="mb-1 px-2 text-[10px] font-semibold text-text-muted max-[760px]:sr-only">
+						<fieldset key={group.label} className="m-0 min-w-0 border-0 p-0">
+							<legend className="mb-1 w-full px-2 text-[10px] font-semibold text-text-muted max-[760px]:sr-only">
 								{group.label}
-							</p>
+							</legend>
 							{group.tabs.map((item) => (
 								<button
 									key={item.id}
@@ -151,7 +156,7 @@ export default function SettingsModal() {
 									</span>
 								</button>
 							))}
-						</div>
+						</fieldset>
 					))}
 				</nav>
 			</aside>
@@ -182,6 +187,7 @@ export default function SettingsModal() {
 					{tab === "memories" && <MemoryPanel />}
 					{tab === "security" && <SecurityPanel />}
 					{tab === "appearance" && <AppearancePanel />}
+					{tab === "context-menu" && <ContextMenuPanel />}
 					{tab === "about" && (
 						<Suspense
 							fallback={

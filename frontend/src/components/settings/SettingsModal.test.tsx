@@ -1,10 +1,19 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 
 vi.mock("./ProvidersPanel", () => ({ default: () => <p>Providers panel</p> }));
 vi.mock("./AppearancePanel", () => ({
 	default: () => <p>Appearance panel</p>,
+}));
+vi.mock("./ContextMenuPanel", () => ({
+	default: () => <p>Context menu panel</p>,
 }));
 vi.mock("./SkillsPanel", () => ({ default: () => <p>Skills panel</p> }));
 vi.mock("./SearchPanel", () => ({ default: () => <p>Search panel</p> }));
@@ -27,12 +36,21 @@ describe("Settings workspace information architecture", () => {
 		});
 	});
 
-	it("opens system web search configuration as a capability", async () => {
+	it("opens web search configuration as an AI tool", async () => {
 		render(<SettingsModal />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Web search" }));
 		expect(await screen.findByText("Search panel")).toBeDefined();
 		expect(useSettingsStore.getState().settingsTab).toBe("search");
+	});
+
+	it("opens global context menu management as an interface setting", async () => {
+		render(<SettingsModal />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Context menu" }));
+
+		expect(await screen.findByText("Context menu panel")).toBeDefined();
+		expect(useSettingsStore.getState().settingsTab).toBe("context-menu");
 	});
 
 	afterEach(cleanup);
@@ -46,10 +64,25 @@ describe("Settings workspace information architecture", () => {
 		expect(
 			screen.getByRole("navigation", { name: "Settings sections" }),
 		).toBeDefined();
-		expect(screen.getByText("General")).toBeDefined();
-		expect(screen.getByText("Capabilities")).toBeDefined();
-		expect(screen.getByText("Data & safety")).toBeDefined();
+		expect(screen.getByText("Interface")).toBeDefined();
+		expect(screen.getByText("AI & tools")).toBeDefined();
+		expect(screen.getByText("Data & privacy")).toBeDefined();
 		expect(screen.getByText("System")).toBeDefined();
+		const titlesIn = (group: string) =>
+			within(screen.getByRole("group", { name: group }))
+				.getAllByRole("button")
+				.map((button) => button.getAttribute("title"));
+		expect(titlesIn("Interface")).toEqual(["Appearance", "Context menu"]);
+		expect(titlesIn("AI & tools")).toEqual([
+			"Providers",
+			"Web search",
+			"Skills",
+		]);
+		expect(titlesIn("Data & privacy")).toEqual([
+			"Knowledge",
+			"Memories",
+			"Security",
+		]);
 		expect(await screen.findByText("About panel")).toBeDefined();
 		for (const label of ["Developer", "Processes", "Logs", "Database"]) {
 			expect(screen.queryByRole("button", { name: label })).toBeNull();

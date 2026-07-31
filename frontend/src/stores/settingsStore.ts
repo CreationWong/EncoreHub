@@ -33,6 +33,7 @@ export type SettingsTab =
 	| "memories"
 	| "search"
 	| "appearance"
+	| "context-menu"
 	| "security"
 	| "about"
 	| "developer"
