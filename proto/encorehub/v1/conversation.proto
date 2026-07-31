@@ -83,6 +83,14 @@ message SendMessageRequest {
   string model = 4;
   bool stream = 5;
   ChatContext context = 6;
+  UserSystemContext user_system_context = 7;
+}
+
+// Captured on the client because the Gateway can run in another timezone.
+message UserSystemContext {
+  string date = 1;      // YYYY-MM-DD
+  string time = 2;      // HH:MM:SS
+  string timezone = 3;  // IANA name or UTC offset fallback
 }
 
 message ChatContext {

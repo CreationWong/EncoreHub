@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -54,24 +55,33 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content             string   `json:"content" binding:"required"`
-	Provider            string   `json:"provider"`
-	Model               string   `json:"model"`
-	Stream              bool     `json:"stream"`
-	Search              bool     `json:"search"`
-	SearchProvider      string   `json:"search_provider"` // "duckduckgo" | "bing" | "google" | "custom"
-	Temperature         float32  `json:"temperature"`
-	TopP                float32  `json:"top_p"`
-	MaxTokens           int      `json:"max_tokens"`
-	MaxCompletionTokens int      `json:"max_completion_tokens"`
-	FrequencyPenalty    float32  `json:"frequency_penalty"`
-	PresencePenalty     float32  `json:"presence_penalty"`
-	Stop                []string `json:"stop"`
-	Seed                *int     `json:"seed"`
-	JSONMode            bool     `json:"json_mode"`
-	ReasoningEffort     string   `json:"reasoning_effort"`
-	ThinkingBudget      int      `json:"thinking_budget"`
-	ReplaceMessageID    string   `json:"replace_message_id"`
+	Content             string             `json:"content" binding:"required"`
+	Provider            string             `json:"provider"`
+	Model               string             `json:"model"`
+	Stream              bool               `json:"stream"`
+	Search              bool               `json:"search"`
+	SearchProvider      string             `json:"search_provider"` // "duckduckgo" | "bing" | "google" | "custom"
+	Temperature         float32            `json:"temperature"`
+	TopP                float32            `json:"top_p"`
+	MaxTokens           int                `json:"max_tokens"`
+	MaxCompletionTokens int                `json:"max_completion_tokens"`
+	FrequencyPenalty    float32            `json:"frequency_penalty"`
+	PresencePenalty     float32            `json:"presence_penalty"`
+	Stop                []string           `json:"stop"`
+	Seed                *int               `json:"seed"`
+	JSONMode            bool               `json:"json_mode"`
+	ReasoningEffort     string             `json:"reasoning_effort"`
+	ThinkingBudget      int                `json:"thinking_budget"`
+	ReplaceMessageID    string             `json:"replace_message_id"`
+	UserSystemContext   *UserSystemContext `json:"user_system_context"`
+}
+
+// UserSystemContext is captured by the client because Gateway may run in a
+// different timezone from the user's desktop.
+type UserSystemContext struct {
+	Date     string `json:"date"`
+	Time     string `json:"time"`
+	Timezone string `json:"timezone"`
 }
 
 type ChatResponse struct {
@@ -1173,6 +1183,35 @@ func validateChatRequest(req SendMessageRequest) error {
 		req.ReasoningEffort != "medium" && req.ReasoningEffort != "high" {
 		return fmt.Errorf("reasoning_effort must be low, medium, or high")
 	}
+	if err := validateUserSystemContext(req.UserSystemContext); err != nil {
+		return err
+	}
+	return nil
+}
+
+var userTimezonePattern = regexp.MustCompile(`^[A-Za-z0-9._+\-/:]{1,64}$`)
+
+// Strict formats keep client-reported values useful without making them a
+// free-form prompt injection channel.
+func validateUserSystemContext(context *UserSystemContext) error {
+	if context == nil {
+		return nil
+	}
+	date := strings.TrimSpace(context.Date)
+	clockTime := strings.TrimSpace(context.Time)
+	timezone := strings.TrimSpace(context.Timezone)
+	if date == "" || clockTime == "" || timezone == "" {
+		return fmt.Errorf("user_system_context requires date, time, and timezone")
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return fmt.Errorf("user_system_context.date must use YYYY-MM-DD")
+	}
+	if _, err := time.Parse("15:04:05", clockTime); err != nil {
+		return fmt.Errorf("user_system_context.time must use HH:MM:SS")
+	}
+	if !userTimezonePattern.MatchString(timezone) {
+		return fmt.Errorf("user_system_context.timezone is invalid")
+	}
 	return nil
 }
 
@@ -1187,6 +1226,7 @@ const toolResultFollowupPrompt = "Tool execution for this response is complete. 
 
 const (
 	promptSectionApplication = "APPLICATION_CONSTRAINTS"
+	promptSectionUserSystem  = "USER_SYSTEM_CONTEXT"
 	promptSectionCharacter   = "CHARACTER_CONTENT_UNTRUSTED"
 	promptSectionSkills      = "SKILL_INSTRUCTIONS"
 	promptSectionContext     = "MEMORY_KNOWLEDGE_CONTEXT"
@@ -1247,14 +1287,28 @@ func characterPrompt(snapshot engine.CharacterSnapshot) string {
 	return strings.Join(parts, "\n\n")
 }
 
+func userSystemPrompt(context *UserSystemContext) string {
+	if context == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Current date: %s\nCurrent time: %s\nTime zone: %s",
+		strings.TrimSpace(context.Date),
+		strings.TrimSpace(context.Time),
+		strings.TrimSpace(context.Timezone),
+	)
+}
+
 func composeChatSystemPrompt(
 	snapshot engine.CharacterSnapshot,
 	context promptContext,
 	toolInstructions string,
+	userSystemContext *UserSystemContext,
 ) string {
 	var builder strings.Builder
 	builder.WriteString(baseChatSystemPrompt)
 	appendPromptSection(&builder, promptSectionApplication, applicationConstraintPrompt)
+	appendPromptSection(&builder, promptSectionUserSystem, userSystemPrompt(userSystemContext))
 	appendPromptSection(&builder, promptSectionCharacter, characterPrompt(snapshot))
 	appendPromptSection(&builder, promptSectionSkills, context.Skills)
 	appendPromptSection(
@@ -1308,7 +1362,12 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	if context.ToolResults != "" {
 		toolInstructions = strings.TrimSpace(toolInstructions + "\n\n" + preexecutedToolPrompt)
 	}
-	cr.SystemPrompt = composeChatSystemPrompt(conv.CharacterSnapshot, context, toolInstructions)
+	cr.SystemPrompt = composeChatSystemPrompt(
+		conv.CharacterSnapshot,
+		context,
+		toolInstructions,
+		req.UserSystemContext,
+	)
 
 	// Register available tools
 	var tools []provider.Tool

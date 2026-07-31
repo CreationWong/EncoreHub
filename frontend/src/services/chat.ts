@@ -38,6 +38,34 @@ export interface ChatTurnOptions {
 	replaceMessageId?: string;
 }
 
+interface UserSystemContext {
+	date: string;
+	time: string;
+	timezone: string;
+}
+
+function padDateTimePart(value: number): string {
+	return String(value).padStart(2, "0");
+}
+
+/** Capture the user's clock at send time; the Gateway process may use another timezone. */
+export function getUserSystemContext(now = new Date()): UserSystemContext {
+	const timezone =
+		Intl.DateTimeFormat().resolvedOptions().timeZone ||
+		`UTC${formatUtcOffset(now.getTimezoneOffset())}`;
+	return {
+		date: `${now.getFullYear()}-${padDateTimePart(now.getMonth() + 1)}-${padDateTimePart(now.getDate())}`,
+		time: `${padDateTimePart(now.getHours())}:${padDateTimePart(now.getMinutes())}:${padDateTimePart(now.getSeconds())}`,
+		timezone,
+	};
+}
+
+function formatUtcOffset(offsetMinutes: number): string {
+	const absoluteMinutes = Math.abs(offsetMinutes);
+	const sign = offsetMinutes <= 0 ? "+" : "-";
+	return `${sign}${padDateTimePart(Math.floor(absoluteMinutes / 60))}:${padDateTimePart(absoluteMinutes % 60)}`;
+}
+
 export interface StreamDonePayload {
 	user_message: Message;
 	assistant_message: Message | null;
@@ -129,6 +157,7 @@ export const chatApi = {
 				headers,
 				body: JSON.stringify({
 					content,
+					user_system_context: getUserSystemContext(),
 					...(search && { search: true, search_provider: searchProvider }),
 					...deepThinking,
 				}),
@@ -169,6 +198,7 @@ export const chatApi = {
 					body: JSON.stringify({
 						content,
 						stream: true,
+						user_system_context: getUserSystemContext(),
 						...(turnOptions?.replaceMessageId && {
 							replace_message_id: turnOptions.replaceMessageId,
 						}),

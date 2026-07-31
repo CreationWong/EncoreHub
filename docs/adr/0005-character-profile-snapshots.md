@@ -50,10 +50,11 @@ transaction.
 Gateway composes provider system prompts in this order:
 
 1. application constraints;
-2. untrusted character content from the Conversation snapshot;
-3. Skill instructions;
-4. Memory and Knowledge context;
-5. tool instructions.
+2. strictly validated user system date, time, and timezone context;
+3. untrusted character content from the Conversation snapshot;
+4. Skill instructions;
+5. Memory and Knowledge context;
+6. tool instructions.
 
 Each non-empty segment has an explicit boundary. Reserved boundary markers in
 user-controlled segments are escaped. Character text can influence the answer's

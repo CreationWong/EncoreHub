@@ -209,7 +209,7 @@ When the user toggles search on (globe icon in the input box):
 - Every Conversation stores `character_id`, character version, prompt-bearing character snapshot, and final provider/model. Character edits affect only new Conversations.
 - Existing Conversations can change character revisions only through the explicit preview/apply upgrade endpoint with an expected-version check.
 - Deleted characters are soft-deleted so historical Conversation snapshots remain readable. The migrated `default` character cannot be deleted.
-- Gateway composes provider prompts from the stored Conversation snapshot in this order: application constraints -> character -> Skill -> Memory/Knowledge -> tool instructions.
+- Gateway composes provider prompts in this order: application constraints -> validated user system date/time/timezone -> character snapshot -> Skill -> Memory/Knowledge -> tool instructions.
 - Character, Skill, Memory, and Knowledge text is user-controlled context. It cannot register tools or weaken application constraints; tool availability is decided only by Gateway code. See [ADR-0005](docs/adr/0005-character-profile-snapshots.md).
 
 ### Frontend State (Zustand)

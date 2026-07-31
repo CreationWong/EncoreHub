@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, getUserSystemContext } from "./chat";
 import type { Message } from "./conversation";
 
 function message(overrides: Partial<Message>): Message {
@@ -29,8 +29,26 @@ function sseResponse(
 	});
 }
 
+function expectUserSystemContext(value: unknown): void {
+	expect(value).toEqual({
+		date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+		time: expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/),
+		timezone: expect.stringMatching(/^[A-Za-z0-9._+\-/:]{1,64}$/),
+	});
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals();
+});
+
+describe("getUserSystemContext", () => {
+	it("captures local date and time from the user's clock", () => {
+		const context = getUserSystemContext(new Date(2026, 6, 31, 9, 8, 7));
+
+		expect(context.date).toBe("2026-07-31");
+		expect(context.time).toBe("09:08:07");
+		expectUserSystemContext(context);
+	});
 });
 
 describe("chatApi.sendMessageStream", () => {
@@ -186,11 +204,15 @@ describe("chatApi.sendMessageStream", () => {
 		);
 
 		const request = fetchMock.mock.calls[0][1] as RequestInit;
-		expect(JSON.parse(String(request.body))).toEqual({
+		const { user_system_context: userSystemContext, ...body } = JSON.parse(
+			String(request.body),
+		);
+		expect(body).toEqual({
 			content: "hello",
 			stream: true,
 			reasoning_effort: "high",
 		});
+		expectUserSystemContext(userSystemContext);
 	});
 
 	it("sends the replaced user message id for inline edits", async () => {
@@ -221,11 +243,15 @@ describe("chatApi.sendMessageStream", () => {
 		);
 
 		const request = fetchMock.mock.calls[0][1] as RequestInit;
-		expect(JSON.parse(String(request.body))).toEqual({
+		const { user_system_context: userSystemContext, ...body } = JSON.parse(
+			String(request.body),
+		);
+		expect(body).toEqual({
 			content: "revised question",
 			stream: true,
 			replace_message_id: "user-original",
 		});
+		expectUserSystemContext(userSystemContext);
 	});
 
 	it("decodes structured terminal errors without treating them as done", async () => {
