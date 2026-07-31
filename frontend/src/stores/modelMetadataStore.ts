@@ -141,12 +141,23 @@ export function modelMetadataForId(
 	state: Pick<ModelMetadataState, "providers" | "recordsByProvider">,
 	modelId: string,
 ): NormalizedModelMetadata | undefined {
+	const requestedId = modelId.trim();
+	if (!requestedId) return undefined;
+
+	const suffixMatches = new Map<string, NormalizedModelMetadata>();
 	for (const provider of state.providers) {
 		if (!provider.enabled) continue;
-		const match = state.recordsByProvider[provider.id]?.find(
-			(record) => record.id === modelId,
-		);
-		if (match) return match;
+		for (const record of state.recordsByProvider[provider.id] ?? []) {
+			if (record.id === requestedId) return record;
+			// Catalogs such as models.dev qualify IDs as "provider/model" while
+			// provider APIs commonly expose only the trailing model ID.
+			if (record.id.endsWith(`/${requestedId}`)) {
+				suffixMatches.set(record.id, suffixMatches.get(record.id) ?? record);
+			}
+		}
 	}
-	return undefined;
+
+	return suffixMatches.size === 1
+		? suffixMatches.values().next().value
+		: undefined;
 }

@@ -42,7 +42,7 @@ describe("model metadata provider store", () => {
 		expect(useModelMetadataStore.getState().providers).toHaveLength(1);
 	});
 
-	it("finds an exact model ID only from enabled providers", () => {
+	it("prefers exact IDs and falls back to a unique qualified-ID suffix", () => {
 		const provider = {
 			...DEFAULT_MODEL_METADATA_PROVIDER,
 			mapping: {},
@@ -52,12 +52,15 @@ describe("model metadata provider store", () => {
 			recordsByProvider: {
 				"models-dev": [
 					{ id: "model-a", contextWindow: 32000 },
+					{ id: "vendor/model-a", contextWindow: 64000 },
 					{ id: "model-a-mini", contextWindow: 8000 },
+					{ id: "openai/gpt-4o", contextWindow: 128000 },
 				],
 			},
 		};
 
 		expect(modelMetadataForId(state, "model-a")?.contextWindow).toBe(32000);
+		expect(modelMetadataForId(state, "gpt-4o")?.contextWindow).toBe(128000);
 		expect(modelMetadataForId(state, "model")).toBeUndefined();
 		expect(
 			modelMetadataForId(
@@ -65,5 +68,24 @@ describe("model metadata provider store", () => {
 				"model-a",
 			),
 		).toBeUndefined();
+	});
+
+	it("does not guess when multiple qualified IDs share the same suffix", () => {
+		const state = {
+			providers: [
+				{
+					...DEFAULT_MODEL_METADATA_PROVIDER,
+					mapping: {},
+				},
+			],
+			recordsByProvider: {
+				"models-dev": [
+					{ id: "vendor-a/shared-model", contextWindow: 32000 },
+					{ id: "vendor-b/shared-model", contextWindow: 64000 },
+				],
+			},
+		};
+
+		expect(modelMetadataForId(state, "shared-model")).toBeUndefined();
 	});
 });

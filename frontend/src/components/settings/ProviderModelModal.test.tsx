@@ -142,7 +142,7 @@ describe("ProviderModelModal", () => {
 			recordsByProvider: {
 				"models-dev": [
 					{
-						id: "model-with-metadata",
+						id: "vendor/model-with-metadata",
 						name: "Metadata model",
 						family: "Reasoning",
 						contextWindow: 128000,

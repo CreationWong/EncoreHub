@@ -130,15 +130,16 @@ export default function ProviderModelModal({
 			appliedMetadataRef.current = null;
 			return;
 		}
+		const requestedModelId = draft.id.trim();
 		const signature = JSON.stringify(metadata);
 		if (appliedMetadataRef.current === signature) return;
 		appliedMetadataRef.current = signature;
 		setDraft((current) =>
-			current.id.trim() === metadata.id
+			current.id.trim() === requestedModelId
 				? applyMetadataToModelConfig(current, metadata)
 				: current,
 		);
-	}, [metadata]);
+	}, [metadata, draft.id]);
 
 	const update = <K extends keyof ProviderModelConfig>(
 		key: K,
