@@ -1,9 +1,11 @@
 import {
 	AlertTriangle,
 	Copy,
+	History,
 	Info,
 	Loader2,
 	MessageSquare,
+	Pencil,
 	Plus,
 	RotateCcw,
 	Save,
@@ -21,6 +23,7 @@ import {
 } from "react";
 import { ApiError } from "../../services/api";
 import {
+	type CharacterHistoryListResponse,
 	type CharacterProfile,
 	DEFAULT_CHARACTER_ID,
 } from "../../services/characters";
@@ -33,6 +36,7 @@ import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import CharacterAvatar from "./CharacterAvatar";
+import CharacterHistory from "./CharacterHistory";
 import {
 	CHARACTER_LIMITS,
 	type CharacterDraft,
@@ -126,7 +130,13 @@ function fieldId(name: string): string {
 	return `character-${name}`;
 }
 
-export default function CharacterManager() {
+interface CharacterManagerProps {
+	historyLoader?: () => Promise<CharacterHistoryListResponse>;
+}
+
+export default function CharacterManager({
+	historyLoader,
+}: CharacterManagerProps = {}) {
 	const open = useCharacterManagerStore((state) => state.open);
 	const requestedId = useCharacterManagerStore((state) => state.characterId);
 	const requestedCreating = useCharacterManagerStore((state) => state.creating);
@@ -159,6 +169,7 @@ export default function CharacterManager() {
 	const [saving, setSaving] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [conflict, setConflict] = useState(false);
+	const [view, setView] = useState<"edit" | "history">("edit");
 
 	const currentProfile =
 		characters.find((item) => item.id === editingId) ?? null;
@@ -206,6 +217,7 @@ export default function CharacterManager() {
 		setSourceSignature(characterDraftSignature(nextDraft));
 		setActionError(null);
 		setConflict(false);
+		setView("edit");
 		clearStoreError();
 		const frame = requestAnimationFrame(() => nameRef.current?.focus());
 		return () => cancelAnimationFrame(frame);
@@ -259,6 +271,13 @@ export default function CharacterManager() {
 	async function selectCharacter(profile: CharacterProfile | null) {
 		if (!(await confirmDiscard())) return;
 		resetEditor(profile);
+	}
+
+	async function selectView(nextView: "edit" | "history") {
+		if (nextView === view) return;
+		if (nextView === "history" && !(await confirmDiscard())) return;
+		if (nextView === "history" && dirty) resetEditor(currentProfile);
+		setView(nextView);
 	}
 
 	function setField<Key extends keyof CharacterDraft>(
@@ -434,9 +453,12 @@ export default function CharacterManager() {
 				onKeyDown={handleDialogKeyDown}
 				className="relative z-10 flex h-[820px] max-h-full w-full max-w-6xl overflow-hidden rounded-lg border border-border bg-workspace text-text-primary shadow-2xl max-[760px]:h-full max-[760px]:rounded-none max-[760px]:border-0"
 			>
-				<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-app-canvas max-[760px]:w-44">
+				<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-app-canvas max-[760px]:w-20">
 					<header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
-						<h2 id="character-manager-title" className="text-sm font-semibold">
+						<h2
+							id="character-manager-title"
+							className="text-sm font-semibold max-[760px]:sr-only"
+						>
 							Characters
 						</h2>
 						<button
@@ -487,7 +509,7 @@ export default function CharacterManager() {
 										type="button"
 										onClick={() => void selectCharacter(profile)}
 										aria-current={selected ? "page" : undefined}
-										className={`flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left ${
+										className={`flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left max-[760px]:justify-center ${
 											selected
 												? "bg-selected text-text-primary"
 												: "text-text-secondary hover:bg-control hover:text-text-primary"
@@ -498,7 +520,7 @@ export default function CharacterManager() {
 											characterId={profile.id}
 											name={profile.name}
 										/>
-										<span className="min-w-0 flex-1">
+										<span className="min-w-0 flex-1 max-[760px]:hidden">
 											<span className="block truncate text-sm font-medium">
 												{profile.name}
 											</span>
@@ -515,21 +537,44 @@ export default function CharacterManager() {
 
 				<section className="flex min-w-0 flex-1 flex-col">
 					<header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
-						<CharacterAvatar
-							avatar={draft.avatar}
-							characterId={editingId ?? undefined}
-							name={draft.name}
-							size="large"
-						/>
-						<div className="min-w-0 flex-1">
-							<p className="truncate text-sm font-semibold">
-								{draft.name.trim() || "New character"}
-							</p>
-							<p className="truncate text-[11px] text-text-muted">
-								{creating
-									? "Unsaved profile"
-									: `Version ${currentProfile?.version ?? 1}`}
-							</p>
+						<div className="flex min-w-0 flex-1 items-center gap-3 max-[760px]:hidden">
+							<CharacterAvatar
+								avatar={draft.avatar}
+								characterId={editingId ?? undefined}
+								name={draft.name}
+								size="large"
+							/>
+							<div className="min-w-0 flex-1">
+								<p className="truncate text-sm font-semibold">
+									{draft.name.trim() || "New character"}
+								</p>
+								<p className="truncate text-[11px] text-text-muted">
+									{creating
+										? "Unsaved profile"
+										: `Version ${currentProfile?.version ?? 1}`}
+								</p>
+							</div>
+						</div>
+						<div
+							className="flex h-8 items-center rounded-md border border-border bg-control p-0.5"
+							aria-label="Character manager view"
+						>
+							<button
+								type="button"
+								onClick={() => void selectView("edit")}
+								aria-pressed={view === "edit"}
+								className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] ${view === "edit" ? "bg-workspace text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+							>
+								<Pencil className="h-3 w-3" /> Edit
+							</button>
+							<button
+								type="button"
+								onClick={() => void selectView("history")}
+								aria-pressed={view === "history"}
+								className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] ${view === "history" ? "bg-workspace text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+							>
+								<History className="h-3 w-3" /> History
+							</button>
 						</div>
 						<button
 							type="button"
@@ -542,297 +587,312 @@ export default function CharacterManager() {
 						</button>
 					</header>
 
-					<div className="min-h-0 flex-1 overflow-y-auto">
-						{actionError && (
-							<div className="flex items-start gap-2 border-b border-danger-border bg-danger-bg px-5 py-3 text-sm text-danger">
-								<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-								<p className="min-w-0 flex-1">{actionError}</p>
-								{conflict && (
+					{view === "history" ? (
+						<CharacterHistory
+							selectedCharacterId={creating ? null : editingId}
+							onProfileChange={(profile) => resetEditor(profile)}
+							loadHistories={historyLoader}
+						/>
+					) : (
+						<>
+							<div className="min-h-0 flex-1 overflow-y-auto">
+								{actionError && (
+									<div className="flex items-start gap-2 border-b border-danger-border bg-danger-bg px-5 py-3 text-sm text-danger">
+										<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+										<p className="min-w-0 flex-1">{actionError}</p>
+										{conflict && (
+											<button
+												type="button"
+												onClick={() => void reloadConflict()}
+												className="shrink-0 rounded-md border border-danger-border px-2 py-1 text-xs font-medium hover:bg-danger-bg"
+											>
+												Reload latest
+											</button>
+										)}
+									</div>
+								)}
+
+								<div className="border-b border-border px-5 py-5">
+									<h3 className="mb-4 text-xs font-semibold text-text-primary">
+										Identity
+									</h3>
+									<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
+										<TextField
+											id={fieldId("name")}
+											label="Name"
+											value={draft.name}
+											onChange={(value) => setField("name", value)}
+											error={errors.name}
+											maxLength={CHARACTER_LIMITS.name + 1}
+											inputRef={nameRef}
+										/>
+										<TextField
+											id={fieldId("avatar")}
+											label="Avatar URL or data URI"
+											value={draft.avatar}
+											onChange={(value) => setField("avatar", value)}
+											error={errors.avatar}
+											placeholder="Optional"
+											maxLength={CHARACTER_LIMITS.avatar + 1}
+										/>
+									</div>
+									<label
+										htmlFor={fieldId("description")}
+										className="mt-4 block"
+									>
+										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+											Description
+										</span>
+										<textarea
+											id={fieldId("description")}
+											value={draft.description}
+											onChange={(event) =>
+												setField("description", event.target.value)
+											}
+											maxLength={CHARACTER_LIMITS.description + 1}
+											rows={3}
+											aria-invalid={Boolean(errors.description)}
+											className="w-full resize-y rounded-md border border-border bg-control px-3 py-2 text-sm leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+										/>
+										<FieldError
+											id={`${fieldId("description")}-error`}
+											message={errors.description}
+										/>
+									</label>
+									<TextField
+										id={fieldId("tags")}
+										label="Tags"
+										value={draft.tags}
+										onChange={(value) => setField("tags", value)}
+										error={errors.tags}
+										placeholder="research, writing, support"
+										maxLength={
+											CHARACTER_LIMITS.tags * (CHARACTER_LIMITS.tag + 2)
+										}
+									/>
+								</div>
+
+								<div className="border-b border-border px-5 py-5">
+									<h3 className="mb-4 text-xs font-semibold text-text-primary">
+										Conversation defaults
+									</h3>
+									<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
+										<label htmlFor={fieldId("provider")} className="block">
+											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+												Provider
+											</span>
+											<select
+												id={fieldId("provider")}
+												value={draft.defaultProvider}
+												onChange={handleProviderChange}
+												aria-invalid={Boolean(errors.defaultProvider)}
+												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
+											>
+												<option value="">Use app default</option>
+												{draft.defaultProvider && !selectedProvider && (
+													<option value={draft.defaultProvider}>
+														{draft.defaultProvider} (unavailable)
+													</option>
+												)}
+												{providers.map((provider) => (
+													<option key={provider.id} value={provider.id}>
+														{provider.name}
+														{provider.enabled ? "" : " (disabled)"}
+													</option>
+												))}
+											</select>
+											<FieldError
+												id={`${fieldId("provider")}-error`}
+												message={errors.defaultProvider}
+											/>
+										</label>
+
+										<label htmlFor={fieldId("model")} className="block">
+											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+												Model
+											</span>
+											<select
+												id={fieldId("model")}
+												value={draft.defaultModel}
+												onChange={(event) =>
+													setField("defaultModel", event.target.value)
+												}
+												disabled={!draft.defaultProvider}
+												aria-invalid={Boolean(errors.defaultModel)}
+												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+											>
+												<option value="">
+													{draft.defaultProvider
+														? "Choose a model"
+														: "Use app default"}
+												</option>
+												{draft.defaultModel &&
+													!models.some(
+														(model) => model.id === draft.defaultModel,
+													) && (
+														<option value={draft.defaultModel}>
+															{draft.defaultModel} (unavailable)
+														</option>
+													)}
+												{models.map((model) => (
+													<option key={model.id} value={model.id}>
+														{model.name}
+														{model.name === model.id ? "" : ` (${model.id})`}
+													</option>
+												))}
+											</select>
+											<FieldError
+												id={`${fieldId("model")}-error`}
+												message={errors.defaultModel}
+											/>
+										</label>
+									</div>
+									{!resolvedModelAvailable && (
+										<div className="mt-3 flex items-start gap-2 rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning">
+											<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+											<span>
+												The selected model is unavailable. Choose an enabled
+												provider and model before starting a test conversation.
+											</span>
+										</div>
+									)}
+
+									<label
+										htmlFor={fieldId("opening-message")}
+										className="mt-4 block"
+									>
+										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+											Opening message
+										</span>
+										<textarea
+											id={fieldId("opening-message")}
+											value={draft.openingMessage}
+											onChange={(event) =>
+												setField("openingMessage", event.target.value)
+											}
+											maxLength={CHARACTER_LIMITS.openingMessage + 1}
+											rows={4}
+											aria-invalid={Boolean(errors.openingMessage)}
+											className="w-full resize-y rounded-md border border-border bg-control px-3 py-2 text-sm leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+										/>
+										<FieldError
+											id={`${fieldId("opening-message")}-error`}
+											message={errors.openingMessage}
+										/>
+									</label>
+								</div>
+
+								<div className="px-5 py-5">
+									<div className="mb-2 flex items-center justify-between gap-3">
+										<h3 className="text-xs font-semibold text-text-primary">
+											Global prompt
+										</h3>
+										<span
+											title="Local UTF-8 estimate; this is not provider usage"
+											className="shrink-0 text-[11px] tabular-nums text-text-muted"
+										>
+											~{promptTokens.toLocaleString()} estimated tokens
+										</span>
+									</div>
+									<textarea
+										id={fieldId("system-prompt")}
+										value={draft.systemPrompt}
+										onChange={(event) =>
+											setField("systemPrompt", event.target.value)
+										}
+										maxLength={CHARACTER_LIMITS.systemPrompt + 1}
+										rows={12}
+										spellCheck
+										aria-invalid={Boolean(errors.systemPrompt)}
+										aria-describedby={`${fieldId("system-prompt")}-help`}
+										className="min-h-60 w-full resize-y rounded-md border border-border bg-control px-3 py-3 font-mono text-[13px] leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+									/>
+									<FieldError
+										id={`${fieldId("system-prompt")}-error`}
+										message={errors.systemPrompt}
+									/>
+									<details
+										id={`${fieldId("system-prompt")}-help`}
+										className="mt-3 text-xs text-text-muted"
+									>
+										<summary className="flex cursor-pointer list-none items-center gap-1.5 text-text-secondary hover:text-text-primary">
+											<Info className="h-3.5 w-3.5" />
+											Prompt variables
+										</summary>
+										<p className="mt-2 max-w-2xl leading-5">
+											Prompt text is currently inserted exactly as written.
+											Character name and description are supplied separately;
+											template variables are not expanded in this version.
+										</p>
+									</details>
+								</div>
+							</div>
+
+							<footer className="flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-t border-border bg-workspace px-4 py-3">
+								<button
+									type="button"
+									onClick={() => void duplicateDraft()}
+									disabled={!draft.name.trim() || saving}
+									className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									<Copy className="h-3.5 w-3.5" />
+									Duplicate
+								</button>
+								<button
+									type="button"
+									onClick={() => void deleteCurrent()}
+									disabled={
+										creating ||
+										currentProfile?.id === DEFAULT_CHARACTER_ID ||
+										saving
+									}
+									title={
+										currentProfile?.id === DEFAULT_CHARACTER_ID
+											? "The default character cannot be deleted"
+											: "Delete character"
+									}
+									className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-40"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+									Delete
+								</button>
+								<div className="min-w-2 flex-1" />
+								{dirty && (
 									<button
 										type="button"
-										onClick={() => void reloadConflict()}
-										className="shrink-0 rounded-md border border-danger-border px-2 py-1 text-xs font-medium hover:bg-danger-bg"
+										onClick={() => resetEditor(currentProfile)}
+										disabled={saving}
+										className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:opacity-50"
 									>
-										Reload latest
+										<RotateCcw className="h-3.5 w-3.5" />
+										Cancel changes
 									</button>
 								)}
-							</div>
-						)}
-
-						<div className="border-b border-border px-5 py-5">
-							<h3 className="mb-4 text-xs font-semibold text-text-primary">
-								Identity
-							</h3>
-							<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
-								<TextField
-									id={fieldId("name")}
-									label="Name"
-									value={draft.name}
-									onChange={(value) => setField("name", value)}
-									error={errors.name}
-									maxLength={CHARACTER_LIMITS.name + 1}
-									inputRef={nameRef}
-								/>
-								<TextField
-									id={fieldId("avatar")}
-									label="Avatar URL or data URI"
-									value={draft.avatar}
-									onChange={(value) => setField("avatar", value)}
-									error={errors.avatar}
-									placeholder="Optional"
-									maxLength={CHARACTER_LIMITS.avatar + 1}
-								/>
-							</div>
-							<label htmlFor={fieldId("description")} className="mt-4 block">
-								<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-									Description
-								</span>
-								<textarea
-									id={fieldId("description")}
-									value={draft.description}
-									onChange={(event) =>
-										setField("description", event.target.value)
-									}
-									maxLength={CHARACTER_LIMITS.description + 1}
-									rows={3}
-									aria-invalid={Boolean(errors.description)}
-									className="w-full resize-y rounded-md border border-border bg-control px-3 py-2 text-sm leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
-								/>
-								<FieldError
-									id={`${fieldId("description")}-error`}
-									message={errors.description}
-								/>
-							</label>
-							<TextField
-								id={fieldId("tags")}
-								label="Tags"
-								value={draft.tags}
-								onChange={(value) => setField("tags", value)}
-								error={errors.tags}
-								placeholder="research, writing, support"
-								maxLength={CHARACTER_LIMITS.tags * (CHARACTER_LIMITS.tag + 2)}
-							/>
-						</div>
-
-						<div className="border-b border-border px-5 py-5">
-							<h3 className="mb-4 text-xs font-semibold text-text-primary">
-								Conversation defaults
-							</h3>
-							<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
-								<label htmlFor={fieldId("provider")} className="block">
-									<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-										Provider
-									</span>
-									<select
-										id={fieldId("provider")}
-										value={draft.defaultProvider}
-										onChange={handleProviderChange}
-										aria-invalid={Boolean(errors.defaultProvider)}
-										className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
-									>
-										<option value="">Use app default</option>
-										{draft.defaultProvider && !selectedProvider && (
-											<option value={draft.defaultProvider}>
-												{draft.defaultProvider} (unavailable)
-											</option>
-										)}
-										{providers.map((provider) => (
-											<option key={provider.id} value={provider.id}>
-												{provider.name}
-												{provider.enabled ? "" : " (disabled)"}
-											</option>
-										))}
-									</select>
-									<FieldError
-										id={`${fieldId("provider")}-error`}
-										message={errors.defaultProvider}
-									/>
-								</label>
-
-								<label htmlFor={fieldId("model")} className="block">
-									<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-										Model
-									</span>
-									<select
-										id={fieldId("model")}
-										value={draft.defaultModel}
-										onChange={(event) =>
-											setField("defaultModel", event.target.value)
-										}
-										disabled={!draft.defaultProvider}
-										aria-invalid={Boolean(errors.defaultModel)}
-										className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-									>
-										<option value="">
-											{draft.defaultProvider
-												? "Choose a model"
-												: "Use app default"}
-										</option>
-										{draft.defaultModel &&
-											!models.some(
-												(model) => model.id === draft.defaultModel,
-											) && (
-												<option value={draft.defaultModel}>
-													{draft.defaultModel} (unavailable)
-												</option>
-											)}
-										{models.map((model) => (
-											<option key={model.id} value={model.id}>
-												{model.name}
-												{model.name === model.id ? "" : ` (${model.id})`}
-											</option>
-										))}
-									</select>
-									<FieldError
-										id={`${fieldId("model")}-error`}
-										message={errors.defaultModel}
-									/>
-								</label>
-							</div>
-							{!resolvedModelAvailable && (
-								<div className="mt-3 flex items-start gap-2 rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning">
-									<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-									<span>
-										The selected model is unavailable. Choose an enabled
-										provider and model before starting a test conversation.
-									</span>
-								</div>
-							)}
-
-							<label
-								htmlFor={fieldId("opening-message")}
-								className="mt-4 block"
-							>
-								<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-									Opening message
-								</span>
-								<textarea
-									id={fieldId("opening-message")}
-									value={draft.openingMessage}
-									onChange={(event) =>
-										setField("openingMessage", event.target.value)
-									}
-									maxLength={CHARACTER_LIMITS.openingMessage + 1}
-									rows={4}
-									aria-invalid={Boolean(errors.openingMessage)}
-									className="w-full resize-y rounded-md border border-border bg-control px-3 py-2 text-sm leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
-								/>
-								<FieldError
-									id={`${fieldId("opening-message")}-error`}
-									message={errors.openingMessage}
-								/>
-							</label>
-						</div>
-
-						<div className="px-5 py-5">
-							<div className="mb-2 flex items-center justify-between gap-3">
-								<h3 className="text-xs font-semibold text-text-primary">
-									Global prompt
-								</h3>
-								<span
-									title="Local UTF-8 estimate; this is not provider usage"
-									className="shrink-0 text-[11px] tabular-nums text-text-muted"
+								<button
+									type="button"
+									onClick={() => void persistDraft()}
+									disabled={!dirty || !valid || saving}
+									className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:bg-control disabled:cursor-not-allowed disabled:opacity-50"
 								>
-									~{promptTokens.toLocaleString()} estimated tokens
-								</span>
-							</div>
-							<textarea
-								id={fieldId("system-prompt")}
-								value={draft.systemPrompt}
-								onChange={(event) =>
-									setField("systemPrompt", event.target.value)
-								}
-								maxLength={CHARACTER_LIMITS.systemPrompt + 1}
-								rows={12}
-								spellCheck
-								aria-invalid={Boolean(errors.systemPrompt)}
-								aria-describedby={`${fieldId("system-prompt")}-help`}
-								className="min-h-60 w-full resize-y rounded-md border border-border bg-control px-3 py-3 font-mono text-[13px] leading-5 text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
-							/>
-							<FieldError
-								id={`${fieldId("system-prompt")}-error`}
-								message={errors.systemPrompt}
-							/>
-							<details
-								id={`${fieldId("system-prompt")}-help`}
-								className="mt-3 text-xs text-text-muted"
-							>
-								<summary className="flex cursor-pointer list-none items-center gap-1.5 text-text-secondary hover:text-text-primary">
-									<Info className="h-3.5 w-3.5" />
-									Prompt variables
-								</summary>
-								<p className="mt-2 max-w-2xl leading-5">
-									Prompt text is currently inserted exactly as written.
-									Character name and description are supplied separately;
-									template variables are not expanded in this version.
-								</p>
-							</details>
-						</div>
-					</div>
-
-					<footer className="flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-t border-border bg-workspace px-4 py-3">
-						<button
-							type="button"
-							onClick={() => void duplicateDraft()}
-							disabled={!draft.name.trim() || saving}
-							className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							<Copy className="h-3.5 w-3.5" />
-							Duplicate
-						</button>
-						<button
-							type="button"
-							onClick={() => void deleteCurrent()}
-							disabled={
-								creating ||
-								currentProfile?.id === DEFAULT_CHARACTER_ID ||
-								saving
-							}
-							title={
-								currentProfile?.id === DEFAULT_CHARACTER_ID
-									? "The default character cannot be deleted"
-									: "Delete character"
-							}
-							className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							<Trash2 className="h-3.5 w-3.5" />
-							Delete
-						</button>
-						<div className="min-w-2 flex-1" />
-						{dirty && (
-							<button
-								type="button"
-								onClick={() => resetEditor(currentProfile)}
-								disabled={saving}
-								className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:opacity-50"
-							>
-								<RotateCcw className="h-3.5 w-3.5" />
-								Cancel changes
-							</button>
-						)}
-						<button
-							type="button"
-							onClick={() => void persistDraft()}
-							disabled={!dirty || !valid || saving}
-							className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:bg-control disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							{saving ? (
-								<Loader2 className="h-3.5 w-3.5 animate-spin" />
-							) : (
-								<Save className="h-3.5 w-3.5" />
-							)}
-							Save
-						</button>
-						<button
-							type="button"
-							onClick={() => void startTestConversation()}
-							disabled={!valid || !resolvedModelAvailable || saving}
-							className="flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							<MessageSquare className="h-3.5 w-3.5" />
-							Test conversation
-						</button>
-					</footer>
+									{saving ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Save className="h-3.5 w-3.5" />
+									)}
+									Save
+								</button>
+								<button
+									type="button"
+									onClick={() => void startTestConversation()}
+									disabled={!valid || !resolvedModelAvailable || saving}
+									className="flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									<MessageSquare className="h-3.5 w-3.5" />
+									Test conversation
+								</button>
+							</footer>
+						</>
+					)}
 				</section>
 			</dialog>
 		</div>

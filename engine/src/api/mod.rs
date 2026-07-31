@@ -133,6 +133,20 @@ pub fn build_router_with(
             "/api/characters",
             get(characters::list).post(characters::create),
         )
+        .route("/api/characters/history", get(characters::list_histories))
+        .route("/api/characters/:id/history", get(characters::get_history))
+        .route(
+            "/api/characters/:id/versions",
+            post(characters::commit_version),
+        )
+        .route(
+            "/api/characters/:id/versions/:version/restore",
+            post(characters::restore_version),
+        )
+        .route(
+            "/api/characters/:id/branches",
+            post(characters::create_branch),
+        )
         // Messages
         .route(
             "/api/conversations/:id/messages/append",

@@ -21,6 +21,8 @@ function profile(name: string, id = name): CharacterProfile {
 		opening_message: "",
 		tags: [],
 		version: 1,
+		revision: 1,
+		active_branch: "main",
 		created_at: "",
 		updated_at: "",
 		deleted_at: null,

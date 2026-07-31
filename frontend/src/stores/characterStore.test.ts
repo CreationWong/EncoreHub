@@ -27,6 +27,8 @@ function profile(overrides: Partial<CharacterProfile> = {}): CharacterProfile {
 		opening_message: "What should we research?",
 		tags: ["research"],
 		version: 1,
+		revision: 1,
+		active_branch: "main",
 		created_at: "2026-07-29T00:00:00Z",
 		updated_at: "2026-07-29T00:00:00Z",
 		deleted_at: null,
@@ -58,9 +60,13 @@ describe("characterStore", () => {
 		expect(useCharacterStore.getState().loaded).toBe(true);
 	});
 
-	it("updates with the loaded version and adopts the returned revision", async () => {
-		const current = profile({ version: 4 });
-		const updated = profile({ version: 5, system_prompt: "Revised" });
+	it("updates with the loaded revision without creating a version", async () => {
+		const current = profile({ version: 4, revision: 7 });
+		const updated = profile({
+			version: 4,
+			revision: 8,
+			system_prompt: "Revised",
+		});
 		useCharacterStore.setState({ characters: [current] });
 		updateCharacter.mockResolvedValue(updated);
 
@@ -68,22 +74,22 @@ describe("characterStore", () => {
 			.getState()
 			.update(current.id, { system_prompt: "Revised" });
 
-		expect(updateCharacter).toHaveBeenCalledWith(current.id, 4, {
+		expect(updateCharacter).toHaveBeenCalledWith(current.id, 7, {
 			system_prompt: "Revised",
 		});
 		expect(useCharacterStore.getState().characters).toEqual([updated]);
 	});
 
-	it("keeps local state intact when versioned update fails", async () => {
-		const current = profile({ version: 2 });
+	it("keeps local state intact when a revision update fails", async () => {
+		const current = profile({ version: 2, revision: 4 });
 		useCharacterStore.setState({ characters: [current] });
-		updateCharacter.mockRejectedValue(new Error("version conflict"));
+		updateCharacter.mockRejectedValue(new Error("revision conflict"));
 
 		await expect(
 			useCharacterStore.getState().update(current.id, { name: "Changed" }),
-		).rejects.toThrow("version conflict");
+		).rejects.toThrow("revision conflict");
 
 		expect(useCharacterStore.getState().characters).toEqual([current]);
-		expect(useCharacterStore.getState().error).toBe("version conflict");
+		expect(useCharacterStore.getState().error).toBe("revision conflict");
 	});
 });

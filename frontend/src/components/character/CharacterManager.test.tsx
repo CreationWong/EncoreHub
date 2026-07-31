@@ -32,6 +32,8 @@ function profile(overrides: Partial<CharacterProfile> = {}): CharacterProfile {
 		opening_message: "How can I help?",
 		tags: ["general"],
 		version: 1,
+		revision: 1,
+		active_branch: "main",
 		created_at: "2026-07-29T00:00:00Z",
 		updated_at: "2026-07-29T00:00:00Z",
 		deleted_at: null,
@@ -133,6 +135,55 @@ describe("CharacterManager", () => {
 				true,
 			),
 		);
+	});
+
+	it("opens the global version history with an injected history graph", async () => {
+		const character = profile({
+			id: "archivist",
+			name: "Archivist",
+			version: 3,
+		});
+		render(
+			<CharacterManager
+				historyLoader={async () => ({
+					histories: [
+						{
+							character,
+							branches: [
+								{
+									character_id: character.id,
+									name: "main",
+									head_version: 3,
+									created_from_version: 1,
+									created_at: character.created_at,
+									updated_at: character.updated_at,
+								},
+							],
+							versions: [
+								{
+									...character,
+									character_id: character.id,
+									parent_version: 2,
+									branch_name: "main",
+									message: "Document history behavior",
+								},
+							],
+						},
+					],
+					total: 1,
+				})}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "History" }));
+
+		await waitFor(() =>
+			expect(screen.getByText("Global version history")).toBeDefined(),
+		);
+		expect(
+			screen.getByRole("region", { name: "Archivist history" }),
+		).toBeDefined();
+		expect(screen.getByText("Document history behavior")).toBeDefined();
 	});
 
 	it("saves dirty fields through the versioned store action", async () => {

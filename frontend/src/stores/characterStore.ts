@@ -3,9 +3,12 @@ import {
 	type CharacterProfile,
 	type CharacterProfileChanges,
 	type CharacterProfileInput,
+	commitCharacterVersion,
 	createCharacter,
+	createCharacterBranch,
 	deleteCharacter,
 	listCharacters,
+	restoreCharacterVersion,
 	updateCharacter,
 } from "../services/characters";
 
@@ -22,6 +25,13 @@ interface CharacterState {
 		changes: CharacterProfileChanges,
 	) => Promise<CharacterProfile>;
 	remove: (id: string) => Promise<void>;
+	commitVersion: (id: string, message: string) => Promise<CharacterProfile>;
+	createBranch: (
+		id: string,
+		name: string,
+		fromVersion: number,
+	) => Promise<CharacterProfile>;
+	restoreVersion: (id: string, version: number) => Promise<CharacterProfile>;
 	clearError: () => void;
 }
 
@@ -75,7 +85,7 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
 			throw error;
 		}
 		try {
-			const character = await updateCharacter(id, current.version, changes);
+			const character = await updateCharacter(id, current.revision, changes);
 			set((state) => ({
 				characters: state.characters.map((item) =>
 					item.id === id ? character : item,
@@ -87,6 +97,58 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
 			set({ error: errorMessage(error, "Failed to update character") });
 			throw error;
 		}
+	},
+
+	commitVersion: async (id, message) => {
+		const current = get().characters.find((character) => character.id === id);
+		if (!current) throw new Error("Character is not loaded");
+		const character = await commitCharacterVersion(
+			id,
+			current.revision,
+			message,
+		);
+		set((state) => ({
+			characters: state.characters.map((item) =>
+				item.id === id ? character : item,
+			),
+			error: null,
+		}));
+		return character;
+	},
+
+	createBranch: async (id, name, fromVersion) => {
+		const current = get().characters.find((character) => character.id === id);
+		if (!current) throw new Error("Character is not loaded");
+		const character = await createCharacterBranch(
+			id,
+			current.revision,
+			name,
+			fromVersion,
+		);
+		set((state) => ({
+			characters: state.characters.map((item) =>
+				item.id === id ? character : item,
+			),
+			error: null,
+		}));
+		return character;
+	},
+
+	restoreVersion: async (id, version) => {
+		const current = get().characters.find((character) => character.id === id);
+		if (!current) throw new Error("Character is not loaded");
+		const character = await restoreCharacterVersion(
+			id,
+			current.revision,
+			version,
+		);
+		set((state) => ({
+			characters: state.characters.map((item) =>
+				item.id === id ? character : item,
+			),
+			error: null,
+		}));
+		return character;
 	},
 
 	remove: async (id) => {

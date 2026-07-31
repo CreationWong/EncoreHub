@@ -24,8 +24,9 @@ constraints.
 Engine owns `CharacterProfile`. The code and API use `character_id` rather than
 `role` so the entity cannot be confused with `Message.role`.
 
-Every accepted edit increments `version` and writes an immutable
-`character_profile_versions` row. Character deletion is soft deletion: deleted
+Version creation is explicit and writes an immutable
+`character_profile_versions` row; mutable working-copy saves use the independent
+`revision` optimistic lock defined by ADR-0006. Character deletion is soft deletion: deleted
 profiles disappear from active CRUD results, while their version records and
 historical Conversation snapshots remain. The stable `default` profile is
 created by migration and cannot be deleted.
@@ -69,8 +70,9 @@ Engine directly and does not compose authoritative prompts.
 
 - Historical Conversations remain reproducible after character edits or
   deletion, at the cost of duplicated prompt text in SQLite.
-- Character updates and Conversation upgrades use optimistic version checks;
-  clients must handle HTTP 409 and reload before retrying.
+- Character updates use optimistic revision checks, while Conversation upgrades
+  retain character version checks; clients must handle HTTP 409 and reload
+  before retrying.
 - The default character gives pre-migration Conversations a valid association
   without changing their Provider, Model, or messages.
 - CUI-11 can build management UI against stable service/store contracts, and
@@ -99,3 +101,5 @@ Engine directly and does not compose authoritative prompts.
   and upgrade contract.
 - [ADR-0004](0004-engine-in-process-and-internal-auth.md) keeps Engine behind the
   authenticated Gateway boundary in desktop and standalone modes.
+- [ADR-0006](0006-character-version-graph.md) separates mutable saves from
+  explicit version and branch operations.

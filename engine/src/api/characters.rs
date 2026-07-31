@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use encorehub_core::{CharacterProfile, EngineError};
+use encorehub_core::{CharacterHistory, CharacterProfile, EngineError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -17,6 +17,8 @@ const MAX_PROVIDER_CHARS: usize = 100;
 const MAX_MODEL_CHARS: usize = 200;
 const MAX_TAGS: usize = 50;
 const MAX_TAG_CHARS: usize = 64;
+const MAX_VERSION_MESSAGE_CHARS: usize = 200;
+const MAX_BRANCH_NAME_CHARS: usize = 64;
 
 type ApiError = (StatusCode, Json<ErrorResponse>);
 
@@ -41,7 +43,7 @@ pub struct CreateCharacterRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateCharacterRequest {
-    pub expected_version: i64,
+    pub expected_revision: i64,
     pub name: Option<String>,
     pub avatar: Option<String>,
     pub description: Option<String>,
@@ -50,6 +52,30 @@ pub struct UpdateCharacterRequest {
     pub default_model: Option<String>,
     pub opening_message: Option<String>,
     pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommitCharacterVersionRequest {
+    pub expected_revision: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCharacterBranchRequest {
+    pub expected_revision: i64,
+    pub name: String,
+    pub from_version: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RestoreCharacterVersionRequest {
+    pub expected_revision: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CharacterHistoryListResponse {
+    pub histories: Vec<CharacterHistory>,
+    pub total: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,8 +132,8 @@ pub async fn update(
     Path(id): Path<String>,
     Json(request): Json<UpdateCharacterRequest>,
 ) -> Result<Json<CharacterProfile>, ApiError> {
-    if request.expected_version < 1 {
-        return Err(bad_request("expected_version must be positive"));
+    if request.expected_revision < 1 {
+        return Err(bad_request("expected_revision must be positive"));
     }
     if request.name.is_none()
         && request.avatar.is_none()
@@ -151,13 +177,84 @@ pub async fn update(
     }
     normalize_profile(&mut profile);
     validate_profile(&profile)?;
-    profile.version = request.expected_version + 1;
+    profile.revision = request.expected_revision + 1;
     profile.updated_at = chrono::Utc::now();
     state
         .db
-        .update_character_profile(&profile, request.expected_version)
+        .update_character_profile(&profile, request.expected_revision)
         .map_err(map_engine_error)?;
     Ok(Json(profile))
+}
+
+pub async fn list_histories(
+    State(state): State<SharedState>,
+) -> Result<Json<CharacterHistoryListResponse>, ApiError> {
+    let histories = state
+        .db
+        .list_character_histories()
+        .map_err(map_engine_error)?;
+    let total = histories.len();
+    Ok(Json(CharacterHistoryListResponse { histories, total }))
+}
+
+pub async fn get_history(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<Json<CharacterHistory>, ApiError> {
+    state
+        .db
+        .get_character_history(&id)
+        .map(Json)
+        .map_err(map_engine_error)
+}
+
+pub async fn commit_version(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(request): Json<CommitCharacterVersionRequest>,
+) -> Result<Json<CharacterProfile>, ApiError> {
+    validate_revision(request.expected_revision)?;
+    let message = request.message.trim();
+    validate_required_length("message", message, MAX_VERSION_MESSAGE_CHARS)?;
+    state
+        .db
+        .commit_character_version(&id, request.expected_revision, message)
+        .map(Json)
+        .map_err(map_engine_error)
+}
+
+pub async fn create_branch(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(request): Json<CreateCharacterBranchRequest>,
+) -> Result<(StatusCode, Json<CharacterProfile>), ApiError> {
+    validate_revision(request.expected_revision)?;
+    if request.from_version < 1 {
+        return Err(bad_request("from_version must be positive"));
+    }
+    let name = request.name.trim();
+    validate_branch_name(name)?;
+    let profile = state
+        .db
+        .create_character_branch(&id, request.expected_revision, name, request.from_version)
+        .map_err(map_engine_error)?;
+    Ok((StatusCode::CREATED, Json(profile)))
+}
+
+pub async fn restore_version(
+    State(state): State<SharedState>,
+    Path((id, version)): Path<(String, i64)>,
+    Json(request): Json<RestoreCharacterVersionRequest>,
+) -> Result<Json<CharacterProfile>, ApiError> {
+    validate_revision(request.expected_revision)?;
+    if version < 1 {
+        return Err(bad_request("version must be positive"));
+    }
+    state
+        .db
+        .restore_character_version(&id, request.expected_revision, version)
+        .map(Json)
+        .map_err(map_engine_error)
 }
 
 pub async fn delete(
@@ -229,6 +326,29 @@ fn validate_required_length(field: &str, value: &str, max: usize) -> Result<(), 
         return Err(bad_request(&format!("{field} cannot be empty")));
     }
     validate_length(field, value, max)
+}
+
+fn validate_revision(revision: i64) -> Result<(), ApiError> {
+    if revision < 1 {
+        return Err(bad_request("expected_revision must be positive"));
+    }
+    Ok(())
+}
+
+fn validate_branch_name(name: &str) -> Result<(), ApiError> {
+    validate_required_length("name", name, MAX_BRANCH_NAME_CHARS)?;
+    if name == "HEAD"
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.contains("..")
+        || name.contains(|character: char| {
+            character.is_whitespace()
+                || matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        })
+    {
+        return Err(bad_request("invalid branch name"));
+    }
+    Ok(())
 }
 
 fn validate_length(field: &str, value: &str, max: usize) -> Result<(), ApiError> {

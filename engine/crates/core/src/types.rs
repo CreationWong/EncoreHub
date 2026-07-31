@@ -43,6 +43,8 @@ pub struct CharacterProfile {
     pub opening_message: String,
     pub tags: Vec<String>,
     pub version: i64,
+    pub revision: i64,
+    pub active_branch: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
@@ -62,6 +64,8 @@ impl CharacterProfile {
             opening_message: String::new(),
             tags: Vec::new(),
             version: 1,
+            revision: 1,
+            active_branch: "main".into(),
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -78,6 +82,41 @@ impl CharacterProfile {
             tags: self.tags.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterVersion {
+    pub character_id: String,
+    pub version: i64,
+    pub parent_version: Option<i64>,
+    pub branch_name: String,
+    pub message: String,
+    pub name: String,
+    pub avatar: String,
+    pub description: String,
+    pub system_prompt: String,
+    pub default_provider: String,
+    pub default_model: String,
+    pub opening_message: String,
+    pub tags: Vec<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterBranch {
+    pub character_id: String,
+    pub name: String,
+    pub head_version: i64,
+    pub created_from_version: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterHistory {
+    pub character: CharacterProfile,
+    pub branches: Vec<CharacterBranch>,
+    pub versions: Vec<CharacterVersion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

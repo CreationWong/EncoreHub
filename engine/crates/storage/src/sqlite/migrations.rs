@@ -258,6 +258,41 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_conversations_character
         ON conversations(character_id, character_version, updated_at DESC);
     ",
+    // 011: Explicit character version graph with mutable working copies.
+    "
+    ALTER TABLE character_profiles ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE character_profiles ADD COLUMN active_branch TEXT NOT NULL DEFAULT 'main';
+    ALTER TABLE character_profile_versions ADD COLUMN parent_version INTEGER;
+    ALTER TABLE character_profile_versions ADD COLUMN branch_name TEXT NOT NULL DEFAULT 'main';
+    ALTER TABLE character_profile_versions ADD COLUMN message TEXT NOT NULL DEFAULT '';
+
+    UPDATE character_profile_versions
+       SET parent_version = CASE WHEN version > 1 THEN version - 1 ELSE NULL END,
+           message = CASE
+               WHEN version = 1 THEN 'Initial version'
+               ELSE 'Imported version ' || version
+           END;
+
+    CREATE TABLE character_profile_branches (
+        character_id TEXT NOT NULL REFERENCES character_profiles(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        head_version INTEGER NOT NULL,
+        created_from_version INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(character_id, name),
+        FOREIGN KEY(character_id, head_version)
+            REFERENCES character_profile_versions(character_id, version)
+    );
+
+    INSERT INTO character_profile_branches
+        (character_id, name, head_version, created_from_version, created_at, updated_at)
+    SELECT profile.id, 'main', profile.version, 1, profile.created_at, profile.updated_at
+      FROM character_profiles profile;
+
+    CREATE INDEX idx_character_versions_parent
+        ON character_profile_versions(character_id, parent_version);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -376,7 +411,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
     }
 
     #[test]
@@ -437,7 +472,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
     }
 
     #[test]

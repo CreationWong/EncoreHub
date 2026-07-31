@@ -4,6 +4,7 @@ import AppContextMenu from "../components/ui/AppContextMenu";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ToastHost from "../components/ui/ToastHost";
 import WorkspaceSurface from "../components/workspace/WorkspaceSurface";
+import type { CharacterHistoryListResponse } from "../services/characters";
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "../services/webSearch";
 import { useCharacterManagerStore } from "../stores/characterManagerStore";
 import { useCharacterStore } from "../stores/characterStore";
@@ -20,6 +21,47 @@ import {
 	type ClientUiBaselineOptions,
 	getClientUiScenario,
 } from "./clientUiFixtures";
+
+async function loadClientUiCharacterHistories(): Promise<CharacterHistoryListResponse> {
+	const histories = CLIENT_UI_BASELINE_CHARACTERS.map((character) => ({
+		character: { ...character, tags: [...character.tags] },
+		branches: [
+			{
+				character_id: character.id,
+				name: character.active_branch,
+				head_version: character.version,
+				created_from_version: 1,
+				created_at: character.created_at,
+				updated_at: character.updated_at,
+			},
+		],
+		versions: Array.from({ length: character.version }, (_, index) => {
+			const version = index + 1;
+			return {
+				character_id: character.id,
+				version,
+				parent_version: version === 1 ? null : version - 1,
+				branch_name: character.active_branch,
+				message:
+					version === 1
+						? "Initial version"
+						: version === character.version
+							? "Current baseline version"
+							: `Version ${version}`,
+				name: character.name,
+				avatar: character.avatar,
+				description: character.description,
+				system_prompt: character.system_prompt,
+				opening_message: character.opening_message,
+				tags: [...character.tags],
+				default_provider: character.default_provider,
+				default_model: character.default_model,
+				created_at: character.updated_at,
+			};
+		}),
+	}));
+	return { histories, total: histories.length };
+}
 
 export function seedClientUiBaseline({
 	scenarioId,
@@ -183,7 +225,7 @@ export function seedClientUiBaseline({
 			const updated = {
 				...current,
 				...changes,
-				version: current.version + 1,
+				revision: current.revision + 1,
 				updated_at: new Date().toISOString(),
 			};
 			useCharacterStore.setState((state) => ({
@@ -217,7 +259,7 @@ export default function ClientUiBaseline() {
 				<GlobalNav />
 				<WorkspaceSurface />
 			</div>
-			<CharacterManager />
+			<CharacterManager historyLoader={loadClientUiCharacterHistories} />
 			<ConfirmDialog />
 			<ToastHost />
 			<AppContextMenu />

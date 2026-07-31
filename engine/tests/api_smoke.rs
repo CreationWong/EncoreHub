@@ -1203,7 +1203,7 @@ async fn character_versions_snapshot_new_conversations_and_upgrade_explicitly() 
             "PATCH",
             &format!("/api/characters/{character_id}"),
             json!({
-                "expected_version": 1,
+                "expected_revision": 1,
                 "system_prompt": "Version two prompt",
                 "default_model": "claude-opus-4"
             }),
@@ -1211,7 +1211,26 @@ async fn character_versions_snapshot_new_conversations_and_upgrade_explicitly() 
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(body_json(response).await["version"], 2);
+    let working_copy = body_json(response).await;
+    assert_eq!(working_copy["version"], 1);
+    assert_eq!(working_copy["revision"], 2);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/characters/{character_id}/versions"),
+            json!({
+                "expected_revision": 2,
+                "message": "Use the stronger research model"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let committed = body_json(response).await;
+    assert_eq!(committed["version"], 2);
+    assert_eq!(committed["revision"], 3);
 
     let response = app
         .clone()
@@ -1280,6 +1299,113 @@ async fn character_versions_snapshot_new_conversations_and_upgrade_explicitly() 
         upgraded["character_snapshot"]["system_prompt"],
         "Version two prompt"
     );
+}
+
+#[tokio::test]
+async fn character_history_branches_and_restore_preserve_the_version_graph() {
+    let (_dir, app) = make_app();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({"name": "Editor", "system_prompt": "Main prompt"}),
+        ))
+        .await
+        .unwrap();
+    let character = body_json(response).await;
+    let character_id = character["id"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/characters/{character_id}/branches"),
+            json!({
+                "expected_revision": 1,
+                "name": "alternative",
+                "from_version": 1
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let branched = body_json(response).await;
+    assert_eq!(branched["active_branch"], "alternative");
+    assert_eq!(branched["revision"], 2);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/characters/{character_id}"),
+            json!({
+                "expected_revision": 2,
+                "system_prompt": "Alternative prompt"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/characters/{character_id}/versions"),
+            json!({"expected_revision": 3, "message": "Alternative direction"}),
+        ))
+        .await
+        .unwrap();
+    let committed = body_json(response).await;
+    assert_eq!(committed["version"], 2);
+    assert_eq!(committed["revision"], 4);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/characters/{character_id}/history"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let history = body_json(response).await;
+    assert_eq!(history["branches"].as_array().unwrap().len(), 2);
+    assert_eq!(history["versions"].as_array().unwrap().len(), 2);
+    assert_eq!(history["versions"][0]["parent_version"], 1);
+    assert_eq!(history["versions"][0]["branch_name"], "alternative");
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/characters/{character_id}/versions/1/restore"),
+            json!({"expected_revision": 4}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let restored = body_json(response).await;
+    assert_eq!(restored["version"], 1);
+    assert_eq!(restored["revision"], 5);
+    assert_eq!(restored["active_branch"], "alternative");
+    assert_eq!(restored["system_prompt"], "Main prompt");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/characters/history")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let global = body_json(response).await;
+    assert!(global["histories"].as_array().unwrap().len() >= 2);
 }
 
 #[tokio::test]

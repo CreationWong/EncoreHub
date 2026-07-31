@@ -2,13 +2,14 @@ use super::{
     conversation_from_row, now_ms, parse_tags_json, Database, Result, CONVERSATION_COLUMNS,
 };
 use encorehub_core::{
-    CharacterProfile, CharacterUpgradePreview, Conversation, EngineError, DEFAULT_CHARACTER_ID,
+    CharacterBranch, CharacterHistory, CharacterProfile, CharacterUpgradePreview, CharacterVersion,
+    Conversation, EngineError, DEFAULT_CHARACTER_ID,
 };
 use rusqlite::{params, Connection, ErrorCode, Row};
 
 const CHARACTER_COLUMNS: &str = "id, name, avatar, description, system_prompt, default_provider,
-     default_model, opening_message, tags_json, version, created_at,
-     updated_at, deleted_at";
+     default_model, opening_message, tags_json, version, revision, active_branch,
+     created_at, updated_at, deleted_at";
 
 fn character_from_row(row: &Row<'_>) -> rusqlite::Result<CharacterProfile> {
     Ok(CharacterProfile {
@@ -22,10 +23,99 @@ fn character_from_row(row: &Row<'_>) -> rusqlite::Result<CharacterProfile> {
         opening_message: row.get(7)?,
         tags: parse_tags_json(row.get(8)?),
         version: row.get(9)?,
-        created_at: super::ts_to_dt(row.get::<_, i64>(10)?),
-        updated_at: super::ts_to_dt(row.get::<_, i64>(11)?),
-        deleted_at: row.get::<_, Option<i64>>(12)?.map(super::ts_to_dt),
+        revision: row.get(10)?,
+        active_branch: row.get(11)?,
+        created_at: super::ts_to_dt(row.get::<_, i64>(12)?),
+        updated_at: super::ts_to_dt(row.get::<_, i64>(13)?),
+        deleted_at: row.get::<_, Option<i64>>(14)?.map(super::ts_to_dt),
     })
+}
+
+fn character_version_from_row(row: &Row<'_>) -> rusqlite::Result<CharacterVersion> {
+    Ok(CharacterVersion {
+        character_id: row.get(0)?,
+        version: row.get(1)?,
+        parent_version: row.get(2)?,
+        branch_name: row.get(3)?,
+        message: row.get(4)?,
+        name: row.get(5)?,
+        avatar: row.get(6)?,
+        description: row.get(7)?,
+        system_prompt: row.get(8)?,
+        default_provider: row.get(9)?,
+        default_model: row.get(10)?,
+        opening_message: row.get(11)?,
+        tags: parse_tags_json(row.get(12)?),
+        created_at: super::ts_to_dt(row.get::<_, i64>(13)?),
+    })
+}
+
+fn character_branch_from_row(row: &Row<'_>) -> rusqlite::Result<CharacterBranch> {
+    Ok(CharacterBranch {
+        character_id: row.get(0)?,
+        name: row.get(1)?,
+        head_version: row.get(2)?,
+        created_from_version: row.get(3)?,
+        created_at: super::ts_to_dt(row.get::<_, i64>(4)?),
+        updated_at: super::ts_to_dt(row.get::<_, i64>(5)?),
+    })
+}
+
+fn get_character_version(
+    conn: &Connection,
+    character_id: &str,
+    version: i64,
+) -> Result<CharacterVersion> {
+    conn.query_row(
+        "SELECT character_id, version, parent_version, branch_name, message,
+                name, avatar, description, system_prompt, default_provider,
+                default_model, opening_message, tags_json, created_at
+           FROM character_profile_versions
+          WHERE character_id = ?1 AND version = ?2",
+        params![character_id, version],
+        character_version_from_row,
+    )
+    .map_err(|error| match error {
+        rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+            resource: "character version".into(),
+            id: format!("{character_id}@{version}"),
+        },
+        other => other.into(),
+    })
+}
+
+fn apply_version_to_working_copy(
+    conn: &Connection,
+    version: &CharacterVersion,
+    revision: i64,
+    active_branch: &str,
+    updated_at: i64,
+) -> Result<()> {
+    let tags_json = serde_json::to_string(&version.tags)?;
+    conn.execute(
+        "UPDATE character_profiles SET
+            name = ?1, avatar = ?2, description = ?3, system_prompt = ?4,
+            default_provider = ?5, default_model = ?6, opening_message = ?7,
+            tags_json = ?8, version = ?9, revision = ?10, active_branch = ?11,
+            updated_at = ?12
+         WHERE id = ?13 AND deleted_at IS NULL",
+        params![
+            version.name,
+            version.avatar,
+            version.description,
+            version.system_prompt,
+            version.default_provider,
+            version.default_model,
+            version.opening_message,
+            tags_json,
+            version.version,
+            revision,
+            active_branch,
+            updated_at,
+            version.character_id,
+        ],
+    )?;
+    Ok(())
 }
 
 fn get_character_from_connection(
@@ -73,12 +163,15 @@ fn insert_character_version(
     conn: &Connection,
     profile: &CharacterProfile,
     tags_json: &str,
+    parent_version: Option<i64>,
+    message: &str,
 ) -> Result<()> {
     conn.execute(
         "INSERT INTO character_profile_versions
          (character_id, version, name, avatar, description, system_prompt,
-          default_provider, default_model, opening_message, tags_json, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+          default_provider, default_model, opening_message, tags_json, created_at,
+          parent_version, branch_name, message)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             profile.id,
             profile.version,
@@ -91,6 +184,9 @@ fn insert_character_version(
             profile.opening_message,
             tags_json,
             profile.updated_at.timestamp_millis(),
+            parent_version,
+            profile.active_branch,
+            message,
         ],
     )
     .map_err(|error| map_character_write_error(error, &profile.id))?;
@@ -164,8 +260,9 @@ impl Database {
             .execute(
                 "INSERT INTO character_profiles
                  (id, name, avatar, description, system_prompt, default_provider,
-                  default_model, opening_message, tags_json, version, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                  default_model, opening_message, tags_json, version, revision,
+                  active_branch, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     profile.id,
                     profile.name,
@@ -177,12 +274,25 @@ impl Database {
                     profile.opening_message,
                     tags_json,
                     profile.version,
+                    profile.revision,
+                    profile.active_branch,
                     profile.created_at.timestamp_millis(),
                     profile.updated_at.timestamp_millis(),
                 ],
             )
             .map_err(|error| map_character_write_error(error, &profile.id))?;
-        insert_character_version(&transaction, profile, &tags_json)?;
+        insert_character_version(&transaction, profile, &tags_json, None, "Initial version")?;
+        transaction.execute(
+            "INSERT INTO character_profile_branches
+             (character_id, name, head_version, created_from_version, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?4)",
+            params![
+                profile.id,
+                profile.active_branch,
+                profile.version,
+                profile.created_at.timestamp_millis(),
+            ],
+        )?;
         transaction.commit()?;
         Ok(())
     }
@@ -207,7 +317,7 @@ impl Database {
     pub fn update_character_profile(
         &self,
         profile: &CharacterProfile,
-        expected_version: i64,
+        expected_revision: i64,
     ) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let transaction = conn.transaction()?;
@@ -217,8 +327,8 @@ impl Database {
                 "UPDATE character_profiles SET
                     name = ?1, avatar = ?2, description = ?3, system_prompt = ?4,
                     default_provider = ?5, default_model = ?6, opening_message = ?7,
-                    tags_json = ?8, version = ?9, updated_at = ?10
-                 WHERE id = ?11 AND version = ?12 AND deleted_at IS NULL",
+                    tags_json = ?8, revision = ?9, updated_at = ?10
+                 WHERE id = ?11 AND revision = ?12 AND deleted_at IS NULL",
                 params![
                     profile.name,
                     profile.avatar,
@@ -228,22 +338,185 @@ impl Database {
                     profile.default_model,
                     profile.opening_message,
                     tags_json,
-                    profile.version,
+                    profile.revision,
                     profile.updated_at.timestamp_millis(),
                     profile.id,
-                    expected_version,
+                    expected_revision,
                 ],
             )
             .map_err(|error| map_character_write_error(error, &profile.id))?;
         if rows == 0 {
             get_character_from_connection(&transaction, &profile.id, false)?;
             return Err(EngineError::InvalidArgument(format!(
-                "character version conflict: expected {expected_version}"
+                "character revision conflict: expected {expected_revision}"
             )));
         }
-        insert_character_version(&transaction, profile, &tags_json)?;
         transaction.commit()?;
         Ok(())
+    }
+
+    pub fn get_character_history(&self, id: &str) -> Result<CharacterHistory> {
+        let conn = self.conn.lock().unwrap();
+        let character = get_character_from_connection(&conn, id, false)?;
+        let mut branch_statement = conn.prepare(
+            "SELECT character_id, name, head_version, created_from_version,
+                    created_at, updated_at
+               FROM character_profile_branches
+              WHERE character_id = ?1
+              ORDER BY CASE WHEN name = 'main' THEN 0 ELSE 1 END, name",
+        )?;
+        let branches = branch_statement
+            .query_map(params![id], character_branch_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut version_statement = conn.prepare(
+            "SELECT character_id, version, parent_version, branch_name, message,
+                    name, avatar, description, system_prompt, default_provider,
+                    default_model, opening_message, tags_json, created_at
+               FROM character_profile_versions
+              WHERE character_id = ?1
+              ORDER BY version DESC",
+        )?;
+        let versions = version_statement
+            .query_map(params![id], character_version_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(CharacterHistory {
+            character,
+            branches,
+            versions,
+        })
+    }
+
+    pub fn list_character_histories(&self) -> Result<Vec<CharacterHistory>> {
+        self.list_character_profiles()?
+            .into_iter()
+            .map(|character| self.get_character_history(&character.id))
+            .collect()
+    }
+
+    pub fn commit_character_version(
+        &self,
+        id: &str,
+        expected_revision: i64,
+        message: &str,
+    ) -> Result<CharacterProfile> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let mut profile = get_character_from_connection(&transaction, id, false)?;
+        if profile.revision != expected_revision {
+            return Err(EngineError::InvalidArgument(format!(
+                "character revision conflict: expected {expected_revision}"
+            )));
+        }
+        let parent_version = profile.version;
+        profile.version = transaction.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1
+               FROM character_profile_versions WHERE character_id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        profile.revision += 1;
+        profile.updated_at = super::ts_to_dt(now_ms());
+        let tags_json = serde_json::to_string(&profile.tags)?;
+        insert_character_version(
+            &transaction,
+            &profile,
+            &tags_json,
+            Some(parent_version),
+            message,
+        )?;
+        let rows = transaction.execute(
+            "UPDATE character_profile_branches
+                SET head_version = ?1, updated_at = ?2
+              WHERE character_id = ?3 AND name = ?4",
+            params![
+                profile.version,
+                profile.updated_at.timestamp_millis(),
+                id,
+                profile.active_branch,
+            ],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::NotFound {
+                resource: "character branch".into(),
+                id: format!("{id}:{}", profile.active_branch),
+            });
+        }
+        transaction.execute(
+            "UPDATE character_profiles
+                SET version = ?1, revision = ?2, updated_at = ?3
+              WHERE id = ?4 AND revision = ?5 AND deleted_at IS NULL",
+            params![
+                profile.version,
+                profile.revision,
+                profile.updated_at.timestamp_millis(),
+                id,
+                expected_revision,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(profile)
+    }
+
+    pub fn create_character_branch(
+        &self,
+        id: &str,
+        expected_revision: i64,
+        name: &str,
+        from_version: i64,
+    ) -> Result<CharacterProfile> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let profile = get_character_from_connection(&transaction, id, false)?;
+        if profile.revision != expected_revision {
+            return Err(EngineError::InvalidArgument(format!(
+                "character revision conflict: expected {expected_revision}"
+            )));
+        }
+        let version = get_character_version(&transaction, id, from_version)?;
+        let timestamp = now_ms();
+        transaction
+            .execute(
+                "INSERT INTO character_profile_branches
+                 (character_id, name, head_version, created_from_version, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?3, ?4, ?4)",
+                params![id, name, from_version, timestamp],
+            )
+            .map_err(|error| map_character_write_error(error, &format!("{id}:{name}")))?;
+        apply_version_to_working_copy(
+            &transaction,
+            &version,
+            expected_revision + 1,
+            name,
+            timestamp,
+        )?;
+        transaction.commit()?;
+        get_character_from_connection(&conn, id, false)
+    }
+
+    pub fn restore_character_version(
+        &self,
+        id: &str,
+        expected_revision: i64,
+        version_number: i64,
+    ) -> Result<CharacterProfile> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let profile = get_character_from_connection(&transaction, id, false)?;
+        if profile.revision != expected_revision {
+            return Err(EngineError::InvalidArgument(format!(
+                "character revision conflict: expected {expected_revision}"
+            )));
+        }
+        let version = get_character_version(&transaction, id, version_number)?;
+        apply_version_to_working_copy(
+            &transaction,
+            &version,
+            expected_revision + 1,
+            &profile.active_branch,
+            now_ms(),
+        )?;
+        transaction.commit()?;
+        get_character_from_connection(&conn, id, false)
     }
 
     pub fn delete_character_profile(&self, id: &str) -> Result<()> {

@@ -28,6 +28,8 @@ function character(
 		opening_message: "",
 		tags: [],
 		version: 1,
+		revision: 1,
+		active_branch: "main",
 		created_at: "2026-07-29T00:00:00Z",
 		updated_at: "2026-07-29T00:00:00Z",
 		deleted_at: null,

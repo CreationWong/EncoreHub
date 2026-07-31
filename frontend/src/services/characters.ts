@@ -16,9 +16,42 @@ export interface CharacterProfile extends CharacterSnapshot {
 	default_provider: string;
 	default_model: string;
 	version: number;
+	revision: number;
+	active_branch: string;
 	created_at: string;
 	updated_at: string;
 	deleted_at: string | null;
+}
+
+export interface CharacterVersion extends CharacterSnapshot {
+	character_id: string;
+	version: number;
+	parent_version: number | null;
+	branch_name: string;
+	message: string;
+	default_provider: string;
+	default_model: string;
+	created_at: string;
+}
+
+export interface CharacterBranch {
+	character_id: string;
+	name: string;
+	head_version: number;
+	created_from_version: number;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface CharacterHistory {
+	character: CharacterProfile;
+	branches: CharacterBranch[];
+	versions: CharacterVersion[];
+}
+
+export interface CharacterHistoryListResponse {
+	histories: CharacterHistory[];
+	total: number;
 }
 
 export interface CharacterProfileInput {
@@ -73,13 +106,64 @@ export async function createCharacter(
 
 export async function updateCharacter(
 	id: string,
-	expectedVersion: number,
+	expectedRevision: number,
 	changes: CharacterProfileChanges,
 ): Promise<CharacterProfile> {
 	return apiFetch<CharacterProfile>(`/characters/${encodeURIComponent(id)}`, {
 		method: "PATCH",
-		body: JSON.stringify({ expected_version: expectedVersion, ...changes }),
+		body: JSON.stringify({ expected_revision: expectedRevision, ...changes }),
 	});
+}
+
+export async function listCharacterHistories(): Promise<CharacterHistoryListResponse> {
+	return apiFetch<CharacterHistoryListResponse>("/characters/history");
+}
+
+export async function commitCharacterVersion(
+	id: string,
+	expectedRevision: number,
+	message: string,
+): Promise<CharacterProfile> {
+	return apiFetch<CharacterProfile>(
+		`/characters/${encodeURIComponent(id)}/versions`,
+		{
+			method: "POST",
+			body: JSON.stringify({ expected_revision: expectedRevision, message }),
+		},
+	);
+}
+
+export async function createCharacterBranch(
+	id: string,
+	expectedRevision: number,
+	name: string,
+	fromVersion: number,
+): Promise<CharacterProfile> {
+	return apiFetch<CharacterProfile>(
+		`/characters/${encodeURIComponent(id)}/branches`,
+		{
+			method: "POST",
+			body: JSON.stringify({
+				expected_revision: expectedRevision,
+				name,
+				from_version: fromVersion,
+			}),
+		},
+	);
+}
+
+export async function restoreCharacterVersion(
+	id: string,
+	expectedRevision: number,
+	version: number,
+): Promise<CharacterProfile> {
+	return apiFetch<CharacterProfile>(
+		`/characters/${encodeURIComponent(id)}/versions/${version}/restore`,
+		{
+			method: "POST",
+			body: JSON.stringify({ expected_revision: expectedRevision }),
+		},
+	);
 }
 
 export async function deleteCharacter(id: string): Promise<void> {

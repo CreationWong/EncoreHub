@@ -235,6 +235,20 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/messages/{message_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "name": "message_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "delete": {
+        "tags": ["Conversations"],
+        "operationId": "deleteConversationMessage",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/character-upgrade": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" }
@@ -328,6 +342,76 @@
         "description": "Soft-deletes a non-default character. Existing conversations retain their immutable character snapshots.",
         "responses": {
           "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/history": {
+      "get": {
+        "tags": ["Characters"],
+        "operationId": "listCharacterHistories",
+        "responses": {
+          "200": {
+            "description": "Global character version graph",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CharacterHistoryList" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/history": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "get": {
+        "tags": ["Characters"],
+        "operationId": "getCharacterHistory",
+        "responses": {
+          "200": {
+            "description": "Character branches and immutable version nodes",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CharacterHistory" } } }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/versions": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "post": {
+        "tags": ["Characters"],
+        "operationId": "commitCharacterVersion",
+        "description": "Creates an immutable version from the current working copy and advances the active branch.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommitCharacterVersionRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Character" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/versions/{version}/restore": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" },
+        { "name": "version", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+      ],
+      "post": {
+        "tags": ["Characters"],
+        "operationId": "restoreCharacterVersion",
+        "description": "Loads an immutable version into the working copy without creating or deleting a version node.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CharacterRevisionRequest" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Character" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/branches": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "post": {
+        "tags": ["Characters"],
+        "operationId": "createCharacterBranch",
+        "description": "Creates and checks out a branch from an immutable version node.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCharacterBranchRequest" } } } },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Character" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" }
         }
@@ -1189,12 +1273,14 @@
           { "$ref": "#/components/schemas/CharacterSnapshot" },
           {
             "type": "object",
-            "required": ["id", "default_provider", "default_model", "version", "created_at", "updated_at"],
+            "required": ["id", "default_provider", "default_model", "version", "revision", "active_branch", "created_at", "updated_at"],
             "properties": {
               "id": { "type": "string" },
               "default_provider": { "type": "string", "maxLength": 100 },
               "default_model": { "type": "string", "maxLength": 200 },
               "version": { "type": "integer", "minimum": 1 },
+              "revision": { "type": "integer", "minimum": 1, "description": "Optimistic lock for the mutable working copy." },
+              "active_branch": { "type": "string" },
               "created_at": { "type": "string", "format": "date-time" },
               "updated_at": { "type": "string", "format": "date-time" },
               "deleted_at": { "type": ["string", "null"], "format": "date-time" }
@@ -1234,9 +1320,9 @@
       "UpdateCharacterRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["expected_version"],
+        "required": ["expected_revision"],
         "properties": {
-          "expected_version": { "type": "integer", "minimum": 1 },
+          "expected_revision": { "type": "integer", "minimum": 1 },
           "name": { "type": "string", "minLength": 1, "maxLength": 100 },
           "avatar": { "type": "string", "maxLength": 4096 },
           "description": { "type": "string", "maxLength": 16384 },
@@ -1250,6 +1336,78 @@
             "items": { "type": "string", "maxLength": 64 }
           }
         }
+      },
+      "CharacterVersion": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CharacterSnapshot" },
+          {
+            "type": "object",
+            "required": ["character_id", "version", "parent_version", "branch_name", "message", "default_provider", "default_model", "created_at"],
+            "properties": {
+              "character_id": { "type": "string" },
+              "version": { "type": "integer", "minimum": 1 },
+              "parent_version": { "type": ["integer", "null"], "minimum": 1 },
+              "branch_name": { "type": "string" },
+              "message": { "type": "string", "maxLength": 200 },
+              "default_provider": { "type": "string" },
+              "default_model": { "type": "string" },
+              "created_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        ]
+      },
+      "CharacterBranch": {
+        "type": "object",
+        "required": ["character_id", "name", "head_version", "created_from_version", "created_at", "updated_at"],
+        "properties": {
+          "character_id": { "type": "string" },
+          "name": { "type": "string" },
+          "head_version": { "type": "integer", "minimum": 1 },
+          "created_from_version": { "type": "integer", "minimum": 1 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CharacterHistory": {
+        "type": "object",
+        "required": ["character", "branches", "versions"],
+        "properties": {
+          "character": { "$ref": "#/components/schemas/CharacterProfile" },
+          "branches": { "type": "array", "items": { "$ref": "#/components/schemas/CharacterBranch" } },
+          "versions": { "type": "array", "items": { "$ref": "#/components/schemas/CharacterVersion" } }
+        }
+      },
+      "CharacterHistoryList": {
+        "type": "object",
+        "required": ["histories", "total"],
+        "properties": {
+          "histories": { "type": "array", "items": { "$ref": "#/components/schemas/CharacterHistory" } },
+          "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CharacterRevisionRequest": {
+        "type": "object",
+        "required": ["expected_revision"],
+        "properties": { "expected_revision": { "type": "integer", "minimum": 1 } }
+      },
+      "CommitCharacterVersionRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CharacterRevisionRequest" },
+          { "type": "object", "required": ["message"], "properties": { "message": { "type": "string", "minLength": 1, "maxLength": 200 } } }
+        ]
+      },
+      "CreateCharacterBranchRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CharacterRevisionRequest" },
+          {
+            "type": "object",
+            "required": ["name", "from_version"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "from_version": { "type": "integer", "minimum": 1 }
+            }
+          }
+        ]
       },
       "CharacterUpgradePreview": {
         "type": "object",
