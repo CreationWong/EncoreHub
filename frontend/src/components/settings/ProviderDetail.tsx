@@ -138,6 +138,8 @@ function normalizeModelConfigs(
 		currency: model.currency || "USD",
 		input_price: Number(model.input_price) || 0,
 		output_price: Number(model.output_price) || 0,
+		dimensions:
+			model.dimensions && model.dimensions > 0 ? model.dimensions : undefined,
 	}));
 }
 
@@ -1390,6 +1392,12 @@ export default function ProviderDetail({
 												</span>
 											</button>
 											<div className="hidden min-w-0 max-w-52 flex-wrap justify-end gap-1 lg:flex">
+												{(model.type === "embedding" ||
+													model.capabilities?.includes("embedding")) && (
+													<span className="rounded bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-600 dark:text-fuchsia-300">
+														Embedding only
+													</span>
+												)}
 												{(model.capabilities ?? [])
 													.slice(0, 4)
 													.map((capability) => (

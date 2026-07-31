@@ -85,6 +85,28 @@ func (a *APIKeyRoutedAdapter) ChatStream(ctx context.Context, req *ChatRequest, 
 	return nil, a.exhausted("stream", len(keys))
 }
 
+// Embed rotates or fails over API keys independently from endpoint routing.
+func (a *APIKeyRoutedAdapter) Embed(ctx context.Context, req *EmbeddingRequest, raw string) (*EmbeddingResponse, error) {
+	keys, err := a.keys(raw)
+	if err != nil {
+		return nil, err
+	}
+	embedder, supported := a.adapter.(EmbeddingAdapter)
+	if !supported {
+		return nil, fmt.Errorf("provider %q does not support embeddings", a.id)
+	}
+	for _, key := range keys {
+		response, requestErr := embedder.Embed(ctx, req, key)
+		if requestErr == nil {
+			return response, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return nil, a.exhausted("embeddings", len(keys))
+}
+
 func (a *APIKeyRoutedAdapter) ListModels(ctx context.Context, raw string) ([]ModelInfo, error) {
 	keys, err := a.keys(raw)
 	if err != nil {

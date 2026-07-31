@@ -85,6 +85,7 @@ export function defaultModelConfig(
 		name,
 		group,
 		capabilities: [],
+		type: "chat",
 		streaming: true,
 		currency: "USD",
 		input_price: 0,

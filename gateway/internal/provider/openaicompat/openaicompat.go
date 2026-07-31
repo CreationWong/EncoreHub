@@ -24,18 +24,26 @@ import (
 
 // Adapter implements provider.Adapter for any OpenAI-compatible endpoint.
 type Adapter struct {
-	id      string
-	baseURL string
-	models  []string
+	id              string
+	baseURL         string
+	models          []string
+	embeddingModels map[string]struct{}
 }
 
 // New builds an adapter from a profile. An empty BaseURL falls back to the
 // go-openai SDK default (the official OpenAI endpoint).
 func New(p provider.ProviderProfile) *Adapter {
+	embeddingModels := make(map[string]struct{})
+	for _, model := range p.Models {
+		if p.ModelType(model) == provider.ModelTypeEmbedding {
+			embeddingModels[model] = struct{}{}
+		}
+	}
 	return &Adapter{
-		id:      p.ID,
-		baseURL: p.BaseURL,
-		models:  p.Models,
+		id:              p.ID,
+		baseURL:         p.BaseURL,
+		models:          p.Models,
+		embeddingModels: embeddingModels,
 	}
 }
 
@@ -108,6 +116,10 @@ func toOpenAITools(tools []provider.Tool) []goopenai.Tool {
 }
 
 func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey string) (*provider.ChatResponse, error) {
+	// Embedding models are utility-only even if a caller bypasses the frontend.
+	if _, embeddingOnly := a.embeddingModels[req.Model]; embeddingOnly {
+		return nil, fmt.Errorf("%s model %q does not support chat", a.id, req.Model)
+	}
 	cr := a.buildRequest(req)
 	resp, err := a.createChatCompletion(ctx, cr, req, apiKey)
 	if err != nil {
@@ -124,6 +136,50 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 		OutputTokens:     resp.Usage.CompletionTokens,
 		Model:            resp.Model,
 	}, nil
+}
+
+// Embed calls the provider's OpenAI-compatible embeddings endpoint without
+// involving chat messages, streaming, tools, or conversation persistence.
+func (a *Adapter) Embed(ctx context.Context, req *provider.EmbeddingRequest, apiKey string) (*provider.EmbeddingResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("%s embedding request is required", a.id)
+	}
+	if _, embeddingOnly := a.embeddingModels[req.Model]; !embeddingOnly {
+		return nil, fmt.Errorf("%s model %q is not configured for embeddings", a.id, req.Model)
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s embedding request: %w", a.id, err)
+	}
+	endpoint := strings.TrimRight(a.config(apiKey).BaseURL, "/") + "/embeddings"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("%s embedding request: %w", a.id, err)
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	httpResp, err := a.config(apiKey).HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s embeddings: %w", a.id, err)
+	}
+	defer httpResp.Body.Close()
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusBadRequest {
+		// Do not surface provider response bodies because they may contain input.
+		return nil, fmt.Errorf("%s embeddings returned HTTP %d", a.id, httpResp.StatusCode)
+	}
+
+	var response provider.EmbeddingResponse
+	if err := json.NewDecoder(io.LimitReader(httpResp.Body, 32<<20)).Decode(&response); err != nil {
+		return nil, fmt.Errorf("%s embeddings response: %w", a.id, err)
+	}
+	if len(response.Data) != len(req.Input) {
+		return nil, fmt.Errorf("%s embeddings returned %d vectors for %d inputs", a.id, len(response.Data), len(req.Input))
+	}
+	return &response, nil
 }
 
 func (a *Adapter) createChatCompletion(

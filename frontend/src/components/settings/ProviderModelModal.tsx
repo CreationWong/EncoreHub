@@ -9,6 +9,7 @@ import {
 	Globe2,
 	Layers3,
 	ListRestart,
+	MessageSquare,
 	RotateCcw,
 	Save,
 	Wrench,
@@ -19,6 +20,7 @@ import { MODEL_CAPABILITIES } from "../../constants/providers";
 import type {
 	ProviderModelCapability,
 	ProviderModelConfig,
+	ProviderModelType,
 } from "../../services/providers";
 import { defaultModelConfig } from "./providerConfig";
 
@@ -90,6 +92,11 @@ export default function ProviderModelModal({
 		() => new Set(draft.capabilities ?? []),
 		[draft.capabilities],
 	);
+	// Legacy profiles used the embedding capability before model purpose existed.
+	const modelType: ProviderModelType =
+		draft.type === "embedding" || capabilities.has("embedding")
+			? "embedding"
+			: "chat";
 	const currencySymbol = CURRENCY_SYMBOLS[draft.currency ?? "USD"] ?? "$";
 
 	const update = <K extends keyof ProviderModelConfig>(
@@ -102,6 +109,18 @@ export default function ProviderModelModal({
 		if (next.has(capability)) next.delete(capability);
 		else next.add(capability);
 		update("capabilities", [...next]);
+	};
+
+	const setModelType = (type: ProviderModelType) => {
+		setDraft((current) => ({
+			...current,
+			type,
+			capabilities: (current.capabilities ?? []).filter(
+				(capability) => capability !== "embedding",
+			),
+			streaming: type === "chat",
+			output_price: type === "embedding" ? 0 : current.output_price,
+		}));
 	};
 
 	const handleSave = () => {
@@ -122,15 +141,31 @@ export default function ProviderModelModal({
 			setError("Prices cannot be negative");
 			return;
 		}
+		if (
+			modelType === "embedding" &&
+			draft.dimensions !== undefined &&
+			(draft.dimensions < 1 || draft.dimensions > 3072)
+		) {
+			setError("Dimensions must be between 1 and 3072");
+			return;
+		}
 		onSave({
 			...draft,
 			id,
 			name: draft.name?.trim() || id,
 			group: draft.group?.trim() || "Models",
-			capabilities: [...capabilities],
+			type: modelType,
+			capabilities: [...capabilities].filter(
+				(capability) => capability !== "embedding",
+			),
+			dimensions:
+				modelType === "embedding" && Number(draft.dimensions) > 0
+					? Number(draft.dimensions)
+					: undefined,
+			streaming: modelType === "chat" ? draft.streaming : false,
 			currency: draft.currency || "USD",
 			input_price: Number(draft.input_price) || 0,
-			output_price: Number(draft.output_price) || 0,
+			output_price: modelType === "chat" ? Number(draft.output_price) || 0 : 0,
 		});
 	};
 
@@ -227,6 +262,35 @@ export default function ProviderModelModal({
 							/>
 						</label>
 
+						<div className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
+							<FieldLabel hint="Chat models generate replies; embedding models only convert text into vectors">
+								Model function
+							</FieldLabel>
+							<fieldset
+								aria-label="Model function"
+								className="m-0 grid grid-cols-2 rounded-md border border-border bg-surface-alt p-1"
+							>
+								<button
+									type="button"
+									aria-pressed={modelType === "chat"}
+									onClick={() => setModelType("chat")}
+									className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "chat" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+								>
+									<MessageSquare className="h-3.5 w-3.5" />
+									Chat
+								</button>
+								<button
+									type="button"
+									aria-pressed={modelType === "embedding"}
+									onClick={() => setModelType("embedding")}
+									className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "embedding" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+								>
+									<Layers3 className="h-3.5 w-3.5" />
+									Embedding
+								</button>
+							</fieldset>
+						</div>
+
 						<div className="flex items-center justify-between gap-3 pt-1">
 							<button
 								type="button"
@@ -254,72 +318,78 @@ export default function ProviderModelModal({
 
 					{advanced && (
 						<div className="space-y-0 border-t border-border">
-							<fieldset className="m-0 border-0 p-0">
-								<legend className="sr-only">Model capabilities</legend>
-								<div className="flex items-center justify-between gap-3 py-4">
-									<span className="flex items-center gap-1.5 text-sm font-medium text-text-secondary">
-										Model capabilities
-										<AlertTriangle className="h-3.5 w-3.5 text-warning" />
-									</span>
-									<button
-										type="button"
-										onClick={() =>
-											update("capabilities", model?.capabilities ?? [])
-										}
-										aria-label="Reset model capabilities"
-										title="Reset model capabilities"
-										className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
-									>
-										<RotateCcw className="h-4 w-4" />
-									</button>
-								</div>
-								<div className="flex flex-wrap gap-2 pb-4">
-									{MODEL_CAPABILITIES.map((capability) => {
-										const Icon = CAPABILITY_ICONS[capability.value];
-										const selected = capabilities.has(capability.value);
-										return (
-											<button
-												key={capability.value}
-												type="button"
-												aria-pressed={selected}
-												onClick={() => toggleCapability(capability.value)}
-												className={`flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
-													selected
-														? CAPABILITY_STYLES[capability.value]
-														: "border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
-												}`}
-											>
-												<Icon className="h-3.5 w-3.5" />
-												{capability.label}
-											</button>
-										);
-									})}
-								</div>
-							</fieldset>
+							{modelType === "chat" && (
+								<fieldset className="m-0 border-0 p-0">
+									<legend className="sr-only">Model capabilities</legend>
+									<div className="flex items-center justify-between gap-3 py-4">
+										<span className="flex items-center gap-1.5 text-sm font-medium text-text-secondary">
+											Model capabilities
+											<AlertTriangle className="h-3.5 w-3.5 text-warning" />
+										</span>
+										<button
+											type="button"
+											onClick={() =>
+												update("capabilities", model?.capabilities ?? [])
+											}
+											aria-label="Reset model capabilities"
+											title="Reset model capabilities"
+											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
+										>
+											<RotateCcw className="h-4 w-4" />
+										</button>
+									</div>
+									<div className="flex flex-wrap gap-2 pb-4">
+										{MODEL_CAPABILITIES.filter(
+											(capability) => capability.value !== "embedding",
+										).map((capability) => {
+											const Icon = CAPABILITY_ICONS[capability.value];
+											const selected = capabilities.has(capability.value);
+											return (
+												<button
+													key={capability.value}
+													type="button"
+													aria-pressed={selected}
+													onClick={() => toggleCapability(capability.value)}
+													className={`flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
+														selected
+															? CAPABILITY_STYLES[capability.value]
+															: "border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
+													}`}
+												>
+													<Icon className="h-3.5 w-3.5" />
+													{capability.label}
+												</button>
+											);
+										})}
+									</div>
+								</fieldset>
+							)}
 
-							<label className="flex min-h-16 items-center justify-between border-t border-border py-3 text-sm text-text-secondary">
-								<span className="flex items-center gap-1.5">
-									Supports streaming output
-									<CircleHelp
-										aria-label="Whether this model can return incremental output"
-										className="h-3.5 w-3.5 text-text-muted"
-									/>
-								</span>
-								<span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-									<input
-										type="checkbox"
-										role="switch"
-										aria-checked={draft.streaming}
-										checked={draft.streaming}
-										onChange={(event) =>
-											update("streaming", event.target.checked)
-										}
-										className="peer sr-only"
-									/>
-									<span className="absolute inset-0 rounded-full bg-border transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface" />
-									<span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
-								</span>
-							</label>
+							{modelType === "chat" && (
+								<label className="flex min-h-16 items-center justify-between border-t border-border py-3 text-sm text-text-secondary">
+									<span className="flex items-center gap-1.5">
+										Supports streaming output
+										<CircleHelp
+											aria-label="Whether this model can return incremental output"
+											className="h-3.5 w-3.5 text-text-muted"
+										/>
+									</span>
+									<span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+										<input
+											type="checkbox"
+											role="switch"
+											aria-checked={draft.streaming}
+											checked={draft.streaming}
+											onChange={(event) =>
+												update("streaming", event.target.checked)
+											}
+											className="peer sr-only"
+										/>
+										<span className="absolute inset-0 rounded-full bg-border transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface" />
+										<span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+									</span>
+								</label>
+							)}
 
 							<div className="grid gap-3 border-t border-border py-4 sm:grid-cols-[9rem_1fr] sm:items-center">
 								<label
@@ -362,28 +432,60 @@ export default function ProviderModelModal({
 									</span>
 								</div>
 
-								<label
-									htmlFor="model-output-price"
-									className="text-sm text-text-secondary"
-								>
-									Output price
-								</label>
-								<div className="flex">
-									<input
-										id="model-output-price"
-										type="number"
-										min="0"
-										step="0.01"
-										value={draft.output_price ?? 0}
-										onChange={(event) =>
-											update("output_price", Number(event.target.value))
-										}
-										className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
-									/>
-									<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
-										{currencySymbol} / 1M tokens
-									</span>
-								</div>
+								{modelType === "embedding" && (
+									<>
+										<label
+											htmlFor="model-dimensions"
+											className="text-sm text-text-secondary"
+										>
+											Default dimensions
+										</label>
+										<input
+											id="model-dimensions"
+											type="number"
+											min="1"
+											max="3072"
+											value={draft.dimensions ?? ""}
+											onChange={(event) =>
+												update(
+													"dimensions",
+													event.target.value
+														? Number(event.target.value)
+														: undefined,
+												)
+											}
+											placeholder="Provider default"
+											className="rounded-md border border-border bg-surface-alt px-3 py-2 text-sm"
+										/>
+									</>
+								)}
+
+								{modelType === "chat" && (
+									<>
+										<label
+											htmlFor="model-output-price"
+											className="text-sm text-text-secondary"
+										>
+											Output price
+										</label>
+										<div className="flex">
+											<input
+												id="model-output-price"
+												type="number"
+												min="0"
+												step="0.01"
+												value={draft.output_price ?? 0}
+												onChange={(event) =>
+													update("output_price", Number(event.target.value))
+												}
+												className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
+											/>
+											<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
+												{currencySymbol} / 1M tokens
+											</span>
+										</div>
+									</>
+								)}
 							</div>
 						</div>
 					)}

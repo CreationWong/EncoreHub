@@ -604,6 +604,38 @@
         }
       }
     },
+    "/api/v1/providers/{provider}/embeddings": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ProviderId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "post": {
+        "tags": ["Providers"],
+        "operationId": "createProviderEmbeddings",
+        "description": "Create OpenAI-compatible float embeddings as a standalone utility operation. Embedding calls do not create, modify, or participate in conversations.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateEmbeddingsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible embedding vectors",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EmbeddingsResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/providers/{provider}/models/discover": {
       "parameters": [
         { "$ref": "#/components/parameters/ProviderId" },
@@ -1633,10 +1665,66 @@
               "enum": ["vision", "web", "reasoning", "tools", "rerank", "embedding"]
             }
           },
+          "type": {
+            "enum": ["chat", "embedding"],
+            "description": "Model function. Embedding models are excluded from every conversation model selector."
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3072,
+            "description": "Default dimensions for embedding requests; omitted to use the provider default."
+          },
           "streaming": { "type": "boolean" },
           "currency": { "type": "string" },
           "input_price": { "type": "number", "minimum": 0 },
           "output_price": { "type": "number", "minimum": 0 }
+        }
+      },
+      "CreateEmbeddingsRequest": {
+        "type": "object",
+        "required": ["model", "input"],
+        "properties": {
+          "model": { "type": "string" },
+          "input": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2048,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            ]
+          },
+          "dimensions": { "type": "integer", "minimum": 1, "maximum": 3072 },
+          "encoding_format": { "enum": ["float"] }
+        }
+      },
+      "EmbeddingData": {
+        "type": "object",
+        "required": ["object", "index", "embedding"],
+        "properties": {
+          "object": { "type": "string", "example": "embedding" },
+          "index": { "type": "integer", "minimum": 0 },
+          "embedding": { "type": "array", "items": { "type": "number" } }
+        }
+      },
+      "EmbeddingsResponse": {
+        "type": "object",
+        "required": ["object", "data", "model", "usage"],
+        "properties": {
+          "object": { "type": "string", "example": "list" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/EmbeddingData" } },
+          "model": { "type": "string" },
+          "usage": {
+            "type": "object",
+            "required": ["prompt_tokens", "total_tokens"],
+            "properties": {
+              "prompt_tokens": { "type": "integer", "minimum": 0 },
+              "total_tokens": { "type": "integer", "minimum": 0 }
+            }
+          }
         }
       },
       "ProvidersResponse": {

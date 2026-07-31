@@ -7,6 +7,7 @@ import {
 	Settings2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { providerChatModels } from "../../services/providers";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -46,7 +47,9 @@ export default function ProviderSwitcher() {
 		: defaultProvider;
 	const model = activeId ? (activeConversation?.model ?? "") : defaultModel;
 	const selectedProfile = profiles.find((profile) => profile.id === provider);
-	const enabledProfiles = profiles.filter((profile) => profile.enabled);
+	const enabledProfiles = profiles.filter(
+		(profile) => profile.enabled && providerChatModels(profile).length > 0,
+	);
 	const providerName =
 		selectedProfile?.name ||
 		provider ||
@@ -54,7 +57,9 @@ export default function ProviderSwitcher() {
 	const modelName = model || "Select model";
 	const selection = [providerName, modelName].join(" · ");
 	const currentModelAvailable = Boolean(
-		selectedProfile?.enabled && model && selectedProfile.models.includes(model),
+		selectedProfile?.enabled &&
+			model &&
+			providerChatModels(selectedProfile).includes(model),
 	);
 	const unavailable = Boolean(
 		(activeId && !activeConversation) ||
@@ -218,43 +223,48 @@ export default function ProviderSwitcher() {
 							No providers available
 						</p>
 					)}
-					{enabledProfiles.map((profile) => (
-						<fieldset
-							key={profile.id}
-							aria-label={profile.name}
-							className="m-0 border-0 p-0 py-0.5"
-						>
-							<legend className="flex h-7 w-full items-center px-2 text-xs font-medium text-text-secondary">
-								<span className="truncate">{profile.name}</span>
-							</legend>
-							{profile.models.length === 0 ? (
-								<p className="px-4 py-1.5 text-[11px] text-text-muted">
-									No models configured
-								</p>
-							) : (
-								profile.models.map((profileModel) => {
-									const selected =
-										provider === profile.id && model === profileModel;
-									return (
-										<button
-											key={profileModel}
-											type="button"
-											role="menuitemradio"
-											aria-checked={selected}
-											onClick={() => void chooseModel(profile.id, profileModel)}
-											className="flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs text-text-secondary hover:bg-control hover:text-text-primary"
-											title={profileModel}
-										>
-											<Check
-												className={`h-3.5 w-3.5 shrink-0 text-accent ${selected ? "opacity-100" : "opacity-0"}`}
-											/>
-											<span className="truncate">{profileModel}</span>
-										</button>
-									);
-								})
-							)}
-						</fieldset>
-					))}
+					{enabledProfiles.map((profile) => {
+						const chatModels = providerChatModels(profile);
+						return (
+							<fieldset
+								key={profile.id}
+								aria-label={profile.name}
+								className="m-0 border-0 p-0 py-0.5"
+							>
+								<legend className="flex h-7 w-full items-center px-2 text-xs font-medium text-text-secondary">
+									<span className="truncate">{profile.name}</span>
+								</legend>
+								{chatModels.length === 0 ? (
+									<p className="px-4 py-1.5 text-[11px] text-text-muted">
+										No models configured
+									</p>
+								) : (
+									chatModels.map((profileModel) => {
+										const selected =
+											provider === profile.id && model === profileModel;
+										return (
+											<button
+												key={profileModel}
+												type="button"
+												role="menuitemradio"
+												aria-checked={selected}
+												onClick={() =>
+													void chooseModel(profile.id, profileModel)
+												}
+												className="flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs text-text-secondary hover:bg-control hover:text-text-primary"
+												title={profileModel}
+											>
+												<Check
+													className={`h-3.5 w-3.5 shrink-0 text-accent ${selected ? "opacity-100" : "opacity-0"}`}
+												/>
+												<span className="truncate">{profileModel}</span>
+											</button>
+										);
+									})
+								)}
+							</fieldset>
+						);
+					})}
 					<div className="my-1 border-t border-border" />
 					<button
 						type="button"

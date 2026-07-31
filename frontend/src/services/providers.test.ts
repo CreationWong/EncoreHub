@@ -5,11 +5,42 @@ vi.mock("./api", () => ({
 	apiFetch: (...args: unknown[]) => apiFetch(...args),
 }));
 
-import { providersApi } from "./providers";
+import {
+	providerChatModels,
+	providerModelType,
+	providersApi,
+} from "./providers";
 
 beforeEach(() => apiFetch.mockReset().mockResolvedValue(undefined));
 
 describe("providers service", () => {
+	it("keeps embedding models out of the chat model set", () => {
+		const profile = {
+			id: "openai",
+			name: "OpenAI",
+			protocol: "openai" as const,
+			base_url: "",
+			models: ["gpt-4o-mini", "text-embedding-3-small", "legacy-vector"],
+			model_configs: [
+				{
+					id: "text-embedding-3-small",
+					type: "embedding" as const,
+					streaming: false,
+				},
+				{
+					id: "legacy-vector",
+					capabilities: ["embedding" as const],
+					streaming: false,
+				},
+			],
+			enabled: true,
+			builtin: true,
+		};
+
+		expect(providerModelType(profile, "legacy-vector")).toBe("embedding");
+		expect(providerChatModels(profile)).toEqual(["gpt-4o-mini"]);
+	});
+
 	it("validates temporary keys and draft endpoints without profile data", async () => {
 		await providersApi.validateKey(
 			"custom/provider",

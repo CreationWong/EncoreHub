@@ -5,7 +5,10 @@ import {
 	DEFAULT_CHARACTER_ID,
 } from "../../services/characters";
 import type { Conversation } from "../../services/conversation";
-import type { ProviderProfile } from "../../services/providers";
+import {
+	type ProviderProfile,
+	providerChatModels,
+} from "../../services/providers";
 import { useCharacterManagerStore } from "../../stores/characterManagerStore";
 import { useCharacterStore } from "../../stores/characterStore";
 import { useConversationStore } from "../../stores/conversationStore";
@@ -38,7 +41,9 @@ function modelAvailable(
 	provider: ProviderProfile | undefined,
 	modelId: string,
 ): boolean {
-	return Boolean(provider?.enabled && provider.models.includes(modelId));
+	return Boolean(
+		provider?.enabled && providerChatModels(provider).includes(modelId),
+	);
 }
 
 function characterModel(

@@ -9,6 +9,9 @@ const (
 
 	RoutingFailover   = "failover"
 	RoutingRoundRobin = "round_robin"
+
+	ModelTypeChat      = "chat"
+	ModelTypeEmbedding = "embedding"
 )
 
 // ProviderEndpoint is one ordered base URL for a provider. Every endpoint in
@@ -31,10 +34,44 @@ type ProviderModelConfig struct {
 	Name         string   `json:"name,omitempty"`
 	Group        string   `json:"group,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
-	Streaming    bool     `json:"streaming"`
-	Currency     string   `json:"currency,omitempty"`
-	InputPrice   float64  `json:"input_price,omitempty"`
-	OutputPrice  float64  `json:"output_price,omitempty"`
+	// Type separates utility models from models that may participate in chat.
+	// Empty remains equivalent to chat for profiles saved by older clients.
+	Type        string  `json:"type,omitempty"`
+	Dimensions  int     `json:"dimensions,omitempty"`
+	Streaming   bool    `json:"streaming"`
+	Currency    string  `json:"currency,omitempty"`
+	InputPrice  float64 `json:"input_price,omitempty"`
+	OutputPrice float64 `json:"output_price,omitempty"`
+}
+
+// ModelType returns the configured purpose for a model. The legacy embedding
+// capability is recognised so old profiles remain isolated from chat.
+func (p ProviderProfile) ModelType(modelID string) string {
+	for _, config := range p.ModelConfigs {
+		if config.ID != modelID {
+			continue
+		}
+		if config.Type == ModelTypeEmbedding {
+			return ModelTypeEmbedding
+		}
+		for _, capability := range config.Capabilities {
+			if capability == ModelTypeEmbedding {
+				return ModelTypeEmbedding
+			}
+		}
+		return ModelTypeChat
+	}
+	return ModelTypeChat
+}
+
+// ModelConfig returns presentation/runtime metadata for one configured model.
+func (p ProviderProfile) ModelConfig(modelID string) (ProviderModelConfig, bool) {
+	for _, config := range p.ModelConfigs {
+		if config.ID == modelID {
+			return config, true
+		}
+	}
+	return ProviderModelConfig{}, false
 }
 
 // ProviderProfile is the persisted, user-editable definition of an AI provider.

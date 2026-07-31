@@ -99,6 +99,7 @@ func Setup(cfg Config) *gin.Engine {
 			prov.POST("/:provider/validate-key", providerHandler.ValidateKey)
 			prov.GET("/:provider/models", providerHandler.ListModels)
 			prov.POST("/:provider/models/discover", providerHandler.DiscoverModels)
+			prov.POST("/:provider/embeddings", providerHandler.CreateEmbeddings)
 		}
 
 		// Engine resources (skills / memories / knowledge / secrets): transparent

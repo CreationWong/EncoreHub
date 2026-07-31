@@ -87,6 +87,36 @@ type ChatResponse struct {
 	Model            string `json:"model"`
 }
 
+// EmbeddingRequest is intentionally separate from ChatRequest: embedding is a
+// utility operation and must never be routed through a conversation flow.
+type EmbeddingRequest struct {
+	Model          string   `json:"model"`
+	Input          []string `json:"input"`
+	Dimensions     int      `json:"dimensions,omitempty"`
+	EncodingFormat string   `json:"encoding_format,omitempty"`
+}
+
+// EmbeddingData is one vector in an OpenAI-compatible embedding response.
+type EmbeddingData struct {
+	Object    string    `json:"object"`
+	Index     int       `json:"index"`
+	Embedding []float64 `json:"embedding"`
+}
+
+// EmbeddingUsage reports tokens consumed by a standalone embedding request.
+type EmbeddingUsage struct {
+	PromptTokens int `json:"prompt_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
+// EmbeddingResponse mirrors the float-vector form of OpenAI's embeddings API.
+type EmbeddingResponse struct {
+	Object string          `json:"object"`
+	Data   []EmbeddingData `json:"data"`
+	Model  string          `json:"model"`
+	Usage  EmbeddingUsage  `json:"usage"`
+}
+
 // DeltaEvent is emitted during streaming.
 type DeltaEvent struct {
 	Content      string `json:"content"`
@@ -149,6 +179,12 @@ type Adapter interface {
 
 	// ValidateKey checks if the given API key is valid.
 	ValidateKey(ctx context.Context, apiKey string) error
+}
+
+// EmbeddingAdapter is optional because chat-only protocols such as Anthropic
+// do not expose the OpenAI-compatible embeddings endpoint.
+type EmbeddingAdapter interface {
+	Embed(ctx context.Context, req *EmbeddingRequest, apiKey string) (*EmbeddingResponse, error)
 }
 
 // StreamEvent wraps a streaming event — a content delta, reasoning chunk, tool

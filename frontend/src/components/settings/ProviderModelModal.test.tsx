@@ -75,4 +75,36 @@ describe("ProviderModelModal", () => {
 			expect.objectContaining({ id: "model-new", name: "Local note" }),
 		);
 	});
+
+	it("configures an embedding model as a non-chat utility", () => {
+		const onSave = vi.fn();
+		render(
+			<ProviderModelModal
+				model={null}
+				existingIds={[]}
+				onSave={onSave}
+				onClose={vi.fn()}
+			/>,
+		);
+
+		fireEvent.change(screen.getByPlaceholderText("gpt-4.1-mini"), {
+			target: { value: "text-embedding-3-small" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Embedding" }));
+		expect(screen.queryByLabelText("Output price")).toBeNull();
+		fireEvent.change(screen.getByLabelText("Default dimensions"), {
+			target: { value: "256" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+
+		expect(onSave).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "text-embedding-3-small",
+				type: "embedding",
+				dimensions: 256,
+				streaming: false,
+				output_price: 0,
+			}),
+		);
+	});
 });

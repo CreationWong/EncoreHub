@@ -114,6 +114,29 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ProviderSwitcher defaults", () => {
+	it("never offers embedding-only models as conversation models", () => {
+		providerState.profiles[0] = {
+			...providerState.profiles[0],
+			models: ["deepseek-chat", "text-embedding-3-small"],
+			model_configs: [
+				{
+					id: "text-embedding-3-small",
+					type: "embedding",
+					streaming: false,
+				},
+			],
+		};
+		render(<ProviderSwitcher />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Select default provider and model/ }),
+		);
+
+		expect(
+			screen.getByRole("menuitemradio", { name: "deepseek-chat" }),
+		).toBeDefined();
+		expect(screen.queryByText("text-embedding-3-small")).toBeNull();
+	});
+
 	it("changes the new-conversation default when no conversation is active", () => {
 		render(<ProviderSwitcher />);
 		const trigger = screen.getByRole("button", {

@@ -67,6 +67,24 @@ func (a *RoutedAdapter) ChatStream(ctx context.Context, req *ChatRequest, apiKey
 	return nil, a.exhausted("stream")
 }
 
+// Embed applies the same endpoint routing policy as other provider operations.
+func (a *RoutedAdapter) Embed(ctx context.Context, req *EmbeddingRequest, apiKey string) (*EmbeddingResponse, error) {
+	for _, index := range a.order() {
+		embedder, supported := a.adapters[index].(EmbeddingAdapter)
+		if !supported {
+			continue
+		}
+		response, err := embedder.Embed(ctx, req, apiKey)
+		if err == nil {
+			return response, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return nil, a.exhausted("embeddings")
+}
+
 func (a *RoutedAdapter) ListModels(ctx context.Context, apiKey string) ([]ModelInfo, error) {
 	for _, index := range a.order() {
 		models, err := a.adapters[index].ListModels(ctx, apiKey)

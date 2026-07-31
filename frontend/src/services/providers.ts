@@ -3,6 +3,7 @@ import { apiFetch } from "./api";
 /** Wire protocol the gateway uses to talk to a provider. */
 export type ProviderProtocol = "openai" | "anthropic";
 export type ProviderRoutingStrategy = "round_robin" | "failover";
+export type ProviderModelType = "chat" | "embedding";
 export type ProviderModelCapability =
 	| "vision"
 	| "web"
@@ -25,10 +26,33 @@ export interface ProviderModelConfig {
 	name?: string;
 	group?: string;
 	capabilities?: ProviderModelCapability[];
+	/** Utility models are isolated from every conversation model selector. */
+	type?: ProviderModelType;
+	/** Default output size for embedding calls; omitted to use provider default. */
+	dimensions?: number;
 	streaming: boolean;
 	currency?: string;
 	input_price?: number;
 	output_price?: number;
+}
+
+/** Resolve legacy `embedding` capability records as embedding-only models. */
+export function providerModelType(
+	profile: ProviderProfile,
+	modelId: string,
+): ProviderModelType {
+	const config = profile.model_configs?.find((model) => model.id === modelId);
+	return config?.type === "embedding" ||
+		config?.capabilities?.includes("embedding")
+		? "embedding"
+		: "chat";
+}
+
+/** Return only models that may be used to create or continue conversations. */
+export function providerChatModels(profile: ProviderProfile): string[] {
+	return profile.models.filter(
+		(modelId) => providerModelType(profile, modelId) === "chat",
+	);
 }
 
 /**

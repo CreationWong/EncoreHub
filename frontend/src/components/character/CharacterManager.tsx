@@ -27,7 +27,10 @@ import {
 	type CharacterProfile,
 	DEFAULT_CHARACTER_ID,
 } from "../../services/characters";
-import type { ProviderProfile } from "../../services/providers";
+import {
+	type ProviderProfile,
+	providerChatModels,
+} from "../../services/providers";
 import { useCharacterManagerStore } from "../../stores/characterManagerStore";
 import { useCharacterStore } from "../../stores/characterStore";
 import { confirm } from "../../stores/confirmStore";
@@ -55,7 +58,7 @@ function providerModels(profile: ProviderProfile): Array<{
 }> {
 	const configs = profile.model_configs ?? [];
 	const configured = new Map(configs.map((model) => [model.id, model]));
-	return profile.models.map((id) => ({
+	return providerChatModels(profile).map((id) => ({
 		id,
 		name: configured.get(id)?.name?.trim() || id,
 	}));

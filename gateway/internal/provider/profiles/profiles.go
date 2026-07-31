@@ -22,9 +22,16 @@ func Builtins() []provider.ProviderProfile {
 			Name:     "OpenAI",
 			Protocol: provider.ProtocolOpenAI,
 			BaseURL:  "", // SDK default (https://api.openai.com/v1)
-			Models:   []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1"},
-			Enabled:  true,
-			Builtin:  true,
+			Models: []string{
+				"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1",
+				"text-embedding-3-small", "text-embedding-3-large",
+			},
+			ModelConfigs: []provider.ProviderModelConfig{
+				{ID: "text-embedding-3-small", Name: "Text Embedding 3 Small", Group: "Embeddings", Type: provider.ModelTypeEmbedding, Dimensions: 1536},
+				{ID: "text-embedding-3-large", Name: "Text Embedding 3 Large", Group: "Embeddings", Type: provider.ModelTypeEmbedding, Dimensions: 3072},
+			},
+			Enabled: true,
+			Builtin: true,
 		},
 		{
 			ID:       "anthropic",

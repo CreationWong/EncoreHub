@@ -99,6 +99,17 @@ func TestValidateProfiles_AcceptsModelMetadata(t *testing.T) {
 	}
 }
 
+func TestValidateProfiles_RejectsEmbeddingModelOnNonOpenAIProtocol(t *testing.T) {
+	p := validProfile()
+	p.Protocol = provider.ProtocolAnthropic
+	p.ModelConfigs = []provider.ProviderModelConfig{{
+		ID: "model-a", Type: provider.ModelTypeEmbedding,
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected Anthropic embedding model rejection")
+	}
+}
+
 func TestValidateProfiles_RejectsUnknownAPIKeyRoutingStrategy(t *testing.T) {
 	p := validProfile()
 	p.KeyRoutingStrategy = "random"
