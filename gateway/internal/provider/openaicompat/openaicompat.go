@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +65,64 @@ func (a *Adapter) config(apiKey string) goopenai.ClientConfig {
 // client builds a go-openai client pointed at this profile's endpoint.
 func (a *Adapter) client(apiKey string) *goopenai.Client {
 	return goopenai.NewClientWithConfig(a.config(apiKey))
+}
+
+// clientWithExtraBody preserves the SDK's streaming parser while extending
+// the JSON request for provider-specific controls unsupported by the SDK.
+func (a *Adapter) clientWithExtraBody(apiKey string, extra map[string]any) *goopenai.Client {
+	cfg := a.config(apiKey)
+	if len(extra) > 0 {
+		httpClient := diagnostics.NewHTTPClient(0)
+		httpClient.Transport = extraBodyTransport{
+			base:  httpClient.Transport,
+			extra: extra,
+		}
+		cfg.HTTPClient = httpClient
+	}
+	return goopenai.NewClientWithConfig(cfg)
+}
+
+// extraBodyTransport merges provider extensions before diagnostics and the
+// underlying network transport observe the request.
+type extraBodyTransport struct {
+	base  http.RoundTripper
+	extra map[string]any
+}
+
+func (transport extraBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if request.Body == nil || len(transport.extra) == 0 {
+		return base.RoundTrip(request)
+	}
+
+	original, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	_ = request.Body.Close()
+
+	var body map[string]any
+	if err := json.Unmarshal(original, &body); err != nil {
+		return nil, fmt.Errorf("decode request body: %w", err)
+	}
+	for key, value := range transport.extra {
+		body[key] = value
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encode request body: %w", err)
+	}
+
+	modified := request.Clone(request.Context())
+	modified.Body = io.NopCloser(bytes.NewReader(encoded))
+	modified.ContentLength = int64(len(encoded))
+	modified.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(encoded)), nil
+	}
+	return base.RoundTrip(modified)
 }
 
 // buildRequest translates the unified ChatRequest into the provider-specific
@@ -125,7 +184,7 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 	cr := a.buildRequest(req)
 	resp, err := a.createChatCompletion(ctx, cr, req, apiKey)
 	if err != nil {
-		return nil, fmt.Errorf("%s chat: %w", a.id, err)
+		return nil, fmt.Errorf("%s chat: %w", a.id, safeUpstreamError(err))
 	}
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("%s returned no choices", a.id)
@@ -256,8 +315,7 @@ func (a *Adapter) createChatCompletionWithExtraBody(
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusBadRequest {
-		bodyBytes, _ := io.ReadAll(httpResp.Body)
-		return resp, fmt.Errorf("http %d: %s", httpResp.StatusCode, string(bodyBytes))
+		return resp, provider.NewUpstreamHTTPError(httpResp.StatusCode)
 	}
 	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
 		return resp, fmt.Errorf("decode response: %w", err)
@@ -268,9 +326,9 @@ func (a *Adapter) createChatCompletionWithExtraBody(
 func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, apiKey string) (<-chan provider.StreamEvent, error) {
 	cr := a.buildRequest(req)
 	cr.Stream = true
-	stream, err := a.client(apiKey).CreateChatCompletionStream(ctx, cr)
+	stream, err := a.clientWithExtraBody(apiKey, a.extraBodyForRequest(req)).CreateChatCompletionStream(ctx, cr)
 	if err != nil {
-		return nil, fmt.Errorf("%s stream: %w", a.id, err)
+		return nil, fmt.Errorf("%s stream: %w", a.id, safeUpstreamError(err))
 	}
 
 	events := make(chan provider.StreamEvent, 64)
@@ -284,7 +342,7 @@ func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, api
 				return
 			}
 			if err != nil {
-				events <- provider.StreamEvent{Error: fmt.Errorf("%s stream recv: %w", id, err)}
+				events <- provider.StreamEvent{Error: fmt.Errorf("%s stream recv: %w", id, safeUpstreamError(err))}
 				return
 			}
 			if len(chunk.Choices) > 0 {
@@ -331,6 +389,16 @@ func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, api
 		}
 	}()
 	return events, nil
+}
+
+// safeUpstreamError converts SDK errors into a status-only form before they
+// cross the adapter boundary, preventing provider response text from leaking.
+func safeUpstreamError(err error) error {
+	var apiError *goopenai.APIError
+	if errors.As(err, &apiError) && apiError.HTTPStatusCode > 0 {
+		return provider.NewUpstreamHTTPError(apiError.HTTPStatusCode)
+	}
+	return err
 }
 
 // ListModels returns the profile's configured models. We deliberately do not

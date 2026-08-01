@@ -215,6 +215,45 @@ describe("chatApi.sendMessageStream", () => {
 		expectUserSystemContext(userSystemContext);
 	});
 
+	it("sends an explicit disabled-reasoning control in the stream request", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			sseResponse([
+				{
+					event: "error",
+					data: { code: "test_end", message: "stop fixture" },
+				},
+			]),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await chatApi.sendMessageStream(
+			"c1",
+			"hello",
+			"key",
+			{
+				onDelta: vi.fn(),
+				onDone: vi.fn(),
+				onError: vi.fn(),
+			},
+			undefined,
+			false,
+			undefined,
+			{ disable_reasoning: true },
+		);
+
+		const request = fetchMock.mock.calls[0][1] as RequestInit;
+		const { user_system_context: userSystemContext, ...body } = JSON.parse(
+			String(request.body),
+		);
+		// The explicit false state must survive JSON serialization to the Gateway.
+		expect(body).toEqual({
+			content: "hello",
+			stream: true,
+			disable_reasoning: true,
+		});
+		expectUserSystemContext(userSystemContext);
+	});
+
 	it("sends the replaced user message id for inline edits", async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			sseResponse([

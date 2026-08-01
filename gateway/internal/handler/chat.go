@@ -73,6 +73,7 @@ type SendMessageRequest struct {
 	TopLogprobs         int                `json:"top_logprobs"`
 	JSONMode            bool               `json:"json_mode"`
 	ReasoningEffort     string             `json:"reasoning_effort"`
+	DisableReasoning    bool               `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
 	ThinkingBudget      int                `json:"thinking_budget"`
 	ContextSummary      string             `json:"context_summary"`
 	ContextKeepRecent   int                `json:"context_keep_recent"`
@@ -351,8 +352,13 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		providerDuration,
 		chatResp.FinishReason,
 	)
+	reasoningContent := chatResp.ReasoningContent
+	// Do not persist reasoning from providers that ignore the explicit off control.
+	if chatReq.DisableReasoning {
+		reasoningContent = ""
+	}
 	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed",
-		assistantForTurn(chatResp.Content, chatResp.ReasoningContent, initialToolCalls, metrics))
+		assistantForTurn(chatResp.Content, reasoningContent, initialToolCalls, metrics))
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize chat turn")
 		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -491,6 +497,10 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				result.err = ev.Error
 				return result
 			case ev.Reasoning != nil:
+				// Treat the user setting as authoritative even if a provider emits reasoning.
+				if cr.DisableReasoning {
+					continue
+				}
 				result.reasoning += ev.Reasoning.Content
 				writeFrame("reasoning", map[string]any{
 					"content":     ev.Reasoning.Content,
@@ -521,6 +531,15 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			}
 		}
 		result.toolCalls = agg.toInputs()
+		if len(result.toolCalls) == 0 {
+			result.toolCalls = parseDSMLToolCalls(result.content, cr.Tools, round)
+			for index := range result.toolCalls {
+				toolCall := result.toolCalls[index]
+				writeFrame("tool_call", provider.ToolCallEvent{
+					Index: index, ID: toolCall.ID, Name: toolCall.Name, Arguments: toolCall.Arguments,
+				})
+			}
+		}
 		flushContent(result.toolCalls)
 		if result.usageSeen {
 			writeFrame("usage", map[string]any{
@@ -599,7 +618,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			if errors.Is(result.err, context.Canceled) || ctx.Err() != nil {
 				finalizeError("stopped", "stopped", "Generation stopped", "cancelled")
 			} else {
-				finalizeError("failed", "provider_error", "Provider stream failed", "error")
+				code, message := providerErrorResponse(result.err)
+				finalizeError("failed", code, message, "error")
 			}
 			return
 		}
@@ -809,6 +829,7 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 		TopLogprobs:         prev.TopLogprobs,
 		JSONMode:            prev.JSONMode,
 		ReasoningEffort:     prev.ReasoningEffort,
+		DisableReasoning:    prev.DisableReasoning,
 		ThinkingBudget:      prev.ThinkingBudget,
 		SystemPrompt:        followupSystemPrompt,
 		Messages:            messages,
@@ -891,8 +912,94 @@ var dsmlToolCallMarkers = []protocolBlockMarkers{
 	{start: "<|DSML|><|tool_calls|>", end: "</|tool_calls>"},
 	{start: "<|DSML|tool_calls>", end: "<|/DSML|tool_calls>"},
 	{start: "<|DSML|tool_calls>", end: "<|DSML|/tool_calls>"},
+	{start: "<|DSML|tool_calls>", end: "</|DSML|tool_calls>"},
+	{start: "<||DSML||tool_calls>", end: "</||DSML||tool_calls>"},
 	{start: "<\uFF5CDSML\uFF5Ctool_calls>", end: "<\uFF5C/DSML\uFF5Ctool_calls>"},
 	{start: "<\uFF5CDSML\uFF5Ctool_calls>", end: "<\uFF5CDSML\uFF5C/tool_calls>"},
+	{start: "<\uFF5CDSML\uFF5Ctool_calls>", end: "</\uFF5CDSML\uFF5Ctool_calls>"},
+	{start: "<\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>", end: "</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>"},
+}
+
+var (
+	dsmlInvokePattern = regexp.MustCompile(
+		`(?s)<\|{1,2}(?:(?:DSML\|{1,2})(?:><\|{1,2})?)?invoke\s+name="([^"]+)"\s*>(.*?)(?:</\|{1,2}invoke>|</\|{1,2}DSML\|{1,2}invoke>|<\|{1,2}/DSML\|{1,2}invoke>|<\|{1,2}DSML\|{1,2}/invoke>)`,
+	)
+	dsmlParameterPattern = regexp.MustCompile(
+		`(?s)<\|{1,2}(?:(?:DSML\|{1,2})(?:><\|{1,2})?)?parameter\s+([^>]*)>(.*?)(?:</\|{1,2}DSML\|{1,2}>|</\|{1,2}parameter>|</\|{1,2}DSML\|{1,2}parameter>|<\|{1,2}/DSML\|{1,2}parameter>|<\|{1,2}DSML\|{1,2}/parameter>)`,
+	)
+	dsmlNameAttributePattern   = regexp.MustCompile(`(?:^|\s)name="([^"]+)"`)
+	dsmlStringAttributePattern = regexp.MustCompile(`(?:^|\s)string="true"(?:\s|$)`)
+)
+
+// parseDSMLToolCalls recovers tool calls from gateways that place DeepSeek's
+// text protocol in content instead of returning OpenAI-compatible tool_calls.
+// Restricting names to the request's registered tools keeps model-authored
+// prose from becoming an executable capability.
+func parseDSMLToolCalls(content string, tools []provider.Tool, round int) []engine.ToolCallInput {
+	normalized := strings.ReplaceAll(content, "\uFF5C", "|")
+	if !hasCompleteDSMLToolBlock(normalized) {
+		return nil
+	}
+
+	allowed := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		if tool.Function != nil {
+			allowed[tool.Function.Name] = struct{}{}
+		}
+	}
+
+	matches := dsmlInvokePattern.FindAllStringSubmatch(normalized, -1)
+	calls := make([]engine.ToolCallInput, 0, len(matches))
+	for _, match := range matches {
+		name := strings.TrimSpace(match[1])
+		if _, ok := allowed[name]; !ok {
+			continue
+		}
+
+		arguments := make(map[string]any)
+		for _, parameter := range dsmlParameterPattern.FindAllStringSubmatch(match[2], -1) {
+			nameMatch := dsmlNameAttributePattern.FindStringSubmatch(parameter[1])
+			if len(nameMatch) == 0 {
+				continue
+			}
+			value := strings.TrimSpace(parameter[2])
+			if dsmlStringAttributePattern.MatchString(parameter[1]) {
+				arguments[nameMatch[1]] = value
+				continue
+			}
+			var decoded any
+			if json.Unmarshal([]byte(value), &decoded) == nil {
+				arguments[nameMatch[1]] = decoded
+			} else {
+				arguments[nameMatch[1]] = value
+			}
+		}
+		encoded, err := json.Marshal(arguments)
+		if err != nil {
+			continue
+		}
+		calls = append(calls, engine.ToolCallInput{
+			ID:        fmt.Sprintf("call_%d_%d", round, len(calls)),
+			Name:      name,
+			Arguments: string(encoded),
+			Status:    "pending",
+		})
+	}
+	return calls
+}
+
+// hasCompleteDSMLToolBlock rejects partial streaming fragments so they remain
+// ordinary content until the provider has supplied a complete protocol block.
+func hasCompleteDSMLToolBlock(content string) bool {
+	for _, markers := range dsmlToolCallMarkers {
+		start := strings.ReplaceAll(markers.start, "\uFF5C", "|")
+		end := strings.ReplaceAll(markers.end, "\uFF5C", "|")
+		startIndex := strings.Index(content, start)
+		if startIndex >= 0 && strings.Contains(content[startIndex+len(start):], end) {
+			return true
+		}
+	}
+	return false
 }
 
 // protocolStreamBuffer delays only text that could begin a DSML tool-call
@@ -1367,7 +1474,13 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 		TopLogprobs:         req.TopLogprobs,
 		JSONMode:            req.JSONMode,
 		ReasoningEffort:     req.ReasoningEffort,
+		DisableReasoning:    req.DisableReasoning,
 		ThinkingBudget:      req.ThinkingBudget,
+	}
+	// The explicit off state wins over stale enable controls from older clients.
+	if cr.DisableReasoning {
+		cr.ReasoningEffort = ""
+		cr.ThinkingBudget = 0
 	}
 	if cr.MaxTokens == 0 {
 		cr.MaxTokens = 4096

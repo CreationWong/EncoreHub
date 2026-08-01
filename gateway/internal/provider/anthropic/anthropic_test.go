@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -58,6 +59,14 @@ func TestDecodeStreamLine_TextDelta(t *testing.T) {
 	}
 	if out[0].Delta.Content != "Hello" {
 		t.Fatalf("expected Hello, got %q", out[0].Delta.Content)
+	}
+}
+
+func TestDecodeStreamLine_ContentBlockStopDoesNotEmitEmptyToolCall(t *testing.T) {
+	// Block boundaries carry no tool identity or arguments and must stay internal.
+	line := `data: {"type":"content_block_stop","index":1}`
+	if out := decodeStreamLine(line); out != nil {
+		t.Fatalf("unexpected events = %#v", out)
 	}
 }
 
@@ -179,5 +188,55 @@ func TestBuildRequest_ExplicitSystemPromptWinsOverSystemMessage(t *testing.T) {
 	body := buildRequest(req, false)
 	if body.System != "explicit" {
 		t.Fatalf("explicit SystemPrompt should win, got %q", body.System)
+	}
+}
+
+func TestBuildRequest_MapsToolsAndExecutedResultsToAnthropicBlocks(t *testing.T) {
+	req := &provider.ChatRequest{
+		Tools: []provider.Tool{{
+			Type: "function",
+			Function: &provider.FunctionDefinition{
+				Name: "web_search", Description: "Search the web", Parameters: map[string]any{"type": "object"},
+			},
+		}},
+		Messages: []provider.Message{
+			{Role: "assistant", ToolCalls: []provider.ToolCallMessage{{
+				ID: "call_0", Name: "web_search", Arguments: `{"query":"nginx"}`,
+			}}},
+			{Role: "tool", ToolCallID: "call_0", Content: "search result"},
+		},
+	}
+
+	encoded, err := json.Marshal(buildRequest(req, true))
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	tools, _ := payload["tools"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "web_search" {
+		t.Fatalf("tools = %#v", payload["tools"])
+	}
+	messages := payload["messages"].([]any)
+	// Anthropic represents the model call and its result as typed content blocks.
+	assistantBlocks := messages[0].(map[string]any)["content"].([]any)
+	resultBlocks := messages[1].(map[string]any)["content"].([]any)
+	if assistantBlocks[0].(map[string]any)["type"] != "tool_use" ||
+		resultBlocks[0].(map[string]any)["type"] != "tool_result" ||
+		messages[1].(map[string]any)["role"] != "user" {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
+func TestBuildRequest_ExplicitlyDisablesThinking(t *testing.T) {
+	body := buildRequest(&provider.ChatRequest{
+		Model: "deepseek/deepseek-v4-flash", DisableReasoning: true, ThinkingBudget: 2048,
+	}, true)
+
+	// An explicit off switch must take precedence over any stale positive budget.
+	if body.Thinking == nil || body.Thinking.Type != "disabled" || body.Thinking.BudgetTokens != 0 {
+		t.Fatalf("thinking config = %#v", body.Thinking)
 	}
 }

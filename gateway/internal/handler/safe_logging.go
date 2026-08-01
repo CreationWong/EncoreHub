@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var upstreamHTTPStatusPattern = regexp.MustCompile(`(?i)\bhttp(?:\s+status)?\s+([1-5][0-9]{2})\b`)
+var upstreamHTTPStatusPattern = regexp.MustCompile(`(?i)\b(?:http(?:\s+status)?|status(?:\s+code)?)\s*:?\s*([1-5][0-9]{2})\b`)
 
 type logRequestIDKey struct{}
 
@@ -82,6 +83,9 @@ func classifyExternalError(err error) string {
 }
 
 func upstreamHTTPStatus(err error) int {
+	if status := provider.UpstreamHTTPStatus(err); status != 0 {
+		return status
+	}
 	match := upstreamHTTPStatusPattern.FindStringSubmatch(err.Error())
 	if len(match) != 2 {
 		return 0
@@ -91,6 +95,17 @@ func upstreamHTTPStatus(err error) int {
 		return 0
 	}
 	return status
+}
+
+// providerErrorResponse exposes only fixed, actionable messages derived from
+// HTTP status codes; provider response text may contain secrets or prompts.
+func providerErrorResponse(err error) (string, string) {
+	switch upstreamHTTPStatus(err) {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return "provider_authentication_failed", "Provider authentication failed. Check the API key."
+	default:
+		return "provider_error", "Provider stream failed"
+	}
 }
 
 func logToolLoopFollowup(req *provider.ChatRequest, round int) {
