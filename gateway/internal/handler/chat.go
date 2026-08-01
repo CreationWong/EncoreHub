@@ -69,9 +69,13 @@ type SendMessageRequest struct {
 	PresencePenalty     float32            `json:"presence_penalty"`
 	Stop                []string           `json:"stop"`
 	Seed                *int               `json:"seed"`
+	Logprobs            bool               `json:"logprobs"`
+	TopLogprobs         int                `json:"top_logprobs"`
 	JSONMode            bool               `json:"json_mode"`
 	ReasoningEffort     string             `json:"reasoning_effort"`
 	ThinkingBudget      int                `json:"thinking_budget"`
+	ContextSummary      string             `json:"context_summary"`
+	ContextKeepRecent   int                `json:"context_keep_recent"`
 	ReplaceMessageID    string             `json:"replace_message_id"`
 	UserSystemContext   *UserSystemContext `json:"user_system_context"`
 }
@@ -801,6 +805,8 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 		PresencePenalty:     prev.PresencePenalty,
 		Stop:                prev.Stop,
 		Seed:                prev.Seed,
+		Logprobs:            prev.Logprobs,
+		TopLogprobs:         prev.TopLogprobs,
 		JSONMode:            prev.JSONMode,
 		ReasoningEffort:     prev.ReasoningEffort,
 		ThinkingBudget:      prev.ThinkingBudget,
@@ -1170,6 +1176,12 @@ func validateChatRequest(req SendMessageRequest) error {
 	if req.ThinkingBudget < 0 {
 		return fmt.Errorf("thinking_budget cannot be negative")
 	}
+	if req.TopLogprobs < 0 || req.TopLogprobs > 20 {
+		return fmt.Errorf("top_logprobs must be between 0 and 20")
+	}
+	if req.ContextKeepRecent < 0 || req.ContextKeepRecent > 1000 {
+		return fmt.Errorf("context_keep_recent must be between 0 and 1000")
+	}
 	if req.FrequencyPenalty < -2 || req.FrequencyPenalty > 2 ||
 		req.PresencePenalty < -2 || req.PresencePenalty > 2 {
 		return fmt.Errorf("penalties must be between -2 and 2")
@@ -1230,6 +1242,7 @@ const (
 	promptSectionCharacter   = "CHARACTER_CONTENT_UNTRUSTED"
 	promptSectionSkills      = "SKILL_INSTRUCTIONS"
 	promptSectionContext     = "MEMORY_KNOWLEDGE_CONTEXT"
+	promptSectionCompaction  = "COMPACTED_CONVERSATION_CONTEXT"
 	promptSectionTools       = "TOOL_INSTRUCTIONS"
 )
 
@@ -1238,6 +1251,7 @@ type promptContext struct {
 	Memory      string
 	Knowledge   string
 	ToolResults string
+	Compaction  string
 }
 
 func promptSection(name, content string) string {
@@ -1316,6 +1330,7 @@ func composeChatSystemPrompt(
 		promptSectionContext,
 		strings.TrimSpace(context.Memory+"\n\n"+context.Knowledge+"\n\n"+context.ToolResults),
 	)
+	appendPromptSection(&builder, promptSectionCompaction, context.Compaction)
 	appendPromptSection(&builder, promptSectionTools, toolInstructions)
 	return builder.String()
 }
@@ -1348,6 +1363,8 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 		PresencePenalty:     req.PresencePenalty,
 		Stop:                req.Stop,
 		Seed:                req.Seed,
+		Logprobs:            req.Logprobs,
+		TopLogprobs:         req.TopLogprobs,
 		JSONMode:            req.JSONMode,
 		ReasoningEffort:     req.ReasoningEffort,
 		ThinkingBudget:      req.ThinkingBudget,
@@ -1362,6 +1379,7 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	if context.ToolResults != "" {
 		toolInstructions = strings.TrimSpace(toolInstructions + "\n\n" + preexecutedToolPrompt)
 	}
+	context.Compaction = strings.TrimSpace(req.ContextSummary)
 	cr.SystemPrompt = composeChatSystemPrompt(
 		conv.CharacterSnapshot,
 		context,
@@ -1379,7 +1397,18 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	}
 	cr.Tools = tools
 
-	for _, msg := range conv.Messages {
+	history := conv.Messages
+	if context.Compaction != "" {
+		keepRecent := req.ContextKeepRecent
+		if keepRecent == 0 {
+			keepRecent = 6
+		}
+		// Compaction affects only provider input; Engine remains the source of the full transcript.
+		if len(history) > keepRecent {
+			history = history[len(history)-keepRecent:]
+		}
+	}
+	for _, msg := range history {
 		cr.Messages = append(cr.Messages, provider.Message{
 			Role:    msg.Role,
 			Content: msg.Content,

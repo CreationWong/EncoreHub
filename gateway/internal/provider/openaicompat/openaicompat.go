@@ -80,6 +80,8 @@ func (a *Adapter) buildRequest(req *provider.ChatRequest) goopenai.ChatCompletio
 		PresencePenalty:     req.PresencePenalty,
 		Stop:                req.Stop,
 		Seed:                req.Seed,
+		LogProbs:            req.Logprobs,
+		TopLogProbs:         req.TopLogprobs,
 	}
 	if req.JSONMode {
 		cr.ResponseFormat = &goopenai.ChatCompletionResponseFormat{
