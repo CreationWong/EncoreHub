@@ -157,11 +157,13 @@ function deepThinkingRequest(
     modelId: string,
     enabled: boolean,
 ): DeepThinkingRequest | undefined {
-    if (!enabled) return undefined;
     const profiles = useProviderStore.getState().profiles;
     if (!modelHasCapability(profiles, providerId, modelId, "reasoning")) {
         return undefined;
     }
+    // Reasoning-capable gateways may default to thinking unless the request
+    // distinguishes an explicit off state from an unavailable control.
+    if (!enabled) return {disable_reasoning: true};
     const profile = profiles.find((item) => item.id === providerId);
     return profile?.protocol === "anthropic"
         ? {thinking_budget: 2048}

@@ -543,6 +543,30 @@ func TestSendMessage_ProviderFailurePersistsPartialFailedTurn(t *testing.T) {
 	}
 }
 
+func TestSendMessage_ProviderAuthenticationFailureReturnsActionableSafeError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(context.Context, *provider.ChatRequest, int) (<-chan provider.StreamEvent, error) {
+			// Adapters reduce upstream failures to a status-only error before the
+			// handler selects a safe, actionable client message.
+			return nil, fmt.Errorf("deepseek stream: %w", provider.NewUpstreamHTTPError(http.StatusUnauthorized))
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	var payload chatErrorPayload
+	decodeSSEEvent(t, recorder.Body.String(), "error", &payload)
+	if payload.Code != "provider_authentication_failed" || payload.Message != "Provider authentication failed. Check the API key." {
+		t.Fatalf("unexpected authentication error payload: %+v", payload)
+	}
+	if strings.Contains(recorder.Body.String(), logCanary) {
+		t.Fatalf("provider response leaked into SSE: %s", recorder.Body.String())
+	}
+}
+
 func TestSendMessage_ProviderFailureWithoutOutputDoesNotCreateAssistant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &chatEngineStub{}
@@ -673,6 +697,44 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 	}
 	if len(requests[0].Assistant.ToolCalls) != 1 || requests[0].Assistant.ToolCalls[0].Status != "success" {
 		t.Fatalf("executed tool call was not persisted authoritatively: %+v", requests[0].Assistant.ToolCalls)
+	}
+}
+
+func TestSendMessage_DisabledReasoningSuppressesUnexpectedProviderThinking(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			if !request.DisableReasoning {
+				t.Fatal("provider request did not disable reasoning")
+			}
+			// Some compatible gateways may ignore the request control; the client
+			// still must not expose or persist reasoning while the UI switch is off.
+			return streamOf(
+				provider.StreamEvent{Reasoning: &provider.ReasoningEvent{Content: "hidden thought"}},
+				provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer", FinishReason: "stop"}},
+			), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"hello","provider":"test","model":"model-test","stream":true,"disable_reasoning":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if strings.Contains(recorder.Body.String(), "event: reasoning") {
+		t.Fatalf("disabled reasoning leaked into stream: %s", recorder.Body.String())
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Assistant == nil || requests[0].Assistant.Reasoning != "" {
+		t.Fatalf("disabled reasoning was persisted: %+v", requests)
 	}
 }
 

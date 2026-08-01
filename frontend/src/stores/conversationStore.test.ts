@@ -966,6 +966,59 @@ describe("sendMessage", () => {
         });
     });
 
+    it("explicitly disables provider reasoning when deep thinking is off", async () => {
+        sendMessageStream.mockImplementation(
+            async (
+                _id: string,
+                _content: string,
+                _key: string | undefined,
+                callbacks: StreamCallbacks,
+            ) => callbacks.onDone(donePayload("done")),
+        );
+        useSettingsStore.setState({deepThinking: false});
+        useProviderStore.setState({
+            loaded: true,
+            profiles: [
+                {
+                    id: "zenmux-ai",
+                    name: "ZenMux",
+                    protocol: "anthropic",
+                    base_url: "https://example.com/anthropic/v1",
+                    models: ["deepseek/deepseek-v4-flash"],
+                    model_configs: [
+                        {
+                            id: "deepseek/deepseek-v4-flash",
+                            capabilities: ["reasoning"],
+                            streaming: true,
+                        },
+                    ],
+                    enabled: true,
+                    builtin: false,
+                },
+            ],
+        });
+        seedConversation("reasoning-off");
+        useConversationStore.setState((state) => ({
+            activeId: "reasoning-off",
+            conversations: state.conversations.map((conversation) =>
+                conversation.id === "reasoning-off"
+                    ? {
+                        ...conversation,
+                        provider: "zenmux-ai",
+                        model: "deepseek/deepseek-v4-flash",
+                    }
+                    : conversation,
+            ),
+        }));
+
+        await useConversationStore.getState().sendMessage("without thinking");
+
+        // Omitting the control lets reasoning providers choose their enabled default.
+        expect(sendMessageStream.mock.calls[0][7]).toEqual({
+            disable_reasoning: true,
+        });
+    });
+
     it("does not attach the external search tool to a native web model", async () => {
         sendMessageStream.mockImplementation(
             async (

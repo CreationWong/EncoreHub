@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -245,6 +246,24 @@ func TestBuildChatRequest_PropagatesDeepThinkingControls(t *testing.T) {
 	}})
 	if cloned == nil || cloned.ReasoningEffort != "high" || cloned.ThinkingBudget != 2048 {
 		t.Fatalf("tool follow-up lost deep-thinking controls: %+v", cloned)
+	}
+}
+
+func TestBuildChatRequest_PropagatesDisabledReasoning(t *testing.T) {
+	var req SendMessageRequest
+	if err := json.Unmarshal([]byte(`{"content":"hello","disable_reasoning":true}`), &req); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+
+	request := buildChatRequest(&engine.ConversationDetail{}, req, promptContext{}, nil, nil)
+	if !request.DisableReasoning {
+		t.Fatalf("disabled reasoning was not propagated: %+v", request)
+	}
+	cloned := cloneRequestForNextRound(request, []engine.ToolCallInput{{
+		ID: "call-1", Name: "web_search", Arguments: `{}`, Result: "ok",
+	}})
+	if cloned == nil || !cloned.DisableReasoning {
+		t.Fatalf("tool follow-up lost disabled reasoning: %+v", cloned)
 	}
 }
 

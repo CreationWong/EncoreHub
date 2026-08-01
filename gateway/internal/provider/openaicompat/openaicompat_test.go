@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
@@ -160,6 +161,62 @@ func TestExtraBodyForRequest_DisablesDeepSeekThinkingWithoutChangingModel(t *tes
 	}
 	if thinking["type"] != "disabled" {
 		t.Fatalf("thinking.type = %q", thinking["type"])
+	}
+}
+
+func TestChatStream_SendsDisabledThinkingToDeepSeek(t *testing.T) {
+	requestBody := make(chan map[string]any, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requestBody <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter := New(provider.ProviderProfile{ID: "deepseek", BaseURL: upstream.URL + "/v1"})
+	events, err := adapter.ChatStream(context.Background(), &provider.ChatRequest{
+		Model: "deepseek-v4-flash", DisableReasoning: true,
+	}, "secret")
+	if err != nil {
+		t.Fatalf("start stream: %v", err)
+	}
+	// Drain the provider stream so the SDK completes response cleanup.
+	for range events {
+	}
+
+	body := <-requestBody
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking control missing from stream request: %#v", body)
+	}
+}
+
+func TestChatStream_HTTPFailureExposesStatusWithoutProviderBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"private-provider-response"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter := New(provider.ProviderProfile{ID: "deepseek", BaseURL: upstream.URL + "/v1"})
+	_, err := adapter.ChatStream(context.Background(), &provider.ChatRequest{
+		Model: "deepseek-v4-flash", DisableReasoning: true,
+	}, "secret")
+	if err == nil {
+		t.Fatal("expected upstream authentication failure")
+	}
+	// A stable status marker supports safe user-facing classification without
+	// retaining provider response bodies that may contain sensitive content.
+	if !strings.Contains(strings.ToLower(err.Error()), "http 401") {
+		t.Fatalf("HTTP status missing from error: %q", err)
+	}
+	if strings.Contains(err.Error(), "private-provider-response") {
+		t.Fatalf("provider response leaked into error: %q", err)
 	}
 }
 

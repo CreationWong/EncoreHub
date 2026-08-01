@@ -229,3 +229,14 @@ func TestBuildRequest_MapsToolsAndExecutedResultsToAnthropicBlocks(t *testing.T)
 		t.Fatalf("messages = %#v", messages)
 	}
 }
+
+func TestBuildRequest_ExplicitlyDisablesThinking(t *testing.T) {
+	body := buildRequest(&provider.ChatRequest{
+		Model: "deepseek/deepseek-v4-flash", DisableReasoning: true, ThinkingBudget: 2048,
+	}, true)
+
+	// An explicit off switch must take precedence over any stale positive budget.
+	if body.Thinking == nil || body.Thinking.Type != "disabled" || body.Thinking.BudgetTokens != 0 {
+		t.Fatalf("thinking config = %#v", body.Thinking)
+	}
+}

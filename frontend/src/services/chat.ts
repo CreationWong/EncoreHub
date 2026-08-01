@@ -33,6 +33,8 @@ export interface StreamUsage {
 export interface DeepThinkingRequest {
     reasoning_effort?: "low" | "medium" | "high";
     thinking_budget?: number;
+    /** Explicitly override providers whose reasoning mode is enabled by default. */
+    disable_reasoning?: boolean;
 }
 
 export interface ChatTurnOptions {

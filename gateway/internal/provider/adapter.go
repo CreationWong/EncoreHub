@@ -6,7 +6,33 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 )
+
+// UpstreamHTTPError carries only the provider status code across adapter
+// boundaries so callers can classify failures without exposing response text.
+type UpstreamHTTPError struct {
+	StatusCode int
+}
+
+func (err *UpstreamHTTPError) Error() string {
+	return fmt.Sprintf("provider returned HTTP %d", err.StatusCode)
+}
+
+// NewUpstreamHTTPError creates the sanitized error shared by provider adapters.
+func NewUpstreamHTTPError(statusCode int) error {
+	return &UpstreamHTTPError{StatusCode: statusCode}
+}
+
+// UpstreamHTTPStatus extracts a sanitized status through any wrapping errors.
+func UpstreamHTTPStatus(err error) int {
+	var upstream *UpstreamHTTPError
+	if errors.As(err, &upstream) {
+		return upstream.StatusCode
+	}
+	return 0
+}
 
 // ToolCallMessage is a lightweight tool-call stub embedded inside an assistant
 // Message. The full ToolCall type used by adapters is separate; this exists

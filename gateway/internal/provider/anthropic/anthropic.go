@@ -341,8 +341,11 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 		Messages:      make([]anthropicMessage, 0, len(req.Messages)),
 	}
 
-	// Map thinking budget to Anthropic's thinking config.
-	if req.ThinkingBudget >= 1024 {
+	// An explicit off state is required for compatible gateways that enable
+	// reasoning by default; it takes precedence over a stale positive budget.
+	if req.DisableReasoning {
+		body.Thinking = &anthropicThinking{Type: "disabled"}
+	} else if req.ThinkingBudget >= 1024 {
 		body.Thinking = &anthropicThinking{
 			Type:         "enabled",
 			BudgetTokens: req.ThinkingBudget,

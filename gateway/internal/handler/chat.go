@@ -73,6 +73,7 @@ type SendMessageRequest struct {
 	TopLogprobs         int                `json:"top_logprobs"`
 	JSONMode            bool               `json:"json_mode"`
 	ReasoningEffort     string             `json:"reasoning_effort"`
+	DisableReasoning    bool               `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
 	ThinkingBudget      int                `json:"thinking_budget"`
 	ContextSummary      string             `json:"context_summary"`
 	ContextKeepRecent   int                `json:"context_keep_recent"`
@@ -351,8 +352,13 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		providerDuration,
 		chatResp.FinishReason,
 	)
+	reasoningContent := chatResp.ReasoningContent
+	// Do not persist reasoning from providers that ignore the explicit off control.
+	if chatReq.DisableReasoning {
+		reasoningContent = ""
+	}
 	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed",
-		assistantForTurn(chatResp.Content, chatResp.ReasoningContent, initialToolCalls, metrics))
+		assistantForTurn(chatResp.Content, reasoningContent, initialToolCalls, metrics))
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize chat turn")
 		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -491,6 +497,10 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				result.err = ev.Error
 				return result
 			case ev.Reasoning != nil:
+				// Treat the user setting as authoritative even if a provider emits reasoning.
+				if cr.DisableReasoning {
+					continue
+				}
 				result.reasoning += ev.Reasoning.Content
 				writeFrame("reasoning", map[string]any{
 					"content":     ev.Reasoning.Content,
@@ -608,7 +618,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			if errors.Is(result.err, context.Canceled) || ctx.Err() != nil {
 				finalizeError("stopped", "stopped", "Generation stopped", "cancelled")
 			} else {
-				finalizeError("failed", "provider_error", "Provider stream failed", "error")
+				code, message := providerErrorResponse(result.err)
+				finalizeError("failed", code, message, "error")
 			}
 			return
 		}
@@ -818,6 +829,7 @@ func cloneRequestForNextRound(prev *provider.ChatRequest, toolCalls []engine.Too
 		TopLogprobs:         prev.TopLogprobs,
 		JSONMode:            prev.JSONMode,
 		ReasoningEffort:     prev.ReasoningEffort,
+		DisableReasoning:    prev.DisableReasoning,
 		ThinkingBudget:      prev.ThinkingBudget,
 		SystemPrompt:        followupSystemPrompt,
 		Messages:            messages,
@@ -1462,7 +1474,13 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 		TopLogprobs:         req.TopLogprobs,
 		JSONMode:            req.JSONMode,
 		ReasoningEffort:     req.ReasoningEffort,
+		DisableReasoning:    req.DisableReasoning,
 		ThinkingBudget:      req.ThinkingBudget,
+	}
+	// The explicit off state wins over stale enable controls from older clients.
+	if cr.DisableReasoning {
+		cr.ReasoningEffort = ""
+		cr.ThinkingBudget = 0
 	}
 	if cr.MaxTokens == 0 {
 		cr.MaxTokens = 4096
