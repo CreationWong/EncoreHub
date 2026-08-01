@@ -54,15 +54,18 @@ const DSML_TOOL_CALL_MARKERS = [
 	["<|DSML|><|tool_calls|>", "</|tool_calls>"],
 	["<|DSML|tool_calls>", "<|/DSML|tool_calls>"],
 	["<|DSML|tool_calls>", "<|DSML|/tool_calls>"],
+	["<|DSML|tool_calls>", "</|DSML|tool_calls>"],
+	["<||DSML||tool_calls>", "</||DSML||tool_calls>"],
 	["<｜DSML｜tool_calls>", "<｜/DSML｜tool_calls>"],
 	["<｜DSML｜tool_calls>", "<｜DSML｜/tool_calls>"],
+	["<｜DSML｜tool_calls>", "</｜DSML｜tool_calls>"],
+	["<｜｜DSML｜｜tool_calls>", "</｜｜DSML｜｜tool_calls>"],
 ] as const;
 
-function cleanDuplicatedToolProtocol(
-	content: string,
-	toolCalls: ToolCall[],
-): string {
-	if (toolCalls.length === 0 || !content.includes("DSML")) return content;
+// Complete DSML blocks are provider control data, including legacy messages
+// persisted before the Gateway could recover their structured tool calls.
+function cleanToolProtocol(content: string): string {
+	if (!content.includes("DSML")) return content;
 
 	let cleaned = content;
 	while (true) {
@@ -95,7 +98,7 @@ export function normalizeMessage(message: MessagePayload): Message {
 	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
 	return {
 		...message,
-		content: cleanDuplicatedToolProtocol(message.content, toolCalls),
+		content: cleanToolProtocol(message.content),
 		tool_calls: toolCalls,
 	};
 }

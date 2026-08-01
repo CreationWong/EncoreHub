@@ -63,7 +63,25 @@ func (a *Adapter) ID() string {
 
 type anthropicMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// anthropicMessageContent represents the typed blocks required for native
+// tool calls and results in the Messages API.
+type anthropicMessageContent struct {
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
+}
+
+type anthropicToolDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type anthropicThinking struct {
@@ -72,16 +90,17 @@ type anthropicThinking struct {
 }
 
 type anthropicReq struct {
-	Model         string             `json:"model"`
-	Messages      []anthropicMessage `json:"messages"`
-	System        string             `json:"system,omitempty"`
-	MaxTokens     int                `json:"max_tokens"`
-	Temperature   float32            `json:"temperature,omitempty"`
-	TopP          float32            `json:"top_p,omitempty"`
-	TopK          int                `json:"top_k,omitempty"`
-	StopSequences []string           `json:"stop_sequences,omitempty"`
-	Stream        bool               `json:"stream"`
-	Thinking      *anthropicThinking `json:"thinking,omitempty"`
+	Model         string                    `json:"model"`
+	Messages      []anthropicMessage        `json:"messages"`
+	System        string                    `json:"system,omitempty"`
+	MaxTokens     int                       `json:"max_tokens"`
+	Temperature   float32                   `json:"temperature,omitempty"`
+	TopP          float32                   `json:"top_p,omitempty"`
+	TopK          int                       `json:"top_k,omitempty"`
+	StopSequences []string                  `json:"stop_sequences,omitempty"`
+	Stream        bool                      `json:"stream"`
+	Thinking      *anthropicThinking        `json:"thinking,omitempty"`
+	Tools         []anthropicToolDefinition `json:"tools,omitempty"`
 }
 
 type anthropicContent struct {
@@ -230,12 +249,9 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 			}}
 		}
 	case "content_block_stop":
-		// Marks the end of a content block (text, thinking, or tool_use).
-		// Useful for signaling tool-call completion; we emit the index so
-		// the gateway knows this tool's argument stream is done.
-		return []provider.StreamEvent{{
-			ToolCall: &provider.ToolCallEvent{Index: ev.Index},
-		}}
+		// Arguments are complete once their deltas end; forwarding a bare
+		// block index would create an empty tool event for text and thinking.
+		return nil
 	case "content_block_delta":
 		if ev.Delta == nil {
 			return nil
@@ -332,6 +348,18 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 			BudgetTokens: req.ThinkingBudget,
 		}
 	}
+	for _, tool := range req.Tools {
+		if tool.Function == nil {
+			continue
+		}
+		schema := tool.Function.Parameters
+		if schema == nil {
+			schema = map[string]any{"type": "object"}
+		}
+		body.Tools = append(body.Tools, anthropicToolDefinition{
+			Name: tool.Function.Name, Description: tool.Function.Description, InputSchema: schema,
+		})
+	}
 
 	for _, msg := range req.Messages {
 		role := msg.Role
@@ -340,6 +368,34 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 			if body.System == "" {
 				body.System = msg.Content
 			}
+			continue
+		}
+		if role == "assistant" && len(msg.ToolCalls) > 0 {
+			blocks := make([]anthropicMessageContent, 0, len(msg.ToolCalls)+1)
+			if msg.Content != "" {
+				blocks = append(blocks, anthropicMessageContent{Type: "text", Text: msg.Content})
+			}
+			for _, toolCall := range msg.ToolCalls {
+				input := make(map[string]any)
+				if err := json.Unmarshal([]byte(toolCall.Arguments), &input); err != nil {
+					input = map[string]any{}
+				}
+				blocks = append(blocks, anthropicMessageContent{
+					Type: "tool_use", ID: toolCall.ID, Name: toolCall.Name, Input: input,
+				})
+			}
+			body.Messages = append(body.Messages, anthropicMessage{Role: "assistant", Content: blocks})
+			continue
+		}
+		if role == "tool" {
+			// Anthropic returns tool outputs as user content associated with the
+			// preceding assistant tool_use id rather than a separate tool role.
+			body.Messages = append(body.Messages, anthropicMessage{
+				Role: "user",
+				Content: []anthropicMessageContent{{
+					Type: "tool_result", ToolUseID: msg.ToolCallID, Content: msg.Content,
+				}},
+			})
 			continue
 		}
 		body.Messages = append(body.Messages, anthropicMessage{

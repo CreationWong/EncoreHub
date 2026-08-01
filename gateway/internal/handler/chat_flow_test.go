@@ -728,6 +728,76 @@ func TestSendMessage_ToolFollowupDoesNotPersistDSMLProtocolText(t *testing.T) {
 	}
 }
 
+func TestSendMessage_ExecutesTextOnlyDSMLToolCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const dsmlCall = `<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">nginx 1.26.1 vulnerabilities CVE</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>`
+
+	searchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if query := r.URL.Query().Get("query"); query != "nginx 1.26.1 vulnerabilities CVE" {
+			t.Fatalf("search query = %q", query)
+		}
+		writeTestJSON(w, http.StatusOK, map[string]any{
+			"results": []map[string]string{{
+				"title": "Population source", "url": "https://example.com/population", "snippet": "Current data",
+			}},
+		})
+	}))
+	t.Cleanup(searchServer.Close)
+
+	stub := &chatEngineStub{searchConfig: fmt.Sprintf(
+		`{"enabled":true,"provider":"custom","max_results":2,"custom":{"name":"Configured search","endpoint":%q,"query_parameter":"query","limit_parameter":"limit","results_path":"results","title_path":"title","url_path":"url","snippet_path":"snippet"}}`,
+		searchServer.URL,
+	)}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				// Some compatible gateways encode a tool request only in the text delta.
+				return streamOf(
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: dsmlCall[:24]}},
+					provider.StreamEvent{Delta: &provider.DeltaEvent{Content: dsmlCall[24:], FinishReason: "stop"}},
+				), nil
+			case 2:
+				if len(request.Messages) < 2 || len(request.Messages[len(request.Messages)-2].ToolCalls) != 1 ||
+					request.Messages[len(request.Messages)-1].Role != "tool" {
+					t.Fatalf("parsed tool call was not supplied to follow-up: %+v", request.Messages)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "The requested population data is ready.", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"hello","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"custom"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "DSML") || !strings.Contains(body, `"name":"web_search"`) {
+		t.Fatalf("text protocol was not normalized into a tool event: %s", body)
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Assistant == nil ||
+		requests[0].Assistant.Content != "The requested population data is ready." ||
+		len(requests[0].Assistant.ToolCalls) != 1 || requests[0].Assistant.ToolCalls[0].Status != "success" {
+		t.Fatalf("unexpected finalization: %+v", requests)
+	}
+}
+
 func TestSendMessage_ToolFollowupFiltersDSMLWhenProviderIgnoresPrompt(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &chatEngineStub{}

@@ -379,6 +379,35 @@ func TestToolCallAggregator_SetResultFillsPending(t *testing.T) {
 	}
 }
 
+func TestParseDSMLToolCalls_SupportsGatewayProtocolVariants(t *testing.T) {
+	tools := []provider.Tool{{
+		Type: "function",
+		Function: &provider.FunctionDefinition{
+			Name: "web_search",
+		},
+	}}
+	cases := map[string]string{
+		"segmented ASCII":           `<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">world population</|DSML|></|invoke></|tool_calls>`,
+		"compact full width":        `<｜DSML｜tool_calls><｜DSML｜invoke name="web_search"><｜DSML｜parameter name="query" string="true">world population</｜DSML｜parameter></｜DSML｜invoke></｜DSML｜tool_calls>`,
+		"double compact full width": `<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">world population</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			calls := parseDSMLToolCalls(content, tools, 2)
+			if len(calls) != 1 || calls[0].Name != "web_search" ||
+				calls[0].Arguments != `{"query":"world population"}` || calls[0].ID != "call_2_0" {
+				t.Fatalf("parsed calls = %#v", calls)
+			}
+		})
+	}
+
+	// A complete protocol block cannot grant access to an unregistered tool.
+	if calls := parseDSMLToolCalls(cases["segmented ASCII"], nil, 0); len(calls) != 0 {
+		t.Fatalf("unregistered calls = %#v", calls)
+	}
+}
+
 func TestCleanGeneratedTitle_StripsFormattingNoise(t *testing.T) {
 	cases := map[string]string{
 		`Title: "Memory Search"`: "Memory Search",

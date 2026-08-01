@@ -67,7 +67,7 @@ describe("conversation service", () => {
 
 	it("removes duplicated DSML protocol blocks from historical tool messages", async () => {
 		const dsml =
-			'<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">world population</|DSML|></|invoke></|tool_calls>';
+			'<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">world population</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>';
 		apiFetch.mockResolvedValueOnce({
 			id: "c1",
 			title: "Tool conversation",
@@ -100,6 +100,36 @@ describe("conversation service", () => {
 		expect(detail.messages[0].content).toBe(
 			"The requested population table is ready.",
 		);
+	});
+
+	it("removes complete DSML control blocks from legacy text-only messages", async () => {
+		const dsml =
+			'<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">world population</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>';
+		apiFetch.mockResolvedValueOnce({
+			id: "c1",
+			title: "Legacy tool conversation",
+			provider: "deepseek",
+			model: "deepseek-chat",
+			messages: [
+				{
+					id: "m1",
+					role: "assistant",
+					content: `I will search now.\n\n${dsml}`,
+					parent_id: null,
+					tool_calls: [],
+					status: "completed",
+					created_at: "",
+				},
+			],
+			summary: null,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const detail = await getConversation("c1");
+
+		// Ordinary prose remains visible while the provider control payload is hidden.
+		expect(detail.messages[0].content).toBe("I will search now.");
 	});
 
 	it("preserves ordinary DSML discussion without structured tool calls", async () => {
