@@ -57,6 +57,8 @@ type ChatRequest struct {
 	PresencePenalty     float32   `json:"presence_penalty,omitempty"`
 	Stop                []string  `json:"stop,omitempty"`
 	Seed                *int      `json:"seed,omitempty"`
+	Logprobs            bool      `json:"logprobs,omitempty"`
+	TopLogprobs         int       `json:"top_logprobs,omitempty"`
 	SystemPrompt        string    `json:"system_prompt,omitempty"`
 	// JSONMode enables OpenAI's JSON mode (response_format: {"type": "json_object"}).
 	// The system prompt should instruct the model to produce JSON.

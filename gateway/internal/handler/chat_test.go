@@ -128,6 +128,40 @@ func TestBuildChatRequest_PreservesMessageOrder(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequest_UsesCompactionSummaryAndRecentHistory(t *testing.T) {
+	conv := &engine.ConversationDetail{
+		Messages: []engine.Message{
+			{Role: "user", Content: "one"},
+			{Role: "assistant", Content: "two"},
+			{Role: "user", Content: "three"},
+			{Role: "assistant", Content: "four"},
+			{Role: "user", Content: "five"},
+		},
+	}
+	req := SendMessageRequest{
+		Content:           "current",
+		ContextSummary:    "Earlier decisions and constraints",
+		ContextKeepRecent: 2,
+	}
+
+	request := buildChatRequest(conv, req, promptContext{}, nil, nil)
+
+	if len(request.Messages) != 3 {
+		t.Fatalf("expected 2 retained messages plus current input, got %#v", request.Messages)
+	}
+	if request.Messages[0].Content != "four" || request.Messages[1].Content != "five" ||
+		request.Messages[2].Content != "current" {
+		t.Fatalf("unexpected compacted history: %#v", request.Messages)
+	}
+	if !strings.Contains(request.SystemPrompt, promptSectionCompaction) ||
+		!strings.Contains(request.SystemPrompt, req.ContextSummary) {
+		t.Fatalf("compaction summary missing from system prompt: %q", request.SystemPrompt)
+	}
+	if len(conv.Messages) != 5 || conv.Messages[0].Content != "one" {
+		t.Fatalf("stored history was mutated: %#v", conv.Messages)
+	}
+}
+
 func TestBuildChatRequest_EmptyHistory(t *testing.T) {
 	conv := &engine.ConversationDetail{}
 	cr := buildChatRequest(conv, SendMessageRequest{}, promptContext{}, nil, nil)
@@ -171,6 +205,7 @@ func TestComposeChatSystemPrompt_OmitsEmptyOptionalSections(t *testing.T) {
 	for _, omitted := range []string{
 		promptSectionSkills,
 		promptSectionContext,
+		promptSectionCompaction,
 		promptSectionTools,
 		promptSectionUserSystem,
 	} {
@@ -217,6 +252,17 @@ func TestValidateChatRequest_RejectsNegativeThinkingBudget(t *testing.T) {
 	err := validateChatRequest(SendMessageRequest{Content: "hello", ThinkingBudget: -1})
 	if err == nil || !strings.Contains(err.Error(), "thinking_budget") {
 		t.Fatalf("negative thinking budget error = %v", err)
+	}
+}
+
+func TestValidateChatRequest_RejectsInvalidContextControls(t *testing.T) {
+	for _, keepRecent := range []int{-1, 1001} {
+		err := validateChatRequest(SendMessageRequest{
+			Content: "hello", ContextKeepRecent: keepRecent,
+		})
+		if err == nil || !strings.Contains(err.Error(), "context_keep_recent") {
+			t.Fatalf("context_keep_recent %d error = %v", keepRecent, err)
+		}
 	}
 }
 

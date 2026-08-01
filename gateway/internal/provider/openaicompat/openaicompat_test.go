@@ -134,6 +134,16 @@ func TestToMessages_NoSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildRequest_PropagatesLogProbabilityControls(t *testing.T) {
+	request := New(provider.ProviderProfile{ID: "openai"}).buildRequest(&provider.ChatRequest{
+		Model: "gpt-test", Logprobs: true, TopLogprobs: 5,
+	})
+
+	if !request.LogProbs || request.TopLogProbs != 5 {
+		t.Fatalf("log probability controls were not propagated: %#v", request)
+	}
+}
+
 func TestExtraBodyForRequest_DisablesDeepSeekThinkingWithoutChangingModel(t *testing.T) {
 	a := New(provider.ProviderProfile{ID: "deepseek", BaseURL: "https://api.deepseek.com/v1"})
 	req := &provider.ChatRequest{Model: "deepseek-v4-flash", DisableReasoning: true}
