@@ -234,7 +234,8 @@ export default function UsagePanel() {
                     {trend.length === 0 ? <EmptyUsage/> : <div
                         className="flex h-36 items-end gap-2 border-b border-border px-2 pt-4">{trend.map(([label, value]) =>
                         <div key={label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                            <div className="flex h-28 w-full max-w-12 items-end">
+                            {/* Center constrained bars inside wider date buckets, especially when only one day is present. */}
+                            <div className="mx-auto flex h-28 w-full max-w-12 items-end">
                                 <div className="w-full rounded-t-md bg-accent/80 transition-all"
                                      style={{height: `${Math.max(5, (value.tokens / maxTokens) * 100)}%`}}
                                      title={`${formatNumber(value.tokens)} tokens`}/>

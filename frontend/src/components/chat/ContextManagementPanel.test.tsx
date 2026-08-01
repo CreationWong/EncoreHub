@@ -96,6 +96,36 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ContextManagementPanel", () => {
+    it("uses the complete retained context for the meter and preserves sub-percent precision", () => {
+        // The provider's latest output remains in the window, so it must be
+        // included alongside the latest input snapshot in every meter value.
+        useConversationStore.setState({
+            messages: [
+                message("user", "user", "question"),
+                {
+                    ...message("assistant", "assistant", "answer"),
+                    context_input_tokens: 3,
+                    context_output_tokens: 1,
+                },
+            ],
+        });
+
+        render(<ContextManagementPanel/>);
+
+        const meter = screen.getByRole("progressbar", {name: "Context usage"});
+        expect(meter.getAttribute("aria-valuenow")).toBe("4");
+        expect(screen.getByText("0.4%")).toBeDefined();
+        expect(screen.getByText("4 of 1,000 tokens")).toBeDefined();
+
+        // Unattributed request overhead needs a distinct foreground color so
+        // a non-zero share cannot disappear into the neutral progress track.
+        const otherLabel = screen.getByText("Other request data");
+        const otherTrack = otherLabel.parentElement?.nextElementSibling;
+        const otherBar = otherTrack?.firstElementChild as HTMLElement | null;
+        expect(otherBar?.style.width).toBe("25%");
+        expect(otherBar?.classList.contains("bg-text-muted")).toBe(true);
+    });
+
     it("shows context usage, compacts history, and updates advanced parameters", () => {
         render(<ContextManagementPanel/>);
 

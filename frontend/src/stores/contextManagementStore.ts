@@ -134,6 +134,16 @@ function emptyCategories(): ContextCategories {
 	return { system: 0, tools: 0, skills: 0, messages: 0, other: 0 };
 }
 
+function addToolCallEstimates(
+	categories: ContextCategories,
+	toolCalls: Message["tool_calls"],
+): void {
+	for (const toolCall of toolCalls) {
+		const serialized = `${toolCall.name}${toolCall.arguments}${toolCall.result ?? ""}`;
+		categories.tools += Math.max(1, Math.ceil(serialized.length / 2));
+	}
+}
+
 function addMessageEstimate(
 	categories: ContextCategories,
 	message: Message,
@@ -146,10 +156,7 @@ function addMessageEstimate(
 	else if (message.role === "tool") categories.tools += contentTokens;
 	else categories.messages += contentTokens;
 
-	for (const toolCall of message.tool_calls) {
-		const serialized = `${toolCall.name}${toolCall.arguments}${toolCall.result ?? ""}`;
-		categories.tools += Math.max(1, Math.ceil(serialized.length / 2));
-	}
+	addToolCallEstimates(categories, message.tool_calls);
 }
 
 function categoryTotal(categories: ContextCategories): number {
@@ -236,6 +243,9 @@ export function estimateContextUsage(
 		for (const message of messages.slice(0, latestSnapshotIndex)) {
 			addMessageEstimate(covered, message);
 		}
+		// Gateway stores earlier tool rounds on the final assistant message even
+		// though their payloads are part of the final provider request input.
+		addToolCallEstimates(covered, snapshotMessage.tool_calls);
 		categories = reconcileSnapshotCategories(covered, snapshotInputTokens);
 		categories.messages += snapshotOutputTokens;
 		const afterSnapshot = emptyCategories();
@@ -257,7 +267,11 @@ export function estimateContextUsage(
 		contextTokens = usedTokens;
     }
 
-    const percentage = limit ? Math.min(100, (usedTokens / limit) * 100) : null;
+    // Retained model output occupies the same context window as request input,
+    // so the displayed occupancy must use the complete retained token count.
+    const percentage = limit
+        ? Math.min(100, (contextTokens / limit) * 100)
+        : null;
     return {
         usedTokens,
 		contextTokens,

@@ -41,6 +41,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("UsagePanel", () => {
+    it("centers a single-day trend bar in its date bucket", () => {
+        render(<UsagePanel/>);
+
+        // A single date occupies the full chart width; center its constrained
+        // bar so the visual column stays aligned with the centered date label.
+        const barContainer = screen.getByTitle("225 tokens").parentElement;
+        expect(barContainer?.classList.contains("mx-auto")).toBe(true);
+    });
+
     it("filters request rows and clears the persisted usage log", () => {
         render(<UsagePanel/>);
 

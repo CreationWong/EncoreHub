@@ -26,6 +26,19 @@ function formatTokens(value: number): string {
     return new Intl.NumberFormat("en-US", {maximumFractionDigits: 0}).format(value);
 }
 
+function formatContextPercentage(value: number): string {
+    // Preserve useful precision near zero without implying that a non-empty
+    // context occupies no space in the model window.
+    if (value === 0) return "0%";
+    if (value < 0.01) return "<0.01%";
+    if (value < 1) {
+        return `${new Intl.NumberFormat("en-US", {
+            maximumFractionDigits: 2,
+        }).format(value)}%`;
+    }
+    return `${Math.round(value)}%`;
+}
+
 function formatCost(value: number, currency: string): string {
     return new Intl.NumberFormat("en-US", {
         style: "currency",
@@ -147,7 +160,7 @@ function ContextMeter({
                     <p className="text-2xl font-semibold tabular-nums text-text-primary">
 						{percentage == null
 							? formatTokens(used)
-							: `${Math.round(percentage)}%`}
+							: formatContextPercentage(percentage)}
                     </p>
                     <p className="text-[11px] text-text-muted">
                         {formatTokens(used)}
@@ -267,7 +280,8 @@ export default function ContextManagementPanel() {
 			label: "Other request data",
 			value: context.categories.other,
 			icon: Layers3,
-			tone: "bg-control-hover",
+			// Protocol overhead must remain distinct from the neutral progress track.
+			tone: "bg-text-muted",
 		},
     ] as const;
 
@@ -329,7 +343,7 @@ export default function ContextManagementPanel() {
                         </h2>
                         <div className="mt-4">
                             <ContextMeter
-                                used={context.usedTokens}
+                                used={context.contextTokens}
                                 limit={context.limit}
                                 percentage={context.percentage}
                             />

@@ -89,6 +89,32 @@ describe("context management calculations", () => {
 		).toBe(818);
 	});
 
+	it("classifies tool calls stored on the provider snapshot message", () => {
+		// Gateway persists all tool rounds on the final assistant message, while
+		// the provider snapshot on that same message measures the final request.
+		const assistant = measuredAssistant("assistant", 1800, 400, 1000, 100);
+		assistant.tool_calls = [
+			{
+				id: "search-1",
+				name: "web_search",
+				arguments: '{"query":"nginx vulnerabilities"}',
+				result: "search result ".repeat(20),
+				status: "success",
+			},
+		];
+
+		const usage = estimateContextUsage(
+			[message("user", "user", "question"), assistant],
+			10_000,
+		);
+
+		expect(usage.categories.tools).toBeGreaterThan(0);
+		expect(usage.categories.other).toBeLessThan(998);
+		expect(
+			Object.values(usage.categories).reduce((sum, value) => sum + value, 0),
+		).toBe(1100);
+	});
+
 	it("estimates messages added after the latest provider snapshot", () => {
 		const messages = [
 			message("user", "user", "question"),
