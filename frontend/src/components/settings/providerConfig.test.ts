@@ -7,6 +7,7 @@ import {
 	normalizeBaseUrl,
 	profileEndpoints,
 	profileModelConfigs,
+	providerApiBaseUrl,
 } from "./providerConfig";
 
 const profile: ProviderProfile = {
@@ -30,9 +31,9 @@ describe("provider URL helpers", () => {
 		expect(chatRequestPreview("anthropic", "http://127.0.0.1:9000/v1")).toBe(
 			"http://127.0.0.1:9000/v1/messages",
 		);
-		expect(modelDiscoveryPreview("https://api.example.com/v1/models")).toBe(
-			"https://api.example.com/v1/models",
-		);
+		expect(
+			modelDiscoveryPreview("openai", "https://api.example.com/v1/models"),
+		).toBe("https://api.example.com/v1/models");
 	});
 
 	it("accepts HTTP local endpoints but rejects credentials and query secrets", () => {
@@ -40,6 +41,60 @@ describe("provider URL helpers", () => {
 		expect(isValidBaseUrl("https://api.example.com/v1")).toBe(true);
 		expect(isValidBaseUrl("https://user:pass@example.com/v1")).toBe(false);
 		expect(isValidBaseUrl("https://api.example.com/v1?key=secret")).toBe(false);
+	});
+
+	it("completes protocol paths when only a domain is entered", () => {
+		expect(providerApiBaseUrl("openai", "https://gateway.example.com")).toBe(
+			"https://gateway.example.com/openai/v1",
+		);
+		expect(modelDiscoveryPreview("openai", "https://gateway.example.com")).toBe(
+			"https://gateway.example.com/openai/v1/models",
+		);
+		expect(chatRequestPreview("openai", "https://gateway.example.com")).toBe(
+			"https://gateway.example.com/openai/v1/chat/completions",
+		);
+		expect(
+			modelDiscoveryPreview("anthropic", "https://gateway.example.com"),
+		).toBe("https://gateway.example.com/anthropic/v1/models");
+		expect(chatRequestPreview("anthropic", "https://gateway.example.com")).toBe(
+			"https://gateway.example.com/anthropic/v1/messages",
+		);
+	});
+
+	it("completes API prefixes without duplicating the protocol segment", () => {
+		expect(
+			providerApiBaseUrl("openai", "https://gateway.example.com/api"),
+		).toBe("https://gateway.example.com/api/openai/v1");
+		expect(
+			providerApiBaseUrl("anthropic", "https://gateway.example.com/api"),
+		).toBe("https://gateway.example.com/api/anthropic/v1");
+		expect(
+			providerApiBaseUrl(
+				"anthropic",
+				"https://gateway.example.com/api/anthropic",
+			),
+		).toBe("https://gateway.example.com/api/anthropic/v1");
+		expect(
+			modelDiscoveryPreview(
+				"anthropic",
+				"https://gateway.example.com/api/anthropic",
+			),
+		).toBe("https://gateway.example.com/api/anthropic/v1/models");
+		expect(
+			chatRequestPreview(
+				"anthropic",
+				"https://gateway.example.com/api/anthropic",
+			),
+		).toBe("https://gateway.example.com/api/anthropic/v1/messages");
+	});
+
+	it("preserves an existing v1 API path", () => {
+		expect(
+			providerApiBaseUrl("anthropic", "https://api.anthropic.com/v1"),
+		).toBe("https://api.anthropic.com/v1");
+		expect(
+			providerApiBaseUrl("openai", "https://gateway.example.com/api/v1"),
+		).toBe("https://gateway.example.com/api/v1");
 	});
 });
 

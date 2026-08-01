@@ -157,10 +157,20 @@ type UsageEvent struct {
 
 // ModelInfo describes an available model.
 type ModelInfo struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`
-	ContextLimit int    `json:"context_limit"`
+	ID               string               `json:"id"`
+	Name             string               `json:"name"`
+	Provider         string               `json:"provider"`
+	OwnedBy          string               `json:"owned_by,omitempty"`
+	Description      string               `json:"description,omitempty"`
+	Capabilities     []string             `json:"capabilities,omitempty"`
+	ContextLimit     int                  `json:"context_limit,omitempty"`
+	MaxOutputTokens  int                  `json:"max_output_tokens,omitempty"`
+	InputModalities  []string             `json:"input_modalities,omitempty"`
+	OutputModalities []string             `json:"output_modalities,omitempty"`
+	APIEndpoints     []string             `json:"api_endpoints,omitempty"`
+	DocumentationURL string               `json:"documentation_url,omitempty"`
+	SourceURL        string               `json:"source_url,omitempty"`
+	Pricing          ProviderModelPricing `json:"pricing,omitempty"`
 }
 
 // Adapter is the interface all AI providers must implement.

@@ -1,3 +1,8 @@
+import {
+	type NormalizedModelMetadata,
+	applyMetadataToModelConfig,
+	discoveredModelMetadata,
+} from "../../services/modelMetadata";
 import type {
 	DiscoveredModel,
 	ProviderModelConfig,
@@ -10,12 +15,17 @@ export interface ProviderModelDiscoveryDiff {
 	removals: ProviderModelConfig[];
 	nextModels: ProviderModelConfig[];
 	removalsWithheld: boolean;
+	selectionRequired: boolean;
+	owners: string[];
 }
 
 export function buildProviderModelDiscoveryDiff(
 	currentModels: ProviderModelConfig[],
 	remoteModels: DiscoveredModel[],
 	allowRemovals: boolean,
+	metadataForModel?: (
+		model: DiscoveredModel,
+	) => NormalizedModelMetadata | undefined,
 ): ProviderModelDiscoveryDiff {
 	const currentByID = new Map(currentModels.map((model) => [model.id, model]));
 	const seenRemote = new Set<string>();
@@ -26,28 +36,45 @@ export function buildProviderModelDiscoveryDiff(
 		return true;
 	});
 	const remoteIDs = new Set(normalizedRemote.map((model) => model.id.trim()));
-	const additions = normalizedRemote
-		.filter((model) => !currentByID.has(model.id.trim()))
-		.map((model) =>
+	const remoteConfigs = normalizedRemote.map((model) => {
+		const id = model.id.trim();
+		const base =
+			currentByID.get(id) ??
 			defaultModelConfig(
-				model.id.trim(),
-				model.name.trim() || model.id.trim(),
-				"Discovered",
-			),
+				id,
+				model.name.trim() || id,
+				model.owned_by?.trim() || "Discovered",
+			);
+		const fromDiscovery = applyMetadataToModelConfig(
+			base,
+			discoveredModelMetadata(model),
 		);
-	const retained = currentModels.filter((model) => remoteIDs.has(model.id));
+		const catalogMetadata = metadataForModel?.(model);
+		return catalogMetadata
+			? applyMetadataToModelConfig(fromDiscovery, catalogMetadata)
+			: fromDiscovery;
+	});
+	const additions = remoteConfigs.filter((model) => !currentByID.has(model.id));
+	const retained = remoteConfigs.filter((model) => currentByID.has(model.id));
 	const localOnly = currentModels.filter((model) => !remoteIDs.has(model.id));
+	const remoteConfigByID = new Map(
+		remoteConfigs.map((model) => [model.id, model]),
+	);
 	const nextModels = allowRemovals
-		? normalizedRemote.map(
-				(model) =>
-					currentByID.get(model.id.trim()) ??
-					defaultModelConfig(
-						model.id.trim(),
-						model.name.trim() || model.id.trim(),
-						"Discovered",
-					),
-			)
-		: [...currentModels, ...additions];
+		? remoteConfigs
+		: [
+				...currentModels.map(
+					(model) => remoteConfigByID.get(model.id) ?? model,
+				),
+				...additions,
+			];
+	const owners = [
+		...new Set(
+			normalizedRemote
+				.map((model) => model.owned_by?.trim())
+				.filter((owner): owner is string => Boolean(owner)),
+		),
+	];
 
 	return {
 		additions,
@@ -55,5 +82,17 @@ export function buildProviderModelDiscoveryDiff(
 		removals: allowRemovals ? localOnly : [],
 		nextModels,
 		removalsWithheld: !allowRemovals && localOnly.length > 0,
+		selectionRequired: normalizedRemote.length >= 10 || owners.length >= 2,
+		owners,
 	};
+}
+
+export function modelsForSelectedAdditions(
+	diff: ProviderModelDiscoveryDiff,
+	selectedIds: ReadonlySet<string>,
+): ProviderModelConfig[] {
+	const additionIDs = new Set(diff.additions.map((model) => model.id));
+	return diff.nextModels.filter(
+		(model) => !additionIDs.has(model.id) || selectedIds.has(model.id),
+	);
 }

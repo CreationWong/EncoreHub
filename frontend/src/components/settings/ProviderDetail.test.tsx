@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderProfile } from "../../services/providers";
+import { useModelMetadataStore } from "../../stores/modelMetadataStore";
 import { parseProviderAPIKeys, serializeProviderAPIKeys } from "./providerKeys";
 
 const discoverModels = vi.fn();
@@ -116,6 +117,12 @@ beforeEach(() => {
 			{ endpoint_id: "primary", status: "ok", model_count: 2 },
 		],
 	});
+	useModelMetadataStore.setState({
+		loaded: true,
+		loading: false,
+		error: null,
+		recordsByProvider: {},
+	});
 });
 
 afterEach(() => {
@@ -144,7 +151,7 @@ describe("ProviderDetail", () => {
 	});
 
 	it("automatically fetches models but waits for diff confirmation", async () => {
-		renderDetail();
+		const { props } = renderDetail();
 		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
 		fireEvent.change(screen.getByLabelText("API key 1 value"), {
 			target: { value: "session-key" },
@@ -175,8 +182,65 @@ describe("ProviderDetail", () => {
 			screen.getByRole("region", { name: "Model discovery changes" }),
 		).toBeDefined();
 		expect(screen.queryByText("Discovered Model")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Apply to draft" }));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Apply & save" }));
+			await Promise.resolve();
+			await Promise.resolve();
+		});
 		expect(screen.getByText("Discovered Model")).toBeDefined();
+		expect(props.onSave).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", { name: "Create provider" }),
+		).toHaveProperty("disabled", false);
+	});
+
+	it("stages selected discovered models locally for a provider draft", async () => {
+		vi.useRealTimers();
+		discoverModels.mockResolvedValueOnce({
+			provider: "custom",
+			discovery_supported: true,
+			success_count: 1,
+			models: Array.from({ length: 10 }, (_, index) => ({
+				id: `remote-model-${index + 1}`,
+				name: `Remote Model ${index + 1}`,
+				provider: "custom",
+				owned_by: "remote",
+			})),
+			endpoint_results: [
+				{ endpoint_id: "primary", status: "ok", model_count: 10 },
+			],
+		});
+		const onSave = vi
+			.fn()
+			.mockRejectedValue(new Error("draft cannot persist yet"));
+		renderDetail({ onSave });
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://api.example.com/v1" },
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Fetch model list" }));
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", { name: "Save selected models" }),
+			).toBeDefined(),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+		fireEvent.click(screen.getAllByRole("checkbox")[0]);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Save selected models" }),
+		);
+
+		await waitFor(() =>
+			expect(screen.getByText("Remote Model 1")).toBeDefined(),
+		);
+		expect(onSave).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", { name: "Create provider" }),
+		).toHaveProperty("disabled", false);
 	});
 
 	it("draws API key focus around the complete value control", () => {
@@ -498,7 +562,11 @@ describe("ProviderDetail", () => {
 		vi.useRealTimers();
 		const onSave = vi.fn().mockResolvedValue(undefined);
 		const onSetKey = vi.fn();
-		const { props, rerender } = renderDetail({ onSave, onSetKey });
+		const { props, rerender } = renderDetail({
+			onSave,
+			onSetKey,
+			isDraft: false,
+		});
 		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
 		fireEvent.change(screen.getByLabelText("API key 1 value"), {
 			target: { value: "session-key" },
@@ -535,7 +603,7 @@ describe("ProviderDetail", () => {
 		expect(
 			screen.queryByRole("region", { name: "Model discovery changes" }),
 		).toBeNull();
-		expect(screen.getByText(/2 models fetched and saved/)).toBeDefined();
+		expect(screen.getByText(/2 models mapped and saved/)).toBeDefined();
 	});
 
 	it("persists endpoint routing, model metadata, and key only on save", async () => {

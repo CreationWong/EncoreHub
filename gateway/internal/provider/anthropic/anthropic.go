@@ -46,6 +46,7 @@ func NewFromProfile(p provider.ProviderProfile) *Adapter {
 	if base == "" {
 		base = anthropicBaseURL
 	}
+	base = provider.ResolveAPIBaseURL(provider.ProtocolAnthropic, base)
 	return &Adapter{
 		httpClient: diagnostics.NewHTTPClient(0),
 		id:         p.ID,

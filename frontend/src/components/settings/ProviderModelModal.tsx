@@ -23,6 +23,7 @@ import type {
 	ProviderModelCapability,
 	ProviderModelConfig,
 	ProviderModelType,
+	ProviderProtocol,
 } from "../../services/providers";
 import {
 	modelMetadataForId,
@@ -33,6 +34,7 @@ import { defaultModelConfig } from "./providerConfig";
 interface Props {
 	model: ProviderModelConfig | null;
 	existingIds: string[];
+	protocol: ProviderProtocol;
 	onSave: (model: ProviderModelConfig) => void;
 	onClose: () => void;
 }
@@ -84,6 +86,7 @@ function FieldLabel({
 export default function ProviderModelModal({
 	model,
 	existingIds,
+	protocol,
 	onSave,
 	onClose,
 }: Props) {
@@ -107,8 +110,10 @@ export default function ProviderModelModal({
 		[draft.capabilities],
 	);
 	// Legacy profiles used the embedding capability before model purpose existed.
+	const embeddingsSupported = protocol === "openai";
 	const modelType: ProviderModelType =
-		draft.type === "embedding" || capabilities.has("embedding")
+		embeddingsSupported &&
+		(draft.type === "embedding" || capabilities.has("embedding"))
 			? "embedding"
 			: "chat";
 	const currencySymbol = CURRENCY_SYMBOLS[draft.currency ?? "USD"] ?? "$";
@@ -315,34 +320,36 @@ export default function ProviderModelModal({
 							/>
 						</label>
 
-						<div className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
-							<FieldLabel hint="Chat models generate replies; embedding models only convert text into vectors">
-								Model function
-							</FieldLabel>
-							<fieldset
-								aria-label="Model function"
-								className="m-0 grid grid-cols-2 rounded-md border border-border bg-surface-alt p-1"
-							>
-								<button
-									type="button"
-									aria-pressed={modelType === "chat"}
-									onClick={() => setModelType("chat")}
-									className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "chat" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+						{embeddingsSupported && (
+							<div className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
+								<FieldLabel hint="Chat models generate replies; embedding models only convert text into vectors">
+									Model function
+								</FieldLabel>
+								<fieldset
+									aria-label="Model function"
+									className="m-0 grid grid-cols-2 rounded-md border border-border bg-surface-alt p-1"
 								>
-									<MessageSquare className="h-3.5 w-3.5" />
-									Chat
-								</button>
-								<button
-									type="button"
-									aria-pressed={modelType === "embedding"}
-									onClick={() => setModelType("embedding")}
-									className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "embedding" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
-								>
-									<Layers3 className="h-3.5 w-3.5" />
-									Embedding
-								</button>
-							</fieldset>
-						</div>
+									<button
+										type="button"
+										aria-pressed={modelType === "chat"}
+										onClick={() => setModelType("chat")}
+										className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "chat" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+									>
+										<MessageSquare className="h-3.5 w-3.5" />
+										Chat
+									</button>
+									<button
+										type="button"
+										aria-pressed={modelType === "embedding"}
+										onClick={() => setModelType("embedding")}
+										className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "embedding" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+									>
+										<Layers3 className="h-3.5 w-3.5" />
+										Embedding
+									</button>
+								</fieldset>
+							</div>
+						)}
 
 						<div className="flex items-center justify-between gap-3 pt-1">
 							<button

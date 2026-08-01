@@ -19,12 +19,29 @@ export interface ProviderEndpoint {
 	enabled: boolean;
 }
 
+export interface ProviderPriceCondition {
+	unit?: string;
+	gte?: number;
+	lt?: number;
+}
+
+export interface ProviderModelPrice {
+	value: number;
+	unit?: string;
+	currency?: string;
+	conditions?: Record<string, ProviderPriceCondition>;
+}
+
+export type ProviderModelPricing = Record<string, ProviderModelPrice[]>;
+
 export interface ProviderModelConfig {
 	/** Exact model value sent in provider API requests. */
 	id: string;
 	/** Optional local note/alias used only for EncoreHub display. */
 	name?: string;
+	description?: string;
 	group?: string;
+	owned_by?: string;
 	capabilities?: ProviderModelCapability[];
 	/** Utility models are isolated from every conversation model selector. */
 	type?: ProviderModelType;
@@ -32,6 +49,13 @@ export interface ProviderModelConfig {
 	dimensions?: number;
 	/** Maximum model context size used to bound user input. */
 	context_window?: number;
+	max_output_tokens?: number;
+	input_modalities?: string[];
+	output_modalities?: string[];
+	api_endpoints?: string[];
+	documentation_url?: string;
+	source_url?: string;
+	pricing?: ProviderModelPricing;
 	streaming: boolean;
 	currency?: string;
 	input_price?: number;
@@ -89,7 +113,17 @@ export interface DiscoveredModel {
 	id: string;
 	name: string;
 	provider: string;
+	owned_by?: string;
+	description?: string;
+	capabilities?: string[];
 	context_limit?: number;
+	max_output_tokens?: number;
+	input_modalities?: string[];
+	output_modalities?: string[];
+	api_endpoints?: string[];
+	documentation_url?: string;
+	source_url?: string;
+	pricing?: ProviderModelPricing;
 }
 
 export interface ModelDiscoveryEndpointResult {

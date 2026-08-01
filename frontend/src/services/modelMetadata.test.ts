@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_MODEL_METADATA_MAPPING,
+	MODEL_METADATA_PRESETS,
 	applyMetadataToModelConfig,
 	inferMetadataMapping,
 	normalizeModelMetadata,
@@ -31,6 +32,103 @@ describe("model metadata parsing", () => {
 			inputModalities: ["text"],
 			capabilities: ["reasoning"],
 			reasoning: true,
+		});
+	});
+
+	it("normalizes OpenAI data envelopes with owner, modalities, and tiered pricing", () => {
+		const preset = MODEL_METADATA_PRESETS.find(
+			(candidate) => candidate.id === "openai-data",
+		);
+		expect(preset).toBeDefined();
+		const result = parseModelMetadata(
+			{
+				data: [
+					{
+						id: "anthropic/claude-sonnet-4.5",
+						display_name: "Anthropic: Claude Sonnet 4.5",
+						owned_by: "anthropic",
+						input_modalities: ["text", "image", "file"],
+						output_modalities: ["text"],
+						capabilities: { reasoning: true },
+						context_length: 200000,
+						pricings: {
+							prompt: [
+								{
+									value: 3,
+									unit: "perMTokens",
+									currency: "USD",
+									conditions: {
+										prompt_tokens: { unit: "kTokens", gte: 0, lt: 200 },
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			{
+				format: preset?.format ?? "array",
+				dataPath: preset?.dataPath,
+				mapping: preset?.mapping ?? {},
+			},
+		);
+
+		expect(result.records[0]).toMatchObject({
+			id: "anthropic/claude-sonnet-4.5",
+			ownedBy: "anthropic",
+			contextWindow: 200000,
+			inputModalities: ["text", "image", "file"],
+			capabilities: ["reasoning"],
+			pricing: {
+				prompt: [
+					{
+						value: 3,
+						conditions: {
+							prompt_tokens: { gte: 0, lt: 200 },
+						},
+					},
+				],
+			},
+		});
+	});
+
+	it("normalizes AIML-style nested info, feature, endpoint, and documentation fields", () => {
+		const preset = MODEL_METADATA_PRESETS.find(
+			(candidate) => candidate.id === "aimlapi",
+		);
+		const result = parseModelMetadata(
+			[
+				{
+					id: "o3-mini",
+					info: {
+						name: "o3 mini",
+						developer: "Open AI",
+						description: "Reasoning model",
+						contextLength: 200000,
+						maxTokens: 100000,
+						url: "https://example.com/o3-mini",
+						docs_url: "https://docs.example.com/o3-mini",
+					},
+					features: ["openai/chat-completion.reasoning"],
+					endpoints: ["/v1/chat/completions", "/v1/responses"],
+				},
+			],
+			{
+				format: preset?.format ?? "array",
+				dataPath: preset?.dataPath,
+				mapping: preset?.mapping ?? {},
+			},
+		);
+
+		expect(result.records[0]).toMatchObject({
+			id: "o3-mini",
+			name: "o3 mini",
+			ownedBy: "Open AI",
+			contextWindow: 200000,
+			maxOutputTokens: 100000,
+			apiEndpoints: ["/v1/chat/completions", "/v1/responses"],
+			documentationUrl: "https://docs.example.com/o3-mini",
+			sourceUrl: "https://example.com/o3-mini",
 		});
 	});
 
@@ -80,7 +178,7 @@ describe("model metadata parsing", () => {
 		);
 
 		expect(configured).toMatchObject({
-			name: "Metadata name",
+			name: "Old name",
 			group: "demo-family",
 			capabilities: ["web", "reasoning", "tools"],
 			context_window: 128000,

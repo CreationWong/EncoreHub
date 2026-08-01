@@ -306,7 +306,7 @@ func newProviderModelsRequest(
 	baseURL string,
 	apiKey string,
 ) (*http.Request, error) {
-	endpoint := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	endpoint := provider.ResolveAPIBaseURL(protocol, baseURL)
 	if !strings.HasSuffix(endpoint, "/models") {
 		endpoint += "/models"
 	}

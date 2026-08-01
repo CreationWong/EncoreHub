@@ -8,6 +8,17 @@ import (
 	"com.0d000721.encorehub/gateway/internal/provider"
 )
 
+func TestNewFromProfileCompletesDomainOnlyGatewayEndpoint(t *testing.T) {
+	adapter := NewFromProfile(provider.ProviderProfile{
+		ID:      "gateway",
+		BaseURL: "https://gateway.example.com/api/anthropic",
+	})
+
+	if adapter.baseURL != "https://gateway.example.com/api/anthropic/v1" {
+		t.Fatalf("base URL = %q", adapter.baseURL)
+	}
+}
+
 func TestDecodeStreamLine_ThinkingDelta(t *testing.T) {
 	line := `data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me think"}}`
 	out := decodeStreamLine(line)

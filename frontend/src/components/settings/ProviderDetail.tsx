@@ -37,6 +37,10 @@ import {
 	type ProviderRoutingStrategy,
 	providersApi,
 } from "../../services/providers";
+import {
+	modelMetadataForId,
+	useModelMetadataStore,
+} from "../../stores/modelMetadataStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
@@ -444,6 +448,44 @@ export default function ProviderDetail({
 		[onSave, profile],
 	);
 
+	const saveDiscoveredModels = useCallback(
+		async (
+			diff: ProviderModelDiscoveryDiff,
+			nextModels: ProviderModelConfig[],
+		) => {
+			setSaving(true);
+			try {
+				const models = normalizeModelConfigs(nextModels);
+				if (!isDraft) {
+					await persistProviderModels(models);
+				}
+				setDraft((current) => ({ ...current, models }));
+				setDiscoveryReview(null);
+				setDiscoveryNotice({
+					tone: "success",
+					text: isDraft
+						? `${models.length} models mapped to this provider draft`
+						: `${models.length} models mapped and saved`,
+				});
+				toast.success(
+					isDraft
+						? "Discovered models added to the provider draft"
+						: "Discovered models mapped and saved",
+				);
+			} catch {
+				setDiscoveryReview(diff);
+				setDiscoveryNotice({
+					tone: "error",
+					text: "Models were found but could not be saved. Review the staged changes and try again.",
+				});
+				toast.error("Failed to save fetched models");
+			} finally {
+				setSaving(false);
+			}
+		},
+		[isDraft, persistProviderModels],
+	);
+
 	const runValidation = useCallback(async () => {
 		if (!canValidate) {
 			setValidationNotice({
@@ -581,34 +623,26 @@ export default function ProviderDetail({
 						text: "No endpoint returned a model list. Local models were kept unchanged.",
 					});
 				} else {
+					if (!useModelMetadataStore.getState().loaded) {
+						await useModelMetadataStore.getState().load();
+					}
+					const metadataState = useModelMetadataStore.getState();
 					const diff = buildProviderModelDiscoveryDiff(
 						draft.models,
 						response.models,
 						failed === 0,
+						(model) => modelMetadataForId(metadataState, model.id),
 					);
 					if (manual) {
-						const nextDraft = { ...draft, models: diff.nextModels };
-						setSaving(true);
-						try {
-							await persistProviderModels(diff.nextModels);
-							setDraft(nextDraft);
-							setDiscoveryNotice({
-								tone: failed > 0 ? "warning" : "success",
-								text: `${diff.nextModels.length} models fetched and saved${
-									failed > 0 ? `; ${failed} endpoint failed` : ""
-								}`,
-							});
-							toast.success("Model list fetched and saved");
-						} catch {
+						if (diff.selectionRequired && diff.additions.length > 0) {
 							setDiscoveryReview(diff);
 							setDiscoveryNotice({
-								tone: "error",
-								text: "Models were found but could not be saved. Review the staged changes and try again.",
+								tone: failed > 0 ? "warning" : "success",
+								text: `${response.models.length} models found across ${Math.max(diff.owners.length, 1)} owners. Choose which new models to save.`,
 							});
-							toast.error("Failed to save fetched models");
-						} finally {
-							setSaving(false);
+							return;
 						}
+						await saveDiscoveredModels(diff, diff.nextModels);
 						return;
 					}
 					setDiscoveryReview(diff);
@@ -634,8 +668,8 @@ export default function ProviderDetail({
 			draft,
 			keyDraft,
 			lockedStored,
-			persistProviderModels,
 			profile.id,
+			saveDiscoveredModels,
 		],
 	);
 
@@ -760,6 +794,7 @@ export default function ProviderDetail({
 				<ProviderModelModal
 					model={modelEditor.model}
 					existingIds={draft.models.map((model) => model.id)}
+					protocol={draft.protocol}
 					onClose={() => setModelEditor(null)}
 					onSave={(model) => {
 						const originalId = modelEditor.model?.id;
@@ -1158,7 +1193,11 @@ export default function ProviderDetail({
 													true,
 												)
 											}
-											placeholder={defaultBaseUrl(draft.protocol)}
+											placeholder={
+												profile.builtin
+													? defaultBaseUrl(draft.protocol)
+													: "https://gateway.example.com"
+											}
 											aria-label={`Endpoint ${index + 1} URL`}
 											className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted max-[700px]:order-last max-[700px]:w-full max-[700px]:flex-none"
 										/>
@@ -1227,7 +1266,11 @@ export default function ProviderDetail({
 											</span>
 											<span className="shrink-0 text-border">|</span>
 											<span className="truncate">
-												Models: {modelDiscoveryPreview(endpoint.base_url)}
+												Models:{" "}
+												{modelDiscoveryPreview(
+													draft.protocol,
+													endpoint.base_url,
+												)}
 											</span>
 										</div>
 									)}
@@ -1339,17 +1382,9 @@ export default function ProviderDetail({
 									text: "Remote model changes were dismissed. Local models are unchanged.",
 								});
 							}}
-							onApply={() => {
-								setDraft((current) => ({
-									...current,
-									models: discoveryReview.nextModels,
-								}));
-								setDiscoveryReview(null);
-								setDiscoveryNotice({
-									tone: "success",
-									text: "Remote model changes were applied to the draft. Save to persist them.",
-								});
-							}}
+							onApply={(models) =>
+								void saveDiscoveredModels(discoveryReview, models)
+							}
 						/>
 					)}
 

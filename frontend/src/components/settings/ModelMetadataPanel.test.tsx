@@ -27,6 +27,10 @@ describe("ModelMetadataPanel", () => {
 					mapping: { ...DEFAULT_MODEL_METADATA_PROVIDER.mapping },
 				},
 			],
+			recordsByProvider: {},
+			loaded: true,
+			loading: false,
+			error: null,
 		});
 	});
 
@@ -49,9 +53,9 @@ describe("ModelMetadataPanel", () => {
 		});
 		render(<ModelMetadataPanel />);
 
-		fireEvent.click(screen.getByRole("button", { name: "Load sample" }));
+		fireEvent.click(screen.getByRole("button", { name: "Fetch & store" }));
 		await waitFor(() =>
-			expect(screen.getByText(/records loaded/)).toBeDefined(),
+			expect(screen.getByText(/records stored/)).toBeDefined(),
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Auto map" }));
@@ -71,8 +75,17 @@ describe("ModelMetadataPanel", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Save provider" }));
 
-		expect(useModelMetadataStore.getState().providers[0].mapping.name).toBe(
-			"display.title",
+		await waitFor(() =>
+			expect(useModelMetadataStore.getState().providers[0].mapping.name).toBe(
+				"display.title",
+			),
+		);
+		await waitFor(() =>
+			expect(
+				fetchMock.mock.calls.filter(
+					([url]) => url === DEFAULT_MODEL_METADATA_PROVIDER.url,
+				),
+			).toHaveLength(2),
 		);
 	});
 });

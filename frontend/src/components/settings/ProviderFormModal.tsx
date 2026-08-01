@@ -71,7 +71,6 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 	return (
 		<div
 			className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-			onClick={onClose}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") onClose();
 			}}
@@ -82,7 +81,6 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 				aria-modal="true"
 				aria-labelledby="add-provider-title"
 				className="w-full max-w-xl rounded-lg border border-border bg-surface p-0 text-text-primary shadow-2xl"
-				onClick={(e) => e.stopPropagation()}
 				onKeyDown={(e) => e.stopPropagation()}
 			>
 				<header className="flex items-center justify-between border-b border-border px-5 py-4">

@@ -229,6 +229,16 @@ func validateProfiles(list []provider.ProviderProfile) error {
 			if config.ContextWindow < 0 {
 				return fmt.Errorf("provider %q model %q: context window must not be negative", id, modelID)
 			}
+			if config.MaxOutputTokens < 0 {
+				return fmt.Errorf("provider %q model %q: max output tokens must not be negative", id, modelID)
+			}
+			for priceKind, tiers := range config.Pricing {
+				for _, tier := range tiers {
+					if tier.Value < 0 {
+						return fmt.Errorf("provider %q model %q: %s pricing must not be negative", id, modelID, priceKind)
+					}
+				}
+			}
 			if p.ModelType(modelID) == provider.ModelTypeEmbedding && p.Protocol != provider.ProtocolOpenAI {
 				return fmt.Errorf("provider %q model %q: embeddings require the OpenAI API format", id, modelID)
 			}

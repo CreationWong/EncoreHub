@@ -1,5 +1,10 @@
 package provider
 
+import (
+	"net/url"
+	"strings"
+)
+
 // Protocol identifies which adapter implementation a profile maps to. New
 // providers are almost always OpenAI-compatible; Anthropic is the one common
 // exception (different auth header + request shape).
@@ -14,6 +19,26 @@ const (
 	ModelTypeEmbedding = "embedding"
 )
 
+// ResolveAPIBaseURL expands a domain-only gateway endpoint to the namespace
+// used by the selected wire protocol. Existing API paths remain untouched.
+func ResolveAPIBaseURL(protocol, baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return base
+	}
+	segments := strings.FieldsFunc(parsed.Path, func(r rune) bool { return r == '/' })
+	for _, segment := range segments {
+		if segment == "v1" {
+			return base
+		}
+	}
+	if len(segments) > 0 && segments[len(segments)-1] == protocol {
+		return base + "/v1"
+	}
+	return base + "/" + protocol + "/v1"
+}
+
 // ProviderEndpoint is one ordered base URL for a provider. Every endpoint in
 // a profile uses the profile's protocol and API key; mixing different
 // suppliers inside one profile is intentionally unsupported.
@@ -24,6 +49,25 @@ type ProviderEndpoint struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// ProviderPriceCondition describes one numeric boundary attached to a pricing
+// tier, such as prompt_tokens >= 200 kTokens.
+type ProviderPriceCondition struct {
+	Unit string   `json:"unit,omitempty"`
+	GTE  *float64 `json:"gte,omitempty"`
+	LT   *float64 `json:"lt,omitempty"`
+}
+
+// ProviderModelPrice preserves provider-native tiered pricing without falling
+// back to untyped JSON in the externally serialized profile.
+type ProviderModelPrice struct {
+	Value      float64                           `json:"value"`
+	Unit       string                            `json:"unit,omitempty"`
+	Currency   string                            `json:"currency,omitempty"`
+	Conditions map[string]ProviderPriceCondition `json:"conditions,omitempty"`
+}
+
+type ProviderModelPricing map[string][]ProviderModelPrice
+
 // ProviderModelConfig stores optional presentation and capability metadata.
 // Models remains the runtime source of truth so older clients and persisted
 // profiles continue to work unchanged.
@@ -31,18 +75,27 @@ type ProviderModelConfig struct {
 	// ID is the exact model value sent in provider API requests.
 	ID string `json:"id"`
 	// Name is an optional local display note/alias and is never sent upstream.
-	Name         string   `json:"name,omitempty"`
-	Group        string   `json:"group,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	Name             string               `json:"name,omitempty"`
+	Description      string               `json:"description,omitempty"`
+	Group            string               `json:"group,omitempty"`
+	OwnedBy          string               `json:"owned_by,omitempty"`
+	Capabilities     []string             `json:"capabilities,omitempty"`
+	InputModalities  []string             `json:"input_modalities,omitempty"`
+	OutputModalities []string             `json:"output_modalities,omitempty"`
+	APIEndpoints     []string             `json:"api_endpoints,omitempty"`
+	DocumentationURL string               `json:"documentation_url,omitempty"`
+	SourceURL        string               `json:"source_url,omitempty"`
+	Pricing          ProviderModelPricing `json:"pricing,omitempty"`
 	// Type separates utility models from models that may participate in chat.
 	// Empty remains equivalent to chat for profiles saved by older clients.
-	Type          string  `json:"type,omitempty"`
-	Dimensions    int     `json:"dimensions,omitempty"`
-	ContextWindow int     `json:"context_window,omitempty"`
-	Streaming     bool    `json:"streaming"`
-	Currency      string  `json:"currency,omitempty"`
-	InputPrice    float64 `json:"input_price,omitempty"`
-	OutputPrice   float64 `json:"output_price,omitempty"`
+	Type            string  `json:"type,omitempty"`
+	Dimensions      int     `json:"dimensions,omitempty"`
+	ContextWindow   int     `json:"context_window,omitempty"`
+	MaxOutputTokens int     `json:"max_output_tokens,omitempty"`
+	Streaming       bool    `json:"streaming"`
+	Currency        string  `json:"currency,omitempty"`
+	InputPrice      float64 `json:"input_price,omitempty"`
+	OutputPrice     float64 `json:"output_price,omitempty"`
 }
 
 // ModelType returns the configured purpose for a model. The legacy embedding

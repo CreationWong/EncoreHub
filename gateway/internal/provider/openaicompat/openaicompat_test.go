@@ -11,6 +11,17 @@ import (
 	"com.0d000721.encorehub/gateway/internal/provider"
 )
 
+func TestConfigCompletesDomainOnlyGatewayEndpoint(t *testing.T) {
+	adapter := New(provider.ProviderProfile{
+		ID:      "gateway",
+		BaseURL: "https://gateway.example.com",
+	})
+
+	if got := adapter.config("secret").BaseURL; got != "https://gateway.example.com/openai/v1" {
+		t.Fatalf("base URL = %q", got)
+	}
+}
+
 func TestEmbed_UsesStandaloneEmbeddingsEndpoint(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/embeddings" {

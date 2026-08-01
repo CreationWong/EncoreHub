@@ -34,6 +34,7 @@ describe("ProviderModelModal", () => {
 			<ProviderModelModal
 				model={null}
 				existingIds={[]}
+				protocol="openai"
 				onSave={onSave}
 				onClose={vi.fn()}
 			/>,
@@ -84,6 +85,7 @@ describe("ProviderModelModal", () => {
 					currency: "USD",
 				}}
 				existingIds={["model-old", "model-taken"]}
+				protocol="openai"
 				onSave={onSave}
 				onClose={vi.fn()}
 			/>,
@@ -105,6 +107,7 @@ describe("ProviderModelModal", () => {
 			<ProviderModelModal
 				model={null}
 				existingIds={[]}
+				protocol="openai"
 				onSave={onSave}
 				onClose={vi.fn()}
 			/>,
@@ -158,6 +161,7 @@ describe("ProviderModelModal", () => {
 			<ProviderModelModal
 				model={null}
 				existingIds={[]}
+				protocol="openai"
 				onSave={onSave}
 				onClose={vi.fn()}
 			/>,
@@ -197,6 +201,40 @@ describe("ProviderModelModal", () => {
 				group: "Reasoning",
 				capabilities: expect.arrayContaining(["vision", "reasoning", "tools"]),
 				context_window: 128000,
+			}),
+		);
+	});
+
+	it("hides embedding settings and forces chat models for Anthropic", () => {
+		const onSave = vi.fn();
+		render(
+			<ProviderModelModal
+				model={{
+					id: "legacy-embedding",
+					name: "Legacy embedding",
+					type: "embedding",
+					dimensions: 1024,
+					capabilities: ["embedding"],
+					streaming: false,
+				}}
+				existingIds={["legacy-embedding"]}
+				protocol="anthropic"
+				onSave={onSave}
+				onClose={vi.fn()}
+			/>,
+		);
+
+		expect(screen.queryByRole("group", { name: "Model function" })).toBeNull();
+		expect(screen.queryByLabelText("Default dimensions")).toBeNull();
+		expect(screen.getByLabelText("Output price")).toBeDefined();
+
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+		expect(onSave).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "chat",
+				dimensions: undefined,
+				capabilities: [],
 			}),
 		);
 	});

@@ -41,7 +41,7 @@ func New(p provider.ProviderProfile) *Adapter {
 	}
 	return &Adapter{
 		id:              p.ID,
-		baseURL:         p.BaseURL,
+		baseURL:         provider.ResolveAPIBaseURL(provider.ProtocolOpenAI, p.BaseURL),
 		models:          p.Models,
 		embeddingModels: embeddingModels,
 	}

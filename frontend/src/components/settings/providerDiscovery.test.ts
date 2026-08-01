@@ -27,12 +27,72 @@ describe("provider model discovery diff", () => {
 		);
 
 		expect(diff.additions.map((model) => model.id)).toEqual(["model-new"]);
-		expect(diff.retained).toEqual([retained]);
+		expect(diff.retained).toEqual([expect.objectContaining(retained)]);
 		expect(diff.removals).toEqual([removed]);
 		expect(diff.nextModels).toEqual([
-			retained,
+			expect.objectContaining(retained),
 			expect.objectContaining({ id: "model-new", name: "Remote New" }),
 		]);
+	});
+
+	it("requires model selection for large or multi-owner discovery results", () => {
+		const multiOwner = buildProviderModelDiscoveryDiff(
+			[],
+			[
+				{ id: "model-a", name: "A", provider: "custom", owned_by: "alpha" },
+				{ id: "model-b", name: "B", provider: "custom", owned_by: "beta" },
+			],
+			true,
+		);
+		expect(multiOwner.selectionRequired).toBe(true);
+		expect(multiOwner.owners).toEqual(["alpha", "beta"]);
+
+		const large = buildProviderModelDiscoveryDiff(
+			[],
+			Array.from({ length: 10 }, (_, index) => ({
+				id: `model-${index}`,
+				name: `Model ${index}`,
+				provider: "custom",
+				owned_by: "alpha",
+			})),
+			true,
+		);
+		expect(large.selectionRequired).toBe(true);
+	});
+
+	it("maps discovery and saved catalog metadata into provider model configs", () => {
+		const diff = buildProviderModelDiscoveryDiff(
+			[],
+			[
+				{
+					id: "openai/gpt-test",
+					name: "GPT Test",
+					provider: "custom",
+					owned_by: "openai",
+					context_limit: 128000,
+					api_endpoints: ["/v1/chat/completions"],
+					pricing: {
+						prompt: [{ value: 1.5, unit: "perMTokens", currency: "USD" }],
+					},
+				},
+			],
+			true,
+			() => ({
+				id: "openai/gpt-test",
+				documentationUrl: "https://docs.example.com/gpt-test",
+				capabilities: ["reasoning"],
+			}),
+		);
+
+		expect(diff.nextModels[0]).toMatchObject({
+			id: "openai/gpt-test",
+			owned_by: "openai",
+			context_window: 128000,
+			api_endpoints: ["/v1/chat/completions"],
+			documentation_url: "https://docs.example.com/gpt-test",
+			capabilities: ["reasoning"],
+			input_price: 1.5,
+		});
 	});
 
 	it("withholds removals when discovery is only partially successful", () => {

@@ -247,12 +247,18 @@ func parseDiscoveredModels(body []byte, providerID string) ([]provider.ModelInfo
 	for _, entry := range list {
 		id := ""
 		name := ""
+		var metadata provider.ModelInfo
 		switch value := entry.(type) {
 		case string:
 			id = strings.TrimSpace(value)
 		case map[string]any:
 			id = firstModelString(value, "id", "model", "name")
-			name = firstModelString(value, "display_name", "displayName", "name")
+			info, _ := value["info"].(map[string]any)
+			name = firstNonEmpty(
+				firstModelString(value, "display_name", "displayName", "name"),
+				firstModelString(info, "name"),
+			)
+			metadata = discoveredModelMetadata(value)
 		}
 		if id == "" {
 			continue
@@ -264,7 +270,10 @@ func parseDiscoveredModels(body []byte, providerID string) ([]provider.ModelInfo
 		if name == "" {
 			name = id
 		}
-		models = append(models, provider.ModelInfo{ID: id, Name: name, Provider: providerID})
+		metadata.ID = id
+		metadata.Name = name
+		metadata.Provider = providerID
+		models = append(models, metadata)
 	}
 	return models, true
 }
@@ -276,4 +285,198 @@ func firstModelString(object map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func discoveredModelMetadata(object map[string]any) provider.ModelInfo {
+	info, _ := object["info"].(map[string]any)
+	capabilities := modelStringSlice(object["features"])
+	if len(capabilities) == 0 {
+		capabilities = modelCapabilities(object["capabilities"])
+	}
+	return provider.ModelInfo{
+		OwnedBy: firstNonEmpty(
+			firstModelString(object, "owned_by", "ownedBy", "provider", "developer"),
+			firstModelString(info, "developer"),
+		),
+		Description: firstNonEmpty(
+			firstModelString(object, "description"),
+			firstModelString(info, "description"),
+		),
+		Capabilities: capabilities,
+		ContextLimit: firstPositiveInt(
+			modelNumber(object["context_limit"]),
+			modelNumber(object["context_length"]),
+			modelNumber(object["contextWindow"]),
+			modelNumber(info["contextLength"]),
+		),
+		MaxOutputTokens: firstPositiveInt(
+			modelNumber(object["max_output_tokens"]),
+			modelNumber(object["maxTokens"]),
+			modelNumber(info["maxTokens"]),
+		),
+		InputModalities:  modelStringSlice(object["input_modalities"]),
+		OutputModalities: modelStringSlice(object["output_modalities"]),
+		APIEndpoints: firstStringSlice(
+			modelStringSlice(object["api_endpoints"]),
+			modelStringSlice(object["endpoints"]),
+		),
+		DocumentationURL: firstNonEmpty(
+			firstModelString(object, "documentation_url", "docs_url"),
+			firstModelString(info, "docs_url", "documentation_url"),
+		),
+		SourceURL: firstNonEmpty(
+			firstModelString(object, "source_url", "url"),
+			firstModelString(info, "url", "source_url"),
+		),
+		Pricing: modelPricing(firstNonNil(object["pricings"], object["pricing"])),
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func modelNumber(value any) int {
+	switch number := value.(type) {
+	case float64:
+		return int(number)
+	case int:
+		return number
+	case json.Number:
+		parsed, _ := number.Int64()
+		return int(parsed)
+	}
+	return 0
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func modelStringSlice(value any) []string {
+	list, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(list))
+	for _, item := range list {
+		if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+			values = append(values, strings.TrimSpace(text))
+		}
+	}
+	return values
+}
+
+func firstStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func modelCapabilities(value any) []string {
+	if direct := modelStringSlice(value); len(direct) > 0 {
+		return direct
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	capabilities := make([]string, 0, len(object))
+	for name, enabled := range object {
+		if state, ok := enabled.(bool); ok && state {
+			capabilities = append(capabilities, name)
+		}
+	}
+	return capabilities
+}
+
+func modelPricing(value any) provider.ProviderModelPricing {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	pricing := make(provider.ProviderModelPricing)
+	for kind, rawTiers := range object {
+		list, ok := rawTiers.([]any)
+		if !ok {
+			list = []any{rawTiers}
+		}
+		tiers := make([]provider.ProviderModelPrice, 0, len(list))
+		for _, rawTier := range list {
+			tier, ok := rawTier.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, ok := tier["value"].(float64)
+			if !ok {
+				continue
+			}
+			tiers = append(tiers, provider.ProviderModelPrice{
+				Value:      value,
+				Unit:       firstModelString(tier, "unit"),
+				Currency:   firstModelString(tier, "currency"),
+				Conditions: modelPriceConditions(tier["conditions"]),
+			})
+		}
+		if len(tiers) > 0 {
+			pricing[kind] = tiers
+		}
+	}
+	if len(pricing) == 0 {
+		return nil
+	}
+	return pricing
+}
+
+func modelPriceConditions(value any) map[string]provider.ProviderPriceCondition {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	conditions := make(map[string]provider.ProviderPriceCondition)
+	for name, rawCondition := range object {
+		condition, ok := rawCondition.(map[string]any)
+		if !ok {
+			continue
+		}
+		conditions[name] = provider.ProviderPriceCondition{
+			Unit: firstModelString(condition, "unit"),
+			GTE:  optionalFloat(condition["gte"]),
+			LT:   optionalFloat(condition["lt"]),
+		}
+	}
+	if len(conditions) == 0 {
+		return nil
+	}
+	return conditions
+}
+
+func optionalFloat(value any) *float64 {
+	number, ok := value.(float64)
+	if !ok {
+		return nil
+	}
+	return &number
 }

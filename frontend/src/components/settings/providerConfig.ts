@@ -37,18 +37,41 @@ function appendPath(baseUrl: string, suffix: string): string {
 		: `${normalized}/${suffix}`;
 }
 
+export function providerApiBaseUrl(
+	protocol: ProviderProtocol,
+	baseUrl: string,
+): string {
+	const normalized = normalizeBaseUrl(baseUrl);
+	try {
+		const parsed = new URL(normalized);
+		const pathSegments = parsed.pathname.split("/").filter(Boolean);
+		if (pathSegments.includes("v1")) {
+			return normalized;
+		}
+		if (pathSegments.at(-1) === protocol) {
+			return `${normalized}/v1`;
+		}
+		return `${normalized}/${protocol}/v1`;
+	} catch {
+		return normalized;
+	}
+}
+
 export function chatRequestPreview(
 	protocol: ProviderProtocol,
 	baseUrl: string,
 ): string {
 	return appendPath(
-		baseUrl,
+		providerApiBaseUrl(protocol, baseUrl),
 		protocol === "anthropic" ? "messages" : "chat/completions",
 	);
 }
 
-export function modelDiscoveryPreview(baseUrl: string): string {
-	return appendPath(baseUrl, "models");
+export function modelDiscoveryPreview(
+	protocol: ProviderProtocol,
+	baseUrl: string,
+): string {
+	return appendPath(providerApiBaseUrl(protocol, baseUrl), "models");
 }
 
 export function defaultBaseUrl(protocol: ProviderProtocol): string {

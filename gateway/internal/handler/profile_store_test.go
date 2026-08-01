@@ -109,6 +109,37 @@ func TestValidateProfiles_RejectsNegativeContextWindow(t *testing.T) {
 	}
 }
 
+func TestValidateProfiles_AcceptsRichDiscoveredModelMetadata(t *testing.T) {
+	p := validProfile()
+	p.ModelConfigs = []provider.ProviderModelConfig{{
+		ID:               "model-a",
+		OwnedBy:          "openai",
+		InputModalities:  []string{"text", "image"},
+		APIEndpoints:     []string{"/v1/chat/completions"},
+		DocumentationURL: "https://docs.example.com/model-a",
+		MaxOutputTokens:  100000,
+		Pricing: provider.ProviderModelPricing{
+			"prompt": {{Value: 1.5, Unit: "perMTokens", Currency: "USD"}},
+		},
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("expected rich model metadata to be valid, got %v", err)
+	}
+}
+
+func TestValidateProfiles_RejectsNegativeTieredPricing(t *testing.T) {
+	p := validProfile()
+	p.ModelConfigs = []provider.ProviderModelConfig{{
+		ID: "model-a",
+		Pricing: provider.ProviderModelPricing{
+			"prompt": {{Value: -1}},
+		},
+	}}
+	if err := validateProfiles([]provider.ProviderProfile{p}); err == nil {
+		t.Fatal("expected negative tiered pricing rejection")
+	}
+}
+
 func TestValidateProfiles_RejectsEmbeddingModelOnNonOpenAIProtocol(t *testing.T) {
 	p := validProfile()
 	p.Protocol = provider.ProtocolAnthropic

@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_METADATA_PROVIDER } from "../services/modelMetadata";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	DEFAULT_MODEL_METADATA_PROVIDER,
+	modelMetadataApi,
+} from "../services/modelMetadata";
 import {
 	modelMetadataForId,
 	useModelMetadataStore,
@@ -8,37 +11,49 @@ import {
 describe("model metadata provider store", () => {
 	beforeEach(() => {
 		localStorage.clear();
+		vi.spyOn(modelMetadataApi, "save").mockResolvedValue(undefined);
+		vi.spyOn(modelMetadataApi, "load").mockResolvedValue(null);
 		useModelMetadataStore.setState({
 			providers: [{ ...DEFAULT_MODEL_METADATA_PROVIDER, mapping: {} }],
 			recordsByProvider: {},
 			loadingProviderIds: [],
+			loaded: true,
+			loading: false,
+			error: null,
 		});
 	});
 
-	it("persists provider edits and mapping changes", () => {
+	it("persists provider edits and mapping changes in the engine config", async () => {
 		const store = useModelMetadataStore.getState();
-		store.setMapping("models-dev", { id: "model_id" });
-		store.setEnabled("models-dev", false);
+		await store.setMapping("models-dev", { id: "model_id" });
+		await store.setEnabled("models-dev", false);
 
 		expect(useModelMetadataStore.getState().providers[0]).toMatchObject({
 			enabled: false,
 			mapping: { id: "model_id" },
 		});
-		expect(
-			localStorage.getItem("encorehub-model-metadata-providers"),
-		).toContain("model_id");
+		expect(modelMetadataApi.save).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				providers: [
+					expect.objectContaining({
+						enabled: false,
+						mapping: { id: "model_id" },
+					}),
+				],
+			}),
+		);
 	});
 
-	it("adds and removes custom providers", () => {
+	it("adds and removes custom providers", async () => {
 		const custom = {
 			...DEFAULT_MODEL_METADATA_PROVIDER,
 			id: "custom",
 			name: "Custom",
 		};
-		useModelMetadataStore.getState().upsert(custom);
+		await useModelMetadataStore.getState().upsert(custom);
 		expect(useModelMetadataStore.getState().providers).toHaveLength(2);
 
-		useModelMetadataStore.getState().remove("custom");
+		await useModelMetadataStore.getState().remove("custom");
 		expect(useModelMetadataStore.getState().providers).toHaveLength(1);
 	});
 
