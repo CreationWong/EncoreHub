@@ -113,11 +113,13 @@ type chatErrorPayload struct {
 }
 
 type assistantMetrics struct {
-	tokenCount   int
-	inputTokens  *int
-	outputTokens *int
-	durationMS   *int64
-	finishReason *string
+	tokenCount          int
+	inputTokens         *int
+	outputTokens        *int
+	contextInputTokens  *int
+	contextOutputTokens *int
+	durationMS          *int64
+	finishReason        *string
 }
 
 type streamRoundResult struct {
@@ -129,6 +131,24 @@ type streamRoundResult struct {
 	finishReason string
 	duration     time.Duration
 	err          error
+}
+
+func mergeStreamUsage(current, update provider.UsageEvent) provider.UsageEvent {
+	// Streaming providers may emit cumulative fields in separate events and
+	// use zero as "not present". Preserve the last meaningful value per field.
+	if update.InputTokens > 0 {
+		current.InputTokens = update.InputTokens
+	}
+	if update.OutputTokens > 0 || current.OutputTokens == 0 {
+		current.OutputTokens = update.OutputTokens
+	}
+	if update.CacheCreationInputTokens > 0 {
+		current.CacheCreationInputTokens = update.CacheCreationInputTokens
+	}
+	if update.CacheReadInputTokens > 0 {
+		current.CacheReadInputTokens = update.CacheReadInputTokens
+	}
+	return current
 }
 
 // SendMessage handles POST /api/v1/conversations/:id/chat
@@ -343,10 +363,14 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	usage := provider.UsageEvent{
-		InputTokens:  chatResp.InputTokens,
-		OutputTokens: chatResp.OutputTokens,
+		InputTokens:              chatResp.InputTokens,
+		OutputTokens:             chatResp.OutputTokens,
+		CacheCreationInputTokens: chatResp.CacheCreationInputTokens,
+		CacheReadInputTokens:     chatResp.CacheReadInputTokens,
 	}
 	metrics := measuredAssistantMetrics(
+		usage,
+		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0,
 		usage,
 		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0,
 		providerDuration,
@@ -378,8 +402,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		Provider:         req.Provider,
 		Model:            req.Model,
 		Usage: &provider.UsageEvent{
-			InputTokens:  chatResp.InputTokens,
-			OutputTokens: chatResp.OutputTokens,
+			InputTokens:              chatResp.InputTokens,
+			OutputTokens:             chatResp.OutputTokens,
+			CacheCreationInputTokens: chatResp.CacheCreationInputTokens,
+			CacheReadInputTokens:     chatResp.CacheReadInputTokens,
 		},
 	})
 }
@@ -403,8 +429,10 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 	var fullContent string
 	var fullReasoning string
 	var totalUsage provider.UsageEvent
+	var finalRoundUsage provider.UsageEvent
 	var totalProviderDuration time.Duration
 	var usageAvailable bool
+	var finalRoundUsageAvailable bool
 	var finalFinishReason string
 	allToolCalls := append([]engine.ToolCallInput(nil), initialToolCalls...)
 	flusher, _ := c.Writer.(http.Flusher)
@@ -526,7 +554,9 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 					}
 				}
 			case ev.Usage != nil:
-				result.usage = *ev.Usage
+				// Anthropic splits prompt usage across message_start and
+				// completion usage across message_delta; merge non-zero fields.
+				result.usage = mergeStreamUsage(result.usage, *ev.Usage)
 				result.usageSeen = true
 			}
 		}
@@ -585,7 +615,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	finalizeError := func(status, code, message, finishReason string) {
 		assistant := assistantForTurn(cleanAssistantContent(fullContent, allToolCalls), fullReasoning, allToolCalls,
-			measuredAssistantMetrics(totalUsage, usageAvailable, totalProviderDuration, finishReason))
+			measuredAssistantMetrics(totalUsage, usageAvailable, finalRoundUsage, finalRoundUsageAvailable,
+				totalProviderDuration, finishReason))
 		finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, status, assistant)
 		if err != nil {
 			log.Warn().Err(err).Str("conv_id", convID).Str("status", status).
@@ -603,6 +634,12 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		fullReasoning += result.reasoning
 		totalUsage.InputTokens += result.usage.InputTokens
 		totalUsage.OutputTokens += result.usage.OutputTokens
+		totalUsage.CacheCreationInputTokens += result.usage.CacheCreationInputTokens
+		totalUsage.CacheReadInputTokens += result.usage.CacheReadInputTokens
+		// Only the most recent provider round describes current context. Earlier
+		// tool rounds remain in totalUsage because they are still billable.
+		finalRoundUsage = result.usage
+		finalRoundUsageAvailable = result.usageSeen
 		totalProviderDuration += result.duration
 		usageAvailable = usageAvailable || result.usageSeen
 		finalFinishReason = result.finishReason
@@ -730,7 +767,8 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 
 	finalized, err := h.finalizeTurn(ctx, convID, userMessage.ID, "completed",
 		assistantForTurn(cleanAssistantContent(fullContent, allToolCalls), fullReasoning, allToolCalls,
-			measuredAssistantMetrics(totalUsage, usageAvailable, totalProviderDuration, finalFinishReason)))
+			measuredAssistantMetrics(totalUsage, usageAvailable, finalRoundUsage, finalRoundUsageAvailable,
+				totalProviderDuration, finalFinishReason)))
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to finalize streamed chat turn")
 		failed := h.markTurnFailedBestEffort(ctx, convID, userMessage.ID)
@@ -1220,7 +1258,8 @@ func boundedTurnContext(ctx context.Context, detach bool) (context.Context, cont
 	return context.WithTimeout(ctx, turnFinalizeTimeout)
 }
 
-func measuredAssistantMetrics(usage provider.UsageEvent, usageAvailable bool, duration time.Duration, finishReason string) assistantMetrics {
+func measuredAssistantMetrics(usage provider.UsageEvent, usageAvailable bool, contextUsage provider.UsageEvent,
+	contextUsageAvailable bool, duration time.Duration, finishReason string) assistantMetrics {
 	metrics := assistantMetrics{}
 	if usageAvailable {
 		inputTokens := usage.InputTokens
@@ -1228,6 +1267,12 @@ func measuredAssistantMetrics(usage provider.UsageEvent, usageAvailable bool, du
 		metrics.inputTokens = &inputTokens
 		metrics.outputTokens = &outputTokens
 		metrics.tokenCount = inputTokens + outputTokens
+	}
+	if contextUsageAvailable {
+		contextInputTokens := contextUsage.InputTokens
+		contextOutputTokens := contextUsage.OutputTokens
+		metrics.contextInputTokens = &contextInputTokens
+		metrics.contextOutputTokens = &contextOutputTokens
 	}
 	durationMS := duration.Milliseconds()
 	metrics.durationMS = &durationMS
@@ -1245,14 +1290,16 @@ func assistantForTurn(content, reasoning string, toolCalls []engine.ToolCallInpu
 		return nil
 	}
 	return &engine.FinalizeAssistant{
-		Content:      content,
-		Reasoning:    reasoning,
-		TokenCount:   metrics.tokenCount,
-		InputTokens:  metrics.inputTokens,
-		OutputTokens: metrics.outputTokens,
-		DurationMS:   metrics.durationMS,
-		FinishReason: metrics.finishReason,
-		ToolCalls:    toolCalls,
+		Content:             content,
+		Reasoning:           reasoning,
+		TokenCount:          metrics.tokenCount,
+		InputTokens:         metrics.inputTokens,
+		OutputTokens:        metrics.outputTokens,
+		ContextInputTokens:  metrics.contextInputTokens,
+		ContextOutputTokens: metrics.contextOutputTokens,
+		DurationMS:          metrics.durationMS,
+		FinishReason:        metrics.finishReason,
+		ToolCalls:           toolCalls,
 	}
 }
 

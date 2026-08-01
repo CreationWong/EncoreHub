@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, it} from "vitest";
 import type {Message} from "../services/conversation";
 import {
     DEFAULT_ADVANCED_PARAMETERS,
+    autoCompactThreshold,
     buildCompactionSummary,
     calculateUsageCost,
     estimateContextUsage,
@@ -18,6 +19,24 @@ function message(id: string, role: Message["role"], content: string): Message {
         status: "completed",
         created_at: "2026-08-01T00:00:00.000Z",
     };
+}
+
+function measuredAssistant(
+	id: string,
+	billingInput: number,
+	billingOutput: number,
+	contextInput: number,
+	contextOutput: number,
+): Message {
+	// Billing totals may include repeated tool rounds; context fields describe
+	// only the final request that determines current window occupancy.
+	return {
+		...message(id, "assistant", "answer"),
+		input_tokens: billingInput,
+		output_tokens: billingOutput,
+		context_input_tokens: contextInput,
+		context_output_tokens: contextOutput,
+	};
 }
 
 beforeEach(() => {
@@ -50,6 +69,44 @@ describe("context management calculations", () => {
         expect(usage.usedTokens).toBe(22);
         expect(usage.percentage).toBe(22);
     });
+
+	it("uses the final provider round instead of cumulative billing usage", () => {
+		const messages = [
+			message("user", "user", "question"),
+			measuredAssistant("assistant", 2020, 597, 793, 25),
+		];
+
+		const usage = estimateContextUsage(messages, 1_000_000);
+
+		expect(usage.source).toBe("provider");
+		expect(usage.usedTokens).toBe(793);
+		expect(usage.contextTokens).toBe(818);
+		expect(usage.freeTokens).toBe(999_182);
+		expect(usage.snapshotInputTokens).toBe(793);
+		expect(usage.snapshotOutputTokens).toBe(25);
+		expect(
+			Object.values(usage.categories).reduce((sum, value) => sum + value, 0),
+		).toBe(818);
+	});
+
+	it("estimates messages added after the latest provider snapshot", () => {
+		const messages = [
+			message("user", "user", "question"),
+			measuredAssistant("assistant", 2020, 597, 793, 25),
+			message("next", "user", "12345678"),
+		];
+
+		const usage = estimateContextUsage(messages, 1_000_000);
+
+		expect(usage.usedTokens).toBe(795);
+		expect(usage.contextTokens).toBe(820);
+		expect(usage.categories.messages).toBeGreaterThan(0);
+	});
+
+	it("uses fixed output and safety reserves for auto compaction", () => {
+		expect(autoCompactThreshold(200_000, 32_000)).toBe(167_000);
+		expect(autoCompactThreshold(1_000_000, 4_096)).toBe(982_904);
+	});
 
     it("normalizes mixed provider pricing units to a per-token estimate", () => {
         const result = calculateUsageCost(
@@ -120,7 +177,9 @@ describe("context management calculations", () => {
         const result = buildCompactionSummary(messages);
 
         expect(result?.keepRecent).toBe(2);
-        expect(result?.summary).toContain("Earlier conversation context (4 messages)");
+		expect(result?.summary).toContain(
+			"Earlier conversation context (4 messages)",
+		);
         expect(result?.summary).toContain("User: message 0");
     });
 });

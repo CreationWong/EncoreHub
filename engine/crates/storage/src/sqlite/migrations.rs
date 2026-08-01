@@ -293,6 +293,15 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_character_versions_parent
         ON character_profile_versions(character_id, parent_version);
     ",
+    // 012: Persist the final provider round as a context-window snapshot.
+    //
+    // Billing telemetry remains cumulative across tool rounds. These nullable
+    // fields keep context occupancy independent without inventing values for
+    // legacy messages or providers that omit usage.
+    "
+    ALTER TABLE messages ADD COLUMN context_input_tokens INTEGER;
+    ALTER TABLE messages ADD COLUMN context_output_tokens INTEGER;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -411,7 +420,8 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        // The legacy row must advance through the context-snapshot migration.
+        assert_eq!(version, 12);
     }
 
     #[test]
@@ -472,7 +482,8 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        // Character projection is followed by the context-snapshot migration.
+        assert_eq!(version, 12);
     }
 
     #[test]

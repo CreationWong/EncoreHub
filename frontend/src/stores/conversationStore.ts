@@ -18,6 +18,7 @@ import {useProviderStore} from "./providerStore";
 import {useSettingsStore} from "./settingsStore";
 import {toast} from "./toastStore";
 import {
+    autoCompactThreshold,
     calculateUsageCost,
     estimateContextUsage,
     useContextManagementStore,
@@ -620,13 +621,23 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
             .profiles.find((profile) => profile.id === convProvider)
             ?.model_configs?.find((candidate) => candidate.id === convModel);
         const contextLimit = modelConfig?.context_window;
+		const contextUsage = estimateContextUsage(
+			previousMessages,
+			contextLimit,
+			contextSummary,
+		);
         if (
             contextManagement.autoCompact &&
             contextLimit &&
-            estimateContextUsage(previousMessages, contextLimit).percentage !== null &&
-            estimateContextUsage(previousMessages, contextLimit).percentage! >= 85
+			contextUsage.contextTokens >=
+				autoCompactThreshold(
+					contextLimit,
+					contextManagement.advanced.maxCompletionTokens,
+				)
         ) {
-            contextSummary = contextManagement.compactConversation(convId, previousMessages) ?? contextSummary;
+			contextSummary =
+				contextManagement.compactConversation(convId, previousMessages) ??
+				contextSummary;
         }
         const thinking = deepThinkingRequest(convProvider, convModel, deepThinking);
         const nativeWebSearch = modelHasCapability(
@@ -694,7 +705,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         ) => {
             if (usageRecorded) return;
             usageRecorded = true;
-            const pricing = calculateUsageCost(modelConfig, inputTokens, outputTokens);
+			const pricing = calculateUsageCost(
+				modelConfig,
+				inputTokens,
+				outputTokens,
+			);
             useContextManagementStore.getState().recordUsage({
                 conversationId: convId,
                 conversationTitle:

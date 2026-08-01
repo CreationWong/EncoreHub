@@ -109,8 +109,10 @@ type anthropicContent struct {
 }
 
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
 type anthropicResp struct {
@@ -135,8 +137,9 @@ type sseEvent struct {
 	ContentBlock *sseContentBlock `json:"content_block,omitempty"`
 	Usage        *anthropicUsage  `json:"usage,omitempty"`
 	Message      *struct {
-		StopReason   string `json:"stop_reason"`
-		StopSequence string `json:"stop_sequence"`
+		StopReason   string          `json:"stop_reason"`
+		StopSequence string          `json:"stop_sequence"`
+		Usage        *anthropicUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 }
 
@@ -183,12 +186,17 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 		}
 	}
 
+	// Anthropic reports cached prompt tokens separately from input_tokens even
+	// though all three segments occupy the same context window.
+	contextInputTokens := ar.Usage.InputTokens + ar.Usage.CacheCreationInputTokens + ar.Usage.CacheReadInputTokens
 	return &provider.ChatResponse{
-		Content:      content,
-		FinishReason: ar.StopReason,
-		InputTokens:  ar.Usage.InputTokens,
-		OutputTokens: ar.Usage.OutputTokens,
-		Model:        ar.Model,
+		Content:                  content,
+		FinishReason:             ar.StopReason,
+		InputTokens:              contextInputTokens,
+		OutputTokens:             ar.Usage.OutputTokens,
+		CacheCreationInputTokens: ar.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     ar.Usage.CacheReadInputTokens,
+		Model:                    ar.Model,
 	}, nil
 }
 
@@ -273,12 +281,25 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 				},
 			}}
 		}
+	case "message_start":
+		if ev.Message != nil && ev.Message.Usage != nil {
+			usage := ev.Message.Usage
+			return []provider.StreamEvent{{Usage: &provider.UsageEvent{
+				InputTokens:              usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
+				OutputTokens:             usage.OutputTokens,
+				CacheCreationInputTokens: usage.CacheCreationInputTokens,
+				CacheReadInputTokens:     usage.CacheReadInputTokens,
+			}}}
+		}
 	case "message_delta":
 		if ev.Usage != nil {
+			contextInputTokens := ev.Usage.InputTokens + ev.Usage.CacheCreationInputTokens + ev.Usage.CacheReadInputTokens
 			out := []provider.StreamEvent{{
 				Usage: &provider.UsageEvent{
-					InputTokens:  ev.Usage.InputTokens,
-					OutputTokens: ev.Usage.OutputTokens,
+					InputTokens:              contextInputTokens,
+					OutputTokens:             ev.Usage.OutputTokens,
+					CacheCreationInputTokens: ev.Usage.CacheCreationInputTokens,
+					CacheReadInputTokens:     ev.Usage.CacheReadInputTokens,
 				},
 			}}
 			if ev.Message != nil && ev.Message.StopReason != "" {

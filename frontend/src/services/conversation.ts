@@ -28,6 +28,9 @@ export interface Message {
 	/** Raw provider telemetry. Null means unavailable, including legacy records. */
 	input_tokens?: number | null;
 	output_tokens?: number | null;
+	/** Final provider round used as a point-in-time context-window snapshot. */
+	context_input_tokens?: number | null;
+	context_output_tokens?: number | null;
 	duration_ms?: number | null;
 	finish_reason?: string | null;
 	/** Persisted chat-turn lifecycle state. */

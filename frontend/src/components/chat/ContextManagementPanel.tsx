@@ -2,6 +2,7 @@ import {
     Braces,
     CircleDollarSign,
     Gauge,
+	Layers3,
     MessageSquareText,
     PanelRightClose,
     Scissors,
@@ -13,6 +14,8 @@ import {
 import {useMemo} from "react";
 import {useConversationStore} from "../../stores/conversationStore";
 import {
+    MANUAL_COMPACT_BUFFER_TOKENS,
+    autoCompactReserve,
     estimateContextUsage,
     useContextManagementStore,
 } from "../../stores/contextManagementStore";
@@ -46,7 +49,9 @@ function Toggle({
     return (
         <label className="flex cursor-pointer items-center justify-between gap-4 py-2">
 			<span className="min-w-0">
-				<span className="block text-xs font-medium text-text-primary">{label}</span>
+				<span className="block text-xs font-medium text-text-primary">
+					{label}
+				</span>
                 {description && (
                     <span className="mt-0.5 block text-[11px] leading-4 text-text-muted">
 						{description}
@@ -59,10 +64,8 @@ function Toggle({
                 onChange={(event) => onChange(event.target.checked)}
                 className="peer sr-only"
             />
-            <span
-                className="relative h-5 w-9 shrink-0 rounded-full bg-control transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/40">
-				<span
-                    className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4"/>
+			<span className="relative h-5 w-9 shrink-0 rounded-full bg-control transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/40">
+				<span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
 			</span>
         </label>
     );
@@ -142,7 +145,9 @@ function ContextMeter({
             <div className="flex items-end justify-between gap-3">
                 <div>
                     <p className="text-2xl font-semibold tabular-nums text-text-primary">
-                        {percentage == null ? formatTokens(used) : `${Math.round(percentage)}%`}
+						{percentage == null
+							? formatTokens(used)
+							: `${Math.round(percentage)}%`}
                     </p>
                     <p className="text-[11px] text-text-muted">
                         {formatTokens(used)}
@@ -153,6 +158,7 @@ function ContextMeter({
             </div>
             <div
                 role="progressbar"
+				tabIndex={0}
                 aria-label="Context usage"
                 aria-valuemin={0}
                 aria-valuemax={limit ?? undefined}
@@ -161,7 +167,9 @@ function ContextMeter({
             >
                 <div
                     className={`h-full rounded-full transition-[width] ${tone}`}
-                    style={{width: `${percentage == null ? 0 : Math.max(1, safePercentage)}%`}}
+					style={{
+						width: `${percentage == null ? 0 : Math.max(1, safePercentage)}%`,
+					}}
                 />
             </div>
         </div>
@@ -178,10 +186,14 @@ export default function ContextManagementPanel() {
     const profiles = useProviderStore((state) => state.profiles);
     const open = useContextManagementStore((state) => state.contextPanelOpen);
     const tab = useContextManagementStore((state) => state.contextPanelTab);
-    const setOpen = useContextManagementStore((state) => state.setContextPanelOpen);
+	const setOpen = useContextManagementStore(
+		(state) => state.setContextPanelOpen,
+	);
     const setTab = useContextManagementStore((state) => state.setContextPanelTab);
     const autoCompact = useContextManagementStore((state) => state.autoCompact);
-    const setAutoCompact = useContextManagementStore((state) => state.setAutoCompact);
+	const setAutoCompact = useContextManagementStore(
+		(state) => state.setAutoCompact,
+	);
     const advanced = useContextManagementStore((state) => state.advanced);
     const setAdvanced = useContextManagementStore((state) => state.setAdvanced);
     const compactions = useContextManagementStore((state) => state.compactions);
@@ -197,11 +209,22 @@ export default function ContextManagementPanel() {
     const providerId = conversation?.provider || defaultProvider;
     const modelId = conversation?.model || defaultModel;
     const profile = profiles.find((item) => item.id === providerId);
-    const modelConfig = profile?.model_configs?.find((item) => item.id === modelId);
+	const modelConfig = profile?.model_configs?.find(
+		(item) => item.id === modelId,
+	);
     const compaction = activeId ? compactions[activeId] : undefined;
+	const reservedTokens = autoCompact
+		? autoCompactReserve(advanced.maxCompletionTokens)
+		: MANUAL_COMPACT_BUFFER_TOKENS;
     const context = useMemo(
-        () => estimateContextUsage(messages, modelConfig?.context_window, compaction),
-        [messages, modelConfig?.context_window, compaction],
+		() =>
+			estimateContextUsage(
+				messages,
+				modelConfig?.context_window,
+				compaction,
+				reservedTokens,
+			),
+		[messages, modelConfig?.context_window, compaction, reservedTokens],
     );
     const lastPricedCall = activeId
         ? records.find(
@@ -232,7 +255,7 @@ export default function ContextManagementPanel() {
             label: "Skills",
             value: context.categories.skills,
             icon: Sparkles,
-            tone: "bg-purple-400",
+			tone: "bg-info",
         },
         {
             label: "Messages",
@@ -240,6 +263,12 @@ export default function ContextManagementPanel() {
             icon: MessageSquareText,
             tone: "bg-warning",
         },
+		{
+			label: "Other request data",
+			value: context.categories.other,
+			icon: Layers3,
+			tone: "bg-control-hover",
+		},
     ] as const;
 
     return (
@@ -305,14 +334,21 @@ export default function ContextManagementPanel() {
                                 percentage={context.percentage}
                             />
                         </div>
+                        <p className="mt-2 text-[10px] tabular-nums text-text-muted">
+                            {context.source === "provider" &&
+                            context.snapshotInputTokens != null &&
+                            context.snapshotOutputTokens != null
+                                ? `${formatTokens(context.snapshotInputTokens)} input in latest request · ${formatTokens(context.snapshotOutputTokens)} output retained for the next request`
+                                : "Estimated from active request content"}
+                        </p>
                     </section>
 
                     <section className="border-b border-border px-4 py-3">
                         <div className="space-y-1">
                             {breakdown.map(({label, value, icon: Icon, tone}) => {
                                 const share =
-                                    context.usedTokens > 0
-                                        ? Math.round((value / context.usedTokens) * 100)
+                                    context.contextTokens > 0
+                                        ? Math.round((value / context.contextTokens) * 100)
                                         : 0;
                                 return (
                                     <div
@@ -350,6 +386,18 @@ export default function ContextManagementPanel() {
 								</span>
                             </div>
                         )}
+                        {context.reservedTokens > 0 && (
+                            <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
+                                <span className="text-text-muted">
+                                    {autoCompact
+                                        ? "Auto compact reserve"
+                                        : "Manual compact reserve"}
+                                </span>
+                                <span className="tabular-nums text-text-primary">
+                                    {formatTokens(context.reservedTokens)} tokens
+                                </span>
+                            </div>
+                        )}
                         {lastPricedCall?.cost != null && (
                             <div
                                 className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
@@ -369,7 +417,7 @@ export default function ContextManagementPanel() {
                             checked={autoCompact}
                             onChange={setAutoCompact}
                             label="Auto compact"
-                            description="Refresh the summary when context reaches 85%."
+							description="Compact before the model runs out of safe working space."
                         />
                         <button
                             type="button"
@@ -410,8 +458,8 @@ export default function ContextManagementPanel() {
                                     {compaction.summary}
                                 </p>
                                 <p className="mt-2 text-[10px] tabular-nums text-text-muted">
-                                    {formatTokens(compaction.sourceTokens)} source tokens · keeping{" "}
-                                    {compaction.keepRecent} recent messages
+									{formatTokens(compaction.sourceTokens)} source tokens ·
+									keeping {compaction.keepRecent} recent messages
                                 </p>
                             </div>
                         ) : (
@@ -498,9 +546,7 @@ export default function ContextManagementPanel() {
                             min={-2}
                             max={2}
                             step={0.1}
-                            onChange={(frequencyPenalty) =>
-                                setAdvanced({frequencyPenalty})
-                            }
+							onChange={(frequencyPenalty) => setAdvanced({ frequencyPenalty })}
                         />
                         <NumberSlider
                             id="context-presence-penalty"
@@ -536,8 +582,7 @@ export default function ContextManagementPanel() {
                             <Braces className="h-3.5 w-3.5 text-text-muted"/>
                             Response format
                         </div>
-                        <div
-                            role="group"
+                        <fieldset
                             aria-label="Response format"
                             className="grid grid-cols-2 gap-1 rounded-md bg-control p-1"
                         >
@@ -555,7 +600,7 @@ export default function ContextManagementPanel() {
                                     {label}
                                 </button>
                             ))}
-                        </div>
+                        </fieldset>
                     </div>
                 </div>
             )}

@@ -657,7 +657,8 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 					provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
 						Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Renamed"}`,
 					}},
-					provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 3, OutputTokens: 4}},
+					provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 3}},
+					provider.StreamEvent{Usage: &provider.UsageEvent{OutputTokens: 4}},
 				), nil
 			case 2:
 				return streamOf(
@@ -691,6 +692,8 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 	}
 	if requests[0].Assistant.InputTokens == nil || *requests[0].Assistant.InputTokens != 8 ||
 		requests[0].Assistant.OutputTokens == nil || *requests[0].Assistant.OutputTokens != 10 ||
+		requests[0].Assistant.ContextInputTokens == nil || *requests[0].Assistant.ContextInputTokens != 5 ||
+		requests[0].Assistant.ContextOutputTokens == nil || *requests[0].Assistant.ContextOutputTokens != 6 ||
 		requests[0].Assistant.DurationMS == nil || requests[0].Assistant.FinishReason == nil ||
 		*requests[0].Assistant.FinishReason != "stop" {
 		t.Fatalf("tool-loop telemetry was not accumulated: %+v", requests[0].Assistant)

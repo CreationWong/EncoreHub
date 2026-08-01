@@ -104,6 +104,8 @@ fn message_append_and_retrieve_keeps_order() {
     m2.token_count = 34;
     m2.input_tokens = Some(21);
     m2.output_tokens = Some(13);
+    m2.context_input_tokens = Some(18);
+    m2.context_output_tokens = Some(13);
     m2.duration_ms = Some(875);
     m2.finish_reason = Some("stop".into());
     let m3 = Message::new(&conv.id, Role::User, "again", Some(m2.id.clone()));
@@ -122,6 +124,8 @@ fn message_append_and_retrieve_keeps_order() {
     assert_eq!(fetched[1].token_count, 34);
     assert_eq!(fetched[1].input_tokens, Some(21));
     assert_eq!(fetched[1].output_tokens, Some(13));
+    assert_eq!(fetched[1].context_input_tokens, Some(18));
+    assert_eq!(fetched[1].context_output_tokens, Some(13));
     assert_eq!(fetched[1].duration_ms, Some(875));
     assert_eq!(fetched[1].finish_reason.as_deref(), Some("stop"));
 }
@@ -204,6 +208,8 @@ fn message_status_schema_defaults_and_rejects_invalid_states() {
     assert_eq!(legacy.token_count, 0);
     assert_eq!(legacy.input_tokens, None);
     assert_eq!(legacy.output_tokens, None);
+    assert_eq!(legacy.context_input_tokens, None);
+    assert_eq!(legacy.context_output_tokens, None);
     assert_eq!(legacy.duration_ms, None);
     assert_eq!(legacy.finish_reason, None);
 

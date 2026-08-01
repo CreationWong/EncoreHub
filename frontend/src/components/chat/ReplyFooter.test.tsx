@@ -1,12 +1,16 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import ReplyFooter, { formatTokenCount } from "./ReplyFooter";
+import ReplyFooter, {
+	formatTokenBreakdown,
+	formatTokenCount,
+} from "./ReplyFooter";
 
 afterEach(cleanup);
 
 describe("ReplyFooter", () => {
 	it("formats exact token totals and hides zero or unknown values", () => {
 		expect(formatTokenCount(13126)).toBe("13,126 tokens");
+		expect(formatTokenBreakdown(120, 30)).toBe("Σ 150 · ↑ 120 · ↓ 30");
 
 		const { rerender } = render(
 			<ReplyFooter content="" status="completed" tokenCount={0} />,
@@ -56,7 +60,7 @@ describe("ReplyFooter", () => {
 
 		const footer = screen.getByLabelText("Reply actions and status");
 		expect(footer.textContent).toMatch(
-			/20\.0 tokens\/s.*150 tokens.*1\.5 s.*Limit/,
+			/20\.0 tokens\/s.*Σ 150 · ↑ 120 · ↓ 30.*1\.5 s.*Limit/,
 		);
 		expect(screen.getByTitle("Finish reason: length")).toBeDefined();
 	});

@@ -21,6 +21,13 @@ export function formatTokenCount(count: number): string {
 	return `${Math.trunc(count).toLocaleString("en-US")} tokens`;
 }
 
+export function formatTokenBreakdown(input: number, output: number): string {
+	// Explicit directions prevent a billing total from being mistaken for the
+	// model's generated output, especially after repeated tool rounds.
+	const total = input + output;
+	return `Σ ${total.toLocaleString("en-US")} · ↑ ${input.toLocaleString("en-US")} · ↓ ${output.toLocaleString("en-US")}`;
+}
+
 export function formatDuration(durationMs: number): string {
 	if (durationMs < 1000) return `${Math.trunc(durationMs)} ms`;
 	if (durationMs < 60_000) {
@@ -145,7 +152,7 @@ export default function ReplyFooter({
 
 	const StateIcon = state?.Icon;
 	const metricClass =
-		"flex h-6 max-w-32 select-none items-center justify-center truncate rounded-md bg-control px-2 text-[11px] tabular-nums text-text-muted";
+		"flex h-6 max-w-56 select-none items-center justify-center truncate rounded-md bg-control px-2 text-[11px] tabular-nums text-text-muted";
 
 	return (
 		<footer
@@ -181,7 +188,9 @@ export default function ReplyFooter({
 									: "Legacy total token count"
 						}
 					>
-						{formatTokenCount(total)}
+						{input !== undefined && output !== undefined
+							? formatTokenBreakdown(input, output)
+							: formatTokenCount(total)}
 					</span>
 				)}
 				{duration !== undefined && (

@@ -189,13 +189,18 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest, apiKey st
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("%s returned no choices", a.id)
 	}
+	cacheReadTokens := 0
+	if resp.Usage.PromptTokensDetails != nil {
+		cacheReadTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	}
 	return &provider.ChatResponse{
-		Content:          resp.Choices[0].Message.Content,
-		ReasoningContent: resp.Choices[0].Message.ReasoningContent,
-		FinishReason:     string(resp.Choices[0].FinishReason),
-		InputTokens:      resp.Usage.PromptTokens,
-		OutputTokens:     resp.Usage.CompletionTokens,
-		Model:            resp.Model,
+		Content:              resp.Choices[0].Message.Content,
+		ReasoningContent:     resp.Choices[0].Message.ReasoningContent,
+		FinishReason:         string(resp.Choices[0].FinishReason),
+		InputTokens:          resp.Usage.PromptTokens,
+		OutputTokens:         resp.Usage.CompletionTokens,
+		CacheReadInputTokens: cacheReadTokens,
+		Model:                resp.Model,
 	}, nil
 }
 
@@ -379,10 +384,15 @@ func (a *Adapter) ChatStream(ctx context.Context, req *provider.ChatRequest, api
 				}
 			}
 			if chunk.Usage != nil {
+				cacheReadTokens := 0
+				if chunk.Usage.PromptTokensDetails != nil {
+					cacheReadTokens = chunk.Usage.PromptTokensDetails.CachedTokens
+				}
 				events <- provider.StreamEvent{
 					Usage: &provider.UsageEvent{
-						InputTokens:  chunk.Usage.PromptTokens,
-						OutputTokens: chunk.Usage.CompletionTokens,
+						InputTokens:          chunk.Usage.PromptTokens,
+						OutputTokens:         chunk.Usage.CompletionTokens,
+						CacheReadInputTokens: cacheReadTokens,
 					},
 				}
 			}

@@ -110,9 +110,13 @@ type ChatResponse struct {
 	Content          string `json:"content"`
 	ReasoningContent string `json:"reasoning_content,omitempty"`
 	FinishReason     string `json:"finish_reason"`
-	InputTokens      int    `json:"input_tokens"`
-	OutputTokens     int    `json:"output_tokens"`
-	Model            string `json:"model"`
+	// InputTokens is normalized to the complete prompt size. Anthropic cache
+	// fields are included here because they still occupy the context window.
+	InputTokens              int    `json:"input_tokens"`
+	OutputTokens             int    `json:"output_tokens"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
+	Model                    string `json:"model"`
 }
 
 // EmbeddingRequest is intentionally separate from ChatRequest: embedding is a
@@ -179,8 +183,10 @@ type ToolResultEvent struct {
 
 // UsageEvent is emitted at the end of a stream.
 type UsageEvent struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // ModelInfo describes an available model.

@@ -202,6 +202,12 @@ pub struct Message {
     pub input_tokens: Option<i32>,
     /// Provider-reported completion/output usage.
     pub output_tokens: Option<i32>,
+    /// Input tokens from the final provider round. Unlike billing input usage,
+    /// this is a point-in-time snapshot of the context sent to the model.
+    pub context_input_tokens: Option<i32>,
+    /// Output tokens produced by the final provider round and still present in
+    /// the active context after that response.
+    pub context_output_tokens: Option<i32>,
     /// Time spent consuming provider generation responses, excluding tool work.
     pub duration_ms: Option<i64>,
     /// Raw provider finish reason (for example `stop`, `length`, `tool_use`).
@@ -228,6 +234,8 @@ impl Message {
             token_count: 0,
             input_tokens: None,
             output_tokens: None,
+            context_input_tokens: None,
+            context_output_tokens: None,
             duration_ms: None,
             finish_reason: None,
             status: MessageStatus::Completed,

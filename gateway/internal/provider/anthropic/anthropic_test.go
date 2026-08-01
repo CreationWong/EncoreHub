@@ -81,6 +81,18 @@ func TestDecodeStreamLine_MessageDeltaUsage(t *testing.T) {
 	}
 }
 
+func TestDecodeStreamLine_MessageStartIncludesCachedPromptUsage(t *testing.T) {
+	line := `data: {"type":"message_start","message":{"usage":{"input_tokens":12,"output_tokens":0,"cache_creation_input_tokens":5,"cache_read_input_tokens":20}}}`
+	out := decodeStreamLine(line)
+	if len(out) != 1 || out[0].Usage == nil {
+		t.Fatalf("expected prompt usage, got %#v", out)
+	}
+	if out[0].Usage.InputTokens != 37 || out[0].Usage.CacheCreationInputTokens != 5 ||
+		out[0].Usage.CacheReadInputTokens != 20 {
+		t.Fatalf("cached prompt usage = %#v", out[0].Usage)
+	}
+}
+
 func TestDecodeStreamLine_MessageStop(t *testing.T) {
 	line := `data: {"type":"message_stop"}`
 	out := decodeStreamLine(line)
@@ -125,9 +137,8 @@ func TestDecodeStreamLine_BadJSONIsSkipped(t *testing.T) {
 }
 
 func TestDecodeStreamLine_UnknownTypeReturnsNil(t *testing.T) {
-	// e.g. message_start, content_block_start etc — adapter intentionally
-	// only forwards the four cases above.
-	line := `data: {"type":"message_start","message":{"id":"m1"}}`
+	// Protocol bookkeeping without content or usage stays internal.
+	line := `data: {"type":"ping"}`
 	if got := decodeStreamLine(line); got != nil {
 		t.Fatalf("expected nil for ignored type, got %#v", got)
 	}

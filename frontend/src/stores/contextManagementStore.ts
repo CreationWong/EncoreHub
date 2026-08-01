@@ -42,14 +42,20 @@ export interface CompactionState {
 
 export interface ContextBreakdown {
     usedTokens: number;
+	contextTokens: number;
     limit: number | null;
     percentage: number | null;
     freeTokens: number | null;
+	reservedTokens: number;
+	source: "provider" | "estimated";
+	snapshotInputTokens: number | null;
+	snapshotOutputTokens: number | null;
     categories: {
         system: number;
         tools: number;
         skills: number;
         messages: number;
+		other: number;
     };
 }
 
@@ -70,6 +76,25 @@ const USAGE_STORAGE_KEY = "encorehub-usage-records";
 const PARAMETERS_STORAGE_KEY = "encorehub-advanced-parameters";
 const AUTO_COMPACT_STORAGE_KEY = "encorehub-auto-compact-context";
 const MAX_USAGE_RECORDS = 500;
+const MAX_COMPACTION_OUTPUT_RESERVE = 20_000;
+const AUTO_COMPACT_BUFFER_TOKENS = 13_000;
+export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000;
+
+export function autoCompactReserve(maxCompletionTokens: number): number {
+	// Claude Code reserves bounded summary output plus a fixed safety margin;
+	// this stays stable across 200K and 1M context windows unlike a percentage.
+	return (
+		Math.min(Math.max(0, maxCompletionTokens), MAX_COMPACTION_OUTPUT_RESERVE) +
+		AUTO_COMPACT_BUFFER_TOKENS
+	);
+}
+
+export function autoCompactThreshold(
+	limit: number,
+	maxCompletionTokens: number,
+): number {
+	return Math.max(0, limit - autoCompactReserve(maxCompletionTokens));
+}
 
 function readJson<T>(key: string, fallback: T): T {
     if (typeof window === "undefined") return fallback;
@@ -90,40 +115,161 @@ function persistJson(key: string, value: unknown): void {
 }
 
 export function estimateTokens(text: string): number {
-    // A deterministic estimate keeps the live meter responsive without a model-specific tokenizer.
     const normalized = text.trim();
-    return normalized ? Math.max(1, Math.ceil(normalized.length / 4)) : 0;
+	if (!normalized) return 0;
+	// ASCII prose averages roughly four bytes per token, while CJK and other
+	// non-ASCII scripts are conservatively treated as one token per code point.
+	let asciiBytes = 0;
+	let nonAsciiCodePoints = 0;
+	for (const codePoint of normalized) {
+		if ((codePoint.codePointAt(0) ?? 0) <= 0x7f) asciiBytes += 1;
+		else nonAsciiCodePoints += 1;
+	}
+	return Math.max(1, Math.ceil(asciiBytes / 4) + nonAsciiCodePoints);
+}
+
+type ContextCategories = ContextBreakdown["categories"];
+
+function emptyCategories(): ContextCategories {
+	return { system: 0, tools: 0, skills: 0, messages: 0, other: 0 };
+}
+
+function addMessageEstimate(
+	categories: ContextCategories,
+	message: Message,
+): void {
+	// Content, reasoning, and tool payloads enter provider requests through
+	// different protocol fields, so they must not be classified as one blob.
+	const contentTokens =
+		estimateTokens(message.content) + estimateTokens(message.reasoning ?? "");
+	if (message.role === "system") categories.system += contentTokens;
+	else if (message.role === "tool") categories.tools += contentTokens;
+	else categories.messages += contentTokens;
+
+	for (const toolCall of message.tool_calls) {
+		const serialized = `${toolCall.name}${toolCall.arguments}${toolCall.result ?? ""}`;
+		categories.tools += Math.max(1, Math.ceil(serialized.length / 2));
+	}
+}
+
+function categoryTotal(categories: ContextCategories): number {
+	return Object.values(categories).reduce((sum, value) => sum + value, 0);
+}
+
+function reconcileSnapshotCategories(
+	estimated: ContextCategories,
+	snapshotTokens: number,
+): ContextCategories {
+	const estimatedTotal = categoryTotal(estimated);
+	if (estimatedTotal <= snapshotTokens) {
+		return { ...estimated, other: snapshotTokens - estimatedTotal };
+	}
+	if (estimatedTotal === 0) return { ...estimated, other: snapshotTokens };
+
+	// Provider tokenization is authoritative. Scale rough category estimates
+	// down when they exceed the measured snapshot so the rows still sum exactly.
+	const scale = snapshotTokens / estimatedTotal;
+	const reconciled = emptyCategories();
+	for (const key of ["system", "tools", "skills", "messages"] as const) {
+		reconciled[key] = Math.floor(estimated[key] * scale);
+	}
+	reconciled.other = snapshotTokens - categoryTotal(reconciled);
+	return reconciled;
+}
+
+function latestContextSnapshotIndex(messages: Message[]): number {
+	// ES2021 desktop targets do not expose Array.findLastIndex, so scan from
+	// the tail while preserving the same newest-snapshot semantics.
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (
+			message.role === "assistant" &&
+			Number.isFinite(message.context_input_tokens) &&
+			Number.isFinite(message.context_output_tokens) &&
+			(message.context_input_tokens ?? -1) >= 0 &&
+			(message.context_output_tokens ?? -1) >= 0
+		) {
+			return index;
+		}
+	}
+	return -1;
 }
 
 export function estimateContextUsage(
     messages: Message[],
     limit: number | undefined,
     compaction?: CompactionState,
+	reservedTokens = 0,
 ): ContextBreakdown {
-    const categories = {system: 0, tools: 0, skills: 0, messages: 0};
-    // Once compacted, provider input contains the summary plus only the retained tail.
+	let categories = emptyCategories();
+	// A local compaction created after the latest response changes the next
+	// provider request, so the earlier provider snapshot is no longer applicable.
+	const latestSnapshotIndex = latestContextSnapshotIndex(messages);
+	const snapshotMessage =
+		latestSnapshotIndex >= 0 ? messages[latestSnapshotIndex] : undefined;
+	const compactionAfterSnapshot = Boolean(
+		compaction?.summary &&
+			snapshotMessage &&
+			Date.parse(compaction.createdAt) > Date.parse(snapshotMessage.created_at),
+	);
+
     const activeMessages = compaction?.summary
         ? compaction.keepRecent > 0
             ? messages.slice(-compaction.keepRecent)
             : []
         : messages;
-    for (const message of activeMessages) {
-        const tokens = estimateTokens(message.content);
-        if (message.role === "system") categories.system += tokens;
-        else if (message.role === "tool" || message.tool_calls.length > 0)
-            categories.tools += tokens;
-        else categories.messages += tokens;
-    }
-    if (compaction?.summary) {
+
+	let source: ContextBreakdown["source"] = "estimated";
+	let snapshotInputTokens: number | null = null;
+	let snapshotOutputTokens: number | null = null;
+	let usedTokens: number;
+	let contextTokens: number;
+	if (snapshotMessage && !compactionAfterSnapshot) {
+		source = "provider";
+		snapshotInputTokens = Math.trunc(snapshotMessage.context_input_tokens ?? 0);
+		snapshotOutputTokens = Math.trunc(
+			snapshotMessage.context_output_tokens ?? 0,
+		);
+		const covered = emptyCategories();
+		// Provider input usage covers every message before the assistant reply,
+		// while that reply's output becomes input only on the following round.
+		for (const message of messages.slice(0, latestSnapshotIndex)) {
+			addMessageEstimate(covered, message);
+		}
+		categories = reconcileSnapshotCategories(covered, snapshotInputTokens);
+		categories.messages += snapshotOutputTokens;
+		const afterSnapshot = emptyCategories();
+		for (const message of messages.slice(latestSnapshotIndex + 1)) {
+			addMessageEstimate(afterSnapshot, message);
+		}
+		for (const key of Object.keys(categories) as (keyof ContextCategories)[]) {
+			categories[key] += afterSnapshot[key];
+		}
+		const appendedTokens = categoryTotal(afterSnapshot);
+		usedTokens = snapshotInputTokens + appendedTokens;
+		contextTokens = snapshotInputTokens + snapshotOutputTokens + appendedTokens;
+	} else {
+		for (const message of activeMessages)
+			addMessageEstimate(categories, message);
+		if (compaction?.summary)
         categories.system += estimateTokens(compaction.summary);
+		usedTokens = categoryTotal(categories);
+		contextTokens = usedTokens;
     }
-    const usedTokens = Object.values(categories).reduce((sum, value) => sum + value, 0);
+
     const percentage = limit ? Math.min(100, (usedTokens / limit) * 100) : null;
     return {
         usedTokens,
+		contextTokens,
         limit: limit ?? null,
         percentage,
-        freeTokens: limit ? Math.max(0, limit - usedTokens) : null,
+		freeTokens: limit
+			? Math.max(0, limit - contextTokens - reservedTokens)
+			: null,
+		reservedTokens,
+		source,
+		snapshotInputTokens,
+		snapshotOutputTokens,
         categories,
     };
 }
@@ -148,7 +294,8 @@ export function modelPricePerToken(
         candidates[0];
     if (pricing) {
         const unit = (pricing.unit ?? "").toLowerCase();
-        const divisor = unit.includes("mtoken") || unit.includes("million")
+		const divisor =
+			unit.includes("mtoken") || unit.includes("million")
             ? 1_000_000
             : unit.includes("ktoken") || unit.includes("thousand")
                 ? 1_000
@@ -214,7 +361,10 @@ export function buildCompactionSummary(messages: Message[]): CompactionState | n
     return {
         summary: `Earlier conversation context (${archived.length} messages):\n${lines.join("\n")}`,
         keepRecent,
-        sourceTokens: archived.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+		sourceTokens: archived.reduce(
+			(sum, message) => sum + estimateTokens(message.content),
+			0,
+		),
         createdAt: new Date().toISOString(),
     };
 }
@@ -230,16 +380,21 @@ interface ContextManagementState {
     clearUsage: () => void;
     setAutoCompact: (enabled: boolean) => void;
     setAdvanced: (patch: Partial<AdvancedParameters>) => void;
-    compactConversation: (conversationId: string, messages: Message[]) => CompactionState | null;
+	compactConversation: (
+		conversationId: string,
+		messages: Message[],
+	) => CompactionState | null;
     clearCompaction: (conversationId: string) => void;
     setContextPanelOpen: (open: boolean) => void;
     setContextPanelTab: (tab: "parameters" | "context") => void;
 }
 
-export const useContextManagementStore = create<ContextManagementState>((set, get) => ({
+export const useContextManagementStore = create<ContextManagementState>(
+	(set, get) => ({
     records: readJson<UsageRecord[]>(USAGE_STORAGE_KEY, []),
     autoCompact:
-        typeof window !== "undefined" && localStorage.getItem(AUTO_COMPACT_STORAGE_KEY) !== "0",
+			typeof window !== "undefined" &&
+			localStorage.getItem(AUTO_COMPACT_STORAGE_KEY) !== "0",
     advanced: {
         ...DEFAULT_ADVANCED_PARAMETERS,
         ...readJson<Partial<AdvancedParameters>>(PARAMETERS_STORAGE_KEY, {}),
