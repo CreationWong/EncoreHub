@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { writeClipboardText } from "../../services/clipboard";
 import { toast } from "../../stores/toastStore";
 
 interface Props {
@@ -20,7 +21,7 @@ export default function CopyButton({ text, label = "Copy" }: Props) {
 
 	const onClick = async () => {
 		try {
-			await navigator.clipboard.writeText(text);
+			await writeClipboardText(text);
 			setCopied(true);
 			toast.success("Copied to clipboard");
 			if (resetTimer.current) clearTimeout(resetTimer.current);

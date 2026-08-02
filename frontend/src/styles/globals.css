@@ -93,21 +93,13 @@
 		border-radius: 4px;
 	}
 
-	/* Joined key controls share one focus ring instead of splitting at the eye button. */
-	.provider-key-value-control:has(:focus-visible) {
+	/* Joined inputs expose one focus ring around the complete control. */
+	.joined-input-control:has(:focus-visible) {
 		box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
 	}
 
-	.provider-key-value-control > :focus-visible {
+	.joined-input-control > :focus-visible {
 		box-shadow: none;
-	}
-
-	.provider-key-value-control > input:focus-visible {
-		border-radius: 6px 0 0 6px;
-	}
-
-	.provider-key-value-control > button:focus-visible {
-		border-radius: 0 6px 6px 0;
 	}
 
 	/* Scrollbar styling */

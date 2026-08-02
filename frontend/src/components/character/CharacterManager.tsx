@@ -113,6 +113,7 @@ function TextField({
 				{label}
 			</span>
 			<input
+				autoComplete="off"
 				ref={inputRef}
 				id={id}
 				value={value}
@@ -647,6 +648,7 @@ export default function CharacterManager({
 											Description
 										</span>
 										<textarea
+											autoComplete="off"
 											id={fieldId("description")}
 											value={draft.description}
 											onChange={(event) =>
@@ -768,6 +770,7 @@ export default function CharacterManager({
 											Opening message
 										</span>
 										<textarea
+											autoComplete="off"
 											id={fieldId("opening-message")}
 											value={draft.openingMessage}
 											onChange={(event) =>
@@ -798,6 +801,7 @@ export default function CharacterManager({
 										</span>
 									</div>
 									<textarea
+										autoComplete="off"
 										id={fieldId("system-prompt")}
 										value={draft.systemPrompt}
 										onChange={(event) =>

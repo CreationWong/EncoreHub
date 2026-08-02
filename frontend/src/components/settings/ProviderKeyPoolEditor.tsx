@@ -121,6 +121,7 @@ export default function ProviderKeyPoolEditor({
 										title={label}
 									/>
 									<input
+										autoComplete="off"
 										value={key.name}
 										onChange={(event) =>
 											update(index, { name: event.target.value }, false)
@@ -130,8 +131,9 @@ export default function ProviderKeyPoolEditor({
 										className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 text-xs font-medium text-text-secondary placeholder:text-text-muted"
 									/>
 								</div>
-								<div className="provider-key-value-control flex min-w-0 rounded-md">
+								<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 									<input
+										autoComplete="off"
 										type={isRevealed ? "text" : "password"}
 										value={key.value}
 										onChange={(event) =>
@@ -139,14 +141,14 @@ export default function ProviderKeyPoolEditor({
 										}
 										placeholder={keyHintFor(protocol)}
 										aria-label={`API key ${index + 1} value`}
-										className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted"
+										className="min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-xs text-text-primary outline-none placeholder:text-text-muted"
 									/>
 									<button
 										type="button"
 										onClick={() => toggleReveal(key.id)}
 										aria-label={`${isRevealed ? "Hide" : "Show"} API key ${index + 1}`}
 										title={isRevealed ? "Hide key" : "Show key"}
-										className="flex w-9 items-center justify-center rounded-r-md border border-l-0 border-border bg-surface-alt text-text-muted hover:bg-surface-hover hover:text-text-primary"
+										className="flex w-9 items-center justify-center border-l border-border bg-transparent text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none"
 									>
 										{isRevealed ? (
 											<EyeOff className="h-3.5 w-3.5" />

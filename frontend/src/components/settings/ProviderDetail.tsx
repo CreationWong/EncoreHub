@@ -1014,6 +1014,7 @@ export default function ProviderDetail({
 							{unlocking && (
 								<form onSubmit={submitUnlock} className="mt-2 flex gap-2">
 									<input
+										autoComplete="off"
 										type="password"
 										value={password}
 										onChange={(event) => setPassword(event.target.value)}
@@ -1177,6 +1178,7 @@ export default function ProviderDetail({
 											title={resultLabel}
 										/>
 										<input
+											autoComplete="off"
 											value={endpoint.name ?? ""}
 											onChange={(event) =>
 												updateEndpoint(index, { name: event.target.value })
@@ -1185,6 +1187,7 @@ export default function ProviderDetail({
 											className="w-28 rounded-md border border-transparent bg-transparent px-2 py-1 text-xs font-medium text-text-secondary hover:border-border focus:border-border max-[700px]:min-w-0 max-[700px]:flex-1"
 										/>
 										<input
+											autoComplete="off"
 											value={endpoint.base_url}
 											onChange={(event) =>
 												updateEndpoint(
@@ -1391,6 +1394,7 @@ export default function ProviderDetail({
 					<div className="relative mb-3">
 						<Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 						<input
+							autoComplete="off"
 							value={modelSearch}
 							onChange={(event) => setModelSearch(event.target.value)}
 							placeholder="Search models"

@@ -281,7 +281,7 @@ fn pricing_rate(
             .or_else(|| {
                 tiers
                     .iter()
-                    .find(|tier| tier.conditions.get("prompt_tokens").is_none())
+                    .find(|tier| !tier.conditions.contains_key("prompt_tokens"))
             })
             .or_else(|| tiers.first())
     });
@@ -343,6 +343,15 @@ struct ReportWindow {
     bucket_ms: i64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ReportContext<'a> {
+    window: ReportWindow,
+    timezone_offset_minutes: i32,
+    pricing: &'a PricingCatalog,
+    converter: &'a CurrencyConverter,
+    display_currency: &'a str,
+}
+
 pub async fn report(
     State(state): State<SharedState>,
     Query(query): Query<UsageQuery>,
@@ -383,11 +392,13 @@ pub async fn report(
         filtered,
         providers,
         models,
-        window,
-        query.timezone_offset_minutes.unwrap_or(0),
-        &pricing,
-        &converter,
-        &display_currency,
+        ReportContext {
+            window,
+            timezone_offset_minutes: query.timezone_offset_minutes.unwrap_or(0),
+            pricing: &pricing,
+            converter: &converter,
+            display_currency: &display_currency,
+        },
     )))
 }
 
@@ -395,12 +406,15 @@ fn build_report(
     rows: Vec<UsageRecordRow>,
     provider_options: Vec<String>,
     model_options: Vec<String>,
-    window: ReportWindow,
-    timezone_offset_minutes: i32,
-    pricing: &PricingCatalog,
-    converter: &CurrencyConverter,
-    display_currency: &str,
+    context: ReportContext<'_>,
 ) -> UsageReport {
+    let ReportContext {
+        window,
+        timezone_offset_minutes,
+        pricing,
+        converter,
+        display_currency,
+    } = context;
     let total_tokens = rows
         .iter()
         .map(|row| i64::from(row.input_tokens + row.output_tokens))
@@ -800,11 +814,13 @@ mod tests {
             ],
             vec!["anthropic".to_string(), "openai".to_string()],
             vec!["claude-test".to_string(), "gpt-test".to_string()],
-            window,
-            0,
-            &pricing,
-            &converter,
-            "USD",
+            ReportContext {
+                window,
+                timezone_offset_minutes: 0,
+                pricing: &pricing,
+                converter: &converter,
+                display_currency: "USD",
+            },
         );
 
         assert_eq!(report.totals.requests, 2);
@@ -839,11 +855,13 @@ mod tests {
             )],
             vec!["openai".to_string()],
             vec!["gpt-test".to_string()],
-            window,
-            0,
-            &pricing,
-            &converter,
-            "USD",
+            ReportContext {
+                window,
+                timezone_offset_minutes: 0,
+                pricing: &pricing,
+                converter: &converter,
+                display_currency: "USD",
+            },
         );
 
         assert_eq!(report.trend.len(), 5);
@@ -876,11 +894,13 @@ mod tests {
             vec![row],
             vec!["anthropic".to_string()],
             vec!["claude-test".to_string()],
-            window,
-            0,
-            &pricing,
-            &converter,
-            "USD",
+            ReportContext {
+                window,
+                timezone_offset_minutes: 0,
+                pricing: &pricing,
+                converter: &converter,
+                display_currency: "USD",
+            },
         );
 
         assert_eq!(report.totals.cache_creation, 30);
@@ -911,11 +931,13 @@ mod tests {
             )],
             vec!["deepseek".to_string()],
             vec!["deepseek-v4-flash".to_string()],
-            window,
-            0,
-            &pricing,
-            &converter,
-            "USD",
+            ReportContext {
+                window,
+                timezone_offset_minutes: 0,
+                pricing: &pricing,
+                converter: &converter,
+                display_currency: "USD",
+            },
         );
 
         assert_eq!(report.totals.priced, 1);

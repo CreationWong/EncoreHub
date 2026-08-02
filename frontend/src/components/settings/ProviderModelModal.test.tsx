@@ -101,6 +101,40 @@ describe("ProviderModelModal", () => {
 		);
 	});
 
+	it("renders model fields and their adornments as complete focused controls", () => {
+		render(
+			<ProviderModelModal
+				model={{ id: "model-old", capabilities: [], streaming: true }}
+				existingIds={["model-old"]}
+				protocol="openai"
+				onSave={vi.fn()}
+				onClose={vi.fn()}
+			/>,
+		);
+
+		const input = screen.getByRole("textbox", { name: /Model ID/ });
+		const copy = screen.getByRole("button", { name: "Copy model ID" });
+		const control = input.parentElement;
+
+		expect(control).toBe(copy.parentElement);
+		expect(control?.className).toContain("joined-input-control");
+		expect(input.className.split(" ")).not.toContain("border");
+		expect(copy.className.split(" ")).toContain("border-l");
+
+		for (const name of [
+			"Maximum context size",
+			"Input price",
+			"Output price",
+		]) {
+			const adornedInput = screen.getByLabelText(name);
+			expect(adornedInput.parentElement?.className).toContain(
+				"joined-input-control",
+			);
+			expect(adornedInput.className.split(" ")).not.toContain("border");
+			expect(adornedInput.nextElementSibling?.className).toContain("border-l");
+		}
+	});
+
 	it("configures an embedding model as a non-chat utility", () => {
 		const onSave = vi.fn();
 		render(

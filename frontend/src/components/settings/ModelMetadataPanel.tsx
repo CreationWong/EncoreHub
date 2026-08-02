@@ -249,6 +249,7 @@ export default function ModelMetadataPanel() {
 					<div className="relative">
 						<Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 						<input
+							autoComplete="off"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							placeholder="Search providers"
@@ -395,6 +396,7 @@ export default function ModelMetadataPanel() {
 												Name
 											</span>
 											<input
+												autoComplete="off"
 												value={draft.name}
 												onChange={(event) =>
 													updateDraft("name", event.target.value)
@@ -407,6 +409,7 @@ export default function ModelMetadataPanel() {
 												Provider ID
 											</span>
 											<input
+												autoComplete="off"
 												value={draft.id}
 												onChange={(event) =>
 													updateDraft("id", event.target.value)
@@ -420,6 +423,7 @@ export default function ModelMetadataPanel() {
 											Metadata URL
 										</span>
 										<input
+											autoComplete="off"
 											type="url"
 											value={draft.url}
 											onChange={(event) =>
@@ -460,6 +464,7 @@ export default function ModelMetadataPanel() {
 												Collection path
 											</span>
 											<input
+												autoComplete="off"
 												value={draft.dataPath ?? ""}
 												onChange={(event) =>
 													updateDraft("dataPath", event.target.value)
@@ -472,6 +477,7 @@ export default function ModelMetadataPanel() {
 									<div className="flex flex-wrap items-center gap-4">
 										<label className="flex items-center gap-2 text-sm text-text-secondary">
 											<input
+												autoComplete="off"
 												type="checkbox"
 												checked={draft.enabled}
 												onChange={(event) =>
@@ -549,6 +555,7 @@ export default function ModelMetadataPanel() {
 													{MODEL_METADATA_FIELD_LABELS[field]}
 												</span>
 												<input
+													autoComplete="off"
 													aria-label={`Mapping ${MODEL_METADATA_FIELD_LABELS[field]}`}
 													value={draft.mapping[field] ?? ""}
 													onChange={(event) =>

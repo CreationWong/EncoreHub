@@ -131,6 +131,7 @@ export default function ProviderDiscoveryReview({
 						<div className="relative min-w-52 flex-1">
 							<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 							<input
+								autoComplete="off"
 								value={query}
 								onChange={(event) => setQuery(event.target.value)}
 								placeholder="Filter discovered models"
@@ -169,6 +170,7 @@ export default function ProviderDiscoveryReview({
 								className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-hover"
 							>
 								<input
+									autoComplete="off"
 									type="checkbox"
 									checked={selectedIds.has(model.id)}
 									onChange={() => toggle(model.id)}

@@ -379,6 +379,7 @@ export default function ConversationList() {
 										)}
 										{editingId === conversation.id ? (
 											<input
+												autoComplete="off"
 												value={draftTitle}
 												onChange={(event) => setDraftTitle(event.target.value)}
 												onBlur={() => commitRename(conversation)}

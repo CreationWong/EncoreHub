@@ -55,6 +55,7 @@ export default function UnlockGate() {
 				</div>
 				<form onSubmit={submit} className="space-y-3">
 					<input
+						autoComplete="off"
 						type="password"
 						value={pw}
 						onChange={(e) => setPw(e.target.value)}

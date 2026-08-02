@@ -250,7 +250,7 @@ describe("ProviderDetail", () => {
 		const valueInput = screen.getByLabelText("API key 1 value");
 
 		expect(valueInput.parentElement?.className).toContain(
-			"provider-key-value-control",
+			"joined-input-control",
 		);
 	});
 

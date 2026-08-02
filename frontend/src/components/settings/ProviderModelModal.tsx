@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MODEL_CAPABILITIES } from "../../constants/providers";
+import { writeClipboardText } from "../../services/clipboard";
 import { applyMetadataToModelConfig } from "../../services/modelMetadata";
 import type {
 	ProviderModelCapability,
@@ -271,24 +272,23 @@ export default function ProviderModelModal({
 							>
 								Model ID
 							</FieldLabel>
-							<span className="flex min-w-0">
+							<span className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 								<input
+									autoComplete="off"
 									value={draft.id}
 									onChange={(event) => update("id", event.target.value)}
 									placeholder="gpt-4.1-mini"
 									// biome-ignore lint/a11y/noAutofocus: primary field in a focused creation dialog
 									autoFocus={!editing}
-									className={`min-w-0 flex-1 border border-border bg-surface-alt px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted ${
-										editing ? "rounded-l-md" : "rounded-md"
-									}`}
+									className="min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-sm text-text-primary outline-none placeholder:text-text-muted"
 								/>
 								{editing && (
 									<button
 										type="button"
-										onClick={() => navigator.clipboard?.writeText(draft.id)}
+										onClick={() => void writeClipboardText(draft.id)}
 										aria-label="Copy model ID"
 										title="Copy model ID"
-										className="flex w-10 items-center justify-center rounded-r-md border border-l-0 border-border bg-surface-alt text-text-muted hover:bg-surface-hover hover:text-text-primary"
+										className="flex w-10 shrink-0 items-center justify-center border-l border-border bg-transparent text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none"
 									>
 										<Copy className="h-4 w-4" />
 									</button>
@@ -301,6 +301,7 @@ export default function ProviderModelModal({
 								Model name
 							</FieldLabel>
 							<input
+								autoComplete="off"
 								value={draft.name ?? ""}
 								onChange={(event) => update("name", event.target.value)}
 								placeholder="GPT-4.1 Mini"
@@ -313,6 +314,7 @@ export default function ProviderModelModal({
 								Group
 							</FieldLabel>
 							<input
+								autoComplete="off"
 								value={draft.group ?? ""}
 								onChange={(event) => update("group", event.target.value)}
 								placeholder="General"
@@ -456,6 +458,7 @@ export default function ProviderModelModal({
 									</span>
 									<span className="relative inline-flex h-6 w-11 shrink-0 items-center">
 										<input
+											autoComplete="off"
 											type="checkbox"
 											role="switch"
 											aria-checked={draft.streaming}
@@ -478,8 +481,9 @@ export default function ProviderModelModal({
 								>
 									Maximum context size
 								</label>
-								<div className="flex">
+								<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 									<input
+										autoComplete="off"
 										id="model-context-window"
 										type="number"
 										min="1"
@@ -494,9 +498,9 @@ export default function ProviderModelModal({
 											)
 										}
 										placeholder="From metadata"
-										className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
+										className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 									/>
-									<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
+									<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
 										tokens
 									</span>
 								</div>
@@ -524,8 +528,9 @@ export default function ProviderModelModal({
 								>
 									Input price
 								</label>
-								<div className="flex">
+								<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 									<input
+										autoComplete="off"
 										id="model-input-price"
 										type="number"
 										min="0"
@@ -534,9 +539,9 @@ export default function ProviderModelModal({
 										onChange={(event) =>
 											update("input_price", Number(event.target.value))
 										}
-										className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
+										className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 									/>
-									<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
+									<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
 										{currencySymbol} / 1M tokens
 									</span>
 								</div>
@@ -550,6 +555,7 @@ export default function ProviderModelModal({
 											Default dimensions
 										</label>
 										<input
+											autoComplete="off"
 											id="model-dimensions"
 											type="number"
 											min="1"
@@ -577,8 +583,9 @@ export default function ProviderModelModal({
 										>
 											Output price
 										</label>
-										<div className="flex">
+										<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 											<input
+												autoComplete="off"
 												id="model-output-price"
 												type="number"
 												min="0"
@@ -587,9 +594,9 @@ export default function ProviderModelModal({
 												onChange={(event) =>
 													update("output_price", Number(event.target.value))
 												}
-												className="min-w-0 flex-1 rounded-l-md border border-border bg-surface-alt px-3 py-2 text-sm"
+												className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 											/>
-											<span className="flex items-center rounded-r-md border border-l-0 border-border bg-surface-alt px-3 text-xs text-text-muted">
+											<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
 												{currencySymbol} / 1M tokens
 											</span>
 										</div>

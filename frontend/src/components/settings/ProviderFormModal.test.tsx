@@ -10,6 +10,16 @@ vi.mock("../../stores/providerStore", () => ({
 afterEach(cleanup);
 
 describe("ProviderFormModal", () => {
+	it("does not expose provider names to browser autofill", () => {
+		render(<ProviderFormModal onCreated={vi.fn()} onClose={vi.fn()} />);
+
+		expect(
+			screen
+				.getByRole("textbox", { name: "Name" })
+				.getAttribute("autocomplete"),
+		).toBe("off");
+	});
+
 	it("stays open when the backdrop is clicked", () => {
 		const onClose = vi.fn();
 		const { container } = render(

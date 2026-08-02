@@ -1,11 +1,25 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relativePath) => readFile(path.join(root, relativePath), "utf8");
+
+async function filesBelow(directory, suffix) {
+	const entries = await readdir(path.join(root, directory), {
+		withFileTypes: true,
+	});
+	const nested = await Promise.all(
+		entries.map(async (entry) => {
+			const relativePath = path.join(directory, entry.name);
+			if (entry.isDirectory()) return filesBelow(relativePath, suffix);
+			return entry.name.endsWith(suffix) ? [relativePath] : [];
+		}),
+	);
+	return nested.flat();
+}
 
 test("Engine container builds the standalone HTTP binary with readonly skills", async () => {
 	const [dockerfile, dockerignore, main] = await Promise.all([
@@ -190,6 +204,66 @@ test("Desktop keeps mutable state in app data and bundles readonly skills", asyn
 	assert.doesNotMatch(runtimePaths, /allow\(dead_code\)/);
 	const config = JSON.parse(tauriConfig);
 	assert.equal(config.bundle.resources?.["../../skills/"], "skills/");
+});
+
+test("Desktop suppresses browser autofill and uses native clipboard access", async () => {
+	const [
+		baseText,
+		windowsText,
+		capabilityText,
+		cargo,
+		main,
+		clipboardService,
+		clipboardConsumers,
+	] = await Promise.all([
+		read("frontend/src-tauri/tauri.conf.json"),
+		read("frontend/src-tauri/tauri.windows.conf.json"),
+		read("frontend/src-tauri/capabilities/default.json"),
+		read("frontend/src-tauri/Cargo.toml"),
+		read("frontend/src-tauri/src/main.rs"),
+		read("frontend/src/services/clipboard.ts"),
+		Promise.all([
+			read("frontend/src/components/chat/CopyButton.tsx"),
+			read("frontend/src/components/settings/ProviderModelModal.tsx"),
+			read("frontend/src/components/ui/AppContextMenu.tsx"),
+		]).then((files) => files.join("\n")),
+	]);
+	const base = JSON.parse(baseText);
+	const windows = JSON.parse(windowsText);
+	const capability = JSON.parse(capabilityText);
+
+	assert.equal(base.app.windows[0].generalAutofillEnabled, false);
+	assert.equal(windows.app.windows[0].generalAutofillEnabled, false);
+	assert.ok(
+		capability.permissions.includes("clipboard-manager:allow-read-text"),
+	);
+	assert.ok(
+		capability.permissions.includes("clipboard-manager:allow-write-text"),
+	);
+	assert.match(cargo, /tauri-plugin-clipboard-manager\s*=\s*"2"/);
+	assert.match(main, /tauri_plugin_clipboard_manager::init\(\)/);
+	assert.match(
+		clipboardService,
+		/import\("@tauri-apps\/plugin-clipboard-manager"\)/,
+	);
+	assert.doesNotMatch(clipboardConsumers, /navigator\.clipboard/);
+});
+
+test("Every native text entry control opts out of browser autofill", async () => {
+	const files = (await filesBelow("frontend/src", ".tsx")).filter(
+		(file) => !file.endsWith(".test.tsx"),
+	);
+	const missing = [];
+	for (const file of files) {
+		const source = await read(file);
+		for (const match of source.matchAll(/<(?:input|textarea)\b[\s\S]*?\/>/g)) {
+			if (!match[0].includes("autoComplete=")) {
+				const line = source.slice(0, match.index).split("\n").length;
+				missing.push(`${file}:${line}`);
+			}
+		}
+	}
+	assert.deepEqual(missing, []);
 });
 
 test("Desktop launches the Gateway through Tauri's sidecar resolver", async () => {

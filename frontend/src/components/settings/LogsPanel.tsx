@@ -350,6 +350,7 @@ export default function LogsPanel() {
 					))}
 				</select>
 				<input
+					autoComplete="off"
 					type="search"
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
@@ -359,6 +360,7 @@ export default function LogsPanel() {
 				/>
 				<label className="flex items-center gap-1.5 text-xs text-text-muted">
 					<input
+						autoComplete="off"
 						type="checkbox"
 						checked={follow}
 						onChange={(event) => setFollow(event.target.checked)}

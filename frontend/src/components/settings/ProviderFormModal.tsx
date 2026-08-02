@@ -107,6 +107,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 						</label>
 						<input
 							id="prov-name"
+							autoComplete="off"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							onKeyDown={(e) => {

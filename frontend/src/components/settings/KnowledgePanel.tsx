@@ -116,6 +116,7 @@ export default function KnowledgePanel() {
 				<div className="relative flex-1">
 					<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 					<input
+						autoComplete="off"
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						onKeyDown={(e) => e.key === "Enter" && onSearch()}
@@ -136,12 +137,14 @@ export default function KnowledgePanel() {
 			{showUpload && (
 				<div className="space-y-2 rounded-lg border border-border bg-surface-alt/40 p-3">
 					<input
+						autoComplete="off"
 						value={uploadTitle}
 						onChange={(e) => setUploadTitle(e.target.value)}
 						placeholder="Title"
 						className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
 					/>
 					<textarea
+						autoComplete="off"
 						value={uploadContent}
 						onChange={(e) => setUploadContent(e.target.value)}
 						placeholder="Paste document content (text). Will be chunked & indexed."
@@ -151,6 +154,7 @@ export default function KnowledgePanel() {
 					<div className="flex items-center justify-between gap-2">
 						<label className="cursor-pointer text-xs text-text-muted hover:text-text-primary">
 							<input
+								autoComplete="off"
 								type="file"
 								accept=".txt,.md,.markdown,text/plain,text/markdown"
 								onChange={onPickFile}

@@ -318,6 +318,7 @@ export default function UsagePanel() {
 						{range === "custom" && (
 							<>
 								<input
+									autoComplete="off"
 									type="datetime-local"
 									value={customFrom}
 									max={customTo}
@@ -326,6 +327,7 @@ export default function UsagePanel() {
 									className="h-8 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 								/>
 								<input
+									autoComplete="off"
 									type="datetime-local"
 									value={customTo}
 									min={customFrom}

@@ -166,6 +166,7 @@ export default function CharacterHistory({
 								: `Branch from Version ${pending.version.version}`}
 						</span>
 						<input
+							autoComplete="off"
 							value={value}
 							onChange={(event) => setValue(event.target.value)}
 							onKeyDown={(event) => {

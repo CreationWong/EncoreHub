@@ -251,6 +251,7 @@ export default function ModelMetadataTable({
 					<div className="relative">
 						<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 						<input
+							autoComplete="off"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							placeholder="Filter records"
@@ -311,6 +312,7 @@ export default function ModelMetadataTable({
 											{isEditing ? (
 												column.kind === "json" ? (
 													<textarea
+														autoComplete="off"
 														value={editor}
 														onChange={(event) => setEditor(event.target.value)}
 														onBlur={commitCell}
@@ -322,6 +324,7 @@ export default function ModelMetadataTable({
 													/>
 												) : (
 													<input
+														autoComplete="off"
 														value={editor}
 														onChange={(event) => setEditor(event.target.value)}
 														onBlur={commitCell}

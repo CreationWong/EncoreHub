@@ -329,6 +329,7 @@ export default function InputBox() {
 						onHover={setSlashToolIndex}
 					/>
 					<textarea
+						autoComplete="off"
 						ref={textareaRef}
 						value={input}
 						onChange={handleInput}

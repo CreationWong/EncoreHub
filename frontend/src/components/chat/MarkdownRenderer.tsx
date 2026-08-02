@@ -158,6 +158,7 @@ const markdownComponents: Components = {
 	input({ className, node, ...props }) {
 		return (
 			<input
+				autoComplete="off"
 				{...props}
 				className={joinClasses("markdown-task-checkbox", className)}
 			/>

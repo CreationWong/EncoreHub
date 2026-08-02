@@ -108,6 +108,7 @@ export default function ContextMenuPanel() {
 							</span>
 							<label className="flex shrink-0 items-center">
 								<input
+									autoComplete="off"
 									type="checkbox"
 									checked={item.visible}
 									onChange={(event) =>

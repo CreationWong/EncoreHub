@@ -610,6 +610,7 @@ fn persist_file_log_level(
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
             check_gateway_health,

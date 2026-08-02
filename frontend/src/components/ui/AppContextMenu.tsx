@@ -16,6 +16,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	canReadClipboardText,
+	readClipboardText,
+	writeClipboardText,
+} from "../../services/clipboard";
 import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -121,13 +126,6 @@ function selectAll(target: EditableTarget): void {
 	range.selectNodeContents(target);
 	selection?.removeAllRanges();
 	selection?.addRange(range);
-}
-
-async function writeClipboard(text: string): Promise<void> {
-	if (!navigator.clipboard?.writeText) {
-		throw new Error("Clipboard access is unavailable");
-	}
-	await navigator.clipboard.writeText(text);
 }
 
 function shortcut(command: string): string {
@@ -281,7 +279,8 @@ export default function AppContextMenu() {
 				label: "Copy",
 				icon: Copy,
 				shortcut: shortcut("C"),
-				action: () => writeClipboard(context.selectedText || message.content),
+				action: () =>
+					writeClipboardText(context.selectedText || message.content),
 			},
 			...(context.messageRole === "user"
 				? [
@@ -343,7 +342,7 @@ export default function AppContextMenu() {
 				shortcut: shortcut("X"),
 				disabled: !modifiable || !hasSelection,
 				action: async () => {
-					await writeClipboard(context.selectedText);
+					await writeClipboardText(context.selectedText);
 					replaceSelection(editable, "");
 				},
 			},
@@ -353,16 +352,16 @@ export default function AppContextMenu() {
 				icon: Copy,
 				shortcut: shortcut("C"),
 				disabled: !hasSelection,
-				action: () => writeClipboard(context.selectedText),
+				action: () => writeClipboardText(context.selectedText),
 			},
 			{
 				id: "paste",
 				label: "Paste",
 				icon: ClipboardPaste,
 				shortcut: shortcut("V"),
-				disabled: !modifiable || !navigator.clipboard?.readText,
+				disabled: !modifiable || !canReadClipboardText(),
 				action: async () => {
-					const text = await navigator.clipboard.readText();
+					const text = await readClipboardText();
 					replaceSelection(editable, text);
 				},
 			},
@@ -382,7 +381,7 @@ export default function AppContextMenu() {
 				label: "Copy",
 				icon: Copy,
 				shortcut: shortcut("C"),
-				action: () => writeClipboard(context.selectedText),
+				action: () => writeClipboardText(context.selectedText),
 			},
 		];
 	} else {

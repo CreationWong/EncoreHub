@@ -61,6 +61,7 @@ export default function UserBubble({
 				{editing ? (
 					<div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace shadow-sm focus-within:border-accent">
 						<textarea
+							autoComplete="off"
 							ref={editorRef}
 							aria-label="Edit user message"
 							value={draft}

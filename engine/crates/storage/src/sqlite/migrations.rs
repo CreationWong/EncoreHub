@@ -417,14 +417,17 @@ mod tests {
 
         run(&conn).unwrap();
 
-        let telemetry: (
-            Option<i32>,
-            Option<i32>,
-            Option<i32>,
-            Option<i32>,
-            Option<i64>,
-            Option<String>,
-        ) = conn
+        #[derive(Debug, PartialEq)]
+        struct LegacyTelemetry {
+            input_tokens: Option<i32>,
+            output_tokens: Option<i32>,
+            cache_creation_input_tokens: Option<i32>,
+            cache_read_input_tokens: Option<i32>,
+            duration_ms: Option<i64>,
+            finish_reason: Option<String>,
+        }
+
+        let telemetry = conn
             .query_row(
                 "SELECT input_tokens, output_tokens,
                         cache_creation_input_tokens, cache_read_input_tokens,
@@ -432,18 +435,28 @@ mod tests {
                  FROM messages WHERE id = 'legacy-message'",
                 [],
                 |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
+                    Ok(LegacyTelemetry {
+                        input_tokens: row.get(0)?,
+                        output_tokens: row.get(1)?,
+                        cache_creation_input_tokens: row.get(2)?,
+                        cache_read_input_tokens: row.get(3)?,
+                        duration_ms: row.get(4)?,
+                        finish_reason: row.get(5)?,
+                    })
                 },
             )
             .unwrap();
-        assert_eq!(telemetry, (None, None, None, None, None, None));
+        assert_eq!(
+            telemetry,
+            LegacyTelemetry {
+                input_tokens: None,
+                output_tokens: None,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+                duration_ms: None,
+                finish_reason: None,
+            }
+        );
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();

@@ -161,6 +161,7 @@ function TextField({
 				{label}
 			</span>
 			<input
+				autoComplete="off"
 				type={type}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
@@ -479,6 +480,7 @@ export default function SearchPanel() {
 							Results per search
 						</span>
 						<input
+							autoComplete="off"
 							type="number"
 							min={1}
 							max={10}
