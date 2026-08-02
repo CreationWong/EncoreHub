@@ -102,11 +102,12 @@ func Setup(cfg Config) *gin.Engine {
 			prov.POST("/:provider/embeddings", providerHandler.CreateEmbeddings)
 		}
 
-		// Engine resources (skills / memories / knowledge / secrets): transparent
+		// Engine resources (skills / memories / knowledge / secrets / usage):
+		// transparent
 		// proxy. All standard CRUD verbs land on the proxy; engine enforces shape.
 		// Secrets carry key material — they ride the same localhost trust boundary
 		// as the X-Provider-Key header the gateway already forwards.
-		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters", "config"} {
+		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters", "config", "usage"} {
 			api.Any("/"+res, engineProxy.Forward)
 			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}

@@ -202,6 +202,10 @@ pub struct Message {
     pub input_tokens: Option<i32>,
     /// Provider-reported completion/output usage.
     pub output_tokens: Option<i32>,
+    /// Prompt tokens written into the provider cache for this request.
+    pub cache_creation_input_tokens: Option<i32>,
+    /// Prompt tokens served from the provider cache for this request.
+    pub cache_read_input_tokens: Option<i32>,
     /// Input tokens from the final provider round. Unlike billing input usage,
     /// this is a point-in-time snapshot of the context sent to the model.
     pub context_input_tokens: Option<i32>,
@@ -234,6 +238,8 @@ impl Message {
             token_count: 0,
             input_tokens: None,
             output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
             context_input_tokens: None,
             context_output_tokens: None,
             duration_ms: None,

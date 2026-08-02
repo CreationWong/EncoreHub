@@ -48,7 +48,7 @@ const testEngineToken = "test-engine-token"
 func newProxyRouter(target string) *gin.Engine {
 	r := gin.New()
 	proxy := handler.NewEngineProxy(engine.NewClient(target, testEngineToken))
-	for _, res := range []string{"skills", "memories", "knowledge"} {
+	for _, res := range []string{"skills", "memories", "knowledge", "usage"} {
 		r.Any("/api/v1/"+res, proxy.Forward)
 		r.Any("/api/v1/"+res+"/*rest", proxy.Forward)
 	}
@@ -96,15 +96,18 @@ func TestForward_PreservesQueryString(t *testing.T) {
 	fe := newFakeEngine(t, http.StatusOK, `{"results":[]}`)
 	r := newProxyRouter(fe.URL)
 
-	_ = do(t, r, http.MethodGet, "/api/v1/memories/search?q=hello&top_k=5", "")
+	_ = do(t, r, http.MethodGet, "/api/v1/usage?range=week&provider=openai", "")
 	if fe.last == nil {
 		t.Fatal("engine did not receive request")
 	}
-	if fe.last.URL.Query().Get("q") != "hello" {
-		t.Errorf("q lost: %q", fe.last.URL.RawQuery)
+	if fe.last.URL.Path != "/api/usage" {
+		t.Errorf("path = %q, want /api/usage", fe.last.URL.Path)
 	}
-	if fe.last.URL.Query().Get("top_k") != "5" {
-		t.Errorf("top_k lost: %q", fe.last.URL.RawQuery)
+	if fe.last.URL.Query().Get("range") != "week" {
+		t.Errorf("range lost: %q", fe.last.URL.RawQuery)
+	}
+	if fe.last.URL.Query().Get("provider") != "openai" {
+		t.Errorf("provider lost: %q", fe.last.URL.RawQuery)
 	}
 }
 

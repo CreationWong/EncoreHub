@@ -66,6 +66,22 @@ pub struct Database {
     path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub struct UsageRecordRow {
+    pub id: String,
+    pub conversation_id: String,
+    pub conversation_title: String,
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: i32,
+    pub output_tokens: i32,
+    pub cache_creation_input_tokens: i32,
+    pub cache_read_input_tokens: i32,
+    pub duration_ms: i64,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 impl Database {
     /// Open (or create) a SQLite database at the given path and run migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<()> {
@@ -217,9 +233,9 @@ impl Database {
         conn.execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, reasoning, parent_id, token_count,
-              input_tokens, output_tokens, context_input_tokens, context_output_tokens,
-              duration_ms, finish_reason, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+              context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 msg.id,
                 msg.conversation_id,
@@ -230,6 +246,8 @@ impl Database {
                 msg.token_count,
                 msg.input_tokens,
                 msg.output_tokens,
+                msg.cache_creation_input_tokens,
+                msg.cache_read_input_tokens,
                 msg.context_input_tokens,
                 msg.context_output_tokens,
                 msg.duration_ms,
@@ -249,8 +267,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
-                    input_tokens, output_tokens, context_input_tokens, context_output_tokens,
-                    duration_ms, finish_reason, status, created_at
+                    input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+                    context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at
              FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], |row| {
@@ -264,13 +282,50 @@ impl Database {
                 token_count: row.get(6)?,
                 input_tokens: row.get(7)?,
                 output_tokens: row.get(8)?,
-                context_input_tokens: row.get(9)?,
-                context_output_tokens: row.get(10)?,
-                duration_ms: row.get(11)?,
-                finish_reason: row.get(12)?,
-                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(13)?)
+                cache_creation_input_tokens: row.get(9)?,
+                cache_read_input_tokens: row.get(10)?,
+                context_input_tokens: row.get(11)?,
+                context_output_tokens: row.get(12)?,
+                duration_ms: row.get(13)?,
+                finish_reason: row.get(14)?,
+                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(15)?)
                     .unwrap_or_default(),
-                created_at: ts_to_dt(row.get::<_, i64>(14)?),
+                created_at: ts_to_dt(row.get::<_, i64>(16)?),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_usage_records(&self) -> Result<Vec<UsageRecordRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT m.id, m.conversation_id, c.title, c.provider, c.model,
+                    COALESCE(m.input_tokens, 0), COALESCE(m.output_tokens, 0),
+                    COALESCE(m.cache_creation_input_tokens, 0),
+                    COALESCE(m.cache_read_input_tokens, 0),
+                    COALESCE(m.duration_ms, 0), m.status, m.created_at
+             FROM messages m
+             INNER JOIN conversations c ON c.id = m.conversation_id
+             WHERE m.role = 'assistant'
+               AND (m.input_tokens IS NOT NULL OR m.output_tokens IS NOT NULL)
+             ORDER BY m.created_at DESC
+             LIMIT 50000",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(UsageRecordRow {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                conversation_title: row.get(2)?,
+                provider: row.get(3)?,
+                model: row.get(4)?,
+                input_tokens: row.get(5)?,
+                output_tokens: row.get(6)?,
+                cache_creation_input_tokens: row.get(7)?,
+                cache_read_input_tokens: row.get(8)?,
+                duration_ms: row.get(9)?,
+                status: row.get(10)?,
+                created_at: ts_to_dt(row.get::<_, i64>(11)?),
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -281,8 +336,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
-                    input_tokens, output_tokens, context_input_tokens, context_output_tokens,
-                    duration_ms, finish_reason, status, created_at
+                    input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+                    context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at
              FROM messages WHERE id = ?1",
             params![id],
             |row| {
@@ -296,13 +351,15 @@ impl Database {
                     token_count: row.get(6)?,
                     input_tokens: row.get(7)?,
                     output_tokens: row.get(8)?,
-                    context_input_tokens: row.get(9)?,
-                    context_output_tokens: row.get(10)?,
-                    duration_ms: row.get(11)?,
-                    finish_reason: row.get(12)?,
-                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(13)?)
+                    cache_creation_input_tokens: row.get(9)?,
+                    cache_read_input_tokens: row.get(10)?,
+                    context_input_tokens: row.get(11)?,
+                    context_output_tokens: row.get(12)?,
+                    duration_ms: row.get(13)?,
+                    finish_reason: row.get(14)?,
+                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(15)?)
                         .unwrap_or_default(),
-                    created_at: ts_to_dt(row.get::<_, i64>(14)?),
+                    created_at: ts_to_dt(row.get::<_, i64>(16)?),
                 })
             },
         )

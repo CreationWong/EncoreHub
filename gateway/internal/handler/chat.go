@@ -113,13 +113,15 @@ type chatErrorPayload struct {
 }
 
 type assistantMetrics struct {
-	tokenCount          int
-	inputTokens         *int
-	outputTokens        *int
-	contextInputTokens  *int
-	contextOutputTokens *int
-	durationMS          *int64
-	finishReason        *string
+	tokenCount               int
+	inputTokens              *int
+	outputTokens             *int
+	cacheCreationInputTokens *int
+	cacheReadInputTokens     *int
+	contextInputTokens       *int
+	contextOutputTokens      *int
+	durationMS               *int64
+	finishReason             *string
 }
 
 type streamRoundResult struct {
@@ -370,9 +372,11 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 	metrics := measuredAssistantMetrics(
 		usage,
-		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0,
+		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0 ||
+			chatResp.CacheCreationInputTokens > 0 || chatResp.CacheReadInputTokens > 0,
 		usage,
-		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0,
+		chatResp.InputTokens > 0 || chatResp.OutputTokens > 0 ||
+			chatResp.CacheCreationInputTokens > 0 || chatResp.CacheReadInputTokens > 0,
 		providerDuration,
 		chatResp.FinishReason,
 	)
@@ -1266,6 +1270,10 @@ func measuredAssistantMetrics(usage provider.UsageEvent, usageAvailable bool, co
 		outputTokens := usage.OutputTokens
 		metrics.inputTokens = &inputTokens
 		metrics.outputTokens = &outputTokens
+		cacheCreationInputTokens := usage.CacheCreationInputTokens
+		cacheReadInputTokens := usage.CacheReadInputTokens
+		metrics.cacheCreationInputTokens = &cacheCreationInputTokens
+		metrics.cacheReadInputTokens = &cacheReadInputTokens
 		metrics.tokenCount = inputTokens + outputTokens
 	}
 	if contextUsageAvailable {
@@ -1290,16 +1298,18 @@ func assistantForTurn(content, reasoning string, toolCalls []engine.ToolCallInpu
 		return nil
 	}
 	return &engine.FinalizeAssistant{
-		Content:             content,
-		Reasoning:           reasoning,
-		TokenCount:          metrics.tokenCount,
-		InputTokens:         metrics.inputTokens,
-		OutputTokens:        metrics.outputTokens,
-		ContextInputTokens:  metrics.contextInputTokens,
-		ContextOutputTokens: metrics.contextOutputTokens,
-		DurationMS:          metrics.durationMS,
-		FinishReason:        metrics.finishReason,
-		ToolCalls:           toolCalls,
+		Content:                  content,
+		Reasoning:                reasoning,
+		TokenCount:               metrics.tokenCount,
+		InputTokens:              metrics.inputTokens,
+		OutputTokens:             metrics.outputTokens,
+		CacheCreationInputTokens: metrics.cacheCreationInputTokens,
+		CacheReadInputTokens:     metrics.cacheReadInputTokens,
+		ContextInputTokens:       metrics.contextInputTokens,
+		ContextOutputTokens:      metrics.contextOutputTokens,
+		DurationMS:               metrics.durationMS,
+		FinishReason:             metrics.finishReason,
+		ToolCalls:                toolCalls,
 	}
 }
 

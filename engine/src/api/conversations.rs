@@ -75,6 +75,8 @@ pub struct MessageResponse {
     pub token_count: i32,
     pub input_tokens: Option<i32>,
     pub output_tokens: Option<i32>,
+    pub cache_creation_input_tokens: Option<i32>,
+    pub cache_read_input_tokens: Option<i32>,
     pub context_input_tokens: Option<i32>,
     pub context_output_tokens: Option<i32>,
     pub duration_ms: Option<i64>,
@@ -213,6 +215,8 @@ pub async fn get_one(
                 token_count: m.token_count,
                 input_tokens: m.input_tokens,
                 output_tokens: m.output_tokens,
+                cache_creation_input_tokens: m.cache_creation_input_tokens,
+                cache_read_input_tokens: m.cache_read_input_tokens,
                 context_input_tokens: m.context_input_tokens,
                 context_output_tokens: m.context_output_tokens,
                 duration_ms: m.duration_ms,
@@ -426,6 +430,8 @@ pub async fn get_messages(
                 token_count: m.token_count,
                 input_tokens: m.input_tokens,
                 output_tokens: m.output_tokens,
+                cache_creation_input_tokens: m.cache_creation_input_tokens,
+                cache_read_input_tokens: m.cache_read_input_tokens,
                 context_input_tokens: m.context_input_tokens,
                 context_output_tokens: m.context_output_tokens,
                 duration_ms: m.duration_ms,
@@ -464,6 +470,10 @@ pub struct AddMessageRequest {
     pub input_tokens: Option<i32>,
     #[serde(default)]
     pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<i32>,
     /// The final provider round is the authoritative context snapshot; billing
     /// fields above may aggregate several tool rounds.
     #[serde(default)]
@@ -516,6 +526,10 @@ pub struct FinalizeAssistantRequest {
     pub input_tokens: Option<i32>,
     #[serde(default)]
     pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<i32>,
     /// Final-round fields separate context occupancy from cumulative billing
     /// telemetry when a user turn invokes tools more than once.
     #[serde(default)]
@@ -596,6 +610,8 @@ pub async fn finalize_turn(
         message.token_count = input.token_count;
         message.input_tokens = input.input_tokens;
         message.output_tokens = input.output_tokens;
+        message.cache_creation_input_tokens = input.cache_creation_input_tokens;
+        message.cache_read_input_tokens = input.cache_read_input_tokens;
         message.context_input_tokens = input.context_input_tokens;
         message.context_output_tokens = input.context_output_tokens;
         message.duration_ms = input.duration_ms;
@@ -656,6 +672,8 @@ pub async fn add_message(
     msg.token_count = req.token_count;
     msg.input_tokens = req.input_tokens;
     msg.output_tokens = req.output_tokens;
+    msg.cache_creation_input_tokens = req.cache_creation_input_tokens;
+    msg.cache_read_input_tokens = req.cache_read_input_tokens;
     msg.context_input_tokens = req.context_input_tokens;
     msg.context_output_tokens = req.context_output_tokens;
     msg.duration_ms = req.duration_ms;
@@ -873,6 +891,8 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
         token_count: msg.token_count,
         input_tokens: msg.input_tokens,
         output_tokens: msg.output_tokens,
+        cache_creation_input_tokens: msg.cache_creation_input_tokens,
+        cache_read_input_tokens: msg.cache_read_input_tokens,
         context_input_tokens: msg.context_input_tokens,
         context_output_tokens: msg.context_output_tokens,
         duration_ms: msg.duration_ms,

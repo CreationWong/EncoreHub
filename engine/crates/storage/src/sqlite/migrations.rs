@@ -302,6 +302,15 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN context_input_tokens INTEGER;
     ALTER TABLE messages ADD COLUMN context_output_tokens INTEGER;
     ",
+    // 013: Persist provider prompt-cache telemetry.
+    //
+    // These are nullable so legacy messages remain distinguishable from a
+    // provider-reported zero. Input usage continues to represent the complete
+    // prompt size; cache creation/read are subsets used for reporting.
+    "
+    ALTER TABLE messages ADD COLUMN cache_creation_input_tokens INTEGER;
+    ALTER TABLE messages ADD COLUMN cache_read_input_tokens INTEGER;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -408,20 +417,38 @@ mod tests {
 
         run(&conn).unwrap();
 
-        let telemetry: (Option<i32>, Option<i32>, Option<i64>, Option<String>) = conn
+        let telemetry: (
+            Option<i32>,
+            Option<i32>,
+            Option<i32>,
+            Option<i32>,
+            Option<i64>,
+            Option<String>,
+        ) = conn
             .query_row(
-                "SELECT input_tokens, output_tokens, duration_ms, finish_reason
+                "SELECT input_tokens, output_tokens,
+                        cache_creation_input_tokens, cache_read_input_tokens,
+                        duration_ms, finish_reason
                  FROM messages WHERE id = 'legacy-message'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
             )
             .unwrap();
-        assert_eq!(telemetry, (None, None, None, None));
+        assert_eq!(telemetry, (None, None, None, None, None, None));
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // The legacy row must advance through the context-snapshot migration.
-        assert_eq!(version, 12);
+        // The legacy row must advance through the cache-telemetry migration.
+        assert_eq!(version, 13);
     }
 
     #[test]
@@ -482,8 +509,8 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Character projection is followed by the context-snapshot migration.
-        assert_eq!(version, 12);
+        // Character projection is followed by the cache-telemetry migration.
+        assert_eq!(version, 13);
     }
 
     #[test]

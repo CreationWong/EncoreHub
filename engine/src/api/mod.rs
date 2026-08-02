@@ -6,6 +6,7 @@ mod memories;
 mod plugins;
 mod secrets;
 mod skills;
+mod usage;
 
 use crate::crypto::MasterKey;
 use crate::logging::LogControl;
@@ -187,6 +188,8 @@ pub fn build_router_with(
             "/api/conversations",
             get(conversations::list).post(conversations::create),
         )
+        // Usage reports are aggregated in Engine so desktop clients only render data.
+        .route("/api/usage", get(usage::report))
         // Config (key/value JSON store — e.g. provider_profiles)
         .route("/api/config/:key", get(config::get).put(config::put))
         // Secrets / encryption lifecycle

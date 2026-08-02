@@ -90,15 +90,17 @@ type ConversationDetail struct {
 
 // Message represents a single message.
 type Message struct {
-	ID           string          `json:"id"`
-	Role         string          `json:"role"`
-	Content      string          `json:"content"`
-	Reasoning    string          `json:"reasoning,omitempty"`
-	ParentID     *string         `json:"parent_id"`
-	ToolCalls    []ToolCallInput `json:"tool_calls,omitempty"`
-	TokenCount   int             `json:"token_count"`
-	InputTokens  *int            `json:"input_tokens"`
-	OutputTokens *int            `json:"output_tokens"`
+	ID                       string          `json:"id"`
+	Role                     string          `json:"role"`
+	Content                  string          `json:"content"`
+	Reasoning                string          `json:"reasoning,omitempty"`
+	ParentID                 *string         `json:"parent_id"`
+	ToolCalls                []ToolCallInput `json:"tool_calls,omitempty"`
+	TokenCount               int             `json:"token_count"`
+	InputTokens              *int            `json:"input_tokens"`
+	OutputTokens             *int            `json:"output_tokens"`
+	CacheCreationInputTokens *int            `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int            `json:"cache_read_input_tokens"`
 	// Context fields describe only the final provider round; input/output above
 	// remain cumulative billing telemetry for the complete user request.
 	ContextInputTokens  *int    `json:"context_input_tokens"`
@@ -248,18 +250,20 @@ func (c *Client) BaseURL() string {
 
 // AppendMessage stores a single message in the engine without auto-reply.
 type AppendMessageRequest struct {
-	Content             string          `json:"content"`
-	Role                string          `json:"role"`
-	ParentID            string          `json:"parent_id,omitempty"`
-	Reasoning           string          `json:"reasoning,omitempty"`
-	TokenCount          int             `json:"token_count,omitempty"`
-	InputTokens         *int            `json:"input_tokens,omitempty"`
-	OutputTokens        *int            `json:"output_tokens,omitempty"`
-	ContextInputTokens  *int            `json:"context_input_tokens,omitempty"`
-	ContextOutputTokens *int            `json:"context_output_tokens,omitempty"`
-	DurationMS          *int64          `json:"duration_ms,omitempty"`
-	FinishReason        *string         `json:"finish_reason,omitempty"`
-	ToolCalls           []ToolCallInput `json:"tool_calls,omitempty"`
+	Content                  string          `json:"content"`
+	Role                     string          `json:"role"`
+	ParentID                 string          `json:"parent_id,omitempty"`
+	Reasoning                string          `json:"reasoning,omitempty"`
+	TokenCount               int             `json:"token_count,omitempty"`
+	InputTokens              *int            `json:"input_tokens,omitempty"`
+	OutputTokens             *int            `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens *int            `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int            `json:"cache_read_input_tokens,omitempty"`
+	ContextInputTokens       *int            `json:"context_input_tokens,omitempty"`
+	ContextOutputTokens      *int            `json:"context_output_tokens,omitempty"`
+	DurationMS               *int64          `json:"duration_ms,omitempty"`
+	FinishReason             *string         `json:"finish_reason,omitempty"`
+	ToolCalls                []ToolCallInput `json:"tool_calls,omitempty"`
 }
 
 func (c *Client) AppendMessage(ctx context.Context, convID, content, role, parentID string) (*Message, error) {
@@ -304,11 +308,13 @@ type FinalizeTurnRequest struct {
 }
 
 type FinalizeAssistant struct {
-	Content      string `json:"content"`
-	Reasoning    string `json:"reasoning,omitempty"`
-	TokenCount   int    `json:"token_count,omitempty"`
-	InputTokens  *int   `json:"input_tokens,omitempty"`
-	OutputTokens *int   `json:"output_tokens,omitempty"`
+	Content                  string `json:"content"`
+	Reasoning                string `json:"reasoning,omitempty"`
+	TokenCount               int    `json:"token_count,omitempty"`
+	InputTokens              *int   `json:"input_tokens,omitempty"`
+	OutputTokens             *int   `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens *int   `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int   `json:"cache_read_input_tokens,omitempty"`
 	// Context snapshots preserve the final provider round separately from the
 	// cumulative input/output usage used for billing and reply metrics.
 	ContextInputTokens  *int            `json:"context_input_tokens,omitempty"`

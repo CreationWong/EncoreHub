@@ -125,19 +125,21 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if request.Assistant != nil {
 			parentID := user.ID
 			assistant = &engine.Message{
-				ID:           "assistant-authoritative",
-				Role:         "assistant",
-				Content:      request.Assistant.Content,
-				Reasoning:    request.Assistant.Reasoning,
-				ParentID:     &parentID,
-				ToolCalls:    request.Assistant.ToolCalls,
-				TokenCount:   request.Assistant.TokenCount,
-				InputTokens:  request.Assistant.InputTokens,
-				OutputTokens: request.Assistant.OutputTokens,
-				DurationMS:   request.Assistant.DurationMS,
-				FinishReason: request.Assistant.FinishReason,
-				Status:       request.Status,
-				CreatedAt:    "2026-07-16T00:00:01Z",
+				ID:                       "assistant-authoritative",
+				Role:                     "assistant",
+				Content:                  request.Assistant.Content,
+				Reasoning:                request.Assistant.Reasoning,
+				ParentID:                 &parentID,
+				ToolCalls:                request.Assistant.ToolCalls,
+				TokenCount:               request.Assistant.TokenCount,
+				InputTokens:              request.Assistant.InputTokens,
+				OutputTokens:             request.Assistant.OutputTokens,
+				CacheCreationInputTokens: request.Assistant.CacheCreationInputTokens,
+				CacheReadInputTokens:     request.Assistant.CacheReadInputTokens,
+				DurationMS:               request.Assistant.DurationMS,
+				FinishReason:             request.Assistant.FinishReason,
+				Status:                   request.Status,
+				CreatedAt:                "2026-07-16T00:00:01Z",
 			}
 		}
 		writeTestJSON(w, http.StatusOK, engine.FinalizeTurnResponse{
@@ -382,7 +384,10 @@ func TestSendMessage_DoneCarriesCommittedMessages(t *testing.T) {
 			time.Sleep(3 * time.Millisecond)
 			return streamOf(
 				provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer", FinishReason: "stop"}},
-				provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 2, OutputTokens: 3}},
+				provider.StreamEvent{Usage: &provider.UsageEvent{
+					InputTokens: 2, OutputTokens: 3,
+					CacheCreationInputTokens: 1, CacheReadInputTokens: 1,
+				}},
 			), nil
 		},
 	}
@@ -409,8 +414,13 @@ func TestSendMessage_DoneCarriesCommittedMessages(t *testing.T) {
 	if done.Usage.InputTokens != 2 || done.Usage.OutputTokens != 3 {
 		t.Fatalf("unexpected done usage: %+v", done.Usage)
 	}
+	if done.Usage.CacheCreationInputTokens != 1 || done.Usage.CacheReadInputTokens != 1 {
+		t.Fatalf("unexpected done cache usage: %+v", done.Usage)
+	}
 	if done.AssistantMessage.InputTokens == nil || *done.AssistantMessage.InputTokens != 2 ||
 		done.AssistantMessage.OutputTokens == nil || *done.AssistantMessage.OutputTokens != 3 ||
+		done.AssistantMessage.CacheCreationInputTokens == nil || *done.AssistantMessage.CacheCreationInputTokens != 1 ||
+		done.AssistantMessage.CacheReadInputTokens == nil || *done.AssistantMessage.CacheReadInputTokens != 1 ||
 		done.AssistantMessage.DurationMS == nil || *done.AssistantMessage.DurationMS <= 0 ||
 		done.AssistantMessage.FinishReason == nil || *done.AssistantMessage.FinishReason != "stop" {
 		t.Fatalf("missing persisted telemetry: %+v", done.AssistantMessage)
@@ -425,7 +435,9 @@ func TestSendMessage_DoneCarriesCommittedMessages(t *testing.T) {
 	}
 	if requests[0].Assistant == nil || requests[0].Assistant.TokenCount != 5 ||
 		requests[0].Assistant.InputTokens == nil || *requests[0].Assistant.InputTokens != 2 ||
-		requests[0].Assistant.OutputTokens == nil || *requests[0].Assistant.OutputTokens != 3 {
+		requests[0].Assistant.OutputTokens == nil || *requests[0].Assistant.OutputTokens != 3 ||
+		requests[0].Assistant.CacheCreationInputTokens == nil || *requests[0].Assistant.CacheCreationInputTokens != 1 ||
+		requests[0].Assistant.CacheReadInputTokens == nil || *requests[0].Assistant.CacheReadInputTokens != 1 {
 		t.Fatalf("unexpected finalized assistant: %+v", requests[0].Assistant)
 	}
 }

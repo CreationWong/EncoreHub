@@ -12,9 +12,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// EngineProxy forwards a small allowlist of GET/POST/DELETE engine routes
-// transparently to the Rust engine. Used for skills/memories/knowledge —
-// resources where the gateway has no policy to apply beyond auth/rate-limit.
+// EngineProxy forwards a small allowlist of engine routes transparently to the
+// Rust engine. Used for skills/memories/knowledge/usage — resources where the
+// gateway has no policy to apply beyond auth/rate-limit.
 type EngineProxy struct {
 	engine *engine.Client
 }
