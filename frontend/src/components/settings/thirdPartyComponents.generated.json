@@ -1,0 +1,4358 @@
+{
+  "schemaVersion": 1,
+  "releaseTarget": "x86_64-pc-windows-msvc",
+  "components": [
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@babel/runtime",
+      "packageName": "@babel/runtime",
+      "version": "7.29.7",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/primitive",
+      "packageName": "@radix-ui/primitive",
+      "version": "1.1.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-compose-refs",
+      "packageName": "@radix-ui/react-compose-refs",
+      "version": "1.1.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-context",
+      "packageName": "@radix-ui/react-context",
+      "version": "1.1.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-dialog",
+      "packageName": "@radix-ui/react-dialog",
+      "version": "1.1.16",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-dismissable-layer",
+      "packageName": "@radix-ui/react-dismissable-layer",
+      "version": "1.1.12",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-focus-guards",
+      "packageName": "@radix-ui/react-focus-guards",
+      "version": "1.1.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-focus-scope",
+      "packageName": "@radix-ui/react-focus-scope",
+      "version": "1.1.9",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-id",
+      "packageName": "@radix-ui/react-id",
+      "version": "1.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-portal",
+      "packageName": "@radix-ui/react-portal",
+      "version": "1.1.11",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-presence",
+      "packageName": "@radix-ui/react-presence",
+      "version": "1.1.6",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-primitive",
+      "packageName": "@radix-ui/react-primitive",
+      "version": "2.1.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-slot",
+      "packageName": "@radix-ui/react-slot",
+      "version": "1.2.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-use-callback-ref",
+      "packageName": "@radix-ui/react-use-callback-ref",
+      "version": "1.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-use-controllable-state",
+      "packageName": "@radix-ui/react-use-controllable-state",
+      "version": "1.2.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-use-effect-event",
+      "packageName": "@radix-ui/react-use-effect-event",
+      "version": "0.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-use-escape-keydown",
+      "packageName": "@radix-ui/react-use-escape-keydown",
+      "version": "1.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@radix-ui/react-use-layout-effect",
+      "packageName": "@radix-ui/react-use-layout-effect",
+      "version": "1.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tanstack/query-core",
+      "packageName": "@tanstack/query-core",
+      "version": "5.101.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tanstack/react-query",
+      "packageName": "@tanstack/react-query",
+      "version": "5.101.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/api",
+      "packageName": "@tauri-apps/api",
+      "version": "2.11.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/plugin-clipboard-manager",
+      "packageName": "@tauri-apps/plugin-clipboard-manager",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/plugin-fs",
+      "packageName": "@tauri-apps/plugin-fs",
+      "version": "2.5.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/plugin-global-shortcut",
+      "packageName": "@tauri-apps/plugin-global-shortcut",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/plugin-notification",
+      "packageName": "@tauri-apps/plugin-notification",
+      "version": "2.3.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@tauri-apps/plugin-shell",
+      "packageName": "@tauri-apps/plugin-shell",
+      "version": "2.3.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/debug",
+      "packageName": "@types/debug",
+      "version": "4.1.13",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/estree",
+      "packageName": "@types/estree",
+      "version": "1.0.9",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/estree-jsx",
+      "packageName": "@types/estree-jsx",
+      "version": "1.0.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/hast",
+      "packageName": "@types/hast",
+      "version": "2.3.10",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/hast",
+      "packageName": "@types/hast",
+      "version": "3.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/mdast",
+      "packageName": "@types/mdast",
+      "version": "4.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/ms",
+      "packageName": "@types/ms",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/unist",
+      "packageName": "@types/unist",
+      "version": "2.0.11",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@types/unist",
+      "packageName": "@types/unist",
+      "version": "3.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "@ungap/structured-clone",
+      "packageName": "@ungap/structured-clone",
+      "version": "1.3.1",
+      "license": "ISC"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "aria-hidden",
+      "packageName": "aria-hidden",
+      "version": "1.2.6",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "bail",
+      "packageName": "bail",
+      "version": "2.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "ccount",
+      "packageName": "ccount",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-entities",
+      "packageName": "character-entities",
+      "version": "1.2.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-entities",
+      "packageName": "character-entities",
+      "version": "2.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-entities-html4",
+      "packageName": "character-entities-html4",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-entities-legacy",
+      "packageName": "character-entities-legacy",
+      "version": "1.1.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-entities-legacy",
+      "packageName": "character-entities-legacy",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-reference-invalid",
+      "packageName": "character-reference-invalid",
+      "version": "1.1.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "character-reference-invalid",
+      "packageName": "character-reference-invalid",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "clsx",
+      "packageName": "clsx",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "cmdk",
+      "packageName": "cmdk",
+      "version": "1.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "comma-separated-tokens",
+      "packageName": "comma-separated-tokens",
+      "version": "1.0.8",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "comma-separated-tokens",
+      "packageName": "comma-separated-tokens",
+      "version": "2.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "cookie",
+      "packageName": "cookie",
+      "version": "1.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "debug",
+      "packageName": "debug",
+      "version": "4.4.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "decode-named-character-reference",
+      "packageName": "decode-named-character-reference",
+      "version": "1.3.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "dequal",
+      "packageName": "dequal",
+      "version": "2.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "detect-node-es",
+      "packageName": "detect-node-es",
+      "version": "1.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "devlop",
+      "packageName": "devlop",
+      "version": "1.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "escape-string-regexp",
+      "packageName": "escape-string-regexp",
+      "version": "5.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "estree-util-is-identifier-name",
+      "packageName": "estree-util-is-identifier-name",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "extend",
+      "packageName": "extend",
+      "version": "3.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "fault",
+      "packageName": "fault",
+      "version": "1.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "format",
+      "packageName": "format",
+      "version": "0.2.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "get-nonce",
+      "packageName": "get-nonce",
+      "version": "1.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "hast-util-parse-selector",
+      "packageName": "hast-util-parse-selector",
+      "version": "2.2.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "hast-util-to-jsx-runtime",
+      "packageName": "hast-util-to-jsx-runtime",
+      "version": "2.3.6",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "hast-util-whitespace",
+      "packageName": "hast-util-whitespace",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "hastscript",
+      "packageName": "hastscript",
+      "version": "6.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "highlight.js",
+      "packageName": "highlight.js",
+      "version": "10.7.3",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "highlightjs-vue",
+      "packageName": "highlightjs-vue",
+      "version": "1.0.0",
+      "license": "CC0-1.0"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "html-url-attributes",
+      "packageName": "html-url-attributes",
+      "version": "3.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "inline-style-parser",
+      "packageName": "inline-style-parser",
+      "version": "0.2.7",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-alphabetical",
+      "packageName": "is-alphabetical",
+      "version": "1.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-alphabetical",
+      "packageName": "is-alphabetical",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-alphanumerical",
+      "packageName": "is-alphanumerical",
+      "version": "1.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-alphanumerical",
+      "packageName": "is-alphanumerical",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-decimal",
+      "packageName": "is-decimal",
+      "version": "1.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-decimal",
+      "packageName": "is-decimal",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-hexadecimal",
+      "packageName": "is-hexadecimal",
+      "version": "1.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-hexadecimal",
+      "packageName": "is-hexadecimal",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "is-plain-obj",
+      "packageName": "is-plain-obj",
+      "version": "4.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "js-tokens",
+      "packageName": "js-tokens",
+      "version": "4.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "longest-streak",
+      "packageName": "longest-streak",
+      "version": "3.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "loose-envify",
+      "packageName": "loose-envify",
+      "version": "1.4.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "lowlight",
+      "packageName": "lowlight",
+      "version": "1.20.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "lucide-react",
+      "packageName": "lucide-react",
+      "version": "0.468.0",
+      "license": "ISC"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "markdown-table",
+      "packageName": "markdown-table",
+      "version": "3.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-find-and-replace",
+      "packageName": "mdast-util-find-and-replace",
+      "version": "3.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-from-markdown",
+      "packageName": "mdast-util-from-markdown",
+      "version": "2.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm",
+      "packageName": "mdast-util-gfm",
+      "version": "3.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm-autolink-literal",
+      "packageName": "mdast-util-gfm-autolink-literal",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm-footnote",
+      "packageName": "mdast-util-gfm-footnote",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm-strikethrough",
+      "packageName": "mdast-util-gfm-strikethrough",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm-table",
+      "packageName": "mdast-util-gfm-table",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-gfm-task-list-item",
+      "packageName": "mdast-util-gfm-task-list-item",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-mdx-expression",
+      "packageName": "mdast-util-mdx-expression",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-mdx-jsx",
+      "packageName": "mdast-util-mdx-jsx",
+      "version": "3.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-mdxjs-esm",
+      "packageName": "mdast-util-mdxjs-esm",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-phrasing",
+      "packageName": "mdast-util-phrasing",
+      "version": "4.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-to-hast",
+      "packageName": "mdast-util-to-hast",
+      "version": "13.2.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-to-markdown",
+      "packageName": "mdast-util-to-markdown",
+      "version": "2.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "mdast-util-to-string",
+      "packageName": "mdast-util-to-string",
+      "version": "4.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark",
+      "packageName": "micromark",
+      "version": "4.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-core-commonmark",
+      "packageName": "micromark-core-commonmark",
+      "version": "2.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm",
+      "packageName": "micromark-extension-gfm",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-autolink-literal",
+      "packageName": "micromark-extension-gfm-autolink-literal",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-footnote",
+      "packageName": "micromark-extension-gfm-footnote",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-strikethrough",
+      "packageName": "micromark-extension-gfm-strikethrough",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-table",
+      "packageName": "micromark-extension-gfm-table",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-tagfilter",
+      "packageName": "micromark-extension-gfm-tagfilter",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-extension-gfm-task-list-item",
+      "packageName": "micromark-extension-gfm-task-list-item",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-factory-destination",
+      "packageName": "micromark-factory-destination",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-factory-label",
+      "packageName": "micromark-factory-label",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-factory-space",
+      "packageName": "micromark-factory-space",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-factory-title",
+      "packageName": "micromark-factory-title",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-factory-whitespace",
+      "packageName": "micromark-factory-whitespace",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-character",
+      "packageName": "micromark-util-character",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-chunked",
+      "packageName": "micromark-util-chunked",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-classify-character",
+      "packageName": "micromark-util-classify-character",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-combine-extensions",
+      "packageName": "micromark-util-combine-extensions",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-decode-numeric-character-reference",
+      "packageName": "micromark-util-decode-numeric-character-reference",
+      "version": "2.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-decode-string",
+      "packageName": "micromark-util-decode-string",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-encode",
+      "packageName": "micromark-util-encode",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-html-tag-name",
+      "packageName": "micromark-util-html-tag-name",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-normalize-identifier",
+      "packageName": "micromark-util-normalize-identifier",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-resolve-all",
+      "packageName": "micromark-util-resolve-all",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-sanitize-uri",
+      "packageName": "micromark-util-sanitize-uri",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-subtokenize",
+      "packageName": "micromark-util-subtokenize",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-symbol",
+      "packageName": "micromark-util-symbol",
+      "version": "2.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "micromark-util-types",
+      "packageName": "micromark-util-types",
+      "version": "2.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "ms",
+      "packageName": "ms",
+      "version": "2.1.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "parse-entities",
+      "packageName": "parse-entities",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "parse-entities",
+      "packageName": "parse-entities",
+      "version": "4.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "prismjs",
+      "packageName": "prismjs",
+      "version": "1.27.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "prismjs",
+      "packageName": "prismjs",
+      "version": "1.30.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "property-information",
+      "packageName": "property-information",
+      "version": "5.6.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "property-information",
+      "packageName": "property-information",
+      "version": "7.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react",
+      "packageName": "react",
+      "version": "18.3.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-dom",
+      "packageName": "react-dom",
+      "version": "18.3.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-markdown",
+      "packageName": "react-markdown",
+      "version": "9.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-remove-scroll",
+      "packageName": "react-remove-scroll",
+      "version": "2.7.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-remove-scroll-bar",
+      "packageName": "react-remove-scroll-bar",
+      "version": "2.3.8",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-router",
+      "packageName": "react-router",
+      "version": "7.17.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-router-dom",
+      "packageName": "react-router-dom",
+      "version": "7.17.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-style-singleton",
+      "packageName": "react-style-singleton",
+      "version": "2.2.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "react-syntax-highlighter",
+      "packageName": "react-syntax-highlighter",
+      "version": "15.6.6",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "refractor",
+      "packageName": "refractor",
+      "version": "3.6.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "remark-gfm",
+      "packageName": "remark-gfm",
+      "version": "4.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "remark-parse",
+      "packageName": "remark-parse",
+      "version": "11.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "remark-rehype",
+      "packageName": "remark-rehype",
+      "version": "11.1.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "remark-stringify",
+      "packageName": "remark-stringify",
+      "version": "11.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "scheduler",
+      "packageName": "scheduler",
+      "version": "0.23.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "set-cookie-parser",
+      "packageName": "set-cookie-parser",
+      "version": "2.7.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "space-separated-tokens",
+      "packageName": "space-separated-tokens",
+      "version": "1.1.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "space-separated-tokens",
+      "packageName": "space-separated-tokens",
+      "version": "2.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "stringify-entities",
+      "packageName": "stringify-entities",
+      "version": "4.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "style-to-js",
+      "packageName": "style-to-js",
+      "version": "1.1.21",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "style-to-object",
+      "packageName": "style-to-object",
+      "version": "1.0.14",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "tailwind-merge",
+      "packageName": "tailwind-merge",
+      "version": "2.6.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "trim-lines",
+      "packageName": "trim-lines",
+      "version": "3.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "trough",
+      "packageName": "trough",
+      "version": "2.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "tslib",
+      "packageName": "tslib",
+      "version": "2.8.1",
+      "license": "0BSD"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unified",
+      "packageName": "unified",
+      "version": "11.0.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unist-util-is",
+      "packageName": "unist-util-is",
+      "version": "6.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unist-util-position",
+      "packageName": "unist-util-position",
+      "version": "5.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unist-util-stringify-position",
+      "packageName": "unist-util-stringify-position",
+      "version": "4.0.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unist-util-visit",
+      "packageName": "unist-util-visit",
+      "version": "5.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "unist-util-visit-parents",
+      "packageName": "unist-util-visit-parents",
+      "version": "6.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "use-callback-ref",
+      "packageName": "use-callback-ref",
+      "version": "1.3.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "use-sidecar",
+      "packageName": "use-sidecar",
+      "version": "1.1.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "vfile",
+      "packageName": "vfile",
+      "version": "6.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "vfile-message",
+      "packageName": "vfile-message",
+      "version": "4.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "xtend",
+      "packageName": "xtend",
+      "version": "4.0.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "zustand",
+      "packageName": "zustand",
+      "version": "5.0.14",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "npm",
+      "layer": "Interface",
+      "name": "zwitch",
+      "packageName": "zwitch",
+      "version": "2.0.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "adler2",
+      "packageName": "adler2",
+      "version": "2.0.1",
+      "license": "0BSD OR MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "alloc-no-stdlib",
+      "packageName": "alloc-no-stdlib",
+      "version": "2.0.4",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "alloc-stdlib",
+      "packageName": "alloc-stdlib",
+      "version": "0.2.4",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "arboard",
+      "packageName": "arboard",
+      "version": "3.6.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "bit-set",
+      "packageName": "bit-set",
+      "version": "0.8.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "bit-vec",
+      "packageName": "bit-vec",
+      "version": "0.8.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "bitflags",
+      "packageName": "bitflags",
+      "version": "1.3.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "brotli",
+      "packageName": "brotli",
+      "version": "8.0.4",
+      "license": "BSD-3-Clause AND MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "brotli-decompressor",
+      "packageName": "brotli-decompressor",
+      "version": "5.0.3",
+      "license": "BSD-3-Clause OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "bs58",
+      "packageName": "bs58",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "bytemuck",
+      "packageName": "bytemuck",
+      "version": "1.25.0",
+      "license": "Zlib OR Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "byteorder",
+      "packageName": "byteorder",
+      "version": "1.5.0",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "byteorder-lite",
+      "packageName": "byteorder-lite",
+      "version": "0.1.0",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "camino",
+      "packageName": "camino",
+      "version": "1.2.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cargo_metadata",
+      "packageName": "cargo_metadata",
+      "version": "0.19.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cargo-platform",
+      "packageName": "cargo-platform",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cfb",
+      "packageName": "cfb",
+      "version": "0.7.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "clipboard-win",
+      "packageName": "clipboard-win",
+      "version": "5.4.1",
+      "license": "BSL-1.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cookie",
+      "packageName": "cookie",
+      "version": "0.18.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "crc32fast",
+      "packageName": "crc32fast",
+      "version": "1.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "crossbeam-channel",
+      "packageName": "crossbeam-channel",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "crossbeam-utils",
+      "packageName": "crossbeam-utils",
+      "version": "0.8.21",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cssparser",
+      "packageName": "cssparser",
+      "version": "0.36.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "cssparser-macros",
+      "packageName": "cssparser-macros",
+      "version": "0.6.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ctor",
+      "packageName": "ctor",
+      "version": "0.8.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ctor-proc-macro",
+      "packageName": "ctor-proc-macro",
+      "version": "0.0.7",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "darling",
+      "packageName": "darling",
+      "version": "0.23.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "darling_core",
+      "packageName": "darling_core",
+      "version": "0.23.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "darling_macro",
+      "packageName": "darling_macro",
+      "version": "0.23.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "deranged",
+      "packageName": "deranged",
+      "version": "0.5.8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "derive_more",
+      "packageName": "derive_more",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "derive_more-impl",
+      "packageName": "derive_more-impl",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dirs",
+      "packageName": "dirs",
+      "version": "6.0.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dirs-sys",
+      "packageName": "dirs-sys",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dom_query",
+      "packageName": "dom_query",
+      "version": "0.27.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dpi",
+      "packageName": "dpi",
+      "version": "0.1.2",
+      "license": "Apache-2.0 AND MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dtoa",
+      "packageName": "dtoa",
+      "version": "1.0.11",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dtoa-short",
+      "packageName": "dtoa-short",
+      "version": "0.3.5",
+      "license": "MPL-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dtor",
+      "packageName": "dtor",
+      "version": "0.3.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dtor-proc-macro",
+      "packageName": "dtor-proc-macro",
+      "version": "0.0.6",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dunce",
+      "packageName": "dunce",
+      "version": "1.0.5",
+      "license": "CC0-1.0 OR MIT-0 OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "dyn-clone",
+      "packageName": "dyn-clone",
+      "version": "1.0.20",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "encoding_rs",
+      "packageName": "encoding_rs",
+      "version": "0.8.35",
+      "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "erased-serde",
+      "packageName": "erased-serde",
+      "version": "0.4.10",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "error-code",
+      "packageName": "error-code",
+      "version": "3.3.2",
+      "license": "BSL-1.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "fastrand",
+      "packageName": "fastrand",
+      "version": "2.4.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "fax",
+      "packageName": "fax",
+      "version": "0.2.7",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "fdeflate",
+      "packageName": "fdeflate",
+      "version": "0.3.7",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "flate2",
+      "packageName": "flate2",
+      "version": "1.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "fnv",
+      "packageName": "fnv",
+      "version": "1.0.7",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "foldhash",
+      "packageName": "foldhash",
+      "version": "0.2.0",
+      "license": "Zlib"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "getrandom",
+      "packageName": "getrandom",
+      "version": "0.3.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "glob",
+      "packageName": "glob",
+      "version": "0.3.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "half",
+      "packageName": "half",
+      "version": "2.7.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "hashbrown",
+      "packageName": "hashbrown",
+      "version": "0.12.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "heck",
+      "packageName": "heck",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "html5ever",
+      "packageName": "html5ever",
+      "version": "0.38.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ico",
+      "packageName": "ico",
+      "version": "0.5.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ident_case",
+      "packageName": "ident_case",
+      "version": "1.0.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "image",
+      "packageName": "image",
+      "version": "0.25.10",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "indexmap",
+      "packageName": "indexmap",
+      "version": "1.9.3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "infer",
+      "packageName": "infer",
+      "version": "0.19.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "json-patch",
+      "packageName": "json-patch",
+      "version": "3.0.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "jsonptr",
+      "packageName": "jsonptr",
+      "version": "0.6.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "keyboard-types",
+      "packageName": "keyboard-types",
+      "version": "0.7.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "markup5ever",
+      "packageName": "markup5ever",
+      "version": "0.38.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "miniz_oxide",
+      "packageName": "miniz_oxide",
+      "version": "0.8.9",
+      "license": "MIT OR Zlib OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "moxcms",
+      "packageName": "moxcms",
+      "version": "0.8.1",
+      "license": "BSD-3-Clause OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "muda",
+      "packageName": "muda",
+      "version": "0.19.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "new_debug_unreachable",
+      "packageName": "new_debug_unreachable",
+      "version": "1.0.6",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "num-conv",
+      "packageName": "num-conv",
+      "version": "0.2.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "open",
+      "packageName": "open",
+      "version": "5.3.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "option-ext",
+      "packageName": "option-ext",
+      "version": "0.2.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "os_pipe",
+      "packageName": "os_pipe",
+      "version": "1.2.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "phf",
+      "packageName": "phf",
+      "version": "0.13.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "phf_generator",
+      "packageName": "phf_generator",
+      "version": "0.13.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "phf_macros",
+      "packageName": "phf_macros",
+      "version": "0.13.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "phf_shared",
+      "packageName": "phf_shared",
+      "version": "0.13.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "plist",
+      "packageName": "plist",
+      "version": "1.9.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "png",
+      "packageName": "png",
+      "version": "0.17.16",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "png",
+      "packageName": "png",
+      "version": "0.18.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "powerfmt",
+      "packageName": "powerfmt",
+      "version": "0.2.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "precomputed-hash",
+      "packageName": "precomputed-hash",
+      "version": "0.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "pxfm",
+      "packageName": "pxfm",
+      "version": "0.1.30",
+      "license": "BSD-3-Clause OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "quick-error",
+      "packageName": "quick-error",
+      "version": "2.0.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "quick-xml",
+      "packageName": "quick-xml",
+      "version": "0.39.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "raw-window-handle",
+      "packageName": "raw-window-handle",
+      "version": "0.6.2",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ref-cast",
+      "packageName": "ref-cast",
+      "version": "1.0.25",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ref-cast-impl",
+      "packageName": "ref-cast-impl",
+      "version": "1.0.25",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "regex",
+      "packageName": "regex",
+      "version": "1.12.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "rfd",
+      "packageName": "rfd",
+      "version": "0.16.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ring",
+      "packageName": "ring",
+      "version": "0.17.14",
+      "license": "Apache-2.0 AND ISC"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "rustc-hash",
+      "packageName": "rustc-hash",
+      "version": "2.1.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "rustls",
+      "packageName": "rustls",
+      "version": "0.23.40",
+      "license": "Apache-2.0 OR ISC OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "rustls-pki-types",
+      "packageName": "rustls-pki-types",
+      "version": "1.14.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "rustls-webpki",
+      "packageName": "rustls-webpki",
+      "version": "0.103.13",
+      "license": "ISC"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "same-file",
+      "packageName": "same-file",
+      "version": "1.0.6",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "schemars",
+      "packageName": "schemars",
+      "version": "0.8.22",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "schemars",
+      "packageName": "schemars",
+      "version": "0.9.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "schemars",
+      "packageName": "schemars",
+      "version": "1.2.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "schemars_derive",
+      "packageName": "schemars_derive",
+      "version": "0.8.22",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "selectors",
+      "packageName": "selectors",
+      "version": "0.36.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "semver",
+      "packageName": "semver",
+      "version": "1.0.28",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde_derive_internals",
+      "packageName": "serde_derive_internals",
+      "version": "0.29.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde_repr",
+      "packageName": "serde_repr",
+      "version": "0.1.20",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde_spanned",
+      "packageName": "serde_spanned",
+      "version": "1.1.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde_with",
+      "packageName": "serde_with",
+      "version": "3.21.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde_with_macros",
+      "packageName": "serde_with_macros",
+      "version": "3.21.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serde-untagged",
+      "packageName": "serde-untagged",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serialize-to-javascript",
+      "packageName": "serialize-to-javascript",
+      "version": "0.1.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "serialize-to-javascript-impl",
+      "packageName": "serialize-to-javascript-impl",
+      "version": "0.1.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "servo_arc",
+      "packageName": "servo_arc",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "shared_child",
+      "packageName": "shared_child",
+      "version": "1.1.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "simd-adler32",
+      "packageName": "simd-adler32",
+      "version": "0.3.9",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "siphasher",
+      "packageName": "siphasher",
+      "version": "1.0.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "softbuffer",
+      "packageName": "softbuffer",
+      "version": "0.4.8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "string_cache",
+      "packageName": "string_cache",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "strsim",
+      "packageName": "strsim",
+      "version": "0.11.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tao",
+      "packageName": "tao",
+      "version": "0.35.3",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri",
+      "packageName": "tauri",
+      "version": "2.11.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-codegen",
+      "packageName": "tauri-codegen",
+      "version": "2.6.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-macros",
+      "packageName": "tauri-macros",
+      "version": "2.6.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-plugin-clipboard-manager",
+      "packageName": "tauri-plugin-clipboard-manager",
+      "version": "2.3.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-plugin-dialog",
+      "packageName": "tauri-plugin-dialog",
+      "version": "2.7.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-plugin-fs",
+      "packageName": "tauri-plugin-fs",
+      "version": "2.5.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-plugin-shell",
+      "packageName": "tauri-plugin-shell",
+      "version": "2.3.5",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-runtime",
+      "packageName": "tauri-runtime",
+      "version": "2.11.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-runtime-wry",
+      "packageName": "tauri-runtime-wry",
+      "version": "2.11.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tauri-utils",
+      "packageName": "tauri-utils",
+      "version": "2.9.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tendril",
+      "packageName": "tendril",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "thiserror",
+      "packageName": "thiserror",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "thiserror-impl",
+      "packageName": "thiserror-impl",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tiff",
+      "packageName": "tiff",
+      "version": "0.11.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "time",
+      "packageName": "time",
+      "version": "0.3.49",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "time-core",
+      "packageName": "time-core",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "time-macros",
+      "packageName": "time-macros",
+      "version": "0.2.29",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tinyvec",
+      "packageName": "tinyvec",
+      "version": "1.11.0",
+      "license": "Zlib OR Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tinyvec_macros",
+      "packageName": "tinyvec_macros",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "toml",
+      "packageName": "toml",
+      "version": "1.1.2+spec-1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "toml_datetime",
+      "packageName": "toml_datetime",
+      "version": "1.1.1+spec-1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "toml_parser",
+      "packageName": "toml_parser",
+      "version": "1.1.2+spec-1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "toml_writer",
+      "packageName": "toml_writer",
+      "version": "1.1.1+spec-1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "tray-icon",
+      "packageName": "tray-icon",
+      "version": "0.23.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "typeid",
+      "packageName": "typeid",
+      "version": "1.0.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unic-char-property",
+      "packageName": "unic-char-property",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unic-char-range",
+      "packageName": "unic-char-range",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unic-common",
+      "packageName": "unic-common",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unic-ucd-ident",
+      "packageName": "unic-ucd-ident",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unic-ucd-version",
+      "packageName": "unic-ucd-version",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "unicode-segmentation",
+      "packageName": "unicode-segmentation",
+      "version": "1.13.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "untrusted",
+      "packageName": "untrusted",
+      "version": "0.9.0",
+      "license": "ISC"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "ureq",
+      "packageName": "ureq",
+      "version": "2.12.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "urlpattern",
+      "packageName": "urlpattern",
+      "version": "0.3.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "utf-8",
+      "packageName": "utf-8",
+      "version": "0.7.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "walkdir",
+      "packageName": "walkdir",
+      "version": "2.5.0",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "web_atoms",
+      "packageName": "web_atoms",
+      "version": "0.2.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "webpki-roots",
+      "packageName": "webpki-roots",
+      "version": "0.26.11",
+      "license": "CDLA-Permissive-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "webpki-roots",
+      "packageName": "webpki-roots",
+      "version": "1.0.7",
+      "license": "CDLA-Permissive-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "webview2-com",
+      "packageName": "webview2-com",
+      "version": "0.38.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "webview2-com-macros",
+      "packageName": "webview2-com-macros",
+      "version": "0.8.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "webview2-com-sys",
+      "packageName": "webview2-com-sys",
+      "version": "0.38.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "weezl",
+      "packageName": "weezl",
+      "version": "0.1.12",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "winapi-util",
+      "packageName": "winapi-util",
+      "version": "0.1.11",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "window-vibrancy",
+      "packageName": "window-vibrancy",
+      "version": "0.6.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows",
+      "packageName": "windows",
+      "version": "0.61.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows_x86_64_msvc",
+      "packageName": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows_x86_64_msvc",
+      "packageName": "windows_x86_64_msvc",
+      "version": "0.53.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-collections",
+      "packageName": "windows-collections",
+      "version": "0.2.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-core",
+      "packageName": "windows-core",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-future",
+      "packageName": "windows-future",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-implement",
+      "packageName": "windows-implement",
+      "version": "0.60.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-interface",
+      "packageName": "windows-interface",
+      "version": "0.59.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-link",
+      "packageName": "windows-link",
+      "version": "0.1.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-numerics",
+      "packageName": "windows-numerics",
+      "version": "0.2.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-result",
+      "packageName": "windows-result",
+      "version": "0.3.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-strings",
+      "packageName": "windows-strings",
+      "version": "0.4.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-sys",
+      "packageName": "windows-sys",
+      "version": "0.59.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-sys",
+      "packageName": "windows-sys",
+      "version": "0.60.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-targets",
+      "packageName": "windows-targets",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-targets",
+      "packageName": "windows-targets",
+      "version": "0.53.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-threading",
+      "packageName": "windows-threading",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "windows-version",
+      "packageName": "windows-version",
+      "version": "0.1.7",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "winnow",
+      "packageName": "winnow",
+      "version": "1.0.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "wry",
+      "packageName": "wry",
+      "version": "0.55.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "zune-core",
+      "packageName": "zune-core",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Desktop",
+      "name": "zune-jpeg",
+      "packageName": "zune-jpeg",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0 OR Zlib"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/beorn7/perks",
+      "packageName": "github.com/beorn7/perks",
+      "version": "1.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/cespare/xxhash/v2",
+      "packageName": "github.com/cespare/xxhash/v2",
+      "version": "2.3.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/gabriel-vasile/mimetype",
+      "packageName": "github.com/gabriel-vasile/mimetype",
+      "version": "1.4.12",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/gin-contrib/sse",
+      "packageName": "github.com/gin-contrib/sse",
+      "version": "1.1.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/gin-gonic/gin",
+      "packageName": "github.com/gin-gonic/gin",
+      "version": "1.12.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/go-playground/locales",
+      "packageName": "github.com/go-playground/locales",
+      "version": "0.14.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/go-playground/universal-translator",
+      "packageName": "github.com/go-playground/universal-translator",
+      "version": "0.18.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/go-playground/validator/v10",
+      "packageName": "github.com/go-playground/validator/v10",
+      "version": "10.30.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/goccy/go-yaml",
+      "packageName": "github.com/goccy/go-yaml",
+      "version": "1.19.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/klauspost/compress",
+      "packageName": "github.com/klauspost/compress",
+      "version": "1.17.9",
+      "license": "Apache-2.0 OR MIT OR BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/leodido/go-urn",
+      "packageName": "github.com/leodido/go-urn",
+      "version": "1.4.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/mattn/go-colorable",
+      "packageName": "github.com/mattn/go-colorable",
+      "version": "0.1.14",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/mattn/go-isatty",
+      "packageName": "github.com/mattn/go-isatty",
+      "version": "0.0.20",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/munnerz/goautoneg",
+      "packageName": "github.com/munnerz/goautoneg",
+      "version": "0.0.0-20191010083416-a7dc8b61c822",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/pelletier/go-toml/v2",
+      "packageName": "github.com/pelletier/go-toml/v2",
+      "version": "2.2.4",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/prometheus/client_golang",
+      "packageName": "github.com/prometheus/client_golang",
+      "version": "1.20.5",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/prometheus/client_model",
+      "packageName": "github.com/prometheus/client_model",
+      "version": "0.6.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/prometheus/common",
+      "packageName": "github.com/prometheus/common",
+      "version": "0.55.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/quic-go/qpack",
+      "packageName": "github.com/quic-go/qpack",
+      "version": "0.6.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/quic-go/quic-go",
+      "packageName": "github.com/quic-go/quic-go",
+      "version": "0.59.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/rs/zerolog",
+      "packageName": "github.com/rs/zerolog",
+      "version": "1.35.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/sashabaranov/go-openai",
+      "packageName": "github.com/sashabaranov/go-openai",
+      "version": "1.41.2",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "github.com/ugorji/go/codec",
+      "packageName": "github.com/ugorji/go/codec",
+      "version": "1.3.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "go.mongodb.org/mongo-driver/v2",
+      "packageName": "go.mongodb.org/mongo-driver/v2",
+      "version": "2.5.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "golang.org/x/crypto",
+      "packageName": "golang.org/x/crypto",
+      "version": "0.48.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "golang.org/x/net",
+      "packageName": "golang.org/x/net",
+      "version": "0.51.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "golang.org/x/sys",
+      "packageName": "golang.org/x/sys",
+      "version": "0.41.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "golang.org/x/text",
+      "packageName": "golang.org/x/text",
+      "version": "0.34.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "golang.org/x/time",
+      "packageName": "golang.org/x/time",
+      "version": "0.15.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "go",
+      "layer": "Gateway",
+      "name": "google.golang.org/protobuf",
+      "packageName": "google.golang.org/protobuf",
+      "version": "1.36.10",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "aead",
+      "packageName": "aead",
+      "version": "0.5.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "aes",
+      "packageName": "aes",
+      "version": "0.8.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "aes-gcm",
+      "packageName": "aes-gcm",
+      "version": "0.10.3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ahash",
+      "packageName": "ahash",
+      "version": "0.8.12",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "aho-corasick",
+      "packageName": "aho-corasick",
+      "version": "1.1.4",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "anyhow",
+      "packageName": "anyhow",
+      "version": "1.0.102",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "argon2",
+      "packageName": "argon2",
+      "version": "0.5.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "async-trait",
+      "packageName": "async-trait",
+      "version": "0.1.89",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "atomic-waker",
+      "packageName": "atomic-waker",
+      "version": "1.1.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "axum",
+      "packageName": "axum",
+      "version": "0.7.9",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "axum-core",
+      "packageName": "axum-core",
+      "version": "0.4.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "base64",
+      "packageName": "base64",
+      "version": "0.22.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "base64ct",
+      "packageName": "base64ct",
+      "version": "1.8.3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "bitflags",
+      "packageName": "bitflags",
+      "version": "2.13.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "blake2",
+      "packageName": "blake2",
+      "version": "0.10.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "block-buffer",
+      "packageName": "block-buffer",
+      "version": "0.10.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "bytes",
+      "packageName": "bytes",
+      "version": "1.11.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "cfg-if",
+      "packageName": "cfg-if",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "chrono",
+      "packageName": "chrono",
+      "version": "0.4.45",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "cipher",
+      "packageName": "cipher",
+      "version": "0.4.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "cpufeatures",
+      "packageName": "cpufeatures",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "crypto-common",
+      "packageName": "crypto-common",
+      "version": "0.1.7",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ctr",
+      "packageName": "ctr",
+      "version": "0.9.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "digest",
+      "packageName": "digest",
+      "version": "0.10.7",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "displaydoc",
+      "packageName": "displaydoc",
+      "version": "0.2.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "equivalent",
+      "packageName": "equivalent",
+      "version": "1.0.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "fallible-iterator",
+      "packageName": "fallible-iterator",
+      "version": "0.3.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "fallible-streaming-iterator",
+      "packageName": "fallible-streaming-iterator",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "form_urlencoded",
+      "packageName": "form_urlencoded",
+      "version": "1.2.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-channel",
+      "packageName": "futures-channel",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-core",
+      "packageName": "futures-core",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-io",
+      "packageName": "futures-io",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-macro",
+      "packageName": "futures-macro",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-sink",
+      "packageName": "futures-sink",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-task",
+      "packageName": "futures-task",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "futures-util",
+      "packageName": "futures-util",
+      "version": "0.3.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "generic-array",
+      "packageName": "generic-array",
+      "version": "0.14.7",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "getrandom",
+      "packageName": "getrandom",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "getrandom",
+      "packageName": "getrandom",
+      "version": "0.4.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ghash",
+      "packageName": "ghash",
+      "version": "0.5.1",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hashbrown",
+      "packageName": "hashbrown",
+      "version": "0.14.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hashbrown",
+      "packageName": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hashlink",
+      "packageName": "hashlink",
+      "version": "0.9.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hex",
+      "packageName": "hex",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "http",
+      "packageName": "http",
+      "version": "1.4.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "http-body",
+      "packageName": "http-body",
+      "version": "1.0.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "http-body-util",
+      "packageName": "http-body-util",
+      "version": "0.1.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "httparse",
+      "packageName": "httparse",
+      "version": "1.10.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "httpdate",
+      "packageName": "httpdate",
+      "version": "1.0.3",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hyper",
+      "packageName": "hyper",
+      "version": "1.10.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "hyper-util",
+      "packageName": "hyper-util",
+      "version": "0.1.20",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_collections",
+      "packageName": "icu_collections",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_locale_core",
+      "packageName": "icu_locale_core",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_normalizer",
+      "packageName": "icu_normalizer",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_normalizer_data",
+      "packageName": "icu_normalizer_data",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_properties",
+      "packageName": "icu_properties",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_properties_data",
+      "packageName": "icu_properties_data",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "icu_provider",
+      "packageName": "icu_provider",
+      "version": "2.2.0",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "idna",
+      "packageName": "idna",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "idna_adapter",
+      "packageName": "idna_adapter",
+      "version": "1.2.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "indexmap",
+      "packageName": "indexmap",
+      "version": "2.14.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "inout",
+      "packageName": "inout",
+      "version": "0.1.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ipnet",
+      "packageName": "ipnet",
+      "version": "2.12.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "itoa",
+      "packageName": "itoa",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "lazy_static",
+      "packageName": "lazy_static",
+      "version": "1.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "libc",
+      "packageName": "libc",
+      "version": "0.2.186",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "libsqlite3-sys",
+      "packageName": "libsqlite3-sys",
+      "version": "0.30.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "litemap",
+      "packageName": "litemap",
+      "version": "0.8.2",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "lock_api",
+      "packageName": "lock_api",
+      "version": "0.4.14",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "log",
+      "packageName": "log",
+      "version": "0.4.32",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "matchers",
+      "packageName": "matchers",
+      "version": "0.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "matchit",
+      "packageName": "matchit",
+      "version": "0.7.3",
+      "license": "MIT AND BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "memchr",
+      "packageName": "memchr",
+      "version": "2.8.2",
+      "license": "Unlicense OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "mime",
+      "packageName": "mime",
+      "version": "0.3.17",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "mio",
+      "packageName": "mio",
+      "version": "1.2.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "nu-ansi-term",
+      "packageName": "nu-ansi-term",
+      "version": "0.50.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "num-traits",
+      "packageName": "num-traits",
+      "version": "0.2.19",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "once_cell",
+      "packageName": "once_cell",
+      "version": "1.21.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "opaque-debug",
+      "packageName": "opaque-debug",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "parking_lot",
+      "packageName": "parking_lot",
+      "version": "0.12.5",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "parking_lot_core",
+      "packageName": "parking_lot_core",
+      "version": "0.9.12",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "password-hash",
+      "packageName": "password-hash",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "percent-encoding",
+      "packageName": "percent-encoding",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "pin-project-lite",
+      "packageName": "pin-project-lite",
+      "version": "0.2.17",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "polyval",
+      "packageName": "polyval",
+      "version": "0.6.2",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "potential_utf",
+      "packageName": "potential_utf",
+      "version": "0.1.5",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ppv-lite86",
+      "packageName": "ppv-lite86",
+      "version": "0.2.21",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "proc-macro2",
+      "packageName": "proc-macro2",
+      "version": "1.0.106",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "quote",
+      "packageName": "quote",
+      "version": "1.0.45",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "rand",
+      "packageName": "rand",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "rand_chacha",
+      "packageName": "rand_chacha",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "rand_core",
+      "packageName": "rand_core",
+      "version": "0.6.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "regex-automata",
+      "packageName": "regex-automata",
+      "version": "0.4.14",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "regex-syntax",
+      "packageName": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "rusqlite",
+      "packageName": "rusqlite",
+      "version": "0.32.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "rustversion",
+      "packageName": "rustversion",
+      "version": "1.0.22",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "ryu",
+      "packageName": "ryu",
+      "version": "1.0.23",
+      "license": "Apache-2.0 OR BSL-1.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "scopeguard",
+      "packageName": "scopeguard",
+      "version": "1.2.0",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde",
+      "packageName": "serde",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_core",
+      "packageName": "serde_core",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_derive",
+      "packageName": "serde_derive",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_json",
+      "packageName": "serde_json",
+      "version": "1.0.150",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_path_to_error",
+      "packageName": "serde_path_to_error",
+      "version": "0.1.20",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_urlencoded",
+      "packageName": "serde_urlencoded",
+      "version": "0.7.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "serde_yaml",
+      "packageName": "serde_yaml",
+      "version": "0.9.34+deprecated",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "sha2",
+      "packageName": "sha2",
+      "version": "0.10.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "sharded-slab",
+      "packageName": "sharded-slab",
+      "version": "0.1.7",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "slab",
+      "packageName": "slab",
+      "version": "0.4.12",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "smallvec",
+      "packageName": "smallvec",
+      "version": "1.15.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "socket2",
+      "packageName": "socket2",
+      "version": "0.6.4",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "stable_deref_trait",
+      "packageName": "stable_deref_trait",
+      "version": "1.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "subtle",
+      "packageName": "subtle",
+      "version": "2.6.1",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "syn",
+      "packageName": "syn",
+      "version": "2.0.117",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "sync_wrapper",
+      "packageName": "sync_wrapper",
+      "version": "1.0.2",
+      "license": "Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "synstructure",
+      "packageName": "synstructure",
+      "version": "0.13.2",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "thiserror",
+      "packageName": "thiserror",
+      "version": "2.0.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "thiserror-impl",
+      "packageName": "thiserror-impl",
+      "version": "2.0.18",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "thread_local",
+      "packageName": "thread_local",
+      "version": "1.1.9",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tinystr",
+      "packageName": "tinystr",
+      "version": "0.8.3",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tokio",
+      "packageName": "tokio",
+      "version": "1.52.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tokio-macros",
+      "packageName": "tokio-macros",
+      "version": "2.7.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tower",
+      "packageName": "tower",
+      "version": "0.5.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tower-http",
+      "packageName": "tower-http",
+      "version": "0.6.11",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tower-layer",
+      "packageName": "tower-layer",
+      "version": "0.3.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tower-service",
+      "packageName": "tower-service",
+      "version": "0.3.3",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing",
+      "packageName": "tracing",
+      "version": "0.1.44",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing-attributes",
+      "packageName": "tracing-attributes",
+      "version": "0.1.31",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing-core",
+      "packageName": "tracing-core",
+      "version": "0.1.36",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing-log",
+      "packageName": "tracing-log",
+      "version": "0.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing-serde",
+      "packageName": "tracing-serde",
+      "version": "0.2.0",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "tracing-subscriber",
+      "packageName": "tracing-subscriber",
+      "version": "0.3.23",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "try-lock",
+      "packageName": "try-lock",
+      "version": "0.2.5",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "typenum",
+      "packageName": "typenum",
+      "version": "1.20.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "unicode-ident",
+      "packageName": "unicode-ident",
+      "version": "1.0.24",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "universal-hash",
+      "packageName": "universal-hash",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "unsafe-libyaml",
+      "packageName": "unsafe-libyaml",
+      "version": "0.2.11",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "url",
+      "packageName": "url",
+      "version": "2.5.8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "utf8_iter",
+      "packageName": "utf8_iter",
+      "version": "1.0.4",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "uuid",
+      "packageName": "uuid",
+      "version": "1.23.3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "want",
+      "packageName": "want",
+      "version": "0.3.1",
+      "license": "MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "windows-link",
+      "packageName": "windows-link",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "windows-sys",
+      "packageName": "windows-sys",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "writeable",
+      "packageName": "writeable",
+      "version": "0.6.3",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "yoke",
+      "packageName": "yoke",
+      "version": "0.8.3",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "yoke-derive",
+      "packageName": "yoke-derive",
+      "version": "0.8.2",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerocopy",
+      "packageName": "zerocopy",
+      "version": "0.8.52",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerocopy-derive",
+      "packageName": "zerocopy-derive",
+      "version": "0.8.52",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerofrom",
+      "packageName": "zerofrom",
+      "version": "0.1.8",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerofrom-derive",
+      "packageName": "zerofrom-derive",
+      "version": "0.1.7",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zeroize",
+      "packageName": "zeroize",
+      "version": "1.9.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zeroize_derive",
+      "packageName": "zeroize_derive",
+      "version": "1.5.0",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerotrie",
+      "packageName": "zerotrie",
+      "version": "0.2.4",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerovec",
+      "packageName": "zerovec",
+      "version": "0.11.6",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zerovec-derive",
+      "packageName": "zerovec-derive",
+      "version": "0.11.3",
+      "license": "Unicode-3.0"
+    },
+    {
+      "ecosystem": "cargo",
+      "layer": "Engine",
+      "name": "zmij",
+      "packageName": "zmij",
+      "version": "1.0.21",
+      "license": "MIT"
+    }
+  ]
+}

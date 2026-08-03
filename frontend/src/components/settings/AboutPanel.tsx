@@ -1,5 +1,6 @@
+/** Renders application build, legal, and developer-access information. */
 import { Bug, ChevronRight, Code2, Cpu, PackageOpen } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import appIcon from "../../../src-tauri/icons/128x128.png";
 import {
 	type AppBuildInfo,
@@ -8,8 +9,14 @@ import {
 } from "../../services/appInfo";
 import { confirm } from "../../stores/confirmStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import OpenSourceComponentsDialog from "./OpenSourceComponentsDialog";
-import { THIRD_PARTY_COMPONENTS } from "./thirdPartyComponents";
+import {
+	OSS_COMPONENT_COUNT,
+	OSS_RELEASE_TARGET,
+} from "./thirdPartySummary.generated";
+
+const OpenSourceComponentsDialog = lazy(
+	() => import("./OpenSourceComponentsDialog"),
+);
 
 const PLATFORM_NAMES: Record<string, string> = {
 	linux: "Linux",
@@ -178,8 +185,8 @@ export default function AboutPanel() {
 							Open-source components
 						</p>
 						<p className="mt-0.5 text-xs leading-5 text-text-muted">
-							Review {THIRD_PARTY_COMPONENTS.length} bundled components,
-							versions, and license identifiers.
+							Review {OSS_COMPONENT_COUNT} production components for{" "}
+							{OSS_RELEASE_TARGET}.
 						</p>
 					</div>
 					<span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary transition-colors group-hover:text-text-primary">
@@ -189,10 +196,14 @@ export default function AboutPanel() {
 				</button>
 			</section>
 
-			<OpenSourceComponentsDialog
-				open={componentsOpen}
-				onClose={() => setComponentsOpen(false)}
-			/>
+			{componentsOpen ? (
+				<Suspense fallback={null}>
+					<OpenSourceComponentsDialog
+						open
+						onClose={() => setComponentsOpen(false)}
+					/>
+				</Suspense>
+			) : null}
 		</div>
 	);
 }

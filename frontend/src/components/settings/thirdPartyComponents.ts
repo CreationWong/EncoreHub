@@ -1,6 +1,18 @@
+/**
+ * Adapts the release-generated OSS manifest to the settings UI contract.
+ * The JSON is regenerated for each desktop target before Tauri packaging.
+ */
+import manifest from "./thirdPartyComponents.generated.json";
+
+/** Product layer that bundles or links a third-party component. */
 export type ComponentLayer = "Interface" | "Desktop" | "Gateway" | "Engine";
 
+/** Package manager ecosystem used to resolve a component. */
+export type ComponentEcosystem = "npm" | "cargo" | "go";
+
+/** One exact package version included in the target release dependency graph. */
 export interface ThirdPartyComponent {
+	ecosystem: ComponentEcosystem;
 	layer: ComponentLayer;
 	name: string;
 	packageName: string;
@@ -8,254 +20,21 @@ export interface ThirdPartyComponent {
 	license: string;
 }
 
-export const THIRD_PARTY_COMPONENTS: ThirdPartyComponent[] = [
-	{
-		layer: "Interface",
-		name: "React",
-		packageName: "react",
-		version: "18.3.1",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "React DOM",
-		packageName: "react-dom",
-		version: "18.3.1",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "React Router",
-		packageName: "react-router-dom",
-		version: "7.17.0",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "Zustand",
-		packageName: "zustand",
-		version: "5.0.14",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "TanStack Query",
-		packageName: "@tanstack/react-query",
-		version: "5.101.0",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "Lucide React",
-		packageName: "lucide-react",
-		version: "0.468.0",
-		license: "ISC",
-	},
-	{
-		layer: "Interface",
-		name: "cmdk",
-		packageName: "cmdk",
-		version: "1.1.1",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "React Markdown",
-		packageName: "react-markdown",
-		version: "9.1.0",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "remark-gfm",
-		packageName: "remark-gfm",
-		version: "4.0.1",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "React Syntax Highlighter",
-		packageName: "react-syntax-highlighter",
-		version: "15.6.6",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "tailwind-merge",
-		packageName: "tailwind-merge",
-		version: "2.6.1",
-		license: "MIT",
-	},
-	{
-		layer: "Interface",
-		name: "clsx",
-		packageName: "clsx",
-		version: "2.1.1",
-		license: "MIT",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri JavaScript API",
-		packageName: "@tauri-apps/api",
-		version: "2.11.0",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri Shell Plugin",
-		packageName: "@tauri-apps/plugin-shell",
-		version: "2.3.5",
-		license: "MIT OR Apache-2.0",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri Notification Plugin",
-		packageName: "@tauri-apps/plugin-notification",
-		version: "2.3.3",
-		license: "MIT OR Apache-2.0",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri Clipboard Plugin",
-		packageName: "@tauri-apps/plugin-clipboard-manager",
-		version: "2.3.2",
-		license: "MIT OR Apache-2.0",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri File System Plugin",
-		packageName: "@tauri-apps/plugin-fs",
-		version: "2.5.1",
-		license: "MIT OR Apache-2.0",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri Global Shortcut Plugin",
-		packageName: "@tauri-apps/plugin-global-shortcut",
-		version: "2.3.2",
-		license: "MIT OR Apache-2.0",
-	},
-	{
-		layer: "Desktop",
-		name: "Tauri Desktop Core",
-		packageName: "tauri",
-		version: "2.11.2",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Gateway",
-		name: "Gin",
-		packageName: "github.com/gin-gonic/gin",
-		version: "1.12.0",
-		license: "MIT",
-	},
-	{
-		layer: "Gateway",
-		name: "Prometheus Go Client",
-		packageName: "github.com/prometheus/client_golang",
-		version: "1.20.5",
-		license: "Apache-2.0",
-	},
-	{
-		layer: "Gateway",
-		name: "zerolog",
-		packageName: "github.com/rs/zerolog",
-		version: "1.35.1",
-		license: "MIT",
-	},
-	{
-		layer: "Gateway",
-		name: "go-openai",
-		packageName: "github.com/sashabaranov/go-openai",
-		version: "1.41.2",
-		license: "Apache-2.0",
-	},
-	{
-		layer: "Gateway",
-		name: "Go Networking",
-		packageName: "golang.org/x/net",
-		version: "0.51.0",
-		license: "BSD-3-Clause",
-	},
-	{
-		layer: "Gateway",
-		name: "Go Time",
-		packageName: "golang.org/x/time",
-		version: "0.15.0",
-		license: "BSD-3-Clause",
-	},
-	{
-		layer: "Engine",
-		name: "Axum",
-		packageName: "axum",
-		version: "0.7.9",
-		license: "MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Tokio",
-		packageName: "tokio",
-		version: "1.52.3",
-		license: "MIT",
-	},
-	{
-		layer: "Engine",
-		name: "rusqlite",
-		packageName: "rusqlite",
-		version: "0.32.1",
-		license: "MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Serde",
-		packageName: "serde",
-		version: "1.0.228",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Chrono",
-		packageName: "chrono",
-		version: "0.4.45",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Tracing",
-		packageName: "tracing",
-		version: "0.1.44",
-		license: "MIT",
-	},
-	{
-		layer: "Engine",
-		name: "ureq",
-		packageName: "ureq",
-		version: "2.12.1",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Engine",
-		name: "AES-GCM",
-		packageName: "aes-gcm",
-		version: "0.10.3",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Argon2",
-		packageName: "argon2",
-		version: "0.5.3",
-		license: "Apache-2.0 OR MIT",
-	},
-	{
-		layer: "Engine",
-		name: "Zeroize",
-		packageName: "zeroize",
-		version: "1.9.0",
-		license: "Apache-2.0 OR MIT",
-	},
-];
+interface GeneratedComplianceManifest {
+	schemaVersion: number;
+	releaseTarget: string;
+	components: ThirdPartyComponent[];
+}
 
+const generated = manifest as GeneratedComplianceManifest;
+
+/** Rust target triple used when resolving this generated release manifest. */
+export const OSS_RELEASE_TARGET = generated.releaseTarget;
+
+/** Complete production component closure for the generated release target. */
+export const THIRD_PARTY_COMPONENTS = generated.components;
+
+/** Stable presentation order for product layers. */
 export const COMPONENT_LAYERS: ComponentLayer[] = [
 	"Interface",
 	"Desktop",

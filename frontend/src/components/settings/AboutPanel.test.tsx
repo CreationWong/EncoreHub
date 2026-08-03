@@ -80,7 +80,7 @@ describe("AboutPanel", () => {
 		expect(useSettingsStore.getState().devMode).toBe(false);
 	});
 
-	it("opens component versions and licenses in a separate dialog", () => {
+	it("opens generated component versions and licenses in a separate dialog", async () => {
 		render(<AboutPanel />);
 
 		expect(screen.queryByText("React")).toBeNull();
@@ -88,15 +88,21 @@ describe("AboutPanel", () => {
 			screen.getByRole("button", { name: /open-source components/i }),
 		);
 
-		const dialog = screen.getByRole("dialog", {
+		const dialog = await screen.findByRole("dialog", {
 			name: "Open-source components",
 		});
 		expect(dialog).toBeDefined();
 		expect(dialog.className).toContain("overflow-hidden");
-		expect(screen.getByText("React")).toBeDefined();
+		expect(screen.getByText("react")).toBeDefined();
 		expect(screen.getAllByText("18.3.1").length).toBeGreaterThan(0);
-		expect(screen.getByText("Gin")).toBeDefined();
+		expect(screen.getByText("github.com/gin-gonic/gin")).toBeDefined();
 		expect(screen.getAllByText("Apache-2.0").length).toBeGreaterThan(0);
+		fireEvent.change(
+			screen.getByPlaceholderText("Search packages, versions, or licenses"),
+			{ target: { value: "github.com/gin-gonic/gin" } },
+		);
+		expect(screen.queryByText("react")).toBeNull();
+		expect(screen.getByText("github.com/gin-gonic/gin")).toBeDefined();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Close open-source components" }),
