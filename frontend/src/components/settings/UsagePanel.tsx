@@ -53,6 +53,21 @@ function formatNumber(value: number): string {
 	return new Intl.NumberFormat("en-US").format(Math.round(value));
 }
 
+function formatCompactNumber(value: number): string {
+	return new Intl.NumberFormat("en-US", {
+		notation: "compact",
+		maximumFractionDigits: 1,
+	}).format(value);
+}
+
+function getNiceScaleMaximum(value: number): number {
+	if (value <= 0) return 1;
+	const magnitude = 10 ** Math.floor(Math.log10(value));
+	const normalized = value / magnitude;
+	const step = [1, 2, 2.5, 5, 10].find((candidate) => candidate >= normalized);
+	return (step ?? 10) * magnitude;
+}
+
 function formatCost(value: number | null, currency = "USD"): string {
 	if (value == null) return "Unpriced";
 	if (currency === "MIXED") return "Mixed currencies";
@@ -437,52 +452,124 @@ export default function UsagePanel() {
 }
 
 function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
-	const maxTokens = Math.max(1, ...buckets.map((bucket) => bucket.tokens));
+	const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
+	const maxTokens = Math.max(0, ...buckets.map((bucket) => bucket.tokens));
+	const scaleMaximum = getNiceScaleMaximum(maxTokens);
+	const ticks = Array.from(
+		{ length: 5 },
+		(_, index) => scaleMaximum - (scaleMaximum / 4) * index,
+	);
+
 	return (
 		<div className="overflow-x-auto pb-1">
-			<div
-				className="grid min-w-full items-end gap-2"
-				style={{
-					gridTemplateColumns: `repeat(${buckets.length}, minmax(44px, 1fr))`,
-				}}
-			>
-				{buckets.map((bucket) => {
-					const height =
-						bucket.tokens > 0
-							? Math.max(5, (bucket.tokens / maxTokens) * 100)
-							: 0;
-					const inputShare =
-						bucket.tokens > 0 ? (bucket.input / bucket.tokens) * 100 : 0;
-					return (
+			<div className="min-w-[620px]">
+				<div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
+					<div
+						aria-hidden="true"
+						className="flex h-48 flex-col justify-between pb-px text-right text-[10px] tabular-nums text-text-muted"
+					>
+						{ticks.map((tick) => (
+							<span key={tick}>{formatCompactNumber(tick)}</span>
+						))}
+					</div>
+
+					<div className="relative h-48 border-b border-border">
 						<div
-							key={bucket.startAt}
-							className="flex min-w-0 flex-col items-center gap-2"
+							aria-hidden="true"
+							className="pointer-events-none absolute inset-0 flex flex-col justify-between"
 						>
-							<div className="flex h-36 w-full items-end justify-center border-b border-border">
-								<div
-									className="flex w-full max-w-10 flex-col-reverse overflow-hidden rounded-t-sm"
-									style={{ height: `${height}%` }}
-									title={`${formatNumber(bucket.tokens)} tokens (${formatNumber(bucket.input)} in / ${formatNumber(bucket.output)} out)`}
-								>
-									<div
-										className="bg-accent"
-										style={{ height: `${inputShare}%` }}
-									/>
-									<div
-										className="bg-success"
-										style={{ height: `${100 - inputShare}%` }}
-									/>
-								</div>
-							</div>
-							<span
-								className="w-full truncate text-center text-[10px] text-text-muted"
-								title={bucket.label}
-							>
-								{bucket.label}
-							</span>
+							{ticks.map((tick) => (
+								<span key={tick} className="border-t border-border/70" />
+							))}
 						</div>
-					);
-				})}
+
+						<div
+							className="absolute inset-0 grid items-end gap-2 px-2"
+							style={{
+								gridTemplateColumns: `repeat(${buckets.length}, minmax(48px, 1fr))`,
+							}}
+						>
+							{buckets.map((bucket) => {
+								const height =
+									bucket.tokens > 0
+										? Math.max(3, (bucket.tokens / scaleMaximum) * 100)
+										: 0;
+								const inputShare =
+									bucket.tokens > 0 ? (bucket.input / bucket.tokens) * 100 : 0;
+								const detail = `${formatNumber(bucket.tokens)} tokens (${formatNumber(bucket.input)} in / ${formatNumber(bucket.output)} out)`;
+								const isSelected = selectedBucket === bucket.startAt;
+
+								return (
+									<button
+										key={bucket.startAt}
+										type="button"
+										aria-pressed={isSelected}
+										aria-label={`${bucket.label}: ${detail}`}
+										title={detail}
+										onClick={() =>
+											setSelectedBucket(isSelected ? null : bucket.startAt)
+										}
+										className="group relative flex h-full min-w-0 items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+									>
+										{bucket.tokens > 0 && buckets.length <= 12 && (
+											<span
+												aria-hidden="true"
+												className="pointer-events-none absolute -translate-y-1.5 text-[9px] tabular-nums text-text-muted"
+												style={{ bottom: `${height}%` }}
+											>
+												{formatCompactNumber(bucket.tokens)}
+											</span>
+										)}
+										<span
+											className={`${isSelected ? "block" : "hidden"} pointer-events-none absolute z-10 -translate-y-2 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-2 text-left text-[10px] leading-4 text-text-secondary shadow-lg group-hover:block group-focus-visible:block`}
+											style={{ bottom: `${height}%` }}
+										>
+											<strong className="block font-medium text-text-primary">
+												{bucket.label}
+											</strong>
+											{formatNumber(bucket.input)} input ·{" "}
+											{formatNumber(bucket.output)} output
+										</span>
+
+										{bucket.tokens > 0 && (
+											<span
+												aria-hidden="true"
+												className="flex w-3/5 min-w-3 max-w-12 flex-col-reverse overflow-hidden rounded-t-[3px] shadow-[0_0_0_1px_rgb(0_0_0/0.04)] transition-[filter,opacity] duration-150 group-hover:brightness-110 group-focus-visible:brightness-110"
+												style={{ height: `${height}%` }}
+											>
+												<span
+													className="bg-accent"
+													style={{ height: `${inputShare}%` }}
+												/>
+												<span
+													className="bg-success"
+													style={{ height: `${100 - inputShare}%` }}
+												/>
+											</span>
+										)}
+									</button>
+								);
+							})}
+						</div>
+					</div>
+				</div>
+
+				<div
+					className="ml-[54px] grid gap-2 px-2 pt-2"
+					style={{
+						gridTemplateColumns: `repeat(${buckets.length}, minmax(48px, 1fr))`,
+					}}
+				>
+					{buckets.map((bucket) => (
+						<span
+							key={bucket.startAt}
+							className="min-w-0 truncate text-center text-[10px] tabular-nums text-text-muted"
+							title={bucket.label}
+						>
+							{bucket.label}
+						</span>
+					))}
+				</div>
 			</div>
 		</div>
 	);
