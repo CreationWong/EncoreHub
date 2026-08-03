@@ -11,6 +11,7 @@ import {
 	MODEL_METADATA_FIELD_LABELS,
 } from "../../services/modelMetadata";
 import { useModelMetadataStore } from "../../stores/modelMetadataStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import ModelMetadataPanel from "./ModelMetadataPanel";
 
 const fetchMock = vi.fn();
@@ -32,6 +33,7 @@ describe("ModelMetadataPanel", () => {
 			loading: false,
 			error: null,
 		});
+		useSettingsStore.setState({ devMode: false, fullCommunicationLogs: false });
 	});
 
 	afterEach(() => {
@@ -87,5 +89,21 @@ describe("ModelMetadataPanel", () => {
 				),
 			).toHaveLength(2),
 		);
+	});
+
+	it("shows metadata provider debugging only in developer mode", () => {
+		const standardView = render(<ModelMetadataPanel />);
+		expect(
+			screen.queryByRole("button", { name: "Debug models.dev" }),
+		).toBeNull();
+		standardView.unmount();
+
+		useSettingsStore.setState({ devMode: true });
+		render(<ModelMetadataPanel />);
+		fireEvent.click(screen.getByRole("button", { name: "Debug models.dev" }));
+
+		expect(
+			screen.getByRole("complementary", { name: "Debug models.dev" }),
+		).toBeDefined();
 	});
 });

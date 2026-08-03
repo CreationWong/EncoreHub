@@ -242,16 +242,32 @@ fn export_logs(
     app: tauri::AppHandle,
     state: State<ServiceState>,
     entries: Vec<LogEntry>,
-) -> Result<String, String> {
-    let download_dir = app.path().download_dir().ok();
-    let path = export_log_entries(
-        download_dir.as_deref(),
-        &state.log_dir,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let default_name = format!(
+        "encorehub-logs-{}.txt",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let Some(path) = app
+        .dialog()
+        .file()
+        .add_filter("Text log", &["txt"])
+        .set_file_name(default_name)
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path
+        .into_path()
+        .map_err(|error| format!("invalid export path: {error}"))?;
+    export_log_entries(
+        &path,
         &entries,
         state.full_communication_logs.load(Ordering::Acquire),
     )
     .map_err(|error| format!("failed to export logs: {error}"))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -611,6 +627,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             check_engine_health,
             check_gateway_health,

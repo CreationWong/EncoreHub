@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import { diagnosticFetch } from "./diagnosticFetch";
 import type {
 	DiscoveredModel,
 	ProviderModelCapability,
@@ -480,7 +481,7 @@ export async function fetchModelMetadata(
 	>,
 	signal?: AbortSignal,
 ): Promise<ModelMetadataFetchResult> {
-	const response = await fetch(provider.url, { signal });
+	const response = await diagnosticFetch(provider.url, { signal });
 	if (!response.ok) {
 		throw new Error(`Metadata request failed (${response.status})`);
 	}

@@ -1,18 +1,22 @@
 import { ArrowLeft, Plus, Search, Server } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProviderProfile } from "../../services/providers";
 import { confirm } from "../../stores/confirmStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
-import ProviderDetail from "./ProviderDetail";
+import ProviderDebugPanel, {
+	type ProviderDebugTarget,
+} from "./ProviderDebugPanel";
+import ProviderDetail, { type ProviderDraftController } from "./ProviderDetail";
 import ProviderFormModal from "./ProviderFormModal";
 import {
 	type ProviderRuntimeStatus,
 	defaultProviderRuntimeStatus,
 	providerRuntimeStatusPresentation,
 } from "./providerRuntimeStatus";
+import { registerSettingsLeaveGuard } from "./settingsLeaveGuard";
 
 const LAST_SETTINGS_PROVIDER_KEY = "encorehub-settings-provider";
 
@@ -44,6 +48,7 @@ export default function ProvidersPanel() {
 	const setApiKey = useSettingsStore((state) => state.setApiKey);
 	const clearApiKey = useSettingsStore((state) => state.clearApiKey);
 	const loadKeys = useSettingsStore((state) => state.loadKeys);
+	const devMode = useSettingsStore((state) => state.devMode);
 
 	const profiles = useProviderStore((state) => state.profiles);
 	const loading = useProviderStore((state) => state.loading);
@@ -68,9 +73,18 @@ export default function ProvidersPanel() {
 	const [creating, setCreating] = useState(false);
 	const [query, setQuery] = useState("");
 	const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+	const [debugTarget, setDebugTarget] = useState<ProviderDebugTarget | null>(
+		null,
+	);
 	const [runtimeStatuses, setRuntimeStatuses] = useState<
 		Record<string, ProviderRuntimeStatus>
 	>({});
+	const draftControllersRef = useRef(
+		new Map<string, ProviderDraftController>(),
+	);
+	const [dirtyProviderIds, setDirtyProviderIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 
 	const handleRuntimeStatusChange = useCallback(
 		(providerId: string, status: ProviderRuntimeStatus) => {
@@ -112,14 +126,69 @@ export default function ProvidersPanel() {
 	}, [list, query]);
 
 	const selected = list.find((profile) => profile.id === selectedId) ?? null;
-	const isDraft =
-		selected !== null &&
-		!profiles.some((profile) => profile.id === selected.id);
 	const vaultLocked = encrypted && !unlocked;
-	const keyStored =
-		selected !== null &&
-		(storedIds.includes(selected.id) ||
-			(apiKeys[selected.id]?.length ?? 0) > 0);
+
+	const handleDraftControllerChange = useCallback(
+		(providerId: string, controller: ProviderDraftController | null) => {
+			if (controller) draftControllersRef.current.set(providerId, controller);
+			else draftControllersRef.current.delete(providerId);
+			setDirtyProviderIds((current) => {
+				const next = new Set(current);
+				if (controller?.dirty) next.add(providerId);
+				else next.delete(providerId);
+				if (
+					next.size === current.size &&
+					[...next].every((id) => current.has(id))
+				) {
+					return current;
+				}
+				return next;
+			});
+		},
+		[],
+	);
+
+	const requestLeave = useCallback(async (): Promise<boolean> => {
+		const dirtyIds = [...dirtyProviderIds].filter((id) =>
+			draftControllersRef.current.has(id),
+		);
+		if (dirtyIds.length === 0) return true;
+
+		const choice = await confirm.choose({
+			title: "Unsaved provider changes",
+			message:
+				dirtyIds.length === 1
+					? "This provider has unsaved changes. Save them before leaving Providers?"
+					: `${dirtyIds.length} providers have unsaved changes. Save them before leaving Providers?`,
+			confirmLabel: "Save changes",
+			discardLabel: "Don't save",
+			cancelLabel: "Cancel",
+		});
+		if (choice === "cancel") return false;
+		if (choice === "discard") {
+			for (const id of dirtyIds) {
+				draftControllersRef.current.get(id)?.discard();
+			}
+			const dirtyIdSet = new Set(dirtyIds);
+			setDrafts((current) =>
+				current.filter((draft) => !dirtyIdSet.has(draft.id)),
+			);
+			setDirtyProviderIds(new Set());
+			return true;
+		}
+
+		for (const id of dirtyIds) {
+			const controller = draftControllersRef.current.get(id);
+			if (!controller) continue;
+			setSelectedId(id);
+			rememberSettingsProvider(id);
+			setMobileDetailOpen(true);
+			if (!(await controller.save())) return false;
+		}
+		return true;
+	}, [dirtyProviderIds]);
+
+	useEffect(() => registerSettingsLeaveGuard(requestLeave), [requestLeave]);
 
 	const handleCreated = (draft: ProviderProfile) => {
 		setDrafts((current) => [...current, draft]);
@@ -162,7 +231,7 @@ export default function ProvidersPanel() {
 	};
 
 	return (
-		<div className="flex h-full min-h-0 bg-surface">
+		<div className="relative flex h-full min-h-0 overflow-hidden bg-surface">
 			{creating && (
 				<ProviderFormModal
 					onCreated={handleCreated}
@@ -294,24 +363,51 @@ export default function ProvidersPanel() {
 							</span>
 						</div>
 						<div className="min-h-0 flex-1">
-							<ProviderDetail
-								key={selected.id}
-								profile={selected}
-								isDraft={isDraft}
-								apiKey={apiKeys[selected.id] ?? ""}
-								vaultLocked={vaultLocked}
-								keyStored={keyStored}
-								onStatusChange={handleRuntimeStatusChange}
-								onSetKey={(value) => setApiKey(selected.id, value)}
-								onClearKey={() => clearApiKey(selected.id)}
-								onSave={async (next) => {
-									await upsert(next);
-									setDrafts((current) =>
-										current.filter((draft) => draft.id !== next.id),
-									);
-								}}
-								onDelete={() => void handleDelete(selected)}
-							/>
+							{list.map((profile) => {
+								const profileIsDraft = !profiles.some(
+									(item) => item.id === profile.id,
+								);
+								const profileKeyStored =
+									storedIds.includes(profile.id) ||
+									(apiKeys[profile.id]?.length ?? 0) > 0;
+								return (
+									<div
+										key={profile.id}
+										data-provider-detail={profile.id}
+										hidden={profile.id !== selected.id}
+										className="h-full"
+									>
+										<ProviderDetail
+											profile={profile}
+											isDraft={profileIsDraft}
+											apiKey={apiKeys[profile.id] ?? ""}
+											vaultLocked={vaultLocked}
+											keyStored={profileKeyStored}
+											onStatusChange={handleRuntimeStatusChange}
+											onDraftControllerChange={handleDraftControllerChange}
+											onSetKey={(value) => setApiKey(profile.id, value)}
+											onClearKey={() => clearApiKey(profile.id)}
+											onSave={async (next) => {
+												await upsert(next);
+												setDrafts((current) =>
+													current.filter((draft) => draft.id !== next.id),
+												);
+											}}
+											onDelete={() => void handleDelete(profile)}
+											onOpenDebug={
+												devMode
+													? (matchers) =>
+															setDebugTarget({
+																id: profile.id,
+																name: profile.name,
+																matchers,
+															})
+													: undefined
+											}
+										/>
+									</div>
+								);
+							})}
 						</div>
 					</>
 				) : (
@@ -321,6 +417,13 @@ export default function ProvidersPanel() {
 					</div>
 				)}
 			</div>
+			{devMode && debugTarget && (
+				<ProviderDebugPanel
+					key={debugTarget.id}
+					target={debugTarget}
+					onClose={() => setDebugTarget(null)}
+				/>
+			)}
 		</div>
 	);
 }

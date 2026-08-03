@@ -6,6 +6,7 @@ import (
 	"time"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/diagnostics"
 	"com.0d000721.encorehub/gateway/internal/provider"
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +24,7 @@ func NewProviderHandler(registry *provider.Registry, store *ProfileStore) *Provi
 	return &ProviderHandler{
 		registry: registry,
 		store:    store,
-		client:   &http.Client{Timeout: 15 * time.Second},
+		client:   diagnostics.NewHTTPClient(15 * time.Second),
 	}
 }
 

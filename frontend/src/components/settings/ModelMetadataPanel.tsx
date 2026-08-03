@@ -1,5 +1,6 @@
 import {
 	AlertCircle,
+	Bug,
 	Check,
 	Database,
 	Plus,
@@ -23,8 +24,12 @@ import {
 	inferMetadataMapping,
 } from "../../services/modelMetadata";
 import { useModelMetadataStore } from "../../stores/modelMetadataStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import ModelMetadataTable from "./ModelMetadataTable";
+import ProviderDebugPanel, {
+	type ProviderDebugTarget,
+} from "./ProviderDebugPanel";
 
 const LAST_PROVIDER_KEY = "encorehub-model-metadata-provider";
 
@@ -76,6 +81,7 @@ export default function ModelMetadataPanel() {
 	const upsert = useModelMetadataStore((state) => state.upsert);
 	const remove = useModelMetadataStore((state) => state.remove);
 	const setRecords = useModelMetadataStore((state) => state.setRecords);
+	const devMode = useSettingsStore((state) => state.devMode);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelectedId);
 	const [query, setQuery] = useState("");
 	const [view, setView] = useState<"setup" | "data">("setup");
@@ -84,6 +90,9 @@ export default function ModelMetadataPanel() {
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const [debugTarget, setDebugTarget] = useState<ProviderDebugTarget | null>(
+		null,
+	);
 
 	useEffect(() => {
 		void loadCatalog();
@@ -243,7 +252,7 @@ export default function ModelMetadataPanel() {
 	};
 
 	return (
-		<div className="flex h-full min-h-0 bg-surface">
+		<div className="relative flex h-full min-h-0 overflow-hidden bg-surface">
 			<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[700px]:hidden">
 				<div className="border-b border-border p-3">
 					<div className="relative">
@@ -328,6 +337,23 @@ export default function ModelMetadataPanel() {
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
+							{devMode && (
+								<button
+									type="button"
+									onClick={() =>
+										setDebugTarget({
+											id: draft.id,
+											name: draft.name,
+											matchers: [draft.url],
+										})
+									}
+									aria-label={`Debug ${draft.name}`}
+									title="Debug metadata provider"
+									className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-accent"
+								>
+									<Bug className="h-4 w-4" />
+								</button>
+							)}
 							<div
 								className="grid grid-cols-2 rounded-md border border-border bg-surface-alt p-0.5"
 								aria-label="Metadata view"
@@ -609,6 +635,13 @@ export default function ModelMetadataPanel() {
 				<main className="flex min-w-0 flex-1 items-center justify-center p-5 text-sm text-text-muted">
 					Add a metadata provider to configure model information.
 				</main>
+			)}
+			{devMode && debugTarget && (
+				<ProviderDebugPanel
+					key={debugTarget.id}
+					target={debugTarget}
+					onClose={() => setDebugTarget(null)}
+				/>
 			)}
 		</div>
 	);

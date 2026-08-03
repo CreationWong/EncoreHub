@@ -1,5 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { diagnosticFetchInternals } from "./diagnosticFetch";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+
+import { diagnosticFetch, diagnosticFetchInternals } from "./diagnosticFetch";
 
 describe("diagnosticFetch", () => {
 	beforeEach(() => {
@@ -10,6 +14,7 @@ describe("diagnosticFetch", () => {
 	afterEach(() => {
 		localStorage.clear();
 		Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+		vi.unstubAllGlobals();
 	});
 
 	it("requires both desktop runtime and the explicit full-logging preference", () => {
@@ -35,5 +40,34 @@ describe("diagnosticFetch", () => {
 			"x-provider-key": "[redacted]",
 			"x-request-id": "request-1",
 		});
+	});
+
+	it("records safe request metadata without full communication capture", async () => {
+		Object.defineProperty(window, "__TAURI_INTERNALS__", {
+			configurable: true,
+			value: {},
+		});
+		invoke.mockReset().mockResolvedValue(undefined);
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				new Response('{"private":"response"}', { status: 200 }),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await diagnosticFetch("https://provider.example/v1/models", {
+			method: "POST",
+			headers: { Authorization: "Bearer private-key" },
+			body: '{"private":"request"}',
+		});
+		await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+
+		const messages = invoke.mock.calls.map(
+			([, args]) => (args as { message: string }).message,
+		);
+		expect(messages.join("\n")).toContain("provider.example/v1/models");
+		expect(messages.join("\n")).not.toContain("private-key");
+		expect(messages.join("\n")).not.toContain("private-request");
+		expect(messages.join("\n")).not.toContain("private-response");
 	});
 });

@@ -164,6 +164,20 @@ describe("Developer feature workspace", () => {
 			expect(setFullCommunicationLogs).toHaveBeenCalledWith(true),
 		);
 		expect(useSettingsStore.getState().fullCommunicationLogs).toBe(true);
+		expect(screen.getByText(/retained in memory only/)).toBeDefined();
+	});
+
+	it("writes logs only after export and treats a cancelled save as a no-op", async () => {
+		exportLogs.mockResolvedValueOnce(null);
+		render(<LogsPanel />);
+		await waitFor(() =>
+			expect(screen.getByText("upstream timeout")).toBeDefined(),
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Export logs" }));
+
+		await waitFor(() => expect(exportLogs).toHaveBeenCalledWith(logFixture));
+		expect(useToastStore.getState().toasts).toEqual([]);
 	});
 
 	it("renders and filters the standalone log viewer", async () => {

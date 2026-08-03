@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 const MAX_CAPTURED_BODY_CHARS = 512 * 1024;
 const SENSITIVE_HEADER_PARTS = [
 	"authorization",
@@ -9,10 +11,13 @@ const SENSITIVE_HEADER_PARTS = [
 	"subscription-key",
 ];
 
+function diagnosticsAvailable(): boolean {
+	return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 function diagnosticsEnabled(): boolean {
 	return (
-		typeof window !== "undefined" &&
-		"__TAURI_INTERNALS__" in window &&
+		diagnosticsAvailable() &&
 		localStorage.getItem("encorehub-full-communication-logs") === "1"
 	);
 }
@@ -51,7 +56,6 @@ function capturedBody(body: BodyInit | null | undefined): {
 
 async function writeTrace(payload: Record<string, unknown>): Promise<void> {
 	try {
-		const { invoke } = await import("@tauri-apps/api/core");
 		await invoke("write_client_log", {
 			level: "info",
 			message: `[communication] ${JSON.stringify(payload)}`,
@@ -65,40 +69,51 @@ export async function diagnosticFetch(
 	input: RequestInfo | URL,
 	init: RequestInit = {},
 ): Promise<Response> {
-	if (!diagnosticsEnabled()) return fetch(input, init);
+	if (!diagnosticsAvailable()) return fetch(input, init);
 
 	const url = typeof input === "string" ? input : input.toString();
 	const method = init.method?.toUpperCase() ?? "GET";
-	const requestBody = capturedBody(init.body);
-	void writeTrace({
+	const fullCapture = diagnosticsEnabled();
+	const requestTrace: Record<string, unknown> = {
 		direction: "frontend-request",
 		method,
 		url,
-		headers: sanitizedHeaders(init.headers),
-		body: requestBody.content,
-		body_truncated: requestBody.truncated,
-	});
+	};
+	if (fullCapture) {
+		const requestBody = capturedBody(init.body);
+		requestTrace.headers = sanitizedHeaders(init.headers);
+		requestTrace.body = requestBody.content;
+		requestTrace.body_truncated = requestBody.truncated;
+	}
+	void writeTrace(requestTrace);
 
 	const started = performance.now();
 	try {
 		const response = await fetch(input, init);
-		const copy = response.clone();
-		void copy
-			.text()
-			.then((body) => {
-				const captured = capturedBody(body);
-				return writeTrace({
-					direction: "frontend-response",
-					method,
-					url,
-					status: response.status,
-					duration_ms: Math.round(performance.now() - started),
-					headers: sanitizedHeaders(response.headers),
-					body: captured.content,
-					body_truncated: captured.truncated,
-				});
-			})
-			.catch(() => undefined);
+		const responseTrace: Record<string, unknown> = {
+			direction: "frontend-response",
+			method,
+			url,
+			status: response.status,
+			duration_ms: Math.round(performance.now() - started),
+		};
+		if (fullCapture) {
+			const copy = response.clone();
+			void copy
+				.text()
+				.then((body) => {
+					const captured = capturedBody(body);
+					return writeTrace({
+						...responseTrace,
+						headers: sanitizedHeaders(response.headers),
+						body: captured.content,
+						body_truncated: captured.truncated,
+					});
+				})
+				.catch(() => undefined);
+		} else {
+			void writeTrace(responseTrace);
+		}
 		return response;
 	} catch (error) {
 		void writeTrace({
@@ -114,6 +129,7 @@ export async function diagnosticFetch(
 
 export const diagnosticFetchInternals = {
 	capturedBody,
+	diagnosticsAvailable,
 	diagnosticsEnabled,
 	sanitizedHeaders,
 };

@@ -3,6 +3,7 @@ import {
 	AlertCircle,
 	ArrowDown,
 	ArrowUp,
+	Bug,
 	CheckCircle2,
 	Eye,
 	Info,
@@ -88,7 +89,18 @@ interface DetailProps {
 	onClearKey: () => Promise<void>;
 	onSave: (next: ProviderProfile) => Promise<void>;
 	onDelete: () => void;
+	onOpenDebug?: (matchers: string[]) => void;
 	onStatusChange: (providerId: string, status: ProviderRuntimeStatus) => void;
+	onDraftControllerChange?: (
+		providerId: string,
+		controller: ProviderDraftController | null,
+	) => void;
+}
+
+export interface ProviderDraftController {
+	dirty: boolean;
+	save: () => Promise<boolean>;
+	discard: () => void;
 }
 
 interface ProviderDraft {
@@ -165,7 +177,9 @@ export default function ProviderDetail({
 	onClearKey,
 	onSave,
 	onDelete,
+	onOpenDebug,
 	onStatusChange,
+	onDraftControllerChange,
 }: DetailProps) {
 	const persistedDraft = useMemo(() => draftFromProfile(profile), [profile]);
 	const persistedKeys = useMemo(() => parseProviderAPIKeys(apiKey), [apiKey]);
@@ -215,6 +229,8 @@ export default function ProviderDetail({
 	const [unlockBusy, setUnlockBusy] = useState(false);
 
 	useEffect(() => {
+		// A model-only save refreshes the profile too. Reconcile that confirmed model set
+		// without replacing unrelated endpoint, routing, or key edits still in the draft.
 		if (
 			pendingModelSaveRef.current ===
 			modelConfigSignature(persistedDraft.models)
@@ -246,12 +262,14 @@ export default function ProviderDetail({
 
 	const lockedStored = vaultLocked && keyStored && !pendingKeyClear;
 	const profileDirty = draftSignature(draft) !== draftSignature(persistedDraft);
+	// A new provider is immediately actionable, while a locked stored key remains
+	// authoritative even though its plaintext cannot be compared with the draft.
 	const keyDirty =
 		pendingKeyClear ||
 		(!lockedStored &&
 			providerAPIKeySignature(keyDraft) !==
 				providerAPIKeySignature(persistedKeys));
-	const dirty = profileDirty || keyDirty;
+	const dirty = isDraft || profileDirty || keyDirty;
 
 	const enabledEndpoints = useMemo(
 		() => draft.endpoints.filter((endpoint) => endpoint.enabled),
@@ -432,6 +450,8 @@ export default function ProviderDetail({
 
 	const persistProviderModels = useCallback(
 		async (nextModels: ProviderModelConfig[]) => {
+			// Discovery can persist its model selection independently of the rest of the
+			// form, so unfinished connection settings remain local until the main save.
 			const models = normalizeModelConfigs(nextModels);
 			pendingModelSaveRef.current = modelConfigSignature(models);
 			try {
@@ -604,11 +624,14 @@ export default function ProviderDetail({
 					serializeProviderAPIKeys(keyDraft),
 					draft.keyRoutingStrategy,
 				);
+				// Only the newest request may describe the current draft; slower responses
+				// from an earlier endpoint or key revision are deliberately ignored.
 				if (requestID !== discoveryRequestRef.current) return;
 
-				const failed = response.endpoint_results.filter(
+				const failedResults = response.endpoint_results.filter(
 					(result) => result.status === "error",
-				).length;
+				);
+				const failed = failedResults.length;
 				if (!response.discovery_supported) {
 					setDiscoveryNotice({
 						tone: "warning",
@@ -618,9 +641,18 @@ export default function ProviderDetail({
 					response.success_count === 0 ||
 					response.models.length === 0
 				) {
+					// Transport success is not discovery success: an empty body or an
+					// unrecognized JSON shape cannot supply a usable model list.
+					const unsupportedPayload =
+						failedResults.length > 0 &&
+						failedResults.every(
+							(result) => result.error_category === "unsupported_response",
+						);
 					setDiscoveryNotice({
 						tone: "error",
-						text: "No endpoint returned a model list. Local models were kept unchanged.",
+						text: unsupportedPayload
+							? "The model endpoint responded successfully, but its response body was empty or not a supported JSON model list. Check the /models route or add models manually."
+							: "No endpoint returned a model list. Local models were kept unchanged.",
 					});
 				} else {
 					if (!useModelMetadataStore.getState().loaded) {
@@ -721,7 +753,7 @@ export default function ProviderDetail({
 		}
 	};
 
-	const discard = () => {
+	const discard = useCallback(() => {
 		pendingModelSaveRef.current = null;
 		setDraft(persistedDraft);
 		setKeyDraft(persistedKeys);
@@ -740,12 +772,12 @@ export default function ProviderDetail({
 		lastValidationRef.current = null;
 		lastDiscoveryRef.current = null;
 		reportStatus(defaultProviderRuntimeStatus(persistedDraft.enabled, isDraft));
-	};
+	}, [isDraft, persistedDraft, persistedKeys, reportStatus]);
 
-	const handleSave = async () => {
+	const handleSave = useCallback(async (): Promise<boolean> => {
 		if (validationError) {
 			setError(validationError);
-			return;
+			return false;
 		}
 		setSaving(true);
 		setError(null);
@@ -754,16 +786,38 @@ export default function ProviderDetail({
 			await persistProviderDraft(draft);
 			reportStatus(draft.enabled ? "healthy" : "disabled");
 			toast.success(`Saved ${profile.name}`);
+			return true;
 		} catch (saveError) {
 			setError(
 				saveError instanceof Error
 					? saveError.message
 					: "Failed to save provider",
 			);
+			return false;
 		} finally {
 			setSaving(false);
 		}
-	};
+	}, [
+		draft,
+		persistProviderDraft,
+		profile.name,
+		reportStatus,
+		validationError,
+	]);
+
+	useEffect(() => {
+		if (!onDraftControllerChange) return;
+		onDraftControllerChange(profile.id, {
+			dirty,
+			save: handleSave,
+			discard,
+		});
+	}, [dirty, discard, handleSave, onDraftControllerChange, profile.id]);
+
+	useEffect(
+		() => () => onDraftControllerChange?.(profile.id, null),
+		[onDraftControllerChange, profile.id],
+	);
 
 	const filteredModels = useMemo(() => {
 		const query = modelSearch.trim().toLowerCase();
@@ -829,6 +883,22 @@ export default function ProviderDetail({
 					</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
+					{onOpenDebug && (
+						<button
+							type="button"
+							onClick={() =>
+								onOpenDebug([
+									...draft.endpoints.map((endpoint) => endpoint.base_url),
+									...draft.models.map((model) => model.id),
+								])
+							}
+							aria-label={`Debug ${profile.name}`}
+							title="Debug provider"
+							className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-accent"
+						>
+							<Bug className="h-4 w-4" />
+						</button>
+					)}
 					<button
 						type="button"
 						role="switch"
@@ -1499,7 +1569,7 @@ export default function ProviderDetail({
 					<button
 						type="button"
 						onClick={() => void handleSave()}
-						disabled={!dirty || Boolean(validationError) || saving}
+						disabled={!dirty || saving}
 						className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{saving ? (

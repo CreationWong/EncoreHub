@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
+import { registerSettingsLeaveGuard } from "./settingsLeaveGuard";
 
 vi.mock("./ProvidersPanel", () => ({ default: () => <p>Providers panel</p> }));
 vi.mock("./AppearancePanel", () => ({
@@ -64,6 +65,21 @@ describe("Settings workspace information architecture", () => {
 
 		expect(await screen.findByText("Context menu panel")).toBeDefined();
 		expect(useSettingsStore.getState().settingsTab).toBe("context-menu");
+	});
+
+	it("does not leave Providers when its unsaved-change guard cancels", async () => {
+		useSettingsStore.setState({ settingsTab: "providers" });
+		const unregister = registerSettingsLeaveGuard(async () => false);
+		try {
+			render(<SettingsModal />);
+
+			fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+			await Promise.resolve();
+
+			expect(useSettingsStore.getState().settingsTab).toBe("providers");
+		} finally {
+			unregister();
+		}
 	});
 
 	afterEach(cleanup);

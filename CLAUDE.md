@@ -39,6 +39,21 @@ only the actual Gateway port via the `get_service_ports` Tauri command.
 - Frontend errors/feedback: surface via the global toast store (`stores/toastStore.ts` — `toast.success/error/info`), not inline error bars
 - Frontend a11y: icon-only buttons must carry an `aria-label`; keyboard focus uses the global `:focus-visible` ring (no per-component focus styling needed)
 
+### Code Comments and Change History
+
+These requirements apply to every repository-owned code file, including source code, tests, build scripts, and configuration expressed as code. Generated files and vendored third-party code are exempt and must not be edited merely to add comments.
+
+- **Every code file must begin with a file header comment** that states the file's responsibility and, when useful, its important ownership or architectural boundary. Use the language's conventional comment syntax. Do not use copyright boilerplate as the file header.
+- **Every function, method, class, interface, and other public or non-trivial declaration must have a documentation comment** in the language's standard style: JSDoc/TSDoc for JavaScript and TypeScript, doc comments for Rust and Go, docstrings for Python, and the closest equivalent in other languages. Document intent, contracts, side effects, invariants, failure behavior, or non-obvious constraints instead of restating the signature.
+- **Use ordinary single-line comments for local explanations.** Comments should explain why a decision exists, what invariant is protected, or why an apparently simpler implementation is unsafe. Reserve block comments for documentation syntax or explanations that genuinely require multiple lines.
+- **Comment coverage must be at least 40% in each individual code file.** Calculate this as comment lines divided by non-blank code lines, using the repository's comment-coverage tooling when available. Documentation-comment lines, meaningful file-header lines, and meaningful single-line comments count; blank comment lines, disabled code, generated text, and comments that merely paraphrase the next statement do not count. The requirement is per file and cannot be satisfied by averaging across the repository.
+- **Never add line-by-line narration.** Reject comments such as `increment counter`, `return result`, or prose that simply translates the syntax. If the code is already self-explanatory, document the surrounding contract or design reason rather than narrating each operation.
+- **Never leave conversation or refactoring-history artifacts in code comments.** Prohibited examples include `← 新增`, `新版`, `旧版`, `已迁移至`, `temporary fix`, references to an Agent/user conversation, or notes describing how the code differed before the current change. Git and `CHANGELOG.md` own history; comments describe the current system only.
+- **Review comments whenever behavior changes.** Update or remove stale comments in the same change, and treat inaccurate documentation as a defect.
+- **Update `CHANGELOG.md` for every new version, broad code update, or foundational refactor.** Record the user-visible or architectural outcome under the appropriate release and category. Do not use source comments as a substitute for the changelog, and do not add changelog entries for trivial comment-only or formatting-only edits.
+
+Before completing a code change, verify that every touched code file has a meaningful file header, uses standard documentation comments for functions and declarations, meets the 40% per-file comment coverage threshold, contains no line-by-line narration or process-history artifacts, and includes a `CHANGELOG.md` entry when the change qualifies.
+
 ## Component Map
 
 | Module | Language | Role | Status |

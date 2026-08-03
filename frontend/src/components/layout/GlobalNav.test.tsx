@@ -6,6 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { registerSettingsLeaveGuard } from "../settings/settingsLeaveGuard";
 
 const setTheme = vi.fn();
 const openSettings = vi.fn();
@@ -176,6 +177,28 @@ describe("GlobalNav", () => {
 		expect(activateTab).toHaveBeenCalledWith("workbench");
 		expect(closeTab).toHaveBeenCalledWith("workbench");
 		expect(closeSettings).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps Settings open when its unsaved-change guard cancels", async () => {
+		workspaceState = {
+			activeTab: "settings",
+			openTabs: ["home", "settings"],
+		};
+		const unregister = registerSettingsLeaveGuard(async () => false);
+		try {
+			render(<GlobalNav />);
+
+			fireEvent.click(screen.getByRole("button", { name: "Home" }));
+			fireEvent.click(
+				screen.getByRole("button", { name: "Close Settings tab" }),
+			);
+			await Promise.resolve();
+
+			expect(activateTab).not.toHaveBeenCalled();
+			expect(closeSettings).not.toHaveBeenCalled();
+		} finally {
+			unregister();
+		}
 	});
 
 	it("selects a theme from the appearance menu", () => {

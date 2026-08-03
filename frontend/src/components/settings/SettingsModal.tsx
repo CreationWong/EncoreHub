@@ -30,6 +30,7 @@ import ProvidersPanel from "./ProvidersPanel";
 import SecurityPanel from "./SecurityPanel";
 import SkillsPanel from "./SkillsPanel";
 import UsagePanel from "./UsagePanel";
+import { runAfterSettingsLeaveGuard } from "./settingsLeaveGuard";
 
 const DeveloperPanel = lazy(() => import("./DeveloperPanel"));
 const ProcessesPanel = lazy(() => import("./ProcessesPanel"));
@@ -125,6 +126,10 @@ export default function SettingsModal() {
 			? { ...group, tabs: [...group.tabs, ...DEV_TABS] }
 			: group,
 	);
+	const selectTab = (nextTab: SettingsTab) => {
+		if (nextTab === tab) return;
+		runAfterSettingsLeaveGuard(() => setTab(nextTab));
+	};
 
 	useEffect(() => {
 		if (!devMode && isDeveloperSettingsTab(tab)) setTab("about");
@@ -149,7 +154,7 @@ export default function SettingsModal() {
 								<button
 									key={item.id}
 									type="button"
-									onClick={() => setTab(item.id)}
+									onClick={() => selectTab(item.id)}
 									aria-current={tab === item.id ? "page" : undefined}
 									title={item.label}
 									className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors max-[760px]:justify-center max-[760px]:px-2 ${

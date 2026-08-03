@@ -131,6 +131,21 @@ afterEach(() => {
 });
 
 describe("ProviderDetail", () => {
+	it("opens debugging with the current draft endpoints and models", () => {
+		const onOpenDebug = vi.fn();
+		renderDetail({ onOpenDebug });
+		fireEvent.change(screen.getByRole("textbox", { name: "Endpoint 1 URL" }), {
+			target: { value: "https://draft.example/v1" },
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Debug Custom Provider" }),
+		);
+
+		expect(onOpenDebug).toHaveBeenCalledWith(
+			expect.arrayContaining(["https://draft.example/v1", "existing-model"]),
+		);
+	});
 	it("explains the same-provider endpoint restriction and supports both routing modes", () => {
 		renderDetail();
 		expect(
@@ -150,6 +165,8 @@ describe("ProviderDetail", () => {
 		).toBeDefined();
 	});
 
+	// Automatic discovery may prepare a diff, but model state changes only after
+	// the user explicitly accepts that diff.
 	it("automatically fetches models but waits for diff confirmation", async () => {
 		const { props } = renderDetail();
 		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
@@ -241,6 +258,44 @@ describe("ProviderDetail", () => {
 		expect(
 			screen.getByRole("button", { name: "Create provider" }),
 		).toHaveProperty("disabled", false);
+	});
+
+	// A reachable endpoint is not necessarily a usable discovery endpoint; keep
+	// semantic payload failures distinct from network and HTTP failures.
+	it("explains an HTTP-success response with an unsupported model payload", async () => {
+		vi.useRealTimers();
+		discoverModels.mockResolvedValueOnce({
+			provider: "custom",
+			discovery_supported: true,
+			success_count: 0,
+			models: [],
+			endpoint_results: [
+				{
+					endpoint_id: "primary",
+					status: "error",
+					model_count: 0,
+					error_category: "unsupported_response",
+				},
+			],
+		});
+		renderDetail();
+		fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+		fireEvent.change(screen.getByLabelText("API key 1 value"), {
+			target: { value: "session-key" },
+		});
+		fireEvent.change(screen.getByLabelText("Endpoint 1 URL"), {
+			target: { value: "https://api.example.com/v1" },
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Fetch model list" }));
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					/response body was empty or not a supported JSON model list/i,
+				),
+			).toBeDefined(),
+		);
 	});
 
 	it("draws API key focus around the complete value control", () => {
@@ -419,6 +474,16 @@ describe("ProviderDetail", () => {
 		expect(onStatusChange).toHaveBeenLastCalledWith("custom", "disabled");
 	});
 
+	it("enables save immediately after a change even while the draft is incomplete", () => {
+		renderDetail();
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable provider" }));
+
+		expect(
+			screen.getByRole("button", { name: "Create provider" }),
+		).toHaveProperty("disabled", false);
+	});
+
 	it("discard cancels the pending automatic connection actions", async () => {
 		const configured: ProviderProfile = {
 			...profile,
@@ -453,6 +518,8 @@ describe("ProviderDetail", () => {
 		expect(discoverModels).not.toHaveBeenCalled();
 	});
 
+	// Validation sends the current draft connection for this request only. Merely
+	// testing it must not commit temporary keys or endpoint edits.
 	it("tests temporary keys without persisting and keeps other commands available", async () => {
 		let resolveValidation: ((value: unknown) => void) | undefined;
 		validateKey.mockReturnValue(

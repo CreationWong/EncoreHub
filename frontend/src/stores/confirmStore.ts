@@ -1,16 +1,24 @@
 import { create } from "zustand";
 
+export type ConfirmResult = "confirm" | "discard" | "cancel";
+
 interface ConfirmState {
 	open: boolean;
 	title: string;
 	message: string;
 	danger?: boolean;
-	resolve: ((value: boolean) => void) | null;
+	confirmLabel: string;
+	cancelLabel: string;
+	discardLabel: string | null;
+	resolve: ((value: ConfirmResult) => void) | null;
 	show: (opts: {
 		title: string;
 		message: string;
 		danger?: boolean;
-	}) => Promise<boolean>;
+		confirmLabel?: string;
+		cancelLabel?: string;
+		discardLabel?: string;
+	}) => Promise<ConfirmResult>;
 }
 
 export const useConfirmStore = create<ConfirmState>((set, get) => ({
@@ -18,10 +26,29 @@ export const useConfirmStore = create<ConfirmState>((set, get) => ({
 	title: "",
 	message: "",
 	danger: false,
+	confirmLabel: "Confirm",
+	cancelLabel: "Cancel",
+	discardLabel: null,
 	resolve: null,
-	show: ({ title, message, danger }) =>
-		new Promise<boolean>((resolve) => {
-			set({ open: true, title, message, danger: danger ?? false, resolve });
+	show: ({
+		title,
+		message,
+		danger,
+		confirmLabel = "Confirm",
+		cancelLabel = "Cancel",
+		discardLabel,
+	}) =>
+		new Promise<ConfirmResult>((resolve) => {
+			set({
+				open: true,
+				title,
+				message,
+				danger: danger ?? false,
+				confirmLabel,
+				cancelLabel,
+				discardLabel: discardLabel ?? null,
+				resolve,
+			});
 		}),
 }));
 
@@ -33,6 +60,18 @@ export const confirm = {
 	 * @param message body text
 	 * @param danger use destructive styling
 	 */
-	ask: (title: string, message: string, danger = false): Promise<boolean> =>
-		useConfirmStore.getState().show({ title, message, danger }),
+	ask: async (
+		title: string,
+		message: string,
+		danger = false,
+	): Promise<boolean> =>
+		(await useConfirmStore.getState().show({ title, message, danger })) ===
+		"confirm",
+	choose: (options: {
+		title: string;
+		message: string;
+		confirmLabel: string;
+		discardLabel: string;
+		cancelLabel?: string;
+	}): Promise<ConfirmResult> => useConfirmStore.getState().show(options),
 };

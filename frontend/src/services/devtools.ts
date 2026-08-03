@@ -76,7 +76,7 @@ export const devtools = {
 	/** Export the currently visible log entries through the native filesystem. */
 	async exportLogs(entries: LogEntry[]): Promise<string | null> {
 		if (!inTauri()) return null;
-		return invokeCommand<string>("export_logs", { entries });
+		return invokeCommand<string | null>("export_logs", { entries });
 	},
 
 	/** Open the active on-disk log directory in the platform file manager. */

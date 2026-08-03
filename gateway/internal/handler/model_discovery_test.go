@@ -10,8 +10,39 @@ import (
 	"strings"
 	"testing"
 
+	"com.0d000721.encorehub/gateway/internal/diagnostics"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
+
+func TestProviderHandlerDiscoveryEmitsRestrictedCommunicationTrace(t *testing.T) {
+	diagnostics.SetEnabled(false)
+	var output bytes.Buffer
+	previousLogger := log.Logger
+	log.Logger = zerolog.New(&output)
+	t.Cleanup(func() { log.Logger = previousLogger })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a"}]}`))
+	}))
+	defer server.Close()
+
+	handler := NewProviderHandler(nil, nil)
+	models, category := handler.discoverEndpointModels(
+		context.Background(), "ps", "openai", server.URL, []string{"private-key"},
+	)
+	if category != "" || len(models) != 1 {
+		t.Fatalf("models = %#v, category = %q", models, category)
+	}
+	logged := output.String()
+	if !strings.Contains(logged, "restricted communication trace") || !strings.Contains(logged, server.URL) {
+		t.Fatalf("provider discovery did not emit a communication trace: %s", logged)
+	}
+	if strings.Contains(logged, "private-key") {
+		t.Fatalf("provider discovery trace leaked credentials: %s", logged)
+	}
+}
 
 func TestDiscoverEndpointModelsOpenAIUsesBearerKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

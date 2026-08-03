@@ -119,7 +119,7 @@ export default function LogsPanel() {
 		if (next) {
 			const accepted = await confirm.ask(
 				"Enable full communication logging?",
-				"Request and response bodies will be written to local memory and log files. Authentication headers remain redacted. Disable this setting after diagnosis.",
+				"Request and response bodies will be retained in memory only. They are written to disk only when you explicitly export logs; authentication headers remain redacted.",
 			);
 			if (!accepted) return;
 		}
@@ -241,7 +241,7 @@ export default function LogsPanel() {
 					</p>
 					<p className="mt-1 text-[11px] leading-5 text-text-muted">
 						{fullCommunicationLogs
-							? "Request and response bodies are retained locally; authentication headers remain redacted."
+							? "Request and response bodies are retained in memory only and written to disk only when you export; authentication headers remain redacted."
 							: "Service events and communication metadata are recorded with bodies and credentials redacted."}
 					</p>
 				</div>

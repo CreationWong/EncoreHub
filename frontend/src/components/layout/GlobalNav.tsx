@@ -19,6 +19,7 @@ import {
 	type WorkspaceTabId,
 	useWorkspaceStore,
 } from "../../stores/workspaceStore";
+import { runAfterSettingsLeaveGuard } from "../settings/settingsLeaveGuard";
 import WindowControls from "./WindowControls";
 
 const THEME_OPTIONS: {
@@ -83,10 +84,24 @@ export default function GlobalNav() {
 	};
 	const closeWorkspaceTab = (tab: Exclude<WorkspaceTabId, "home">) => {
 		if (tab === "settings") {
-			closeSettings();
+			runAfterSettingsLeaveGuard(closeSettings);
 			return;
 		}
 		closeTab(tab);
+	};
+	const activateWorkspaceTab = (tab: WorkspaceTabId) => {
+		if (activeTab !== "settings" || tab === "settings") {
+			activateTab(tab);
+			return;
+		}
+		runAfterSettingsLeaveGuard(() => activateTab(tab));
+	};
+	const launchWorkbench = () => {
+		if (activeTab !== "settings") {
+			openWorkspaceTab("workbench");
+			return;
+		}
+		runAfterSettingsLeaveGuard(() => openWorkspaceTab("workbench"));
 	};
 
 	useEffect(() => {
@@ -128,7 +143,7 @@ export default function GlobalNav() {
 				<div className="workspace-tab-strip flex min-w-0 items-center gap-1 overflow-x-auto py-1">
 					<button
 						type="button"
-						onClick={() => activateTab("home")}
+						onClick={() => activateWorkspaceTab("home")}
 						aria-current={activeTab === "home" ? "page" : undefined}
 						className={`flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors ${
 							activeTab === "home"
@@ -156,7 +171,7 @@ export default function GlobalNav() {
 							>
 								<button
 									type="button"
-									onClick={() => activateTab(tab)}
+									onClick={() => activateWorkspaceTab(tab)}
 									aria-current={selected ? "page" : undefined}
 									className="flex min-w-0 max-w-36 items-center gap-2 pl-3 pr-1 text-sm font-medium"
 								>
@@ -179,7 +194,7 @@ export default function GlobalNav() {
 
 				<button
 					type="button"
-					onClick={() => openWorkspaceTab("workbench")}
+					onClick={launchWorkbench}
 					aria-label="Open workbench"
 					title="Open workbench"
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"

@@ -6,8 +6,8 @@
 //!
 //! Lines at or above the configured file level (Info by default) are mirrored
 //! to a daily file under the active runtime `log/` directory so issues can be
-//! diagnosed after the app closes. Only the redacted message is written; raw
-//! key material never reaches disk.
+//! diagnosed after the app closes. Full communication entries are always kept
+//! in memory only and reach disk solely through an explicit user export.
 
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
@@ -223,11 +223,10 @@ fn prune_old_logs(dir: &PathBuf) {
 /// native filesystem. The messages are redacted again at this trust boundary
 /// so a forged webview invocation cannot write obvious key material.
 pub fn export_log_entries(
-    preferred_dir: Option<&Path>,
-    fallback_dir: &Path,
+    path: &Path,
     entries: &[LogEntry],
     preserve_diagnostics: bool,
-) -> io::Result<PathBuf> {
+) -> io::Result<()> {
     if entries.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -250,63 +249,27 @@ pub fn export_log_entries(
         ));
     }
 
-    if let Some(directory) = preferred_dir {
-        if let Ok(path) = write_log_export(directory, entries, preserve_diagnostics) {
-            return Ok(path);
-        }
-    }
-    write_log_export(fallback_dir, entries, preserve_diagnostics)
-}
-
-fn write_log_export(
-    directory: &Path,
-    entries: &[LogEntry],
-    preserve_diagnostics: bool,
-) -> io::Result<PathBuf> {
-    fs::create_dir_all(directory)?;
-    let now = chrono::Local::now();
-    let stem = format!(
-        "encorehub-logs-{}-{:03}",
-        now.format("%Y%m%d-%H%M%S"),
-        now.timestamp_subsec_millis()
-    );
-
-    for suffix in 0..100 {
-        let filename = if suffix == 0 {
-            format!("{stem}.txt")
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    for entry in entries {
+        let stripped = strip_ansi(&entry.message);
+        let message = if preserve_diagnostics && is_communication_event(&stripped) {
+            stripped
         } else {
-            format!("{stem}-{suffix}.txt")
+            redact(&stripped)
         };
-        let path = directory.join(filename);
-        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        };
-
-        for entry in entries {
-            let stripped = strip_ansi(&entry.message);
-            let message = if preserve_diagnostics && is_communication_event(&stripped) {
-                stripped
-            } else {
-                redact(&stripped)
-            };
-            writeln!(
-                file,
-                "[{}/{}] {}",
-                entry.source.as_str(),
-                entry.level.as_str(),
-                message
-            )?;
-        }
-        file.sync_all()?;
-        return Ok(path);
+        writeln!(
+            file,
+            "[{}/{}] {}",
+            entry.source.as_str(),
+            entry.level.as_str(),
+            message
+        )?;
     }
-
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not allocate a unique log export filename",
-    ))
+    file.sync_all()
 }
 
 impl LogBuffer {
@@ -375,17 +338,17 @@ impl LogBuffer {
     /// Redact, mirror to disk, and append one entry at the given level.
     fn append(&self, source: Source, level: Level, raw: &str) {
         let stripped = strip_ansi(raw);
-        let message = if self.preserve_diagnostics.load(Ordering::Acquire)
-            && is_communication_event(&stripped)
-        {
+        let preserve_diagnostics = self.preserve_diagnostics.load(Ordering::Acquire);
+        let memory_only_communication = preserve_diagnostics && is_communication_event(&stripped);
+        let message = if memory_only_communication {
             stripped
         } else {
             redact(&stripped)
         };
-        // Communication bodies are mirrored only after the user explicitly
-        // enables full communication logging; all other lines remain redacted.
+        // Full communication entries may contain request/response bodies. They
+        // stay memory-only until the user explicitly exports the buffer.
         let file_level = self.file_level();
-        if level.should_write_to_file(file_level) {
+        if !memory_only_communication && level.should_write_to_file(file_level) {
             if let Some(file) = self.file.as_ref() {
                 if let Ok(mut sink) = file.lock() {
                     sink.write_line(source, level, &message);
@@ -892,10 +855,9 @@ mod tests {
     }
 
     #[test]
-    fn native_export_writes_entries_and_redacts_again() {
+    fn native_export_writes_selected_file_and_redacts_again() {
         let temp = tempfile::tempdir().unwrap();
-        let preferred = temp.path().join("downloads");
-        let fallback = temp.path().join("log");
+        let path = temp.path().join("selected.txt");
         let entries = vec![LogEntry {
             seq: 1,
             source: Source::Gateway,
@@ -903,32 +865,38 @@ mod tests {
             message: "loaded key sk-export-canary-123456789".into(),
         }];
 
-        let path = export_log_entries(Some(&preferred), &fallback, &entries, false).unwrap();
+        export_log_entries(&path, &entries, false).unwrap();
         let text = fs::read_to_string(&path).unwrap();
 
-        assert_eq!(path.parent(), Some(preferred.as_path()));
         assert!(text.contains("[gateway/info]"));
         assert!(!text.contains("sk-export-canary"));
     }
 
     #[test]
-    fn native_export_falls_back_when_download_directory_is_unavailable() {
+    fn full_communication_entries_are_memory_only_until_export() {
         let temp = tempfile::tempdir().unwrap();
-        let blocked = temp.path().join("blocked");
-        let fallback = temp.path().join("log");
-        fs::write(&blocked, b"not a directory").unwrap();
-        let entries = vec![LogEntry {
-            seq: 1,
-            source: Source::Desktop,
-            level: Level::Warn,
-            message: "fallback export".into(),
-        }];
+        let log_dir = temp.path().join("logs");
+        let export_path = temp.path().join("export.txt");
+        let buf = LogBuffer::with_log_dir(log_dir.clone());
+        buf.set_preserve_diagnostics(true);
+        buf.push_event(
+            Source::Frontend,
+            Level::Info,
+            r#"[communication] {"body":"memory-only-canary"}"#,
+        );
 
-        let path = export_log_entries(Some(&blocked), &fallback, &entries, false).unwrap();
+        let day = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let daily_path = log_dir.join(format!("encorehub-{day}.log"));
+        assert!(
+            !daily_path.exists(),
+            "communication trace created a log file"
+        );
 
-        assert_eq!(path.parent(), Some(fallback.as_path()));
-        assert!(fs::read_to_string(path)
+        let entries = buf.since(0);
+        assert!(entries[0].message.contains("memory-only-canary"));
+        export_log_entries(&export_path, &entries, true).unwrap();
+        assert!(fs::read_to_string(export_path)
             .unwrap()
-            .contains("fallback export"));
+            .contains("memory-only-canary"));
     }
 }
