@@ -155,8 +155,9 @@ describe("UsagePanel", () => {
 		expect(await screen.findByTitle("gpt-test")).toBeDefined();
 		expect(screen.getByTitle("150 tokens (100 in / 50 out)")).toBeDefined();
 		expect(screen.getByTitle("50 tokens (25 in / 25 out)")).toBeDefined();
+		expect(screen.getByTitle("Aug 01, 2026 · 00:00")).toBeDefined();
 		const firstBucket = screen.getByRole("button", {
-			name: "00:00: 150 tokens (100 in / 50 out)",
+			name: "Aug 01, 2026 · 00:00: 150 tokens (100 in / 50 out)",
 		});
 		expect(firstBucket.getAttribute("aria-pressed")).toBe("false");
 		fireEvent.click(firstBucket);

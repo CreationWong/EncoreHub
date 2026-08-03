@@ -60,6 +60,16 @@ function formatCompactNumber(value: number): string {
 	}).format(value);
 }
 
+function formatTrendDate(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return value;
+	return new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "2-digit",
+		year: "numeric",
+	}).format(date);
+}
+
 function getNiceScaleMaximum(value: number): number {
 	if (value <= 0) return 1;
 	const magnitude = 10 ** Math.floor(Math.log10(value));
@@ -486,7 +496,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 						<div
 							className="absolute inset-0 grid items-end gap-2 px-2"
 							style={{
-								gridTemplateColumns: `repeat(${buckets.length}, minmax(48px, 1fr))`,
+								gridTemplateColumns: `repeat(${buckets.length}, minmax(84px, 1fr))`,
 							}}
 						>
 							{buckets.map((bucket) => {
@@ -497,6 +507,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 								const inputShare =
 									bucket.tokens > 0 ? (bucket.input / bucket.tokens) * 100 : 0;
 								const detail = `${formatNumber(bucket.tokens)} tokens (${formatNumber(bucket.input)} in / ${formatNumber(bucket.output)} out)`;
+								const dateLabel = formatTrendDate(bucket.startAt);
 								const isSelected = selectedBucket === bucket.startAt;
 
 								return (
@@ -504,7 +515,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 										key={bucket.startAt}
 										type="button"
 										aria-pressed={isSelected}
-										aria-label={`${bucket.label}: ${detail}`}
+										aria-label={`${dateLabel} · ${bucket.label}: ${detail}`}
 										title={detail}
 										onClick={() =>
 											setSelectedBucket(isSelected ? null : bucket.startAt)
@@ -527,6 +538,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 											<strong className="block font-medium text-text-primary">
 												{bucket.label}
 											</strong>
+											<span className="block text-text-muted">{dateLabel}</span>
 											{formatNumber(bucket.input)} input ·{" "}
 											{formatNumber(bucket.output)} output
 										</span>
@@ -557,18 +569,26 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 				<div
 					className="ml-[54px] grid gap-2 px-2 pt-2"
 					style={{
-						gridTemplateColumns: `repeat(${buckets.length}, minmax(48px, 1fr))`,
+						gridTemplateColumns: `repeat(${buckets.length}, minmax(84px, 1fr))`,
 					}}
 				>
-					{buckets.map((bucket) => (
-						<span
-							key={bucket.startAt}
-							className="min-w-0 truncate text-center text-[10px] tabular-nums text-text-muted"
-							title={bucket.label}
-						>
-							{bucket.label}
-						</span>
-					))}
+					{buckets.map((bucket) => {
+						const dateLabel = formatTrendDate(bucket.startAt);
+						return (
+							<span
+								key={bucket.startAt}
+								className="min-w-0 text-center tabular-nums"
+								title={`${dateLabel} · ${bucket.label}`}
+							>
+								<span className="block text-[10px] text-text-secondary">
+									{bucket.label}
+								</span>
+								<span className="mt-0.5 block whitespace-nowrap text-[9px] text-text-muted">
+									{dateLabel}
+								</span>
+							</span>
+						);
+					})}
 				</div>
 			</div>
 		</div>
