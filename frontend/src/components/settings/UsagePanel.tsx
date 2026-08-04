@@ -499,7 +499,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 								gridTemplateColumns: `repeat(${buckets.length}, minmax(84px, 1fr))`,
 							}}
 						>
-							{buckets.map((bucket) => {
+							{buckets.map((bucket, index) => {
 								const height =
 									bucket.tokens > 0
 										? Math.max(3, (bucket.tokens / scaleMaximum) * 100)
@@ -509,6 +509,9 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 								const detail = `${formatNumber(bucket.tokens)} tokens (${formatNumber(bucket.input)} in / ${formatNumber(bucket.output)} out)`;
 								const dateLabel = formatTrendDate(bucket.startAt);
 								const isSelected = selectedBucket === bucket.startAt;
+								const tooltipPlacement =
+									index < buckets.length / 2 ? "right" : "left";
+								const tooltipTop = Math.min(82, Math.max(18, 100 - height));
 
 								return (
 									<button
@@ -532,8 +535,9 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 											</span>
 										)}
 										<span
-											className={`${isSelected ? "block" : "hidden"} pointer-events-none absolute z-10 -translate-y-2 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-2 text-left text-[10px] leading-4 text-text-secondary shadow-lg group-hover:block group-focus-visible:block`}
-											style={{ bottom: `${height}%` }}
+											data-placement={tooltipPlacement}
+											className={`${isSelected ? "block" : "hidden"} ${tooltipPlacement === "right" ? "left-[calc(50%+1.5rem)]" : "right-[calc(50%+1.5rem)]"} pointer-events-none absolute z-20 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-2 text-left text-[10px] leading-4 text-text-secondary shadow-lg group-hover:block group-focus-visible:block`}
+											style={{ top: `${tooltipTop}%` }}
 										>
 											<strong className="block font-medium text-text-primary">
 												{bucket.label}

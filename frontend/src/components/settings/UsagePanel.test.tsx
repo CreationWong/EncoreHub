@@ -159,6 +159,11 @@ describe("UsagePanel", () => {
 		const firstBucket = screen.getByRole("button", {
 			name: "Aug 01, 2026 · 00:00: 150 tokens (100 in / 50 out)",
 		});
+		expect(
+			firstBucket
+				.querySelector("[data-placement]")
+				?.getAttribute("data-placement"),
+		).toBe("right");
 		expect(firstBucket.getAttribute("aria-pressed")).toBe("false");
 		fireEvent.click(firstBucket);
 		expect(firstBucket.getAttribute("aria-pressed")).toBe("true");
