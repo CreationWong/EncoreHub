@@ -6,6 +6,7 @@ import {
 	normalizeComponents,
 	normalizeLicense,
 	rustTargetToGo,
+	serializeManifest,
 } from "./generate-oss-compliance.mjs";
 
 test("maps supported desktop target triples to Gateway build targets", () => {
@@ -57,5 +58,12 @@ test("deduplicates exact packages while retaining multiple locked versions", () 
 	assert.deepEqual(
 		result.map((component) => component.version),
 		["1.0.0", "2.0.0"],
+	);
+});
+
+test("serializes generated manifests using the repository formatter style", () => {
+	assert.equal(
+		serializeManifest({ schemaVersion: 1, components: [] }),
+		'{\n\t"schemaVersion": 1,\n\t"components": []\n}\n',
 	);
 });
