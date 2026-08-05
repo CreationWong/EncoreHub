@@ -43,6 +43,11 @@ export interface ChatTurnOptions {
 	parameters?: AdvancedParameters;
 	contextSummary?: string;
 	contextKeepRecent?: number;
+	attachmentIds?: string[];
+	modelSupportsVision?: boolean;
+	imageStrategy?: "direct" | "system_ocr" | "vision_model";
+	visionProvider?: string;
+	visionModel?: string;
 }
 
 interface UserSystemContext {
@@ -208,6 +213,13 @@ export const chatApi = {
 						user_system_context: getUserSystemContext(),
 						...(turnOptions?.replaceMessageId && {
 							replace_message_id: turnOptions.replaceMessageId,
+						}),
+						...(turnOptions?.attachmentIds?.length && {
+							attachment_ids: turnOptions.attachmentIds,
+							model_supports_vision: turnOptions.modelSupportsVision,
+							image_strategy: turnOptions.imageStrategy,
+							vision_provider: turnOptions.visionProvider,
+							vision_model: turnOptions.visionModel,
 						}),
 						...(search && { search: true, search_provider: searchProvider }),
 						...deepThinking,

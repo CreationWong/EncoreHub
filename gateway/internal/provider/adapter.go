@@ -46,14 +46,23 @@ type ToolCallMessage struct {
 
 // Message represents a single chat message in unified format.
 type Message struct {
-	Role    string `json:"role"` // "user", "assistant", "system", "tool"
-	Content string `json:"content"`
+	Role    string        `json:"role"` // "user", "assistant", "system", "tool"
+	Content string        `json:"content"`
+	Parts   []ContentPart `json:"parts,omitempty"`
 	// ToolCallID is set for role "tool" messages to associate the result
 	// with the tool call the model requested. Required by OpenAI / DeepSeek.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	// ToolCalls is set for role "assistant" messages that contain tool
 	// invocations. Maps to the provider's native tool_calls array.
 	ToolCalls []ToolCallMessage `json:"tool_calls,omitempty"`
+}
+
+// ContentPart carries current-turn input without persisting image bytes.
+type ContentPart struct {
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // FunctionDefinition describes a tool function the model may call.

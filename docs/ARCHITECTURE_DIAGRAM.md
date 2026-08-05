@@ -1,264 +1,115 @@
-# EncoreHub Architecture Diagram
+# EncoreHub Architecture
 
-> Single comprehensive diagram covering code structure, features, and data flows.
-> Rendered with [Mermaid](https://mermaid.js.org). Open in any Markdown viewer that supports Mermaid.
+> Current runtime architecture as of 2026-08-05. Historical design choices are
+> recorded under `docs/adr/`; implementation follow-up lives in
+> [`REMAINING_WORK.md`](REMAINING_WORK.md).
+
+## Runtime Topology
 
 ```mermaid
-graph TB
-    %% ===== STYLE =====
-    classDef frontend fill:#3178c6,color:#fff,stroke:#235a97
-    classDef gateway fill:#00add8,color:#fff,stroke:#007d99
-    classDef engine fill:#dea584,color:#000,stroke:#b0724a
-    classDef datasvc fill:#306998,color:#fff,stroke:#224b70
-    classDef external fill:#6c757d,color:#fff,stroke:#495057
-    classDef storage fill:#28a745,color:#fff,stroke:#1a6b2d
-    classDef flow fill:#e83e8c,color:#fff,stroke:#b82e6e
+flowchart LR
+    UI["React UI<br/>chat, settings, knowledge, memory"]
+    TAURI["Tauri desktop host<br/>runtime paths and lifecycle"]
+    GATEWAY["Go Gateway<br/>HTTP/SSE, providers, search, auth"]
+    ENGINE["Rust Engine in-process<br/>axum API and data pipeline"]
+    PROVIDERS["AI and search providers"]
+    SQLITE["SQLite<br/>authoritative metadata"]
+    SQLVEC["SQLite-Vec<br/>turn memory + Knowledge fallback"]
+    LANCE["Embedded LanceDB<br/>primary Knowledge vectors"]
+    BLOBS["Content-addressed blobs<br/>uploaded attachments"]
+    PANDOC["Optional Pandoc<br/>rich-text conversion"]
 
-    %% ===== USER LAYER =====
-    subgraph USER["👤 User"]
-        direction LR
-        A1["Desktop App Window"]
-        A2["Keyboard / Mouse"]
-        A3["Chat Input"]
-        A4["Settings Panel"]
-    end
-
-    %% ===== FRONTEND LAYER =====
-    subgraph FRONTEND["🖥️ Frontend — TypeScript + React 18 + Tauri 2"]
-        direction TB
-
-        subgraph COMPONENTS["Components"]
-            direction LR
-            C1["App.tsx<br/>Root Layout"]
-            C2["ChatView.tsx<br/>Message List"]
-            C3["InputBox.tsx<br/>Conversation Input + /Tool"]
-            C4["MessageBubble.tsx<br/>Markdown Renderer"]
-            C5["SlashToolMenu.tsx<br/>LLM Tool Completion"]
-            C6["Sidebar.tsx<br/>Theme + Nav"]
-            C7["ConversationList.tsx<br/>Chat History"]
-            C8["ProviderSwitcher.tsx<br/>Model Selector"]
-            C9["SettingsModal.tsx<br/>Settings Shell"]
-            C10["ProvidersPanel.tsx<br/>API Keys"]
-            C11["SkillsPanel.tsx<br/>Skill Mgmt"]
-            C12["MemoryPanel.tsx<br/>Memory Mgmt"]
-            C13["KnowledgePanel.tsx<br/>Knowledge Base"]
-            C14["AppearancePanel.tsx<br/>Theme Config"]
-            C15["SearchPanel.tsx<br/>Provider + Secure Config"]
-        end
-
-        subgraph STORES["Zustand Stores"]
-            direction LR
-            S1["conversationStore<br/>• conversations[]<br/>• activeId<br/>• messages[]<br/>• streaming/loading<br/>• sendMessage()<br/>• stopStreaming()<br/>• optimistic rename"]
-            S2["settingsStore<br/>• theme<br/>• provider/model<br/>• apiKeys{}<br/>• web search defaults<br/>• sidebarOpen<br/>• settingsOpen/tab"]
-        end
-
-        subgraph SERVICES["Services Layer"]
-            direction LR
-            V1["api.ts — apiFetch() + ApiError"]
-            V2["config.ts — GATEWAY_URL / AUTH_TOKEN"]
-            V3["chat.ts — SSE stream parser (delta/usage/error/done)"]
-            V4["conversation.ts — CRUD"]
-            V5["skills.ts / memories.ts / knowledge.ts"]
-            V6["webSearch.ts<br/>Engine-backed config + test"]
-        end
-
-        subgraph TAURI["Tauri Shell"]
-            T1["src-tauri/main.rs<br/>in-process Engine + random token"]
-            T2["tauri.conf.json<br/>externalBin: encorehub-gateway"]
-            T3["Plugins: shell, notification,<br/>clipboard, fs, global-shortcut"]
-        end
-
-        C1 --> C2
-        C1 --> C6
-        C2 --> C3
-        C2 --> C4
-        C3 --> C5
-        C6 --> C7
-        C6 --> C8
-        C9 --> C10
-        C9 --> C11
-        C9 --> C12
-        C9 --> C13
-        C9 --> C14
-        C9 --> C15
-        STORES --> COMPONENTS
-        SERVICES --> STORES
-        TAURI --- C1
-    end
-
-    %% ===== GATEWAY LAYER =====
-    subgraph GATEWAY["🔀 Gateway — Go 1.25 + Gin"]
-        direction TB
-
-        subgraph MIDDLEWARE["Middleware Stack (order matters)"]
-            direction LR
-            W1["① Request-ID<br/>generate or pass through"]
-            W2["② Logger + Recovery<br/>gin.Logger / gin.Recovery"]
-            W3["③ CORS<br/>tauri://localhost + custom"]
-            W4["④ Rate Limit<br/>bounded TTL per-IP store<br/>30 rps / burst 60"]
-            W5["⑤ Metrics<br/>Prometheus counters + histogram"]
-            W6["⑥ Auth<br/>Bearer token (optional)<br/>constant-time compare"]
-        end
-
-        subgraph HANDLERS["Handlers"]
-            direction LR
-            H1["health.go<br/>/health/live → 200<br/>/health/ready → 200/503"]
-            H2["chat.go<br/>POST /conversations/:id/chat<br/>→ SSE stream"]
-            H3["conversation.go<br/>CRUD proxy → engine"]
-            H4["engine_proxy.go<br/>/*skills,memories,knowledge*/"]
-            H5["provider_handler.go<br/>list providers + models"]
-            H6["search_handler.go + search_config.go<br/>POST /search<br/>resolve config + secrets"]
-        end
-
-        subgraph PROVIDERS["Provider Adapters"]
-            direction LR
-            P1["adapter.go<br/>Unified Interface"]
-            P2["openai/openai.go"]
-            P3["anthropic/anthropic.go"]
-            P4["deepseek/deepseek.go"]
-            P5["registry.go<br/>Provider Registry"]
-        end
-
-        subgraph GW_INFRA["Infrastructure"]
-            direction LR
-            G1["engine/client.go<br/>HTTP client → Rust engine<br/>internal Bearer + X-Request-ID"]
-            G2["metrics/metrics.go<br/>encorehub_gateway_requests_total<br/>encorehub_gateway_request_duration_seconds<br/>encorehub_gateway_in_flight_requests"]
-            G3["search/search.go<br/>DuckDuckGo / Bing / Google<br/>Custom JSON mapping"]
-        end
-
-        MIDDLEWARE --> HANDLERS
-        HANDLERS --> PROVIDERS
-        HANDLERS --> GW_INFRA
-    end
-
-    %% ===== ENGINE LAYER =====
-    subgraph ENGINE["⚙️ Engine — Rust (axum + tokio + rusqlite)"]
-        direction TB
-
-        subgraph API["API Routes (src/api/)"]
-            direction LR
-            R0["GET /health/live → public liveness"]
-            R1["GET /health/ready → authenticated DB readiness"]
-            R2["POST/GET /api/conversations"]
-            R3["GET/PATCH/DELETE /api/conversations/:id"]
-            R4["POST /api/conversations/:id/messages"]
-            R5["GET/POST /api/skills + /match + /toggle"]
-            R6["GET /api/memories + /search + DELETE"]
-            R7["GET /api/knowledge + /search + POST + DELETE"]
-            R8["GET/POST /api/plugins"]
-            R9["GET/PUT /api/config/:key<br/>GET/PUT/DELETE /api/secrets/:id"]
-        end
-
-        subgraph CRATES["Cargo Workspace Crates"]
-            direction LR
-            K1["core<br/>EngineError + Types"]
-            K2["storage<br/>Database abstraction"]
-            K3["skill<br/>SkillRegistry + Parser"]
-        end
-
-        subgraph STORAGE_BACKENDS["Storage Backends"]
-            direction LR
-            B1["SQLite (rusqlite bundled)<br/>conversations / messages<br/>memories / knowledge / skills<br/>config key-value"]
-            B2["LanceDB (placeholder)<br/>vector search for RAG"]
-            B3["Blob (placeholder)<br/>file attachments"]
-        end
-
-        subgraph ENG_BINS["Binaries"]
-            direction LR
-            EB1["encorehub-engine<br/>main HTTP server :3000"]
-            EB2["encorehub-mcp<br/>MCP server (skeleton)"]
-        end
-
-        API --> CRATES
-        CRATES --> STORAGE_BACKENDS
-    end
-
-    %% ===== DATA SERVICES LAYER =====
-    subgraph DATASVC["🐍 Data Services — Python 3.12 + FastAPI (optional profile)"]
-        direction LR
-        D1["main.py<br/>Health + contract routes :8000"]
-        D2["contracts.py<br/>embed / parse / chunk schemas"]
-        D3["Implementations disabled<br/>structured 501 responses"]
-    end
-
-    %% ===== EXTERNAL =====
-    subgraph EXTERNAL["🌐 External Services"]
-        direction LR
-        E1["OpenAI API<br/>api.openai.com"]
-        E2["Anthropic API<br/>api.anthropic.com"]
-        E3["DeepSeek API<br/>api.deepseek.com"]
-        E4["DuckDuckGo / Bing / Google<br/>Web Search"]
-        E5["User-configured HTTP(S)<br/>JSON Search Endpoint"]
-    end
-
-    %% ===== CONNECTIONS: Frontend → Gateway =====
-    FRONTEND -->|"HTTP REST + SSE<br/>:8080/api/v1/*"| GATEWAY
-
-    %% ===== CONNECTIONS: Gateway → Engine =====
-    GATEWAY -->|"HTTP JSON + internal Bearer<br/>:3000 (ENGINE_URL)<br/>conversations / skills<br/>memories / knowledge"| ENGINE
-
-    %% ===== CONNECTIONS: Gateway → Providers =====
-    GATEWAY -->|"HTTPS + API Key<br/>X-Provider-Key header"| EXTERNAL
-
-    %% ===== CONNECTIONS: Gateway → Search =====
-    GATEWAY -->|"HTTPS"| E4
-    GATEWAY -->|"HTTPS + optional key header"| E5
-
-    %% ===== CONNECTIONS: Engine → Storage =====
-    ENGINE -->|"embedded"| B1
-
-    %% ===== CONNECTIONS: Data Services =====
-    DATASVC -.->|"planned"| ENGINE
-
-    %% ===== FLOW ANNOTATIONS =====
-    subgraph FLOWS["📊 Key Data Flows"]
-        direction TB
-        F1["💬 Chat Flow:<br/>User → InputBox → apiFetch()<br/>→ Gateway POST /chat<br/>→ Provider Adapter.ChatStream()<br/>→ SSE delta events → MessageBubble"]
-        F2["📝 CRUD Flow:<br/>Frontend Service → Gateway<br/>→ Engine Proxy / Handler<br/>→ SQLite → JSON response"]
-        F3["🔍 RAG Context Injection:<br/>Each chat request: memory.search()<br/>+ knowledge.search() → top_k=3<br/>→ appended to system prompt"]
-        F4["⚡ Slash Tool Request:<br/>User types '/' → tool completion<br/>→ Gateway pre-executes registered tool<br/>→ original request + result → LLM"]
-        F5["🔑 API Key Flow:<br/>Settings Modal → settingsStore<br/>→ session memory (default)<br/>→ X-Provider-Key header<br/>→ Gateway → Provider API"]
-        F6["🌐 Web Search Flow:<br/>SearchPanel → Engine config + secrets<br/>→ Gateway web_search system tool<br/>→ selected provider → cited tool result"]
-    end
-
-    %% ===== CROSS-CUTTING =====
-    subgraph CROSSCUT["🔧 Cross-Cutting Concerns"]
-        direction LR
-        X1["X-Request-ID<br/>generated at gateway<br/>propagated to engine"]
-        X2["Health Check<br/>Gateway live + ready<br/>Engine /health/live public<br/>Engine /health/ready authenticated"]
-        X3["Prometheus /metrics<br/>public, no auth"]
-        X4["Biome (frontend lint)"]
-        X5["golangci-lint (gateway)"]
-        X6["clippy + rustfmt (engine)"]
-        X7["ruff + mypy (data-services)"]
-        X8["GitHub Actions<br/>Automatic CI checks<br/>Manual targeted builds"]
-    end
+    UI --> TAURI
+    UI -->|"HTTP/SSE"| GATEWAY
+    TAURI -->|"starts in process"| ENGINE
+    TAURI -->|"only sidecar"| GATEWAY
+    GATEWAY -->|"internal HTTP + bearer token"| ENGINE
+    GATEWAY --> PROVIDERS
+    ENGINE --> SQLITE
+    ENGINE --> SQLVEC
+    ENGINE --> LANCE
+    ENGINE --> BLOBS
+    ENGINE -.->|"preferred when installed"| PANDOC
 ```
 
-## Legend
+The frontend never connects directly to Engine. Tauri negotiates loopback ports
+and exposes only the Gateway port to React. A per-start random bearer token
+protects all Engine business and readiness routes; `/health/live` is the only
+unprotected Engine endpoint.
 
-| Color | Layer |
-|-------|-------|
-| Blue | Frontend (TypeScript/React) |
-| Cyan | Gateway (Go/Gin) |
-| Orange | Engine (Rust/Axum) |
-| Dark Blue | Data Services (Python) |
-| Gray | External Services |
-| Green | Storage |
+## Knowledge And Memory
 
-## Reading Guide
+```mermaid
+flowchart TD
+    UPLOAD["Attachment or Knowledge text"]
+    PARSE["Rust document pipeline<br/>Pandoc first, native fallback"]
+    CHUNK["Unicode-safe overlapping chunks"]
+    META["SQLite documents and chunks"]
+    EMBED["384-dimensional local embedding"]
+    LANCE["LanceDB primary index"]
+    FALLBACK["SQLite-Vec fallback index"]
+    QUERY["Knowledge query"]
+    RESULT["RAG context"]
+    TURN["Completed conversation turn"]
+    MEMORY["SQLite memory metadata + SQLite-Vec"]
 
-1. **Top to bottom**: User → Frontend → Gateway → Engine → Storage
-2. **Solid arrows** (→): active HTTP/HTTPS connections
-3. **Dotted arrows** (-.->): planned / not yet wired
-4. **Data Flows** panel at bottom-right: key interaction patterns
+    UPLOAD --> PARSE --> CHUNK
+    CHUNK --> META
+    CHUNK --> EMBED
+    EMBED --> LANCE
+    EMBED --> FALLBACK
+    QUERY --> LANCE --> RESULT
+    LANCE -.->|"operation unavailable"| FALLBACK
+    FALLBACK --> RESULT
+    TURN --> MEMORY --> RESULT
+```
 
-## Component Count (June 2026)
+SQLite owns lifecycle and metadata. LanceDB and SQLite-Vec are local vector
+projections. Knowledge writes always mirror into SQLite-Vec before LanceDB, so
+retrieval remains available after a primary-store failure. Per-turn Memory uses
+SQLite-Vec directly because its dataset is small and follows SQLite lifecycle.
 
-| Layer | Source Files | Test Files |
-|-------|-------------|------------|
-| Frontend | 20 `.tsx` + 12 `.ts` | 8 test files |
-| Gateway | 14 `.go` | 4 test files |
-| Engine | 15 `.rs` | 2 test files |
-| Data Services | 2 `.py` | 0 |
-| **Total** | **63** | **14** |
+## Attachment Routing
+
+```mermaid
+flowchart TD
+    FILE["Uploaded file"]
+    META["Attachment metadata table"]
+    BLOB["SHA-256 content-addressed blob"]
+    IMAGE{"Image?"}
+    VISION{"Selected model supports vision?"}
+    DIRECT["Provider-native image payload"]
+    USERMODE{"User image strategy"}
+    OCR["System OCR"]
+    VMODEL["User-selected vision model"]
+    TEXT{"Rich text?"}
+    PANDOC["Pandoc when available"]
+    RUST["Native Rust parser"]
+    PROMPT["Typed text attachment in prompt"]
+
+    FILE --> META
+    FILE --> BLOB
+    FILE --> IMAGE
+    IMAGE -->|"yes"| VISION
+    VISION -->|"yes"| DIRECT
+    VISION -->|"no"| USERMODE
+    USERMODE --> OCR
+    USERMODE --> VMODEL
+    IMAGE -->|"no"| TEXT
+    TEXT -->|"yes"| PANDOC
+    PANDOC -.->|"missing or failed"| RUST
+    TEXT -->|"plain text"| PROMPT
+    RUST --> PROMPT
+```
+
+## Build And Deployment
+
+- Desktop packages the Gateway as the only sidecar; Engine is a linked Rust
+  library running on Tauri's async runtime.
+- Mutable SQLite, LanceDB, blobs, and logs live under platform app data, never
+  the installation resource directory.
+- Standalone Engine remains available behind Cargo's `standalone` feature.
+- LanceDB builds require `protoc`; local build scripts resolve a vendored binary
+  when `PROTOC` and PATH do not provide one, while CI and Docker install it.
+- Containers publish Gateway only; Engine and all embedded stores stay on the
+  private Compose network and persistent Engine volume.

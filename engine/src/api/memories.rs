@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use encorehub_core::{MemoryScope, MemoryType};
+use encorehub_core::{Memory, MemoryScope, MemoryType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -15,6 +15,7 @@ pub struct SearchQuery {
     #[serde(default = "default_top_k")]
     pub top_k: i64,
     pub scope: Option<String>,
+    pub conversation_id: Option<String>,
 }
 
 fn default_top_k() -> i64 {
@@ -37,6 +38,7 @@ pub struct MemoryResponse {
 pub struct SearchResponse {
     pub results: Vec<MemoryResponse>,
     pub query: String,
+    pub backend: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,16 +47,15 @@ pub struct ListResponse {
     pub total: usize,
 }
 
-/// Search memories using FTS5 full-text search.
+/// Search memories using the embedded SQLite-Vec index.
 pub async fn search(
     State(state): State<SharedState>,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<super::ErrorResponse>)> {
     let scope = params.scope.as_deref().and_then(MemoryScope::from_str);
-
     let results = state
         .db
-        .search_memories_fts(&params.q, scope.as_ref(), params.top_k)
+        .search_memory_vectors(&params.q, params.conversation_id.as_deref(), params.top_k)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -65,28 +66,55 @@ pub async fn search(
         })?;
 
     // Touch accessed memories
-    for mem in &results {
-        let _ = state.db.touch_memory(&mem.id);
+    let results = results
+        .into_iter()
+        .filter(|hit| scope.as_ref().is_none_or(|value| &hit.item.scope == value))
+        .collect::<Vec<_>>();
+    for hit in &results {
+        let _ = state.db.touch_memory(&hit.item.id);
     }
 
     let items: Vec<MemoryResponse> = results
         .into_iter()
-        .map(|m| MemoryResponse {
-            id: m.id,
-            scope: m.scope.as_str().to_string(),
-            memory_type: m.memory_type.as_str().to_string(),
-            conversation_id: m.conversation_id,
-            content: m.content,
-            importance: m.importance,
-            created_at: m.created_at.to_rfc3339(),
-            last_accessed_at: m.last_accessed_at.to_rfc3339(),
+        .map(|hit| {
+            let m = hit.item;
+            MemoryResponse {
+                id: m.id,
+                scope: m.scope.as_str().to_string(),
+                memory_type: m.memory_type.as_str().to_string(),
+                conversation_id: m.conversation_id,
+                content: m.content,
+                importance: m.importance,
+                created_at: m.created_at.to_rfc3339(),
+                last_accessed_at: m.last_accessed_at.to_rfc3339(),
+            }
         })
         .collect();
 
     Ok(Json(SearchResponse {
         results: items,
         query: params.q,
+        backend: "sqlite_vec",
     }))
+}
+
+/// Persist and index one completed conversation turn as episodic memory.
+pub(crate) fn store_turn_memory(
+    state: &SharedState,
+    conversation_id: &str,
+    user_content: &str,
+    assistant_content: &str,
+) -> Result<(), encorehub_core::EngineError> {
+    let content = ["User:", user_content, "", "Assistant:", assistant_content].join("\n");
+    let memory = Memory::new(
+        MemoryScope::Conversation,
+        MemoryType::Episodic,
+        Some(conversation_id.to_string()),
+        content,
+        0.6,
+    );
+    state.db.store_memory(&memory)?;
+    state.db.index_memory(&memory)
 }
 
 /// List all memories (paginated).

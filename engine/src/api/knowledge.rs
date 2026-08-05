@@ -1,6 +1,6 @@
 //! Knowledge base API handlers.
 
-use crate::api::SharedState;
+use crate::{api::SharedState, document_processing::chunk_text};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -32,7 +32,7 @@ pub struct DocumentResponse {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchChunkResponse {
     pub id: String,
     pub document_id: String,
@@ -45,6 +45,7 @@ pub struct SearchChunkResponse {
 pub struct SearchResponse {
     pub results: Vec<SearchChunkResponse>,
     pub query: String,
+    pub backend: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,7 +64,7 @@ pub async fn ingest(
     State(state): State<SharedState>,
     Json(req): Json<IngestRequest>,
 ) -> Result<Json<DocumentResponse>, (StatusCode, Json<super::ErrorResponse>)> {
-    let chunks = chunk_text(&req.content, 800);
+    let chunks = chunk_text(&req.content, 1_000, 200);
     let chunk_count = chunks.len() as i32;
 
     let doc = Document {
@@ -100,6 +101,28 @@ pub async fn ingest(
                 }),
             )
         })?;
+        state.db.index_knowledge_chunk(&chunk).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+    }
+
+    let stored_chunks = state.db.list_chunks(&doc.id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    if let Some(store) = &state.knowledge_vectors {
+        if let Err(error) = store.upsert_document(&doc.id, &stored_chunks).await {
+            tracing::warn!(document_id = %doc.id, error = %error, "LanceDB write failed; SQLite-Vec fallback is active");
+        }
     }
 
     Ok(Json(DocumentResponse {
@@ -142,78 +165,72 @@ pub async fn list(
 
 /// Delete a document and all its chunks.
 pub async fn delete(State(state): State<SharedState>, Path(id): Path<String>) -> StatusCode {
+    if let Some(store) = &state.knowledge_vectors {
+        if let Err(error) = store.delete_document(&id).await {
+            tracing::warn!(document_id = %id, error = %error, "LanceDB delete failed; relational cleanup will continue");
+        }
+    }
     match state.db.delete_document(&id) {
         Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::NOT_FOUND,
     }
 }
 
-/// Search document chunks via FTS5.
+/// Search embedded LanceDB and automatically use SQLite-Vec when unavailable.
 pub async fn search(
     State(state): State<SharedState>,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<super::ErrorResponse>)> {
-    let results = state
-        .db
-        .search_chunks_fts(&params.q, params.top_k)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(super::ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-    let items: Vec<SearchChunkResponse> = results
-        .into_iter()
-        .map(|(chunk, score)| SearchChunkResponse {
-            id: chunk.id,
-            document_id: chunk.document_id,
-            content: chunk.content,
-            chunk_index: chunk.chunk_index,
-            score,
-        })
-        .collect();
+    let lance_results = match &state.knowledge_vectors {
+        Some(store) => store.search(&params.q, params.top_k).await,
+        None => Err(encorehub_core::EngineError::VectorStore(
+            "LanceDB was unavailable during Engine startup".into(),
+        )),
+    };
+    let (items, backend) = match lance_results {
+        Ok(items) => (
+            items
+                .into_iter()
+                .map(|hit| SearchChunkResponse {
+                    id: hit.chunk_id,
+                    document_id: hit.document_id,
+                    content: hit.content,
+                    chunk_index: hit.chunk_index,
+                    score: hit.score,
+                })
+                .collect(),
+            "lance_db",
+        ),
+        Err(error) => {
+            tracing::warn!(error = %error, "LanceDB search unavailable; using SQLite-Vec");
+            let results = state
+                .db
+                .search_knowledge_vectors(&params.q, params.top_k)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(super::ErrorResponse {
+                            error: e.to_string(),
+                        }),
+                    )
+                })?;
+            let items = results
+                .into_iter()
+                .map(|hit| SearchChunkResponse {
+                    id: hit.item.id,
+                    document_id: hit.item.document_id,
+                    content: hit.item.content,
+                    chunk_index: hit.item.chunk_index,
+                    score: hit.score,
+                })
+                .collect();
+            (items, "sqlite_vec")
+        }
+    };
 
     Ok(Json(SearchResponse {
         results: items,
         query: params.q,
+        backend,
     }))
-}
-
-/// Simple paragraph-based text chunking.
-fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let paragraphs: Vec<&str> = text.split("\n\n").collect();
-    let mut current = String::new();
-
-    for para in paragraphs {
-        let para = para.trim();
-        if para.is_empty() {
-            continue;
-        }
-        if current.len() + para.len() > max_chars && !current.is_empty() {
-            chunks.push(std::mem::take(&mut current));
-        }
-        if !current.is_empty() {
-            current.push_str("\n\n");
-        }
-        current.push_str(para);
-        // If a single paragraph exceeds max, split it
-        while current.len() > max_chars {
-            let split_at = max_chars;
-            chunks.push(current[..split_at].to_string());
-            current = current[split_at..].to_string();
-        }
-    }
-
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-    if chunks.is_empty() {
-        chunks.push(text.to_string());
-    }
-
-    chunks
 }

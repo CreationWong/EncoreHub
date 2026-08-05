@@ -132,6 +132,41 @@ check_command() {
     fi
 }
 
+resolve_protoc() {
+    local required="$1"
+    if [ "$required" = false ]; then
+        return
+    fi
+
+    if [ -n "${PROTOC:-}" ]; then
+        if [ ! -f "$PROTOC" ] || ! "$PROTOC" --version >/dev/null 2>&1; then
+            fail "PROTOC does not point to a working executable: $PROTOC"
+        fi
+        export PROTOC
+        ok "protoc (PROTOC)"
+        return
+    fi
+
+    if command -v protoc >/dev/null 2>&1; then
+        PROTOC="$(command -v protoc)"
+        export PROTOC
+        ok "protoc (PATH)"
+        return
+    fi
+
+    local resolver_manifest="$ENGINE_DIR/crates/protoc-resolver/Cargo.toml"
+    local resolved
+    if ! resolved="$(cargo run --quiet --manifest-path "$resolver_manifest")"; then
+        fail "vendored protoc resolver failed"
+    fi
+    PROTOC="$(printf '%s\n' "$resolved" | tail -n 1)"
+    if [ -z "$PROTOC" ] || [ ! -f "$PROTOC" ] || ! "$PROTOC" --version >/dev/null 2>&1; then
+        fail "vendored protoc resolver returned an invalid executable: $PROTOC"
+    fi
+    export PROTOC
+    ok "protoc (vendored)"
+}
+
 build_engine() {
     if [ "$TAURI_BUILD" = true ]; then
         section "Engine library"
@@ -323,6 +358,7 @@ check_command pnpm "$NEEDS_NODE"
 check_command go "$NEEDS_GO"
 check_command cargo "$NEEDS_CARGO"
 check_command rustc "$TAURI_BUILD"
+resolve_protoc "$NEEDS_CARGO"
 
 run_core_builds
 

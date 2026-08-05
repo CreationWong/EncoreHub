@@ -230,6 +230,33 @@ func TestValidateChatRequest_RejectsMalformedUserSystemContext(t *testing.T) {
 	}
 }
 
+func TestValidateChatRequest_AcceptsAttachmentOnlyTurn(t *testing.T) {
+	err := validateChatRequest(SendMessageRequest{AttachmentIDs: []string{"attachment-1"}})
+	if err != nil {
+		t.Fatalf("attachment-only turn was rejected: %v", err)
+	}
+}
+
+func TestBuildChatRequest_CreatesImageOnlyUserMessage(t *testing.T) {
+	request := buildChatRequest(
+		&engine.ConversationDetail{},
+		SendMessageRequest{
+			AttachmentParts: []provider.ContentPart{{
+				Type: "image", MediaType: "image/png", Data: "data:image/png;base64,AA==",
+			}},
+		},
+		promptContext{},
+		nil,
+		nil,
+	)
+	if len(request.Messages) != 1 || request.Messages[0].Role != "user" {
+		t.Fatalf("image-only user message missing: %#v", request.Messages)
+	}
+	if len(request.Messages[0].Parts) != 1 || request.Messages[0].Parts[0].Type != "image" {
+		t.Fatalf("image part missing: %#v", request.Messages[0].Parts)
+	}
+}
+
 func TestBuildChatRequest_PropagatesDeepThinkingControls(t *testing.T) {
 	conv := &engine.ConversationDetail{}
 	req := SendMessageRequest{

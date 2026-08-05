@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/conversation",
+    "crates/protoc-resolver",
     "crates/storage",
     "crates/skill",
 ]
@@ -24,10 +25,13 @@ anyhow = "1"
 thiserror = "2"
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
-# Vector DB — lancedb Rust SDK (placeholder until available)
-# lancedb = "0.17"
+sqlite-vec = "=0.1.7-alpha.2"
+# Embedded vector database and its Arrow data contract.
+lancedb = { version = "0.33", default-features = false }
+arrow-array = "58"
+arrow-schema = "58"
 # HTTP server
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 # gRPC
@@ -46,11 +50,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Config
 toml = "0.8"
 dotenvy = "0.15"
-# HTTP client
-reqwest = { version = "0.12", features = ["json", "stream"] }
 # Text processing
 unicode-segmentation = "1"
 regex = "1"
+quick-xml = "0.39"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
 # WASM runtime for plugins
 # wasmtime = "25"
 
@@ -113,6 +117,9 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
+regex.workspace = true
+quick-xml.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

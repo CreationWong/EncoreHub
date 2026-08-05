@@ -36,7 +36,7 @@
         │                  │                  │
 ┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────────┐
 │  核心引擎     │  │   数据处理      │  │   外部 AI 供应商     │
-│  (Rust)      │  │   (Python)      │  │   OpenAI            │
+│  (Rust)      │  │ (Rust 进程内)    │  │   OpenAI            │
 │              │  │                 │  │   Anthropic         │
 │ · 对话管理    │  │ · 文档解析      │  │   Google Gemini     │
 │ · 记忆系统    │  │ · 嵌入生成      │  │   DeepSeek          │
@@ -60,7 +60,7 @@
 |------|------|----------|
 | **API 网关** | Go | 高并发、低延迟、协程模型天然适合 IO 密集型网关；静态编译部署简单 |
 | **核心引擎** | Rust | 零成本抽象、内存安全、高性能；适合记忆系统/知识库/插件宿主等性能敏感模块 |
-| **数据处理** | Python | AI/ML 生态最完善；HuggingFace/LlamaIndex/LangChain 等库开箱即用 |
+| **数据处理** | Rust | 与 Engine、附件生命周期和本地存储同进程；避免额外运行时与跨进程复制，Pandoc 作为可选高保真转换器 |
 | **前端** | React + Tauri | Tauri 使用 Rust 内核，与后端 Rust 生态一致；包体积极小（~5MB vs Electron ~100MB） |
 
 ### 2.2 跨平台策略
@@ -309,7 +309,7 @@ engine/
 | Working Memory | 内存 | — | 单次会话 |
 | Conversation Summary | SQLite | — | 对话存续 |
 | Pinned Messages | SQLite | — | 手动管理 |
-| Episodic Memory | SQLite (meta) | LanceDB | 永久 |
+| Episodic Memory | SQLite (meta) | SQLite-Vec | 永久 |
 | Semantic Memory | SQLite (meta+graph) | LanceDB | 永久 |
 
 **记忆检索流程**：
@@ -318,7 +318,7 @@ engine/
   ├── 1. 关键词 + 实体提取 (Rust)
   ├── 2. 并行检索
   │     ├── BM25 全文检索 (SQLite FTS5) → 关键词匹配的记忆
-  │     └── 向量语义检索 (LanceDB) → 语义相似的记忆
+  │     └── 向量语义检索 (SQLite-Vec) → 语义相似的记忆
   ├── 3. 融合排序 (BM25 + 向量 → 加权融合)
   ├── 4. 按作用域归类
   │     ├── 对话记忆：直接注入上下文
@@ -332,13 +332,13 @@ engine/
   - 用户偏好变更 → 更新 Semantic Memory
   - 重要对话片段 → 生成摘要存入 Episodic Memory
   - 冗余/矛盾记忆 → 合并或标记过期
-- 调用 Python 侧小模型做抽取和摘要
+- 通过 Gateway 调用用户选定模型做抽取和摘要；本地持久化仍由 Rust 负责
 
 #### 3.3.2 知识库设计
 
 ```
 文档摄入管道：
-原始文档 → 格式解析 → 智能分块 → 嵌入生成(Python) → 向量索引(LanceDB) → 可检索
+原始文档 → Rust/Pandoc 格式解析 → Unicode 分块 → 本地 embedding → LanceDB 主索引 → 可检索
 元数据 & 全文索引 → SQLite FTS5
 
 支持格式：PDF / Word / Markdown / 纯文本 / 代码文件 / 网页
@@ -368,7 +368,7 @@ engine/
 
 #### 3.3.6 网络搜索模块
 
-AI 模型的知识有截止日期，网络搜索让 EncoreHub 能获取实时信息。该模块同时位于 Rust 核心（调度引擎）和 Python 数据服务（网页抓取与清洗）。
+AI 模型的知识有截止日期，网络搜索让 EncoreHub 能获取实时信息。Gateway 负责供应商调用与内容清洗，Rust Engine 负责配置、缓存和上下文数据。
 
 ```
 搜索流程：
@@ -385,10 +385,10 @@ AI 模型的知识有截止日期，网络搜索让 EncoreHub 能获取实时信
   │     ├── SerpAPI (Google 搜索结果)
   │     └── DuckDuckGo (免费，无需 API Key)
   │
-  ├── 4. 结果抓取 (Python scraper)
+  ├── 4. 结果抓取 (Go provider)
   │     └── 对 Top-N 结果抓取网页全文内容
   │
-  ├── 5. 内容清洗 (Python)
+  ├── 5. 内容清洗 (Go)
   │     ├── HTML → Markdown 转换
   │     ├── 去噪（广告、导航、页脚）
   │     └── 截断（保留相关内容段落）
@@ -419,43 +419,24 @@ AI 模型的知识有截止日期，网络搜索让 EncoreHub 能获取实时信
 
 ---
 
-### 3.4 数据处理服务 (Python)
+### 3.4 Rust 原生数据管线
 
 ```
-data-services/
-├── src/
-│   ├── ingestion/            # 文档摄入
-│   │   ├── parsers/          # 多格式解析器
-│   │   │   ├── pdf.py
-│   │   │   ├── docx.py
-│   │   │   ├── markdown.py
-│   │   │   └── webpage.py
-│   │   └── chunker.py        # 智能分块策略
-│   ├── embedding/            # 嵌入生成
-│   │   ├── generator.py      # 嵌入生成器（多模型支持）
-│   │   └── cache.py          # 嵌入缓存
-│   ├── rag/                  # RAG 管线
-│   │   ├── pipeline.py       # RAG 主流程
-│   │   ├── retriever.py      # 检索器
-│   │   └── reranker.py       # 重排序
-│   ├── web/                  # 网络搜索抓取
-│   │   ├── scraper.py         # 网页抓取 (HTTP + headless)
-│   │   ├── cleaner.py         # HTML → Markdown 清洗
-│   │   └── summarizer.py      # 搜索结果摘要
-│   ├── analysis/             # 数据分析
-│   │   ├── conversation.py   # 对话分析
-│   │   └── usage_stats.py    # 使用统计
-│   └── summarize/            # 摘要生成
-├── requirements.txt
-└── pyproject.toml
+engine/
+├── src/document_processing.rs       # DOCX/ODT/EPUB/HTML/RTF + Unicode 分块
+├── src/api/attachments.rs           # Pandoc 优先、Rust 回退、OCR 编排
+├── src/api/knowledge.rs             # 摄入、检索与回退策略
+└── crates/storage/src/
+    ├── lancedb/                     # Knowledge 主向量库
+    └── sqlite/vectors.rs            # Knowledge 回退 + 单轮 Memory
 ```
 
 **职责边界**：
-- Python 专注于 **AI/ML 数据管道**：文档解析、嵌入生成、RAG、网页抓取清洗
-- 不处理实时请求（实时路径走 Go → Rust）
-- 通过消息队列/gRPC 与 Rust 核心通信
-- 嵌入模型可选：本地 (BGE/M3E) 或 API (OpenAI/Cohere)
-- 网页抓取使用 aiohttp + BeautifulSoup + trafilatura（轻量 HTML 清洗）
+- 数据管线在 Rust Engine 内运行，不引入额外服务或语言运行时
+- SQLite 是文档、chunk 与 Memory 元数据的权威存储
+- LanceDB 是 Knowledge 主向量库，SQLite-Vec 是 Knowledge 回退与单轮 Memory 库
+- 384 维 feature-hash embedding 保证完全离线；仅在召回基准证明必要时引入语义模型
+- 详细契约见 `docs/RUST_DATA_PIPELINE.md` 与 ADR-0007
 
 ---
 
@@ -475,7 +456,7 @@ data-services/
                          │          │   AI Providers  │
                          │          │   (OpenAI etc)  │
                          └──────────┘          ┌──────▼──────┐
-                                               │ Python 数据处理│
+                                               │ Rust 数据管线  │
                                                └─────────────┘
 ```
 
@@ -556,7 +537,7 @@ message SkillDefinition {
 |------|------|------|
 | **Go 网关** | 新增 6+ 供应商适配器、多 Key 负载均衡、限流 | 全供应商覆盖 |
 | **Rust 核心** | 记忆系统（对话记忆+全局记忆，SQLite + LanceDB）、知识库（摄入+检索）、**网络搜索模块** | 上下文增强 + 实时信息 |
-| **Python 服务** | 文档解析、嵌入生成、RAG、**网页抓取与清洗** | 知识库 + 搜索后端 |
+| **Rust 数据管线** | 文档解析、嵌入生成、LanceDB/SQLite-Vec 回退 | 本地知识库 + Memory 检索 |
 | **前端** | 多模型切换 UI、知识库管理界面、上下文面板、**搜索触发按钮/指令** | 完整用户体验 |
 
 ### Phase 3: MCP + Skill + Plugin (6-9 个月)
@@ -595,7 +576,7 @@ message SkillDefinition {
 
 ### 6.3 可维护性
 - 各服务独立 CI/CD 管道
-- Rust/Go/Python 各自遵循社区最佳实践
+- Rust/Go/TypeScript 各自遵循社区最佳实践
 - 端到端集成测试覆盖核心流程
 - ADR (Architecture Decision Records) 记录关键决策
 
@@ -605,9 +586,9 @@ message SkillDefinition {
 
 | 风险 | 影响 | 概率 | 对策 |
 |------|------|------|------|
-| 三语言技术栈维护成本高 | 高 | 中 | 各语言职责边界清晰，通过 protobuf/gRPC 定义严格接口契约 |
+| 多语言技术栈维护成本高 | 高 | 中 | 保持 TypeScript/Go/Rust 职责边界，依靠 HTTP/OpenAPI 和集成测试约束接口 |
 | AI 供应商 API 频繁变动 | 中 | 高 | 适配器模式隔离变化；版本化供应商接口 |
-| WASM 插件生态不成熟 | 中 | 中 | 同时支持 Lua/Python 脚本作为轻量扩展方案 |
+| WASM 插件生态不成熟 | 中 | 中 | 先收窄插件接口并提供受限内置能力，不引入额外脚本运行时 |
 | 跨平台 UI 一致性 | 中 | 中 | Tauri 使用系统原生 WebView，辅以 CSS 平台适配 |
 | 本地模型性能不足 | 低 | 中 | 本地模型作为可选增强，非核心依赖 |
 
@@ -621,22 +602,21 @@ message SkillDefinition {
 | **CI/CD** | GitHub Actions |
 | **Rust 工具链** | Cargo + Clippy + rust-analyzer |
 | **Go 工具链** | Go modules + golangci-lint |
-| **Python 工具链** | uv + ruff + mypy |
 | **前端工具链** | pnpm + Vite + Biome |
 | **Protobuf** | buf |
 | **数据库** | SQLite (结构化数据 + FTS5 全文索引) + LanceDB (向量存储) |
 | **容器化** | Docker + Docker Compose (开发环境) |
-| **包管理** | cargo / go modules / uv |
-| **测试** | cargo test / go test / pytest / Vitest + Playwright |
+| **包管理** | cargo / go modules / pnpm |
+| **测试** | cargo test / go test / Vitest + Playwright |
 
 ---
 
 ## 九、总结
 
-EncoreHub 是一个雄心勃勃但务实的项目。通过 **Rust (性能) + Go (并发) + Python (AI) + TypeScript (UI)** 的异构技术栈组合，每个模块使用最合适的语言，在性能、开发效率和生态之间取得平衡。
+EncoreHub 是一个雄心勃勃但务实的项目。通过 **Rust (本地状态与数据管线) + Go (并发与供应商适配) + TypeScript (UI)** 的技术栈组合，在性能、部署复杂度和开发效率之间取得平衡。
 
 第一阶段聚焦 **MVP**：一个能用的跨供应商聊天客户端，验证核心架构。后续迭代逐步加入记忆、知识库、MCP、Skill、Plugin 等进阶能力，最终成为一个功能完善的 AI 工作平台。
 
 ---
 
-*文档版本: v1.0 | 2026-06-15*
+*文档版本: v1.1 | 2026-08-05*

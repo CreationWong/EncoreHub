@@ -27,6 +27,17 @@ impl BlobStore {
         self.base_path.join(prefix).join(format!("{rest}.bin"))
     }
 
+    /// Return the stable path used to open a previously stored blob.
+    pub fn path_for(&self, sha256_hex: &str) -> PathBuf {
+        self.blob_path(sha256_hex)
+    }
+
+    /// Return the platform-independent relative location persisted in SQLite.
+    pub fn relative_path(sha256_hex: &str) -> String {
+        let (prefix, rest) = sha256_hex.split_at(2);
+        format!("{prefix}/{rest}.bin")
+    }
+
     /// Store data and return its SHA-256 identifier.
     pub fn store(&self, data: &[u8]) -> Result<String> {
         use sha2::{Digest, Sha256};

@@ -209,6 +209,33 @@ test("EncoreHub OpenAPI is small, internally valid, and matches Gateway routes",
 	assert.doesNotMatch(openapiText, /api\.openai\.com|title"\s*:\s*"OpenAI API/);
 	await assert.rejects(access(path.join(root, "docs/openapi.yaml")));
 
+	const attachmentPaths = [
+		"/api/v1/conversations/{id}/attachments",
+		"/api/v1/conversations/{id}/attachments/{attachment_id}",
+		"/api/v1/conversations/{id}/attachments/{attachment_id}/content",
+		"/api/v1/conversations/{id}/attachments/{attachment_id}/ocr",
+	];
+	for (const route of attachmentPaths) {
+		assert.ok(spec.paths[route], `OpenAPI misses attachment route: ${route}`);
+	}
+	assert.equal(spec.components.parameters.AttachmentId.name, "attachment_id");
+	assert.equal(
+		spec.components.schemas.Attachment.properties.storage_path.type,
+		"string",
+	);
+	for (const field of [
+		"attachment_ids",
+		"model_supports_vision",
+		"image_strategy",
+		"vision_provider",
+		"vision_model",
+	]) {
+		assert.ok(
+			spec.components.schemas.ChatRequest.properties[field],
+			`ChatRequest misses attachment field: ${field}`,
+		);
+	}
+
 	for (const reference of collectRefs(spec)) {
 		assert.notEqual(
 			jsonPointerValue(spec, reference),

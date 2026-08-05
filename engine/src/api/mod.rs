@@ -1,3 +1,4 @@
+mod attachments;
 mod characters;
 mod config;
 mod conversations;
@@ -20,7 +21,7 @@ use axum::{
     Json, Router,
 };
 use encorehub_skill::SkillRegistry;
-use encorehub_storage::Database;
+use encorehub_storage::{Database, LanceDbConfig, LanceDbStore};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -28,6 +29,9 @@ use tower_http::trace::TraceLayer;
 
 pub struct AppState {
     pub db: Database,
+    /// Embedded primary Knowledge index. Absence activates SQLite-Vec without
+    /// preventing the rest of the Engine from starting.
+    pub knowledge_vectors: Option<LanceDbStore>,
     pub skill_registry: Mutex<SkillRegistry>,
     /// Derived master key, present only while the database is unlocked. Held in
     /// memory only — never persisted — and zeroized when cleared on lock. A
@@ -94,8 +98,16 @@ pub fn build_router_with(
     } else {
         Some(Arc::<str>::from(internal_auth_token))
     };
+    let lance_config = LanceDbConfig::for_data_directory(db.data_directory());
+    let knowledge_vectors = LanceDbStore::open(lance_config)
+        .map_err(|error| {
+            tracing::warn!(%error, "LanceDB initialization failed; SQLite-Vec fallback is active");
+            error
+        })
+        .ok();
     let state = Arc::new(AppState {
         db,
+        knowledge_vectors,
         skill_registry: Mutex::new(skill_registry),
         master_key: Mutex::new(None),
         log_control,
@@ -112,6 +124,22 @@ pub fn build_router_with(
         .route("/api/skills", get(skills::list_skills))
         .route("/api/skills/match", get(skills::match_skills))
         .route("/api/skills/:id/toggle", post(skills::toggle_skill))
+        .route(
+            "/api/conversations/:id/attachments",
+            get(attachments::list).post(attachments::upload),
+        )
+        .route(
+            "/api/conversations/:id/attachments/:attachment_id",
+            get(attachments::get).delete(attachments::delete),
+        )
+        .route(
+            "/api/conversations/:id/attachments/:attachment_id/content",
+            get(attachments::content),
+        )
+        .route(
+            "/api/conversations/:id/attachments/:attachment_id/ocr",
+            post(attachments::ocr),
+        )
         // Knowledge base
         .route(
             "/api/knowledge",

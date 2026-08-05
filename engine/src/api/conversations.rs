@@ -10,6 +10,7 @@ use encorehub_core::{
     CharacterSnapshot, CharacterUpgradePreview, Conversation, Memory, MemoryScope, MemoryType,
     Message, MessageStatus, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
+use encorehub_storage::BlobStore;
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -246,7 +247,11 @@ pub async fn delete(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.db.delete_conversation(&id).map_err(internal_error)?;
+    let store = BlobStore::new(state.db.data_directory().join("blobs")).map_err(internal_error)?;
+    let unreferenced = state.db.delete_conversation(&id).map_err(internal_error)?;
+    for sha256 in unreferenced {
+        store.delete(&sha256).map_err(internal_error)?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -506,6 +511,8 @@ pub struct BeginTurnRequest {
     pub content: String,
     #[serde(default)]
     pub replace_message_id: Option<String>,
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -556,7 +563,7 @@ pub async fn begin_turn(
     Json(req): Json<BeginTurnRequest>,
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
     state.db.get_conversation(&conv_id).map_err(not_found)?;
-    if req.content.trim().is_empty() {
+    if req.content.trim().is_empty() && req.attachment_ids.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -565,7 +572,23 @@ pub async fn begin_turn(
         ));
     }
 
-    let mut user = Message::new(&conv_id, Role::User, req.content, None);
+    let content = if req.content.trim().is_empty() {
+        let mut names = Vec::with_capacity(req.attachment_ids.len());
+        for attachment_id in &req.attachment_ids {
+            let attachment = state
+                .db
+                .get_attachment(&conv_id, attachment_id)
+                .map_err(domain_error)?;
+            names.push(format!(
+                "{} ({})",
+                attachment.file_name, attachment.mime_type
+            ));
+        }
+        format!("[Attachments: {}]", names.join(", "))
+    } else {
+        req.content
+    };
+    let mut user = Message::new(&conv_id, Role::User, content, None);
     user.status = MessageStatus::Pending;
     if let Some(replaced_message_id) = req
         .replace_message_id
@@ -575,10 +598,13 @@ pub async fn begin_turn(
     {
         state
             .db
-            .replace_chat_turn(&user, replaced_message_id)
+            .replace_chat_turn_with_attachments(&user, replaced_message_id, &req.attachment_ids)
             .map_err(domain_error)?;
     } else {
-        state.db.begin_chat_turn(&user).map_err(domain_error)?;
+        state
+            .db
+            .begin_chat_turn_with_attachments(&user, &req.attachment_ids)
+            .map_err(domain_error)?;
     }
     Ok(Json(build_msg_response(&user, &[])))
 }
@@ -648,6 +674,13 @@ pub async fn finalize_turn(
             .db
             .get_tool_calls(&stored.id)
             .map_err(internal_error)?;
+        if status == MessageStatus::Completed {
+            if let Err(error) =
+                super::memories::store_turn_memory(&state, &conv_id, &user.content, &stored.content)
+            {
+                tracing::warn!(conversation_id = %conv_id, error = %error, "turn memory indexing failed");
+            }
+        }
         Some(build_msg_response(&stored, &stored_calls))
     } else {
         None
@@ -791,7 +824,8 @@ fn generate_mock_reply(user_input: &str, history: &[Message]) -> String {
         return format!(
             "**Memory System Status**\n\n\
              - Conversation memory: active ({} messages stored in SQLite)\n\
-             - Global memory: schema ready, LanceDB pending\n\
+             - Episodic memory: active (SQLite-Vec)\n\
+             - Knowledge vectors: LanceDB primary, SQLite-Vec fallback\n\
              - FTS5 full-text search: enabled\n\
              - Memory consolidation: runs after each user-assistant pair\n\n\
              Your messages are being persisted and will be searchable!",
@@ -945,9 +979,9 @@ fn internal_error(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResp
 fn domain_error(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResponse>) {
     let status = match &e {
         encorehub_core::EngineError::NotFound { .. } => StatusCode::NOT_FOUND,
-        encorehub_core::EngineError::AlreadyExists { .. }
-        | encorehub_core::EngineError::InvalidArgument(_) => StatusCode::CONFLICT,
-        encorehub_core::EngineError::Validation { .. } => StatusCode::BAD_REQUEST,
+        encorehub_core::EngineError::AlreadyExists { .. } => StatusCode::CONFLICT,
+        encorehub_core::EngineError::InvalidArgument(_)
+        | encorehub_core::EngineError::Validation { .. } => StatusCode::BAD_REQUEST,
         _ => {
             tracing::error!(error_type = %std::any::type_name_of_val(&e), "conversation domain operation failed");
             StatusCode::INTERNAL_SERVER_ERROR

@@ -84,6 +84,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
+      - uses: arduino/setup-protoc@v3
       - run: cargo fmt --all -- --check
       - name: Lint Engine workspace
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -95,22 +96,3 @@ jobs:
         run: cargo test --workspace
       - name: Test standalone Engine targets
         run: cargo test -p encorehub-engine --all-targets --features standalone
-
-  # ===== Data Services (Python) checks =====
-  data-services:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: data-services
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install uv==0.11.7
-      - run: uv lock --check
-      - run: uv sync --frozen --group dev
-      - run: uv run --frozen ruff check src/ tests/
-      - run: uv run --frozen mypy src/ tests/
-      - run: uv run --frozen pytest

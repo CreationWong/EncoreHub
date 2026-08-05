@@ -3,11 +3,18 @@ import {
 	ChevronDown,
 	Globe,
 	Loader2,
+	Plus,
 	Send,
 	Settings2,
 	Square,
+	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type Attachment,
+	deleteAttachment,
+	uploadAttachment,
+} from "../../services/attachments";
 import {
 	NEW_CONVERSATION_DRAFT_KEY,
 	useConversationStore,
@@ -60,8 +67,16 @@ export default function InputBox() {
 	const [historyIdx, setHistoryIdx] = useState<number>(-1);
 	const [showSearchMenu, setShowSearchMenu] = useState(false);
 	const [slashToolIndex, setSlashToolIndex] = useState(0);
+	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const [dragging, setDragging] = useState(false);
+	const [imageStrategy, setImageStrategy] = useState<
+		"" | "system_ocr" | "vision_model"
+	>("");
+	const [visionSelection, setVisionSelection] = useState("");
 	const historyDraftRef = useRef("");
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const composerRef = useRef<HTMLFieldSetElement>(null);
 	const searchControlRef = useRef<HTMLFieldSetElement>(null);
 	const searchMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +133,21 @@ export default function InputBox() {
 		activeModel,
 		"reasoning",
 	);
+	const visionAvailable = modelHasCapability(
+		providerProfiles,
+		activeProvider,
+		activeModel,
+		"vision",
+	);
+	const visionModels = providerProfiles.flatMap((profile) =>
+		(profile.model_configs ?? [])
+			.filter((model) => model.capabilities?.includes("vision"))
+			.map((model) => ({
+				value: `${profile.id}::${model.id}`,
+				label: `${profile.name} / ${model.name}`,
+			})),
+	);
+	const hasImages = attachments.some((item) => item.file_category === "image");
 	const effectiveSearchEnabled = nativeWebSearch || searchEnabled;
 	const slashTools = useMemo(() => matchSlashTools(input), [input]);
 	const showSlashTools = slashTools.length > 0;
@@ -148,6 +178,53 @@ export default function InputBox() {
 			textareaRef.current?.focus();
 		});
 	}, [activeId]);
+
+	const addFiles = useCallback(
+		async (files: FileList | File[]) => {
+			const candidates = Array.from(files).slice(
+				0,
+				Math.max(0, 10 - attachments.length),
+			);
+			if (candidates.length === 0) return;
+			let conversationId = useConversationStore.getState().activeId;
+			if (!conversationId)
+				conversationId = await useConversationStore
+					.getState()
+					.newConversation();
+			if (!conversationId) return;
+			setUploading(true);
+			try {
+				for (const file of candidates) {
+					if (file.size > 20 * 1024 * 1024) {
+						toast.error(`${file.name} exceeds the 20 MiB limit`);
+						continue;
+					}
+					const attachment = await uploadAttachment(conversationId, file);
+					setAttachments((current) => [...current, attachment]);
+				}
+			} catch (error) {
+				toast.error(
+					error instanceof Error ? error.message : "Attachment upload failed",
+				);
+			} finally {
+				setUploading(false);
+			}
+		},
+		[attachments.length],
+	);
+
+	const removeAttachment = useCallback(async (attachment: Attachment) => {
+		const conversationId = useConversationStore.getState().activeId;
+		if (!conversationId) return;
+		try {
+			await deleteAttachment(conversationId, attachment.id);
+			setAttachments((current) =>
+				current.filter((item) => item.id !== attachment.id),
+			);
+		} catch {
+			toast.error("Failed to remove attachment");
+		}
+	}, []);
 
 	// Memory quotes use the pending mailbox without changing the active draft owner.
 	useEffect(() => {
@@ -208,7 +285,15 @@ export default function InputBox() {
 
 	const handleSend = useCallback(async () => {
 		const raw = input.trim();
-		if (!raw || streaming) return;
+		if ((!raw && attachments.length === 0) || streaming || uploading) return;
+		if (hasImages && !visionAvailable && !imageStrategy) {
+			toast.info("Choose how to process image attachments");
+			return;
+		}
+		if (imageStrategy === "vision_model" && !visionSelection) {
+			toast.info("Choose a vision-capable model");
+			return;
+		}
 
 		setShowSearchMenu(false);
 		if (activeId) {
@@ -216,8 +301,32 @@ export default function InputBox() {
 			clearConversationDraft(activeId);
 			resetTextarea(textareaRef.current);
 		}
-		await sendMessage(raw);
-	}, [activeId, clearConversationDraft, input, sendMessage, streaming]);
+		const [visionProvider, visionModel] = visionSelection.split("::");
+		await sendMessage(raw, {
+			attachmentIds: attachments.map((item) => item.id),
+			modelSupportsVision: visionAvailable,
+			imageStrategy: visionAvailable ? "direct" : imageStrategy || undefined,
+			visionProvider,
+			visionModel,
+		});
+		if (!useConversationStore.getState().error) {
+			setAttachments([]);
+			setImageStrategy("");
+			setVisionSelection("");
+		}
+	}, [
+		activeId,
+		attachments,
+		clearConversationDraft,
+		hasImages,
+		imageStrategy,
+		input,
+		sendMessage,
+		streaming,
+		uploading,
+		visionAvailable,
+		visionSelection,
+	]);
 
 	const selectSlashTool = useCallback(
 		(tool: SlashTool) => {
@@ -318,8 +427,51 @@ export default function InputBox() {
 			<fieldset
 				ref={composerRef}
 				aria-label="Message composer"
+				onDragEnter={(event) => {
+					event.preventDefault();
+					setDragging(true);
+				}}
+				onDragOver={(event) => {
+					event.preventDefault();
+					setDragging(true);
+				}}
+				onDragLeave={(event) => {
+					if (!event.currentTarget.contains(event.relatedTarget as Node))
+						setDragging(false);
+				}}
+				onDrop={(event) => {
+					event.preventDefault();
+					setDragging(false);
+					void addFiles(event.dataTransfer.files);
+				}}
 				className="chat-composer-surface relative mx-auto min-w-0 max-w-3xl rounded-lg border border-border bg-surface-alt p-0 shadow-sm transition-colors focus-within:border-accent"
 			>
+				{dragging && (
+					<div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-surface/95 text-sm font-medium text-accent">
+						Drop files to attach
+					</div>
+				)}
+				{attachments.length > 0 && (
+					<div className="flex flex-wrap gap-1.5 px-3 pt-2">
+						{attachments.map((attachment) => (
+							<span
+								key={attachment.id}
+								className="flex max-w-56 items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
+							>
+								<span className="truncate">{attachment.file_name}</span>
+								<button
+									type="button"
+									aria-label={`Remove ${attachment.file_name}`}
+									title="Remove attachment"
+									onClick={() => void removeAttachment(attachment)}
+									className="shrink-0 text-text-muted hover:text-text-primary"
+								>
+									<X className="h-3.5 w-3.5" />
+								</button>
+							</span>
+						))}
+					</div>
+				)}
 				<div className="relative">
 					<SlashToolMenu
 						id={SLASH_TOOL_MENU_ID}
@@ -350,6 +502,32 @@ export default function InputBox() {
 
 				<div className="chat-composer-toolbar flex min-h-11 items-center justify-between gap-2 px-2 pb-2 pt-1">
 					<div className="flex min-w-0 items-center gap-1">
+						<input
+							ref={fileInputRef}
+							type="file"
+							autoComplete="off"
+							multiple
+							accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,text/*,.docx,.odt,.rtf,.html,.htm,.epub,.md,.json,.yaml,.yml,.toml"
+							className="hidden"
+							onChange={(event) => {
+								if (event.target.files) void addFiles(event.target.files);
+								event.target.value = "";
+							}}
+						/>
+						<button
+							type="button"
+							onClick={() => fileInputRef.current?.click()}
+							disabled={uploading || attachments.length >= 10}
+							aria-label="Attach files"
+							title="Attach files"
+							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
+						>
+							{uploading ? (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							) : (
+								<Plus className="h-4 w-4" />
+							)}
+						</button>
 						<fieldset
 							ref={searchControlRef}
 							className={`relative m-0 flex shrink-0 rounded-md border-0 p-0 ${
@@ -489,6 +667,36 @@ export default function InputBox() {
 								<Brain className="h-4 w-4" />
 							</button>
 						)}
+						{hasImages && !visionAvailable && (
+							<select
+								aria-label="Image processing method"
+								value={
+									imageStrategy === "vision_model"
+										? visionSelection || "vision_model"
+										: imageStrategy
+								}
+								onChange={(event) => {
+									const value = event.target.value;
+									if (value === "system_ocr") {
+										setImageStrategy("system_ocr");
+										setVisionSelection("");
+									} else {
+										setImageStrategy("vision_model");
+										setVisionSelection(value === "vision_model" ? "" : value);
+									}
+								}}
+								className="h-9 max-w-48 rounded-md border border-border bg-surface px-2 text-xs text-text-secondary"
+							>
+								<option value="">Process image...</option>
+								<option value="system_ocr">System OCR</option>
+								<option value="vision_model">Choose vision model...</option>
+								{visionModels.map((model) => (
+									<option key={model.value} value={model.value}>
+										{model.label}
+									</option>
+								))}
+							</select>
+						)}
 						{streaming && (
 							<output className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
 								<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -509,7 +717,10 @@ export default function InputBox() {
 						<button
 							type="button"
 							onClick={streaming ? stopStreaming : () => void handleSend()}
-							disabled={!streaming && !input.trim()}
+							disabled={
+								!streaming &&
+								((!input.trim() && attachments.length === 0) || uploading)
+							}
 							aria-label={streaming ? "Stop generating" : "Send message"}
 							title={streaming ? "Stop generating" : "Send message"}
 							className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors ${

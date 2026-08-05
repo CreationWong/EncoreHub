@@ -72,6 +72,8 @@ func Setup(cfg Config) *gin.Engine {
 			conv.PATCH("/:id", convHandler.Rename)
 			conv.DELETE("/:id", convHandler.Delete)
 			conv.DELETE("/:id/messages/:message_id", engineProxy.Forward)
+			conv.Any("/:id/attachments", engineProxy.Forward)
+			conv.Any("/:id/attachments/*rest", engineProxy.Forward)
 
 			// Chat endpoint (gateway handles AI provider calls)
 			conv.POST("/:id/chat", chatHandler.SendMessage)

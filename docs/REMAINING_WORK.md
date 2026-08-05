@@ -1,6 +1,6 @@
 # EncoreHub Remaining Work
 
-> Last updated: 2026-07-30.
+> Last updated: 2026-08-05.
 > This is the single backlog document. Completed phase plans, reports, and UI baseline evidence were removed from docs after their remaining items were folded here.
 
 ## 1. Release And Platform Validation
@@ -35,31 +35,23 @@
 - [ ] Make summaries visible and auditable.
 - [ ] Cover token-budget boundaries with conversation crate tests.
 
-## 4. Data Services Capability Activation
+## 4. Native Document Processing Follow-up
 
-- [ ] Select embedding stack, dimensions, CPU/GPU requirement, model size, and license; record the decision.
-- [ ] Split data-services into embedding, parsing, rag, and shared schemas.
-- [ ] Implement POST /embed for batched text-to-vector conversion.
-- [ ] Implement POST /parse for PDF, Word, Markdown, and HTML bytes to text plus metadata.
-- [ ] Implement POST /chunk with overlap-aware text chunking.
-- [ ] Replace placeholder tests with real pytest coverage.
-- [ ] Keep ruff, mypy, and pytest meaningful in CI.
+- [ ] Add PDF parsing after selecting a license-compatible parser and defining resource limits.
+- [ ] Add installed-app OCR smoke tests for Windows.Media.Ocr and optional Tesseract fallback.
 
-## 5. Vector Search And RAG
+## 5. Vector Search And RAG Follow-up
 
-- [ ] Initialize LanceDB tables for memories_vec and knowledge_chunks_vec using the selected embedding dimension.
-- [ ] Embed and insert vectors during memory and knowledge writes.
-- [ ] Implement query embedding and nearest-neighbor top-k lookup.
-- [ ] Replace search_memories and search_chunks stubs with vector plus FTS5 hybrid retrieval.
-- [ ] Upgrade gateway RAG injection to use semantic top-k context.
-- [ ] Add integration coverage for ingest to query.
-- [ ] Validate synonym hits, mixed lexical/semantic recall, and duplicate removal.
+- [ ] Benchmark LanceDB primary and SQLite-Vec fallback retrieval on larger knowledge sets.
+- [ ] Add FTS5/vector hybrid ranking and duplicate removal.
+- [ ] Add an end-to-end installed-app ingest-to-query smoke test.
+- [ ] Evaluate a local semantic embedding model only if feature hashing misses required recall targets.
 
 ## 6. Contract And Documentation Alignment
 
 - [ ] Decide proto future: wire buf generate, or move proto files to a frozen future/parking area.
-- [ ] Sync CLAUDE.md with the current data-services role, engine crate list, conversation module, provider adapter fields, and desktop storage/log paths.
-- [ ] Update the architecture diagram for current UI workspace, settings workspace, character profile flow, and future vector plus FTS5 RAG.
+- [ ] Keep CLAUDE.md synchronized with the engine crate list, conversation module, provider adapter fields, and desktop storage/log paths.
+- [ ] Extend the architecture diagram when vector plus FTS5 hybrid ranking is implemented.
 - [ ] Re-check small OpenAPI, markdown local links, and key command smoke after doc cleanup.
 
 ## 7. UI Polish Backlog To Revalidate

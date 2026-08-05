@@ -443,6 +443,22 @@ func toMessages(req *provider.ChatRequest) []goopenai.ChatCompletionMessage {
 			Content:    msg.Content,
 			ToolCallID: msg.ToolCallID,
 		}
+		if len(msg.Parts) > 0 {
+			gmsg.Content = ""
+			for _, part := range msg.Parts {
+				switch part.Type {
+				case "text":
+					gmsg.MultiContent = append(gmsg.MultiContent, goopenai.ChatMessagePart{
+						Type: goopenai.ChatMessagePartTypeText, Text: part.Text,
+					})
+				case "image":
+					gmsg.MultiContent = append(gmsg.MultiContent, goopenai.ChatMessagePart{
+						Type:     goopenai.ChatMessagePartTypeImageURL,
+						ImageURL: &goopenai.ChatMessageImageURL{URL: part.Data, Detail: goopenai.ImageURLDetailAuto},
+					})
+				}
+			}
+		}
 		if len(msg.ToolCalls) > 0 {
 			gmsg.ToolCalls = toOpenAIToolCalls(msg.ToolCalls)
 		}

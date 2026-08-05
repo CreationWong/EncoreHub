@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod crypto;
+pub mod document_processing;
 pub mod logging;
 
 // Re-export the storage and skill types so embedders (Tauri) can name the

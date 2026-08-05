@@ -1,5 +1,5 @@
 FROM rust:1.92-alpine AS builder
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev protobuf-dev
 WORKDIR /build
 COPY engine/Cargo.toml engine/Cargo.lock ./
 COPY engine/crates/ ./crates/

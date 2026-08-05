@@ -20,6 +20,7 @@
   "tags": [
     { "name": "Health" },
     { "name": "Conversations" },
+    { "name": "Attachments" },
     { "name": "Characters" },
     { "name": "Providers" },
     { "name": "Search" },
@@ -176,6 +177,102 @@
           "400": { "$ref": "#/components/responses/Error" },
           "401": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/attachments": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "get": {
+        "tags": ["Attachments"],
+        "operationId": "listConversationAttachments",
+        "responses": {
+          "200": {
+            "description": "Attachment metadata in upload order",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Attachment" } }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Attachments"],
+        "operationId": "uploadConversationAttachment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": { "file": { "type": "string", "format": "binary" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Attachment" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/attachments/{attachment_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/AttachmentId" }
+      ],
+      "get": {
+        "tags": ["Attachments"],
+        "operationId": "getConversationAttachment",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Attachment" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Attachments"],
+        "operationId": "deleteConversationAttachment",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/attachments/{attachment_id}/content": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/AttachmentId" }
+      ],
+      "get": {
+        "tags": ["Attachments"],
+        "operationId": "getConversationAttachmentContent",
+        "responses": {
+          "200": {
+            "description": "Original attachment bytes with their recorded content type",
+            "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/attachments/{attachment_id}/ocr": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/AttachmentId" }
+      ],
+      "post": {
+        "tags": ["Attachments"],
+        "operationId": "ocrConversationAttachment",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Attachment" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -1071,6 +1168,12 @@
         "required": true,
         "schema": { "type": "string", "format": "uuid" }
       },
+      "AttachmentId": {
+        "name": "attachment_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
       "ConfigKey": {
         "name": "key",
         "in": "path",
@@ -1160,6 +1263,14 @@
         "content": {
           "application/json": {
             "schema": { "$ref": "#/components/schemas/ConversationList" }
+          }
+        }
+      },
+      "Attachment": {
+        "description": "Conversation-owned attachment metadata. storage_path is relative to the Engine data directory; original bytes are stored outside SQLite.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Attachment" }
           }
         }
       },
@@ -1278,6 +1389,28 @@
           "finish_reason": { "type": ["string", "null"] },
           "status": { "enum": ["pending", "completed", "failed", "stopped"] },
           "created_at": { "type": "string" }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "conversation_id", "message_id", "file_name", "mime_type", "file_category", "size_bytes", "sha256", "storage_path", "processing_status", "processing_method", "extracted_text", "error_message", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "conversation_id": { "type": "string", "format": "uuid" },
+          "message_id": { "type": ["string", "null"], "format": "uuid" },
+          "file_name": { "type": "string" },
+          "mime_type": { "type": "string" },
+          "file_category": { "enum": ["image", "rich_text", "text"] },
+          "size_bytes": { "type": "integer", "minimum": 0, "maximum": 20971520 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "storage_path": { "type": "string", "description": "Content-addressed path relative to the Engine data directory" },
+          "processing_status": { "enum": ["pending", "ready", "failed"] },
+          "processing_method": { "type": "string" },
+          "extracted_text": { "type": "string" },
+          "error_message": { "type": "string" },
+          "created_at": { "type": "integer", "description": "Unix epoch milliseconds" },
+          "updated_at": { "type": "integer", "description": "Unix epoch milliseconds" }
         }
       },
       "ConversationDetail": {
@@ -1527,9 +1660,8 @@
       },
       "ChatRequest": {
         "type": "object",
-        "required": ["content"],
         "properties": {
-          "content": { "type": "string", "minLength": 1 },
+          "content": { "type": "string" },
           "provider": { "type": "string" },
           "model": { "type": "string" },
           "stream": { "type": "boolean" },
@@ -1546,12 +1678,21 @@
           "json_mode": { "type": "boolean" },
           "reasoning_effort": { "type": "string", "enum": ["low", "medium", "high"] },
           "thinking_budget": { "type": "integer", "minimum": 0 },
+          "attachment_ids": { "type": "array", "maxItems": 10, "items": { "type": "string", "format": "uuid" } },
+          "model_supports_vision": { "type": "boolean", "description": "Whether the selected generation model accepts native image parts" },
+          "image_strategy": { "enum": ["direct", "system_ocr", "vision_model"], "description": "Explicit user choice for image handling; models are never switched silently" },
+          "vision_provider": { "type": "string" },
+          "vision_model": { "type": "string" },
           "user_system_context": { "$ref": "#/components/schemas/UserSystemContext" },
           "replace_message_id": {
             "type": "string",
             "description": "User message ID to replace before regenerating the conversation from that turn"
           }
-        }
+        },
+        "anyOf": [
+          { "required": ["content"], "properties": { "content": { "minLength": 1 } } },
+          { "required": ["attachment_ids"], "properties": { "attachment_ids": { "minItems": 1 } } }
+        ]
       },
       "UserSystemContext": {
         "type": "object",

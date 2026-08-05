@@ -311,9 +311,59 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN cache_creation_input_tokens INTEGER;
     ALTER TABLE messages ADD COLUMN cache_read_input_tokens INTEGER;
     ",
+    // 014: Conversation attachment metadata.
+    //
+    // Binary payloads live in the content-addressed blob directory. SQLite
+    // owns lifecycle, provenance, parsing state, and message association.
+    "
+    CREATE TABLE attachments (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_category TEXT NOT NULL CHECK(file_category IN ('image', 'rich_text', 'text')),
+        size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+        sha256 TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        processing_status TEXT NOT NULL DEFAULT 'ready'
+            CHECK(processing_status IN ('pending', 'ready', 'failed')),
+        processing_method TEXT NOT NULL DEFAULT '',
+        extracted_text TEXT NOT NULL DEFAULT '',
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX idx_attachments_conversation
+        ON attachments(conversation_id, created_at);
+    CREATE INDEX idx_attachments_message ON attachments(message_id);
+    CREATE INDEX idx_attachments_sha256 ON attachments(sha256);
+    ",
+    // 015: Local vector indexes for knowledge fallback and per-turn memory.
+    //
+    // LanceDB remains the primary knowledge index. These SQLite-Vec tables are
+    // the explicit offline fallback and the authoritative lightweight memory
+    // index. Metadata stays relational so vec0 rows never own lifecycle.
+    "
+    CREATE TABLE knowledge_vector_metadata (
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        chunk_id TEXT NOT NULL UNIQUE REFERENCES document_chunks(id) ON DELETE CASCADE
+    );
+    CREATE VIRTUAL TABLE knowledge_vectors USING vec0(embedding float[384]);
+
+    CREATE TABLE memory_vector_metadata (
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id TEXT NOT NULL UNIQUE REFERENCES memories(id) ON DELETE CASCADE
+    );
+    CREATE VIRTUAL TABLE memory_vectors USING vec0(embedding float[384]);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
+    // Migration tests and maintenance tools may pass a raw connection; ensure
+    // vector-table migrations do not depend on Database's open helper.
+    super::register_sqlite_vec();
     // Create migrations tracking table
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS _migrations (
@@ -374,9 +424,15 @@ fn apply_migration(conn: &Connection, version: i64, sql: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Open a raw migration-test connection after registering SQLite-Vec.
+    fn open_test_connection() -> Connection {
+        super::super::register_sqlite_vec();
+        Connection::open_in_memory().unwrap()
+    }
+
     #[test]
     fn test_migrations_run_idempotent() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = open_test_connection();
         // First run
         run(&conn).unwrap();
         // Second run should be idempotent
@@ -385,7 +441,7 @@ mod tests {
 
     #[test]
     fn telemetry_migration_preserves_legacy_messages_as_unknown() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = open_test_connection();
         conn.execute_batch(
             "CREATE TABLE _migrations (
                 version INTEGER PRIMARY KEY,
@@ -460,13 +516,13 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // The legacy row must advance through the cache-telemetry migration.
-        assert_eq!(version, 13);
+        // The legacy row must advance through the attachment migration.
+        assert_eq!(version, 15);
     }
 
     #[test]
     fn character_migration_projects_legacy_conversations_to_default_snapshot() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = open_test_connection();
         conn.execute_batch(
             "CREATE TABLE _migrations (
                 version INTEGER PRIMARY KEY,
@@ -522,13 +578,13 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Character projection is followed by the cache-telemetry migration.
-        assert_eq!(version, 13);
+        // Legacy rows advance through attachment and vector-index migrations.
+        assert_eq!(version, 15);
     }
 
     #[test]
     fn failed_migration_rolls_back_schema_and_version_record() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = open_test_connection();
         conn.execute_batch(
             "CREATE TABLE _migrations (
                 version INTEGER PRIMARY KEY,

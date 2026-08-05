@@ -1,0 +1,9 @@
+[package]
+name = "encorehub-protoc-resolver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+protoc-bin-vendored = "3"

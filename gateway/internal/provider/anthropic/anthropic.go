@@ -69,13 +69,21 @@ type anthropicMessage struct {
 // anthropicMessageContent represents the typed blocks required for native
 // tool calls and results in the Messages API.
 type anthropicMessageContent struct {
-	Type      string         `json:"type"`
-	Text      string         `json:"text,omitempty"`
-	ID        string         `json:"id,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Input     map[string]any `json:"input,omitempty"`
-	ToolUseID string         `json:"tool_use_id,omitempty"`
-	Content   string         `json:"content,omitempty"`
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     map[string]any        `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   string                `json:"content,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
+}
+
+// anthropicImageSource is the Base64 image block accepted by Messages API.
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type anthropicToolDefinition struct {
@@ -420,6 +428,24 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 					Type: "tool_result", ToolUseID: msg.ToolCallID, Content: msg.Content,
 				}},
 			})
+			continue
+		}
+		if len(msg.Parts) > 0 {
+			blocks := make([]anthropicMessageContent, 0, len(msg.Parts))
+			for _, part := range msg.Parts {
+				if part.Type == "text" {
+					blocks = append(blocks, anthropicMessageContent{Type: "text", Text: part.Text})
+				} else if part.Type == "image" {
+					data := part.Data
+					if marker := strings.Index(data, ","); marker >= 0 {
+						data = data[marker+1:]
+					}
+					blocks = append(blocks, anthropicMessageContent{Type: "image", Source: &anthropicImageSource{
+						Type: "base64", MediaType: part.MediaType, Data: data,
+					}})
+				}
+			}
+			body.Messages = append(body.Messages, anthropicMessage{Role: role, Content: blocks})
 			continue
 		}
 		body.Messages = append(body.Messages, anthropicMessage{

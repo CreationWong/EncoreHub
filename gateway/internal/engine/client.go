@@ -4,6 +4,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,18 @@ import (
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
 	"com.0d000721.encorehub/gateway/internal/diagnostics"
 )
+
+// Attachment is Engine-owned metadata; binary content is fetched on demand.
+type Attachment struct {
+	ID               string `json:"id"`
+	FileName         string `json:"file_name"`
+	MimeType         string `json:"mime_type"`
+	FileCategory     string `json:"file_category"`
+	ProcessingStatus string `json:"processing_status"`
+	ProcessingMethod string `json:"processing_method"`
+	ExtractedText    string `json:"extracted_text"`
+	ErrorMessage     string `json:"error_message"`
+}
 
 // AuthTokenEnv is the shared secret used only for Gateway -> Engine calls.
 const AuthTokenEnv = "ENCOREHUB_ENGINE_AUTH_TOKEN"
@@ -290,15 +303,81 @@ func (c *Client) BeginTurn(ctx context.Context, convID, content string) (*Messag
 
 // BeginTurnReplacing atomically replaces an earlier user turn when an id is supplied.
 func (c *Client) BeginTurnReplacing(ctx context.Context, convID, content, replaceMessageID string) (*Message, error) {
-	body := map[string]string{"content": content}
-	if replaceMessageID != "" {
-		body["replace_message_id"] = replaceMessageID
-	}
+	return c.BeginTurnWithAttachments(ctx, convID, content, replaceMessageID, nil)
+}
+
+// BeginTurnWithAttachments persists a turn and binds uploaded files.
+func (c *Client) BeginTurnWithAttachments(ctx context.Context, convID, content, replaceMessageID string, attachmentIDs []string) (*Message, error) {
+	body := struct {
+		Content          string   `json:"content"`
+		ReplaceMessageID string   `json:"replace_message_id,omitempty"`
+		AttachmentIDs    []string `json:"attachment_ids,omitempty"`
+	}{content, replaceMessageID, attachmentIDs}
 	var message Message
 	if err := c.doJSON(ctx, http.MethodPost, "/api/conversations/"+url.PathEscape(convID)+"/turns", body, &message); err != nil {
 		return nil, err
 	}
 	return &message, nil
+}
+
+// GetAttachments loads attachment metadata in caller-provided order.
+func (c *Client) GetAttachments(ctx context.Context, convID string, ids []string) ([]Attachment, error) {
+	attachments := make([]Attachment, 0, len(ids))
+	for _, id := range ids {
+		var attachment Attachment
+		path := "/api/conversations/" + url.PathEscape(convID) + "/attachments/" + url.PathEscape(id)
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, &attachment); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments, nil
+}
+
+// OcrAttachment asks Engine to run explicitly selected local system OCR.
+func (c *Client) OcrAttachment(ctx context.Context, convID, attachmentID string) (Attachment, error) {
+	var attachment Attachment
+	path := "/api/conversations/" + url.PathEscape(convID) + "/attachments/" +
+		url.PathEscape(attachmentID) + "/ocr"
+	if err := c.doJSON(ctx, http.MethodPost, path, struct{}{}, &attachment); err != nil {
+		return Attachment{}, err
+	}
+	return attachment, nil
+}
+
+// AttachmentDataURL reads a bounded original image for a provider request.
+func (c *Client) AttachmentDataURL(ctx context.Context, convID string, attachment Attachment) (string, error) {
+	path := "/api/conversations/" + url.PathEscape(convID) + "/attachments/" + url.PathEscape(attachment.ID) + "/content"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", readHTTPError(resp)
+	}
+	const maxAttachmentBytes = 20 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAttachmentBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxAttachmentBytes {
+		return "", fmt.Errorf("attachment content exceeds 20 MiB")
+	}
+	return "data:" + attachment.MimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+// readHTTPError converts a failed binary response into the same typed error as JSON calls.
+func readHTTPError(resp *http.Response) error {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return fmt.Errorf("engine error %d", resp.StatusCode)
+	}
+	return &HTTPError{StatusCode: resp.StatusCode, body: string(body)}
 }
 
 // FinalizeTurnRequest atomically applies a terminal status and optional assistant.

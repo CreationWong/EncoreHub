@@ -1,3 +1,5 @@
+/** Verifies composer interaction, drafts, tools, and attachment-aware sends. */
+
 import {
 	cleanup,
 	fireEvent,
@@ -159,7 +161,13 @@ describe("InputBox slash tool requests", () => {
 		fireEvent.keyDown(textarea, { key: "Enter" });
 
 		await waitFor(() =>
-			expect(sendMessage).toHaveBeenCalledWith("/web_search 搜索2026消息"),
+			expect(sendMessage).toHaveBeenCalledWith("/web_search 搜索2026消息", {
+				attachmentIds: [],
+				imageStrategy: undefined,
+				modelSupportsVision: false,
+				visionModel: undefined,
+				visionProvider: "",
+			}),
 		);
 	});
 
@@ -394,7 +402,13 @@ describe("InputBox plain send", () => {
 		const ta = getTextarea();
 		fireEvent.change(ta, { target: { value: "hello" } });
 		fireEvent.keyDown(ta, { key: "Enter" });
-		expect(sendMessage).toHaveBeenCalledWith("hello");
+		expect(sendMessage).toHaveBeenCalledWith("hello", {
+			attachmentIds: [],
+			imageStrategy: undefined,
+			modelSupportsVision: false,
+			visionModel: undefined,
+			visionProvider: "",
+		});
 	});
 
 	it("resets a maximally expanded textarea after sending", () => {

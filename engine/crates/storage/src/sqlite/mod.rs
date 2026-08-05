@@ -3,10 +3,16 @@
 //! Manages: conversations, messages, tool_calls, summaries, pinned messages,
 //! memories (metadata), search cache, config.
 
+mod attachments;
 mod characters;
 mod chat_turns;
 mod migrations;
 mod secret_transactions;
+mod vectors;
+
+pub use attachments::AttachmentRecord;
+pub(crate) use vectors::local_embedding;
+pub use vectors::{VectorBackend, VectorSearchHit, EMBEDDING_DIMENSIONS};
 
 use encorehub_core::{
     CharacterSnapshot, ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document,
@@ -15,7 +21,7 @@ use encorehub_core::{
 };
 use rusqlite::{params, Connection, Row};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 pub type Result<T> = std::result::Result<T, EngineError>;
 
@@ -83,8 +89,17 @@ pub struct UsageRecordRow {
 }
 
 impl Database {
+    /// Return the directory that owns the database and mutable blob storage.
+    pub fn data_directory(&self) -> PathBuf {
+        self.path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     /// Open (or create) a SQLite database at the given path and run migrations.
     pub fn open(path: impl AsRef<Path>) -> Result<()> {
+        register_sqlite_vec();
         let path = path.as_ref().to_path_buf();
 
         if let Some(parent) = path.parent() {
@@ -112,6 +127,7 @@ impl Database {
 
     /// Open and return the Database instance.
     pub fn open_and_return(path: impl AsRef<Path>) -> Result<Self> {
+        register_sqlite_vec();
         let path = path.as_ref().to_path_buf();
 
         if let Some(parent) = path.parent() {
@@ -220,10 +236,29 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_conversation(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
-        Ok(())
+    /// Delete a conversation and return attachment hashes with no remaining owner.
+    pub fn delete_conversation(&self, id: &str) -> Result<Vec<String>> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let unreferenced = {
+            let mut statement = transaction.prepare(
+                "SELECT DISTINCT candidate.sha256
+                 FROM attachments candidate
+                 WHERE candidate.conversation_id = ?1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM attachments retained
+                       WHERE retained.sha256 = candidate.sha256
+                         AND retained.conversation_id <> ?1
+                   )",
+            )?;
+            let hashes = statement
+                .query_map([id], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            hashes
+        };
+        transaction.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+        transaction.commit()?;
+        Ok(unreferenced)
     }
 
     // ===== Message CRUD =====
@@ -906,6 +941,26 @@ impl Database {
         Ok(())
     }
 
+    /// Return a document's chunks in their stable source order.
+    pub fn list_chunks(&self, document_id: &str) -> Result<Vec<DocumentChunk>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(
+            "SELECT id, document_id, content, chunk_index, token_count
+               FROM document_chunks WHERE document_id = ?1 ORDER BY chunk_index",
+        )?;
+        let rows = statement.query_map([document_id], |row| {
+            Ok(DocumentChunk {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                content: row.get(2)?,
+                chunk_index: row.get(3)?,
+                token_count: row.get(4)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn list_documents(&self, limit: i64, offset: i64) -> Result<Vec<Document>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -959,6 +1014,22 @@ impl Database {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
+}
+
+/// Register SQLite-Vec for every connection opened after the first call.
+fn register_sqlite_vec() {
+    static REGISTER: Once = Once::new();
+    REGISTER.call_once(|| unsafe {
+        type ExtensionEntry = unsafe extern "C" fn(
+            *mut rusqlite::ffi::sqlite3,
+            *mut *mut std::ffi::c_char,
+            *const rusqlite::ffi::sqlite3_api_routines,
+        ) -> std::ffi::c_int;
+        let entry = std::mem::transmute::<*const (), ExtensionEntry>(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        );
+        rusqlite::ffi::sqlite3_auto_extension(Some(entry));
+    });
 }
 
 // ===== Helper =====

@@ -45,21 +45,5 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # ===== Data Services (Python) =====
-  data-services:
-    profiles: ["data"]
-    build:
-      context: ./data-services
-      dockerfile: Dockerfile
-    ports:
-      - "${ENCOREHUB_DATA_HOST:-127.0.0.1}:8000:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-
 volumes:
   engine_data:

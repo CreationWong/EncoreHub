@@ -204,6 +204,25 @@ test("Desktop keeps mutable state in app data and bundles readonly skills", asyn
 	assert.doesNotMatch(runtimePaths, /allow\(dead_code\)/);
 	const config = JSON.parse(tauriConfig);
 	assert.equal(config.bundle.resources?.["../../skills/"], "skills/");
+	assert.equal(config.bundle.resources?.["resources/document-parser/"], undefined);
+});
+
+test("Document processing stays native to Rust without a Python runtime", async () => {
+	const [rootPackageText, main, parser, cargo] = await Promise.all([
+		read("package.json"),
+		read("frontend/src-tauri/src/main.rs"),
+		read("engine/src/document_processing.rs"),
+		read("engine/Cargo.toml"),
+	]);
+	const scripts = JSON.parse(rootPackageText).scripts;
+	assert.equal(scripts["prepare:parser"], undefined);
+	assert.doesNotMatch(scripts["build:desktop"], /parser|python|pyoxidizer/i);
+	assert.doesNotMatch(main, /ENCOREHUB_DOCUMENT_PARSER|document-parser/);
+	assert.match(parser, /pub fn parse_rich_text/);
+	assert.match(parser, /fn parse_xml_archive/);
+	assert.match(parser, /fn parse_epub/);
+	assert.match(cargo, /quick-xml/);
+	assert.match(cargo, /lancedb/);
 });
 
 test("Desktop suppresses browser autofill and uses native clipboard access", async () => {
@@ -325,6 +344,7 @@ test("Local build workflows keep Tauri development outside timed release steps",
 		powershell,
 		/if \(\$Debug\) \{\s*Write-BuildSummary "Preparation complete"\s*Start-TauriDevelopment/,
 	);
+	assert.doesNotMatch(powershell, /Prepare-DocumentParser|pyoxidizer|prepare:parser/);
 	assert.match(
 		powershell,
 		/if \(\$Tauri -and -not \$Debug\) \{[\s\S]*?MSI:[\s\S]*?NSIS:/,
@@ -333,6 +353,7 @@ test("Local build workflows keep Tauri development outside timed release steps",
 	assert.doesNotMatch(powershell, /\$\{function:Build-(?:Engine|Gateway)\}/);
 
 	assert.doesNotMatch(shell, /time_step[^\n]*run_tauri_development/);
+	assert.doesNotMatch(shell, /prepare_document_parser|pyoxidizer|prepare:parser/);
 	assert.match(
 		shell,
 		/if \[ "\$DEBUG_BUILD" = true \]; then\s*print_summary "Preparation complete"\s*run_tauri_development/,
@@ -345,6 +366,27 @@ test("Local build workflows keep Tauri development outside timed release steps",
 	assert.match(shell, /wait "\$gateway_pid" \|\| gateway_status=\$\?/);
 	assert.match(attributes, /^\*\.sh text eol=lf$/m);
 	assert.match(attributes, /^\*\.ps1 text eol=crlf$/m);
+});
+
+test("Local builds resolve a vendored protoc without a global installation", async () => {
+	const [powershell, shell, cargo, resolverCargo, resolverMain] =
+		await Promise.all([
+			read("scripts/build.ps1"),
+			read("scripts/build.sh"),
+			read("engine/Cargo.toml"),
+			read("engine/crates/protoc-resolver/Cargo.toml"),
+			read("engine/crates/protoc-resolver/src/main.rs"),
+		]);
+
+	assert.match(cargo, /"crates\/protoc-resolver"/);
+	assert.match(resolverCargo, /protoc-bin-vendored/);
+	assert.match(resolverMain, /protoc_bin_path/);
+	assert.match(powershell, /Resolve-Protoc -Required \$needsCargo/);
+	assert.match(powershell, /\$env:PROTOC/);
+	assert.doesNotMatch(powershell, /Test-Prerequisite -Name "protoc"/);
+	assert.match(shell, /resolve_protoc "\$NEEDS_CARGO"/);
+	assert.match(shell, /export PROTOC/);
+	assert.doesNotMatch(shell, /check_command protoc/);
 });
 
 test("Expensive builds only run from the manual workflow", async () => {
@@ -393,29 +435,19 @@ test("Windows uninstall hooks preserve app data outside the install directory", 
 	assert.match(nsis, /\$UpdateMode <> 1/);
 });
 
-test("Data Services stays dependency-minimal and opt-in", async () => {
-	const [compose, dockerfile, pyproject, rootPackage, workflow] =
-		await Promise.all([
-			read("docker-compose.yml"),
-			read("data-services/Dockerfile"),
-			read("data-services/pyproject.toml"),
-			read("package.json"),
-			read(".github/workflows/build.yml"),
-		]);
-	assert.match(compose, /data-services:\s*\n\s*profiles: \["data"\]/);
-	assert.doesNotMatch(compose, /^\s{2}redis:/m);
-	assert.doesNotMatch(compose, /REDIS_URL=|DATA_SERVICE_URL=/);
-	assert.doesNotMatch(dockerfile, /build-essential|curl|uvicorn\[standard\]/);
-	assert.match(dockerfile, /uv sync --frozen --no-dev --no-install-project/);
-	assert.match(dockerfile, /"uv", "run", "--no-sync"/);
-	assert.match(dockerfile, /USER encorehub/);
-	assert.doesNotMatch(
-		pyproject,
-		/sentence-transformers|llama-index|pymupdf|celery|grpcio|pandas|redis>=/,
-	);
+test("Workspace has no Python data service or Chroma deployment contract", async () => {
+	const [compose, rootPackage, ci, workflow] = await Promise.all([
+		read("docker-compose.yml"),
+		read("package.json"),
+		read(".github/workflows/ci.yml"),
+		read(".github/workflows/build.yml"),
+	]);
 	const scripts = JSON.parse(rootPackage).scripts;
-	assert.match(scripts["docker:up:data"], /--profile data/);
-	assert.match(scripts["docker:ps"], /--profile data/);
-	assert.match(scripts["docker:down"], /--profile data/);
-	assert.match(workflow, /Smoke optional Data Services profile/);
+	assert.doesNotMatch(compose, /data-services|chroma|python/i);
+	assert.equal(scripts["dev:data"], undefined);
+	assert.equal(scripts["check:data"], undefined);
+	assert.equal(scripts["test:data"], undefined);
+	assert.equal(scripts["lint:data"], undefined);
+	assert.doesNotMatch(`${ci}\n${workflow}`, /setup-python|data-services|chroma/i);
+	assert.match(`${ci}\n${workflow}`, /arduino\/setup-protoc@v3/);
 });

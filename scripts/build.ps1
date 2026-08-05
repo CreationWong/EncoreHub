@@ -110,6 +110,63 @@ function Test-Prerequisite {
     }
 }
 
+function Resolve-Protoc {
+    param([Parameter(Mandatory)][bool]$Required)
+
+    if (-not $Required) {
+        return
+    }
+
+    $configured = [Environment]::GetEnvironmentVariable("PROTOC", "Process")
+    if ($configured) {
+        if (-not (Test-Path -LiteralPath $configured -PathType Leaf)) {
+            throw "PROTOC points to a missing file: $configured"
+        }
+        & $configured --version *> $null
+        if ($LASTEXITCODE -ne 0) {
+            throw "PROTOC version check exited with code $LASTEXITCODE"
+        }
+        $env:PROTOC = (Resolve-Path -LiteralPath $configured).Path
+        Write-Success "protoc (PROTOC)"
+        return
+    }
+
+    $systemProtoc = Get-Command "protoc" -CommandType Application -ErrorAction SilentlyContinue
+    if ($systemProtoc) {
+        $env:PROTOC = $systemProtoc.Source
+        & $env:PROTOC --version *> $null
+        if ($LASTEXITCODE -ne 0) {
+            throw "protoc version check exited with code $LASTEXITCODE"
+        }
+        Write-Success "protoc (PATH)"
+        return
+    }
+
+    $resolverManifest = Join-Path $engineDir "crates\protoc-resolver\Cargo.toml"
+    $resolverOutput = & cargo run --quiet --manifest-path $resolverManifest
+    if ($LASTEXITCODE -ne 0) {
+        throw "vendored protoc resolver exited with code $LASTEXITCODE"
+    }
+    $resolverLines = @(
+        $resolverOutput |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ }
+    )
+    if ($resolverLines.Count -eq 0) {
+        throw "vendored protoc resolver returned no executable path"
+    }
+    $resolved = $resolverLines[-1]
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        throw "vendored protoc resolver returned a missing file: $resolved"
+    }
+    $env:PROTOC = (Resolve-Path -LiteralPath $resolved).Path
+    & $env:PROTOC --version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "vendored protoc version check exited with code $LASTEXITCODE"
+    }
+    Write-Success "protoc (vendored)"
+}
+
 function Format-FileSize {
     param([Parameter(Mandatory)][long]$Bytes)
     return "{0:N1} MB" -f ($Bytes / 1MB)
@@ -409,6 +466,7 @@ try {
     Test-Prerequisite -Name "go" -Required $needsGo -VersionArguments @("version")
     Test-Prerequisite -Name "cargo" -Required $needsCargo
     Test-Prerequisite -Name "rustc" -Required ([bool]$Tauri) -VersionArguments @("--version")
+    Resolve-Protoc -Required $needsCargo
 
     if ($Parallel -and -not $SkipEngine -and -not $SkipGateway) {
         Invoke-ParallelCoreBuilds

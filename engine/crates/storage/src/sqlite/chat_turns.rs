@@ -5,11 +5,21 @@ use rusqlite::{params, Transaction};
 impl Database {
     /// Persist a pending user message as the root of a new chat turn.
     pub fn begin_chat_turn(&self, user_message: &Message) -> Result<()> {
+        self.begin_chat_turn_with_attachments(user_message, &[])
+    }
+
+    /// Persist a pending user message and bind its uploaded attachments in one transaction.
+    pub fn begin_chat_turn_with_attachments(
+        &self,
+        user_message: &Message,
+        attachment_ids: &[String],
+    ) -> Result<()> {
         validate_pending_user(user_message)?;
 
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         insert_message(&tx, user_message)?;
+        bind_attachments(&tx, user_message, attachment_ids)?;
         touch_conversation(&tx, &user_message.conversation_id)?;
         tx.commit()?;
         Ok(())
@@ -20,6 +30,16 @@ impl Database {
         &self,
         user_message: &Message,
         replaced_message_id: &str,
+    ) -> Result<()> {
+        self.replace_chat_turn_with_attachments(user_message, replaced_message_id, &[])
+    }
+
+    /// Replace a user turn, truncate its branch, and bind new attachments atomically.
+    pub fn replace_chat_turn_with_attachments(
+        &self,
+        user_message: &Message,
+        replaced_message_id: &str,
+        attachment_ids: &[String],
     ) -> Result<()> {
         validate_pending_user(user_message)?;
         let mut conn = self.conn.lock().unwrap();
@@ -43,6 +63,7 @@ impl Database {
             params![user_message.conversation_id, replaced_rowid],
         )?;
         insert_message(&tx, user_message)?;
+        bind_attachments(&tx, user_message, attachment_ids)?;
         touch_conversation(&tx, &user_message.conversation_id)?;
         tx.commit()?;
         Ok(())
@@ -138,6 +159,33 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Bind every requested upload or abort the surrounding message transaction.
+fn bind_attachments(
+    tx: &Transaction<'_>,
+    user_message: &Message,
+    attachment_ids: &[String],
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    for attachment_id in attachment_ids {
+        let updated = tx.execute(
+            "UPDATE attachments SET message_id = ?1, updated_at = ?2
+             WHERE id = ?3 AND conversation_id = ?4 AND message_id IS NULL",
+            params![
+                user_message.id,
+                now,
+                attachment_id,
+                user_message.conversation_id
+            ],
+        )?;
+        if updated != 1 {
+            return Err(invalid_turn(
+                "one or more attachments are unavailable or already bound",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_pending_user(user_message: &Message) -> Result<()> {

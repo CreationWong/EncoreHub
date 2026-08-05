@@ -2,7 +2,7 @@
 
 AI 聊天桌面客户端 — 在一个跨平台桌面工作区中聚合多家模型供应商，并提供角色档案、知识库、记忆、Skill、Plugin 与 MCP 能力。
 
-> 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、角色档案、模板化供应商、密钥加密、token 计数、端口协商、开发者模式），但语义 RAG/向量库、插件 WASM 沙箱、gRPC 全链路仍在路上。统一待办见 [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md)。
+> 状态：早期开发。骨架完整、核心功能可用（多供应商聊天、角色档案、Knowledge/Memory 本地向量检索、文件上传、密钥加密、token 计数、端口协商、开发者模式），但插件 WASM 沙箱、混合排序和 gRPC 全链路仍在路上。统一待办见 [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md)。
 > 当前尚未声明正式平台支持：Windows 开发路径可用，Windows/macOS/Linux 均进入 CI 编译与 no-bundle smoke；各平台完成安装后启动验收前都视为预发布。
 
 ## 架构速览
@@ -10,7 +10,7 @@ AI 聊天桌面客户端 — 在一个跨平台桌面工作区中聚合多家模
 ```
 frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> engine (Rust, axum)
       │                                         │                    │
-      │  Tauri 桌面壳：engine 跑在进程内          │ 多 provider 适配    │ SQLite + LanceDB(pending)
+      │  Tauri 桌面壳：engine 跑在进程内          │ 多 provider 适配    │ SQLite/SQLite-Vec + LanceDB
       │  (tokio task)，gateway 为唯一 sidecar     │ (OpenAI / Anthropic │ 密钥加密(AES-256-GCM)
       │                                         │  / DeepSeek)        │ 对话/记忆/知识/Skill
 ```
@@ -19,15 +19,14 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 |------|------|------|
 | `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 工具补全；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，内置联网搜索工具，认证/限流/CORS，引擎反向代理 |
-| `engine/` | Rust (axum + tokio + rusqlite) | 对话/记忆/知识/Skill/密钥 存储与 API；AES-256-GCM 密钥加密；token 计数器（conversation crate）；桌面模式下 Tauri 在进程内启动 axum，无头模式编译为独立二进制 |
-| `data-services/` | Python 3.12 (FastAPI) | 可选 `data` profile；已定义 embed/parse/chunk 合约，当前统一返回 `501`，未加载 ML/解析依赖 |
+| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | 对话/记忆/知识/附件/Skill/密钥存储与 API；Rust 文档解析与分块；LanceDB Knowledge 主索引；SQLite-Vec Knowledge 回退和单轮 Memory 索引；桌面模式下 Tauri 在进程内启动 axum |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
 为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)；桌面 Engine 进程模型与内部认证见 [`docs/adr/0004-engine-in-process-and-internal-auth.md`](docs/adr/0004-engine-in-process-and-internal-auth.md)；角色版本与对话快照边界见 [`docs/adr/0005-character-profile-snapshots.md`](docs/adr/0005-character-profile-snapshots.md)。
 
 ## Quickstart（开发模式）
 
-需要：Node 20+ / pnpm 10 / Go 1.25 / Rust stable，以及 [Tauri 2 对应平台的系统依赖](https://v2.tauri.app/start/prerequisites/)。
+需要：Node 20+ / pnpm 10 / Go 1.25 / Rust stable，以及 [Tauri 2 对应平台的系统依赖](https://v2.tauri.app/start/prerequisites/)。标准构建脚本优先使用 `PROTOC` 或 PATH 中的 `protoc`，未安装时通过 Cargo 自动解析当前平台的 vendored binary。直接运行 Cargo 时仍需自行设置 `PROTOC`。Pandoc 可选，用于更高保真地转换富文本；未安装时 Engine 使用原生 Rust 解析器。
 
 ```bash
 pnpm setup
@@ -36,7 +35,7 @@ pnpm dev
 
 `pnpm dev` 会构建当前平台的 Gateway sidecar 并启动 Tauri；Engine 在桌面进程内运行，内部 token 自动生成。通过右上角 Settings 齿轮（或 `Ctrl/Cmd + ,`）打开设置工作区，在 Providers 中填入 API key 即可对话。
 
-只调试单个组件时使用 `pnpm dev:frontend`、`pnpm dev:gateway` 或 `pnpm dev:engine`。如需运行可选的 data-services，请先安装 Python 3.12 与 `uv`，执行 `pnpm setup:all`，再运行 `pnpm dev:data`。
+只调试单个组件时使用 `pnpm dev:frontend`、`pnpm dev:gateway` 或 `pnpm dev:engine`。Knowledge、Memory、文档处理与向量检索均由 Engine 进程内完成，不需要额外数据服务。
 
 ## 配置
 
@@ -56,6 +55,7 @@ pnpm dev
 | `ENCOREHUB_RATE_LIMIT_TTL_SECONDS` | `600` | 空闲 client limiter 回收时间 |
 | `ENCOREHUB_RATE_LIMIT_MAX_CLIENTS` | `10000` | limiter store 硬容量；满时淘汰最久未使用项 |
 | `ENCOREHUB_TRUSTED_PROXIES` | _空_ | 可提供转发 IP 的代理 IP/CIDR（逗号分隔）；桌面/直连模式保持为空 |
+| `ENCOREHUB_LANCEDB_PATH` | `<engine data>/lancedb` | 可选的 LanceDB 本地目录覆盖；默认与 Engine SQLite 数据目录同属 app data |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
 | `BING_SEARCH_API_KEY` | _空_ | Bing 搜索密钥的 headless 环境变量回退；桌面端优先使用 Web Search 设置中保存的密钥 |
 | `GOOGLE_SEARCH_API_KEY` | _空_ | Google Custom Search 密钥的 headless 环境变量回退 |
@@ -130,8 +130,8 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 │   ├── src/lib.rs        serve() + find_free_port() — Tauri 共用入口
 │   └── crates/           core / conversation(token 计数) / storage / skill
 ├── scripts/              workspace contract、sidecar 准备及平台构建脚本
-├── data-services/        Python contract service（可选 data profile）
 ├── docs/
+│   ├── RUST_DATA_PIPELINE.md  Rust 文档、向量与回退契约
 │   ├── REMAINING_WORK.md      统一待办与发布验收清单
 │   ├── openapi.json           EncoreHub Gateway API 契约
 │   ├── vendor/                第三方 API 参考快照（非项目契约）
@@ -161,12 +161,9 @@ pnpm docker:build
 pnpm docker:up
 pnpm docker:ps
 
-# 可选的 contract-only Data Services profile
-pnpm docker:build:data
-pnpm docker:up:data
 ```
 
-CI 配置见 `.github/workflows/ci.yml`，包含 Docs、Frontend、Gateway、Engine、Windows/macOS/Linux Desktop、Data Services 与 Container gate。
+CI 配置见 `.github/workflows/ci.yml`，包含 Docs、Frontend、Gateway、Engine、Windows/macOS/Linux Desktop 与 Container gate。
 
 Frontend production build 会检查首屏静态 JavaScript 依赖闭包，默认 gzip budget 为 300 KiB。运行 `pnpm --dir frontend analyze:bundle` 可在 `frontend/dist/` 生成 `bundle-analysis.json`（chunk/module 明细）和 `bundle-budget.json`（首屏闭包与预算结果）；CI 始终保留这两份统计。只有在计划性收紧阈值时才设置 `BUNDLE_BUDGET_KIB`，不得用它放宽 CI gate。
 

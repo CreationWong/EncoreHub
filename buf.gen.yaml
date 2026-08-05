@@ -11,5 +11,3 @@ plugins:
   - remote: buf.build/community/neoeinstein-prost
     out: proto/gen/rust
     opt: compile_well_known_types
-  - remote: buf.build/grpc/python
-    out: proto/gen/python

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { upgradeConversationCharacter as upgradeCharacterSnapshot } from "../services/characters";
 import {
+	type ChatTurnOptions,
 	type DeepThinkingRequest,
 	type StreamDonePayload,
 	type StreamErrorPayload,
@@ -219,10 +220,7 @@ interface ConversationState {
 		id: string,
 		expectedVersion: number,
 	) => Promise<Conversation>;
-	sendMessage: (
-		content: string,
-		options?: { replaceMessageId?: string },
-	) => Promise<void>;
+	sendMessage: (content: string, options?: ChatTurnOptions) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
 	setDraft: (content: string) => void;

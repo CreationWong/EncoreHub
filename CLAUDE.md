@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, and auto-generated conversation titles are complete; RAG/vector DB and WASM sandbox are on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
+EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory vector retrieval, file upload, and auto-generated conversation titles are complete; hybrid ranking and the WASM sandbox remain on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
 
 ```
 frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, axum)
        |                                        |                   |
-       |  Tauri: engine in-process               |  multi-provider   |  SQLite + LanceDB(pending)
+       |  Tauri: engine in-process               |  multi-provider   |  SQLite + SQLite-Vec
+       |                                        |                   |  local LanceDB (primary knowledge)
        |  (tokio task); gateway is               |  adapters         |  AES-256-GCM secret crypto
        |  the only sidecar                       |                   |  conversation crate (token)
 ```
@@ -60,8 +61,7 @@ Before completing a code change, verify that every touched code file has a meani
 |--------|----------|------|--------|
 | `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, settings/skill/memory/knowledge panels, slash commands, auto-generated conversation titles, token counting display | ✅ Active development |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE entry, multi-provider adapter, auth/rate-limit/CORS, reverse proxy to engine, web search integration | ✅ Complete with provider adapters |
-| `engine/` | Rust (axum + tokio + rusqlite) | Conversations, memories, knowledge, skills storage & API, token counting, AES-256-GCM encryption, port negotiation | ✅ Core functionality complete |
-| `data-services/` | Python 3.12 (FastAPI) | Optional contract service for embed/parse/chunk; no capability implementation or ML runtime dependencies yet | ⏳ Contract-only `data` profile |
+| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | Conversations, attachments, native document parsing, Memory/Knowledge retrieval, skills, token counting, encryption, and port negotiation | ✅ Core functionality complete |
 | `proto/` | protobuf | gRPC schema for inter-service communication | ⏳ Schema complete, gRPC not yet enabled |
 
 Why this language split: see [ADR-0001](docs/adr/0001-language-split.md).
@@ -70,7 +70,7 @@ Why this language split: see [ADR-0001](docs/adr/0001-language-split.md).
 
 ### Prerequisites
 
-Node 22+ / pnpm 10 / Go 1.25 / Rust stable / Python 3.12 (for data-services only).
+Node 22+ / pnpm 10 / Go 1.25 / Rust stable. The standard build scripts resolve a vendored Protocol Buffers compiler when `PROTOC` and PATH do not provide one; direct Cargo commands must set `PROTOC`. Pandoc is optional for high-fidelity rich-text conversion.
 
 ### Development (all from repo root)
 
@@ -247,7 +247,7 @@ Typing `/` opens an LLM-tool completion menu backed by metadata in `frontend/src
 The engine is a Cargo workspace with four crates:
 - `crates/core` — shared `EngineError` type and data types (`Message`, `Conversation`, `Memory`, `Role`, `Usage`, etc.)
 - `crates/conversation` — token counting (`rough_token_count`, `estimate_message_tokens`, `token_count_with_estimation`, `exceeds_token_limit`, `Usage` struct with total() method)
-- `crates/storage` — `Database` abstraction (SQLite via rusqlite with bundled libsqlite3; `lancedb/` and `blob/` modules are placeholders)
+- `crates/storage` — SQLite relational/blob storage, SQLite-Vec Memory and fallback indexes, plus embedded LanceDB Knowledge storage
 - `crates/skill` — `SkillRegistry` that loads Markdown skills from a directory, with YAML frontmatter parsing
 - Built-in skills: `code-explainer`, `summarize`, `web-search` (with dynamic tool support)
 
@@ -274,6 +274,7 @@ Skills are Markdown files with YAML frontmatter. Desktop loads bundled skills fr
 - `ENCOREHUB_RATE_LIMIT_TTL_SECONDS` (600) / `ENCOREHUB_RATE_LIMIT_MAX_CLIENTS` (10000)
 - `ENCOREHUB_TRUSTED_PROXIES` — comma-separated proxy IPs/CIDRs; empty disables forwarded client IP trust
 - `ENCOREHUB_DEV_MOCK` — set to `1`/`true` to enable mock replies without an API key (dev only)
+- `ENCOREHUB_LANCEDB_PATH` — optional local LanceDB directory override; defaults below the Engine data directory
 
 **Frontend** (`.env.local` from `frontend/.env.example`):
 - `VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`
@@ -283,7 +284,7 @@ AI provider API keys are entered through the frontend and sent via `X-Provider-K
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) has seven job groups: docs, frontend, gateway, engine, three-platform desktop, data-services, and container/profile smoke. Triggers on push/PR to `master`/`main`.
+GitHub Actions (`.github/workflows/ci.yml`) runs docs, frontend, gateway, and engine checks; the manual build workflow covers three-platform desktop builds and container smoke. Triggers on push/PR to `master`/`main`.
 
 ## Key Endpoints
 

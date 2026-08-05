@@ -34,6 +34,22 @@ func TestBeginTurnReplacingSendsReplacementID(t *testing.T) {
 	}
 }
 
+func TestAttachmentDataURLRejectsEngineErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, "{\"error\":\"missing\"}")
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "internal-engine-token")
+	_, err := client.AttachmentDataURL(context.Background(), "c1", Attachment{
+		ID: "a1", MimeType: "image/png",
+	})
+	if ErrorStatus(err) != http.StatusNotFound {
+		t.Fatalf("attachment error = %v", err)
+	}
+}
+
 func TestClientAddsInternalBearerToEveryRequestPath(t *testing.T) {
 	t.Setenv("ENCOREHUB_AUTH_TOKEN", "unrelated-external-token")
 

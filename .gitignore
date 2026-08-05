@@ -2,6 +2,9 @@
 node_modules/
 .pnpm-store/
 
+# Removed Python data service; ignore stale local interpreter/test caches.
+data-services/
+
 # Rust
 engine/target/
 **/*.rs.bk
@@ -10,17 +13,6 @@ engine/target/
 # Go
 gateway/bin/
 gateway/vendor/
-
-# Python
-data-services/__pycache__/
-data-services/**/__pycache__/
-data-services/.pytest_cache/
-data-services/.venv/
-data-services/venv/
-data-services/*.egg-info/
-data-services/dist/
-*.pyc
-*.pyo
 
 # IDE
 .vscode/

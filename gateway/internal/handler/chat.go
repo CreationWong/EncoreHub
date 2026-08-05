@@ -55,30 +55,36 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content             string             `json:"content" binding:"required"`
-	Provider            string             `json:"provider"`
-	Model               string             `json:"model"`
-	Stream              bool               `json:"stream"`
-	Search              bool               `json:"search"`
-	SearchProvider      string             `json:"search_provider"` // "duckduckgo" | "bing" | "google" | "custom"
-	Temperature         float32            `json:"temperature"`
-	TopP                float32            `json:"top_p"`
-	MaxTokens           int                `json:"max_tokens"`
-	MaxCompletionTokens int                `json:"max_completion_tokens"`
-	FrequencyPenalty    float32            `json:"frequency_penalty"`
-	PresencePenalty     float32            `json:"presence_penalty"`
-	Stop                []string           `json:"stop"`
-	Seed                *int               `json:"seed"`
-	Logprobs            bool               `json:"logprobs"`
-	TopLogprobs         int                `json:"top_logprobs"`
-	JSONMode            bool               `json:"json_mode"`
-	ReasoningEffort     string             `json:"reasoning_effort"`
-	DisableReasoning    bool               `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
-	ThinkingBudget      int                `json:"thinking_budget"`
-	ContextSummary      string             `json:"context_summary"`
-	ContextKeepRecent   int                `json:"context_keep_recent"`
-	ReplaceMessageID    string             `json:"replace_message_id"`
-	UserSystemContext   *UserSystemContext `json:"user_system_context"`
+	Content             string                 `json:"content"`
+	Provider            string                 `json:"provider"`
+	Model               string                 `json:"model"`
+	Stream              bool                   `json:"stream"`
+	Search              bool                   `json:"search"`
+	SearchProvider      string                 `json:"search_provider"` // "duckduckgo" | "bing" | "google" | "custom"
+	Temperature         float32                `json:"temperature"`
+	TopP                float32                `json:"top_p"`
+	MaxTokens           int                    `json:"max_tokens"`
+	MaxCompletionTokens int                    `json:"max_completion_tokens"`
+	FrequencyPenalty    float32                `json:"frequency_penalty"`
+	PresencePenalty     float32                `json:"presence_penalty"`
+	Stop                []string               `json:"stop"`
+	Seed                *int                   `json:"seed"`
+	Logprobs            bool                   `json:"logprobs"`
+	TopLogprobs         int                    `json:"top_logprobs"`
+	JSONMode            bool                   `json:"json_mode"`
+	ReasoningEffort     string                 `json:"reasoning_effort"`
+	DisableReasoning    bool                   `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
+	ThinkingBudget      int                    `json:"thinking_budget"`
+	ContextSummary      string                 `json:"context_summary"`
+	ContextKeepRecent   int                    `json:"context_keep_recent"`
+	ReplaceMessageID    string                 `json:"replace_message_id"`
+	UserSystemContext   *UserSystemContext     `json:"user_system_context"`
+	AttachmentIDs       []string               `json:"attachment_ids"`
+	ModelSupportsVision bool                   `json:"model_supports_vision"`
+	ImageStrategy       string                 `json:"image_strategy"`
+	VisionProvider      string                 `json:"vision_provider"`
+	VisionModel         string                 `json:"vision_model"`
+	AttachmentParts     []provider.ContentPart `json:"-"`
 }
 
 // UserSystemContext is captured by the client because Gateway may run in a
@@ -87,6 +93,70 @@ type UserSystemContext struct {
 	Date     string `json:"date"`
 	Time     string `json:"time"`
 	Timezone string `json:"timezone"`
+}
+
+// prepareAttachments validates user-selected image policy and builds current-turn parts.
+func (h *ChatHandler) prepareAttachments(ctx context.Context, convID string, req *SendMessageRequest) error {
+	if len(req.AttachmentIDs) == 0 {
+		return nil
+	}
+	attachments, err := h.engine.GetAttachments(ctx, convID, req.AttachmentIDs)
+	if err != nil {
+		return fmt.Errorf("failed to load attachments")
+	}
+	hasImages := false
+	for _, attachment := range attachments {
+		if attachment.ProcessingStatus == "failed" {
+			return fmt.Errorf("attachment processing failed: %s", attachment.FileName)
+		}
+		if attachment.FileCategory == "image" {
+			hasImages = true
+			continue
+		}
+		req.Content += fmt.Sprintf("\n\n[Attachment: %s; MIME: %s]\n%s\n[/Attachment]", attachment.FileName, attachment.MimeType, attachment.ExtractedText)
+	}
+	if hasImages && !req.ModelSupportsVision {
+		switch req.ImageStrategy {
+		case "vision_model":
+			if strings.TrimSpace(req.VisionProvider) == "" || strings.TrimSpace(req.VisionModel) == "" {
+				return fmt.Errorf("vision provider and model are required")
+			}
+			req.Provider = strings.TrimSpace(req.VisionProvider)
+			req.Model = strings.TrimSpace(req.VisionModel)
+		case "system_ocr":
+			for _, attachment := range attachments {
+				if attachment.FileCategory != "image" {
+					continue
+				}
+				recognized, err := h.engine.OcrAttachment(ctx, convID, attachment.ID)
+				if err != nil {
+					return fmt.Errorf("system OCR failed for %s", attachment.FileName)
+				}
+				req.Content += fmt.Sprintf(
+					"\n\n[Attachment OCR: %s; MIME: %s]\n%s\n[/Attachment OCR]",
+					attachment.FileName,
+					attachment.MimeType,
+					recognized.ExtractedText,
+				)
+			}
+			return nil
+		default:
+			return fmt.Errorf("choose system OCR or a vision-capable model for image attachments")
+		}
+	}
+	for _, attachment := range attachments {
+		if attachment.FileCategory != "image" {
+			continue
+		}
+		dataURL, err := h.engine.AttachmentDataURL(ctx, convID, attachment)
+		if err != nil {
+			return fmt.Errorf("failed to read image attachment")
+		}
+		req.AttachmentParts = append(req.AttachmentParts, provider.ContentPart{
+			Type: "image", MediaType: attachment.MimeType, Data: dataURL,
+		})
+	}
+	return nil
 }
 
 type ChatResponse struct {
@@ -210,6 +280,10 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	if req.Model == "" {
 		req.Model = "gpt-4o"
 	}
+	if err := h.prepareAttachments(ctx, convID, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	apiKey := c.GetHeader("X-Provider-Key")
 	if apiKey == "" {
@@ -308,11 +382,12 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		ToolResults: formatPreexecutedToolContext(initialToolCalls),
 	}, searchTool, titleTool)
 
-	userMessage, err := h.engine.BeginTurnReplacing(
+	userMessage, err := h.engine.BeginTurnWithAttachments(
 		ctx,
 		convID,
 		req.Content,
 		req.ReplaceMessageID,
+		req.AttachmentIDs,
 	)
 	if err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("failed to begin chat turn")
@@ -1325,8 +1400,8 @@ func newChatErrorPayload(code, message string, finalized *engine.FinalizeTurnRes
 // ===== Helpers =====
 
 func validateChatRequest(req SendMessageRequest) error {
-	if strings.TrimSpace(req.Content) == "" {
-		return fmt.Errorf("message content required")
+	if strings.TrimSpace(req.Content) == "" && len(req.AttachmentIDs) == 0 {
+		return fmt.Errorf("message content or attachments required")
 	}
 	if req.Temperature < 0 || req.Temperature > 2 {
 		return fmt.Errorf("temperature must be between 0 and 2")
@@ -1584,11 +1659,18 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 			Content: msg.Content,
 		})
 	}
-	if req.Content != "" {
-		cr.Messages = append(cr.Messages, provider.Message{
+	if req.Content != "" || len(req.AttachmentParts) > 0 {
+		message := provider.Message{
 			Role:    "user",
 			Content: req.Content,
-		})
+		}
+		if len(req.AttachmentParts) > 0 {
+			if req.Content != "" {
+				message.Parts = append(message.Parts, provider.ContentPart{Type: "text", Text: req.Content})
+			}
+			message.Parts = append(message.Parts, req.AttachmentParts...)
+		}
+		cr.Messages = append(cr.Messages, message)
 	}
 	return cr
 }
@@ -2257,7 +2339,7 @@ func generateMockReply(userInput string) string {
 	case containsLower(input, "who are you") || containsLower(input, "你是谁"):
 		return "I'm EncoreHub, a multi-provider AI chat client. I support OpenAI, Anthropic, Gemini, DuckDuckGo web search, and more. Connect an API key to use real AI!"
 	case containsLower(input, "memory") || containsLower(input, "记忆"):
-		return "**Memory System**\n\n- Conversation memory: active (SQLite FTS5 + LanceDB)\n- Global memory: cross-conversation retrieval\n- Search: `GET /api/memories/search?q=...`\n- All messages persisted and searchable."
+		return "**Memory System**\n\n- Conversation memory: active (SQLite FTS5 + SQLite-Vec)\n- Knowledge vectors: LanceDB primary, SQLite-Vec fallback\n- Search: `GET /api/memories/search?q=...`\n- All messages persisted and searchable."
 	case containsLower(input, "help") || containsLower(input, "帮助"):
 		return "**EncoreHub Commands**\n\n- `hello` — greeting\n- `who are you` — about\n- `memory` — memory status\n- `help` — this message\n- `search: true` in request → DuckDuckGo web search"
 	default:

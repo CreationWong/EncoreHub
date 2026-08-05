@@ -90,6 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: arduino/setup-protoc@v3
       - run: cargo build --release -p encorehub-engine --bins --features standalone
 
   desktop-platforms:
@@ -122,6 +123,7 @@ jobs:
       - name: Verify frontend assets required by Tauri macros
         run: node -e "if (!require('node:fs').existsSync('frontend/dist/index.html')) process.exit(1)"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: arduino/setup-protoc@v3
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
@@ -160,12 +162,8 @@ jobs:
       ENCOREHUB_AUTH_TOKEN: ""
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Data Services profile is declared
-        run: docker compose config --profiles | grep -qx data
       - name: Build clean Compose images
         run: docker compose build --no-cache
-      - name: Build optional Data Services image
-        run: docker compose --profile data build --no-cache data-services
       - name: Start Compose stack
         run: docker compose up -d
       - name: Wait for Gateway readiness
@@ -186,28 +184,9 @@ jobs:
             echo "Engine must not be published to the host" >&2
             exit 1
           fi
-          if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
-            echo "Data Services must not start without its profile" >&2
-            exit 1
-          fi
-          if docker compose ps --services | grep -qx data-services; then
-            echo "Data Services container must not start without its profile" >&2
-            exit 1
-          fi
-      - name: Smoke optional Data Services profile
-        run: |
-          docker compose --profile data up -d data-services
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose --profile data ps
-          exit 1
       - name: Show container logs on failure
         if: failure()
-        run: docker compose --profile data logs --no-color
+        run: docker compose logs --no-color
       - name: Stop Compose stack
         if: always()
-        run: docker compose --profile data down --volumes --remove-orphans
+        run: docker compose down --volumes --remove-orphans
