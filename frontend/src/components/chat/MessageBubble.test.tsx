@@ -26,6 +26,7 @@ function msg(
 		id: over.id ?? "m1",
 		parent_id: over.parent_id ?? null,
 		tool_calls: over.tool_calls ?? [],
+		attachments: over.attachments ?? [],
 		status: over.status ?? "completed",
 		created_at: over.created_at ?? "2026-01-01T00:00:00Z",
 		...over,
@@ -52,6 +53,51 @@ describe("MessageBubble user presentation", () => {
 		);
 		expect(container.querySelector(".max-w-\\[72\\%\\]")).not.toBeNull();
 		expect(screen.queryByText("User")).toBeNull();
+	});
+
+	it("renders image attachments as right-aligned thumbnails above the text", async () => {
+		const createObjectURL = vi.fn(() => "blob:attachment-preview");
+		const revokeObjectURL = vi.fn();
+		Object.defineProperties(URL, {
+			createObjectURL: { configurable: true, value: createObjectURL },
+			revokeObjectURL: { configurable: true, value: revokeObjectURL },
+		});
+		vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+			new Response(new Blob(["image"], { type: "image/png" }), {
+				status: 200,
+			}),
+		);
+
+		const { container, unmount } = render(
+			<MessageBubble
+				message={msg({
+					role: "user",
+					content: "What is shown?",
+					attachments: [
+						{
+							id: "attachment-1",
+							conversation_id: "conversation-1",
+							file_name: "screen.png",
+							mime_type: "image/png",
+							file_category: "image",
+							size_bytes: 5,
+							processing_status: "ready",
+							processing_method: "system_ocr",
+							error_message: "",
+						},
+					],
+				})}
+			/>,
+		);
+
+		const image = await screen.findByRole("img", { name: "screen.png" });
+		expect(image.getAttribute("src")).toBe("blob:attachment-preview");
+		expect(container.querySelector(".justify-end img")).not.toBeNull();
+		expect(
+			image.compareDocumentPosition(screen.getByText("What is shown?")),
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		unmount();
+		expect(revokeObjectURL).toHaveBeenCalledWith("blob:attachment-preview");
 	});
 
 	it("edits a user turn in place and keeps cancellation local", () => {

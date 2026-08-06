@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import type { Attachment } from "./attachments";
 import type { CharacterSnapshot } from "./characters";
 
 export interface Conversation {
@@ -23,6 +24,8 @@ export interface Message {
 	reasoning?: string;
 	parent_id: string | null;
 	tool_calls: ToolCall[];
+	/** Files bound to the message. Omitted only for local optimistic messages. */
+	attachments?: Attachment[];
 	/** Total input+output tokens from the provider response. 0 if unknown. */
 	token_count?: number;
 	/** Raw provider telemetry. Null means unavailable, including legacy records. */
@@ -49,8 +52,9 @@ export interface ToolCall {
 }
 
 /** Gateway SSE payloads may omit empty tool_calls through Go omitempty. */
-export type MessagePayload = Omit<Message, "tool_calls"> & {
+export type MessagePayload = Omit<Message, "tool_calls" | "attachments"> & {
 	tool_calls?: ToolCall[] | null;
+	attachments?: Attachment[] | null;
 };
 
 const DSML_TOOL_CALL_MARKERS = [
@@ -97,12 +101,28 @@ function cleanToolProtocol(content: string): string {
 	return cleaned.trim();
 }
 
+function cleanAttachmentProtocol(content: string): string {
+	let cleaned = content;
+	for (const pattern of [
+		/\n*\[Attachment OCR:[^\]]*\]\r?\n[\s\S]*?\r?\n\[\/Attachment OCR\]\n*/g,
+		/\n*\[Attachment:[^\]]*\]\r?\n[\s\S]*?\r?\n\[\/Attachment\]\n*/g,
+	]) {
+		cleaned = cleaned.replace(pattern, "\n");
+	}
+	if (/^\s*\[Attachments:[^\]]*\]\s*$/.test(cleaned)) return "";
+	return cleaned.trim();
+}
+
 export function normalizeMessage(message: MessagePayload): Message {
 	const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+	const attachments = Array.isArray(message.attachments)
+		? message.attachments
+		: [];
 	return {
 		...message,
-		content: cleanToolProtocol(message.content),
+		content: cleanAttachmentProtocol(cleanToolProtocol(message.content)),
 		tool_calls: toolCalls,
+		attachments,
 	};
 }
 

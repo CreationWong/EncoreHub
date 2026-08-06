@@ -56,6 +56,7 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 
 type SendMessageRequest struct {
 	Content             string                 `json:"content"`
+	ModelContent        string                 `json:"-"`
 	Provider            string                 `json:"provider"`
 	Model               string                 `json:"model"`
 	Stream              bool                   `json:"stream"`
@@ -97,6 +98,7 @@ type UserSystemContext struct {
 
 // prepareAttachments validates user-selected image policy and builds current-turn parts.
 func (h *ChatHandler) prepareAttachments(ctx context.Context, convID string, req *SendMessageRequest) error {
+	req.ModelContent = req.Content
 	if len(req.AttachmentIDs) == 0 {
 		return nil
 	}
@@ -113,7 +115,7 @@ func (h *ChatHandler) prepareAttachments(ctx context.Context, convID string, req
 			hasImages = true
 			continue
 		}
-		req.Content += fmt.Sprintf("\n\n[Attachment: %s; MIME: %s]\n%s\n[/Attachment]", attachment.FileName, attachment.MimeType, attachment.ExtractedText)
+		req.ModelContent += fmt.Sprintf("\n\n[Attachment: %s; MIME: %s]\n%s\n[/Attachment]", attachment.FileName, attachment.MimeType, attachment.ExtractedText)
 	}
 	if hasImages && !req.ModelSupportsVision {
 		switch req.ImageStrategy {
@@ -132,7 +134,7 @@ func (h *ChatHandler) prepareAttachments(ctx context.Context, convID string, req
 				if err != nil {
 					return fmt.Errorf("system OCR failed for %s", attachment.FileName)
 				}
-				req.Content += fmt.Sprintf(
+				req.ModelContent += fmt.Sprintf(
 					"\n\n[Attachment OCR: %s; MIME: %s]\n%s\n[/Attachment OCR]",
 					attachment.FileName,
 					attachment.MimeType,
@@ -1659,14 +1661,18 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 			Content: msg.Content,
 		})
 	}
-	if req.Content != "" || len(req.AttachmentParts) > 0 {
+	modelContent := req.ModelContent
+	if modelContent == "" {
+		modelContent = req.Content
+	}
+	if modelContent != "" || len(req.AttachmentParts) > 0 {
 		message := provider.Message{
 			Role:    "user",
-			Content: req.Content,
+			Content: modelContent,
 		}
 		if len(req.AttachmentParts) > 0 {
-			if req.Content != "" {
-				message.Parts = append(message.Parts, provider.ContentPart{Type: "text", Text: req.Content})
+			if modelContent != "" {
+				message.Parts = append(message.Parts, provider.ContentPart{Type: "text", Text: modelContent})
 			}
 			message.Parts = append(message.Parts, req.AttachmentParts...)
 		}

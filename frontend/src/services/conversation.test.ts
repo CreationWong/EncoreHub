@@ -65,6 +65,34 @@ describe("conversation service", () => {
 		]);
 	});
 
+	it("hides legacy attachment processing blocks and defaults attachments", async () => {
+		apiFetch.mockResolvedValueOnce({
+			id: "c1",
+			title: "Attachment conversation",
+			provider: "openai",
+			model: "gpt-4o",
+			messages: [
+				{
+					id: "m1",
+					role: "user",
+					content:
+						"Please inspect this.\n\n[Attachment OCR: image.png; MIME: image/png]\nprivate OCR text\n[/Attachment OCR]",
+					parent_id: null,
+					status: "completed",
+					created_at: "",
+				},
+			],
+			summary: null,
+			created_at: "",
+			updated_at: "",
+		});
+
+		const detail = await getConversation("c1");
+
+		expect(detail.messages[0].content).toBe("Please inspect this.");
+		expect(detail.messages[0].attachments).toEqual([]);
+	});
+
 	it("removes duplicated DSML protocol blocks from historical tool messages", async () => {
 		const dsml =
 			'<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">world population</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>';

@@ -30,6 +30,19 @@ type Attachment struct {
 	ErrorMessage     string `json:"error_message"`
 }
 
+// MessageAttachment is the safe attachment summary returned with a message.
+type MessageAttachment struct {
+	ID               string `json:"id"`
+	ConversationID   string `json:"conversation_id"`
+	FileName         string `json:"file_name"`
+	MimeType         string `json:"mime_type"`
+	FileCategory     string `json:"file_category"`
+	SizeBytes        int64  `json:"size_bytes"`
+	ProcessingStatus string `json:"processing_status"`
+	ProcessingMethod string `json:"processing_method"`
+	ErrorMessage     string `json:"error_message"`
+}
+
 // AuthTokenEnv is the shared secret used only for Gateway -> Engine calls.
 const AuthTokenEnv = "ENCOREHUB_ENGINE_AUTH_TOKEN"
 
@@ -103,17 +116,18 @@ type ConversationDetail struct {
 
 // Message represents a single message.
 type Message struct {
-	ID                       string          `json:"id"`
-	Role                     string          `json:"role"`
-	Content                  string          `json:"content"`
-	Reasoning                string          `json:"reasoning,omitempty"`
-	ParentID                 *string         `json:"parent_id"`
-	ToolCalls                []ToolCallInput `json:"tool_calls,omitempty"`
-	TokenCount               int             `json:"token_count"`
-	InputTokens              *int            `json:"input_tokens"`
-	OutputTokens             *int            `json:"output_tokens"`
-	CacheCreationInputTokens *int            `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     *int            `json:"cache_read_input_tokens"`
+	ID                       string              `json:"id"`
+	Role                     string              `json:"role"`
+	Content                  string              `json:"content"`
+	Reasoning                string              `json:"reasoning,omitempty"`
+	ParentID                 *string             `json:"parent_id"`
+	ToolCalls                []ToolCallInput     `json:"tool_calls,omitempty"`
+	Attachments              []MessageAttachment `json:"attachments,omitempty"`
+	TokenCount               int                 `json:"token_count"`
+	InputTokens              *int                `json:"input_tokens"`
+	OutputTokens             *int                `json:"output_tokens"`
+	CacheCreationInputTokens *int                `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                `json:"cache_read_input_tokens"`
 	// Context fields describe only the final provider round; input/output above
 	// remain cumulative billing telemetry for the complete user request.
 	ContextInputTokens  *int    `json:"context_input_tokens"`

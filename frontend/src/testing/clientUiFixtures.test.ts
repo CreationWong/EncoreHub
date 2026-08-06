@@ -24,6 +24,7 @@ describe("client UI baseline fixtures", () => {
 			"no-conversation",
 			"empty-conversation",
 			"short",
+			"attachment",
 			"long-markdown",
 			"system-message",
 			"reasoning",
@@ -38,6 +39,9 @@ describe("client UI baseline fixtures", () => {
 		expect(
 			getClientUiScenario("reasoning").messages[1]?.reasoning,
 		).toBeTruthy();
+		expect(
+			getClientUiScenario("attachment").messages[0]?.attachments,
+		).toHaveLength(1);
 		expect(
 			getClientUiScenario("tool-call").messages[1]?.tool_calls,
 		).toHaveLength(1);

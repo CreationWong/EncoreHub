@@ -665,6 +665,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			content,
 			parent_id: null,
 			tool_calls: [],
+			attachments: [],
 			status: "pending",
 			created_at: new Date().toISOString(),
 		};
@@ -1049,6 +1050,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			content,
 			parent_id: null,
 			tool_calls: [],
+			attachments: [],
 			status: "completed",
 			created_at: new Date().toISOString(),
 		};

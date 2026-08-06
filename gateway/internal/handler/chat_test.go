@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -254,6 +258,58 @@ func TestBuildChatRequest_CreatesImageOnlyUserMessage(t *testing.T) {
 	}
 	if len(request.Messages[0].Parts) != 1 || request.Messages[0].Parts[0].Type != "image" {
 		t.Fatalf("image part missing: %#v", request.Messages[0].Parts)
+	}
+}
+
+func TestBuildChatRequest_UsesModelOnlyAttachmentContext(t *testing.T) {
+	request := buildChatRequest(
+		&engine.ConversationDetail{},
+		SendMessageRequest{
+			Content:      "describe the attachment",
+			ModelContent: "describe the attachment\n\n[Attachment OCR: image.png; MIME: image/png]\nprivate OCR text\n[/Attachment OCR]",
+		},
+		promptContext{},
+		nil,
+		nil,
+	)
+
+	if len(request.Messages) != 1 {
+		t.Fatalf("expected one provider message, got %#v", request.Messages)
+	}
+	if request.Messages[0].Content == "describe the attachment" ||
+		!strings.Contains(request.Messages[0].Content, "private OCR text") {
+		t.Fatalf("provider did not receive model-only OCR context: %#v", request.Messages[0])
+	}
+}
+
+func TestPrepareAttachments_KeepsOCROutOfPersistedContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/attachments/attachment-1"):
+			_, _ = io.WriteString(w, `{"id":"attachment-1","file_name":"screen.png","mime_type":"image/png","file_category":"image","processing_status":"ready"}`)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/attachments/attachment-1/ocr"):
+			_, _ = io.WriteString(w, `{"id":"attachment-1","file_name":"screen.png","mime_type":"image/png","file_category":"image","processing_status":"ready","extracted_text":"private OCR text"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	handler := NewChatHandler(provider.NewRegistry(), engine.NewClient(server.URL, "test-token"))
+	req := SendMessageRequest{
+		Content:       "describe this",
+		AttachmentIDs: []string{"attachment-1"},
+		ImageStrategy: "system_ocr",
+	}
+
+	if err := handler.prepareAttachments(context.Background(), "conversation-1", &req); err != nil {
+		t.Fatalf("prepare attachments: %v", err)
+	}
+	if req.Content != "describe this" {
+		t.Fatalf("persisted content contains attachment internals: %q", req.Content)
+	}
+	if !strings.Contains(req.ModelContent, "private OCR text") {
+		t.Fatalf("model content is missing OCR context: %q", req.ModelContent)
 	}
 }
 

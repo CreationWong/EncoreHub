@@ -9,6 +9,7 @@ function message(overrides: Partial<Message>): Message {
 		content: "hello",
 		parent_id: null,
 		tool_calls: [],
+		attachments: [],
 		status: "pending",
 		created_at: "2026-07-16T00:00:00Z",
 		...overrides,
@@ -99,10 +100,15 @@ describe("chatApi.sendMessageStream", () => {
 		expect(onTurnStarted).toHaveBeenCalledWith({
 			...wireUser,
 			tool_calls: [],
+			attachments: [],
 		});
 		expect(onDone).toHaveBeenCalledWith({
-			user_message: { ...wireUser, tool_calls: [] },
-			assistant_message: { ...wireAssistant, tool_calls: [] },
+			user_message: { ...wireUser, tool_calls: [], attachments: [] },
+			assistant_message: {
+				...wireAssistant,
+				tool_calls: [],
+				attachments: [],
+			},
 			usage: { input_tokens: 1, output_tokens: 1 },
 		});
 	});

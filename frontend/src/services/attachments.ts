@@ -6,6 +6,7 @@ import { diagnosticFetch } from "./diagnosticFetch";
 
 export interface Attachment {
 	id: string;
+	conversation_id: string;
 	file_name: string;
 	mime_type: string;
 	file_category: "image" | "rich_text" | "text";
@@ -13,6 +14,21 @@ export interface Attachment {
 	processing_status: "pending" | "ready" | "failed";
 	processing_method: string;
 	error_message: string;
+}
+
+/** Fetch original attachment bytes for an authenticated local preview. */
+export async function fetchAttachmentContent(
+	conversationId: string,
+	attachmentId: string,
+): Promise<Blob> {
+	const headers: Record<string, string> = {};
+	if (AUTH_TOKEN) headers.Authorization = `Bearer ${AUTH_TOKEN}`;
+	const response = await diagnosticFetch(
+		`${apiBase()}/conversations/${conversationId}/attachments/${attachmentId}/content`,
+		{ headers },
+	);
+	if (!response.ok) throw new ApiError(response.status, await response.text());
+	return response.blob();
 }
 
 /** Upload one file through the Gateway proxy. */

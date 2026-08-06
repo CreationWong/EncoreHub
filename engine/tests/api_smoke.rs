@@ -1655,6 +1655,70 @@ async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
 }
 
 #[tokio::test]
+async fn attachment_only_turn_returns_safe_attachment_summary_without_placeholder_text() {
+    let (_dir, app, db_path) = make_app_with_path();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"attachment turn","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute(
+            "INSERT INTO attachments
+             (id, conversation_id, message_id, file_name, mime_type, file_category,
+              size_bytes, sha256, storage_path, processing_status, processing_method,
+              extracted_text, error_message, created_at, updated_at)
+             VALUES (?1, ?2, NULL, 'screen.png', 'image/png', 'image', 5, 'hash',
+                     'ha/sh.bin', 'ready', 'system_ocr', 'private OCR text', '', 1, 1)",
+            rusqlite::params!["attachment-1", conversation_id],
+        )
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/turns"),
+            json!({"content": "", "attachment_ids": ["attachment-1"]}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = body_json(response).await;
+    assert_eq!(user["content"], "");
+    assert_eq!(user["attachments"][0]["id"], "attachment-1");
+    assert_eq!(user["attachments"][0]["file_name"], "screen.png");
+    assert!(user["attachments"][0].get("storage_path").is_none());
+    assert!(user["attachments"][0].get("extracted_text").is_none());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{conversation_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let detail = body_json(response).await;
+    assert_eq!(detail["messages"][0]["content"], "");
+    assert_eq!(
+        detail["messages"][0]["attachments"][0]["id"],
+        "attachment-1"
+    );
+}
+
+#[tokio::test]
 async fn chat_turn_finalize_failure_keeps_pending_root_without_assistant() {
     let (dir, app, db_path) = make_app_with_path();
 

@@ -10,7 +10,7 @@ use encorehub_core::{
     CharacterSnapshot, CharacterUpgradePreview, Conversation, Memory, MemoryScope, MemoryType,
     Message, MessageStatus, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
-use encorehub_storage::BlobStore;
+use encorehub_storage::{AttachmentRecord, BlobStore, Database};
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -73,6 +73,7 @@ pub struct MessageResponse {
     pub reasoning: String,
     pub parent_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
+    pub attachments: Vec<AttachmentSummary>,
     pub token_count: i32,
     pub input_tokens: Option<i32>,
     pub output_tokens: Option<i32>,
@@ -84,6 +85,35 @@ pub struct MessageResponse {
     pub finish_reason: Option<String>,
     pub status: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AttachmentSummary {
+    pub id: String,
+    pub conversation_id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub file_category: String,
+    pub size_bytes: i64,
+    pub processing_status: String,
+    pub processing_method: String,
+    pub error_message: String,
+}
+
+impl From<AttachmentRecord> for AttachmentSummary {
+    fn from(value: AttachmentRecord) -> Self {
+        Self {
+            id: value.id,
+            conversation_id: value.conversation_id,
+            file_name: value.file_name,
+            mime_type: value.mime_type,
+            file_category: value.file_category,
+            size_bytes: value.size_bytes,
+            processing_status: value.processing_status,
+            processing_method: value.processing_method,
+            error_message: value.error_message,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -192,6 +222,7 @@ pub async fn get_one(
     let message_responses: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
+            let attachments = attachment_summaries(&state.db, &m.id);
             let tool_calls = state
                 .db
                 .get_tool_calls(&m.id)
@@ -213,6 +244,7 @@ pub async fn get_one(
                 reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
+                attachments,
                 token_count: m.token_count,
                 input_tokens: m.input_tokens,
                 output_tokens: m.output_tokens,
@@ -411,6 +443,7 @@ pub async fn get_messages(
     let responses: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
+            let attachments = attachment_summaries(&state.db, &m.id);
             let tool_calls = state
                 .db
                 .get_tool_calls(&m.id)
@@ -432,6 +465,7 @@ pub async fn get_messages(
                 reasoning: m.reasoning,
                 parent_id: m.parent_id,
                 tool_calls,
+                attachments,
                 token_count: m.token_count,
                 input_tokens: m.input_tokens,
                 output_tokens: m.output_tokens,
@@ -572,23 +606,13 @@ pub async fn begin_turn(
         ));
     }
 
-    let content = if req.content.trim().is_empty() {
-        let mut names = Vec::with_capacity(req.attachment_ids.len());
-        for attachment_id in &req.attachment_ids {
-            let attachment = state
-                .db
-                .get_attachment(&conv_id, attachment_id)
-                .map_err(domain_error)?;
-            names.push(format!(
-                "{} ({})",
-                attachment.file_name, attachment.mime_type
-            ));
-        }
-        format!("[Attachments: {}]", names.join(", "))
-    } else {
-        req.content
-    };
-    let mut user = Message::new(&conv_id, Role::User, content, None);
+    for attachment_id in &req.attachment_ids {
+        state
+            .db
+            .get_attachment(&conv_id, attachment_id)
+            .map_err(domain_error)?;
+    }
+    let mut user = Message::new(&conv_id, Role::User, req.content, None);
     user.status = MessageStatus::Pending;
     if let Some(replaced_message_id) = req
         .replace_message_id
@@ -606,7 +630,7 @@ pub async fn begin_turn(
             .begin_chat_turn_with_attachments(&user, &req.attachment_ids)
             .map_err(domain_error)?;
     }
-    Ok(Json(build_msg_response(&user, &[])))
+    Ok(Json(build_msg_response(&state.db, &user, &[])))
 }
 
 pub async fn finalize_turn(
@@ -681,12 +705,12 @@ pub async fn finalize_turn(
                 tracing::warn!(conversation_id = %conv_id, error = %error, "turn memory indexing failed");
             }
         }
-        Some(build_msg_response(&stored, &stored_calls))
+        Some(build_msg_response(&state.db, &stored, &stored_calls))
     } else {
         None
     };
     Ok(Json(FinalizeTurnResponse {
-        user_message: build_msg_response(&user, &[]),
+        user_message: build_msg_response(&state.db, &user, &[]),
         assistant_message,
     }))
 }
@@ -731,7 +755,7 @@ pub async fn add_message(
         }
     }
 
-    Ok(Json(build_msg_response(&msg, &stored_calls)))
+    Ok(Json(build_msg_response(&state.db, &msg, &stored_calls)))
 }
 
 /// Send a message and get a mock AI reply.
@@ -792,8 +816,8 @@ pub async fn send_message(
     maybe_consolidate_memory(&state, &conv_id, &req.content, &mock_reply);
 
     Ok(Json(SendMessageResponse {
-        user_message: build_msg_response(&user_msg, &[]),
-        assistant_message: build_msg_response(&assistant_msg, &[]),
+        user_message: build_msg_response(&state.db, &user_msg, &[]),
+        assistant_message: build_msg_response(&state.db, &assistant_msg, &[]),
     }))
 }
 
@@ -905,7 +929,15 @@ fn maybe_consolidate_memory(state: &SharedState, conv_id: &str, user_input: &str
     }
 }
 
-fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse {
+fn attachment_summaries(db: &Database, message_id: &str) -> Vec<AttachmentSummary> {
+    db.list_attachments_for_message(message_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(AttachmentSummary::from)
+        .collect()
+}
+
+fn build_msg_response(db: &Database, msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse {
     MessageResponse {
         id: msg.id.clone(),
         role: msg.role.as_str().to_string(),
@@ -922,6 +954,7 @@ fn build_msg_response(msg: &Message, tool_calls: &[ToolCall]) -> MessageResponse
                 status: tc.status.clone(),
             })
             .collect(),
+        attachments: attachment_summaries(db, &msg.id),
         token_count: msg.token_count,
         input_tokens: msg.input_tokens,
         output_tokens: msg.output_tokens,

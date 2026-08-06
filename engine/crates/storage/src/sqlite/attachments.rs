@@ -95,6 +95,18 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Return attachments bound to one authoritative message in upload order.
+    pub fn list_attachments_for_message(&self, message_id: &str) -> Result<Vec<AttachmentRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(&format!(
+            "SELECT {ATTACHMENT_COLUMNS} FROM attachments
+             WHERE message_id = ?1 ORDER BY created_at, id"
+        ))?;
+        let rows = statement.query_map([message_id], attachment_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     /// Load one attachment while enforcing its conversation ownership.
     pub fn get_attachment(&self, conversation_id: &str, id: &str) -> Result<AttachmentRecord> {
         let conn = self.conn.lock().unwrap();

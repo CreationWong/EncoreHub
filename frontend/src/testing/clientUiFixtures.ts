@@ -20,6 +20,7 @@ export const CLIENT_UI_SCENARIO_IDS = [
 	"no-conversation",
 	"empty-conversation",
 	"short",
+	"attachment",
 	"long-markdown",
 	"system-message",
 	"reasoning",
@@ -342,6 +343,37 @@ const scenarioMap: Record<ClientUiScenarioId, ClientUiScenario> = {
 		settingsOpen: false,
 		vaultLocked: false,
 	},
+	attachment: {
+		id: "attachment",
+		description: "User image attachment above a short prompt",
+		activeId: "conv-short",
+		messages: [
+			message("m-attachment-user", "user", "请描述这张截图里的内容。", {
+				attachments: [
+					{
+						id: "attachment-1",
+						conversation_id: "conv-short",
+						file_name: "screen.png",
+						mime_type: "image/png",
+						file_category: "image",
+						size_bytes: 5,
+						processing_status: "ready",
+						processing_method: "system_ocr",
+						error_message: "",
+					},
+				],
+			}),
+		],
+		streaming: false,
+		streamingContent: "",
+		streamingReasoning: "",
+		streamingToolCalls: [],
+		provider: "openai",
+		model: "gpt-4.1",
+		searchEnabled: false,
+		settingsOpen: false,
+		vaultLocked: false,
+	},
 	"long-markdown": {
 		id: "long-markdown",
 		description:
@@ -641,6 +673,7 @@ export function getClientUiScenario(id: ClientUiScenarioId): ClientUiScenario {
 		messages: scenario.messages.map((item) => ({
 			...item,
 			tool_calls: item.tool_calls.map((call) => ({ ...call })),
+			attachments: item.attachments?.map((attachment) => ({ ...attachment })),
 		})),
 		streamingToolCalls: scenario.streamingToolCalls.map((call) => ({
 			...call,
