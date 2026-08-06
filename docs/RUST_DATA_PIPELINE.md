@@ -3,6 +3,10 @@
 > Status: native parsing, deterministic embedding, LanceDB Knowledge indexing,
 > and SQLite-Vec fallback are active in the Rust Engine.
 
+记忆准入、模式、生命周期、模型工具和永久记忆策略由
+[记忆系统设计](MEMORY_SYSTEM_DESIGN.md) 统一定义。本文档仅定义当前 Rust
+数据处理和向量存储约定。
+
 ## Ownership
 
 The data pipeline is an in-process Engine capability. It does not expose a
