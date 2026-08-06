@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../../services/conversation";
 import {
 	DEFAULT_ADVANCED_PARAMETERS,
@@ -9,6 +9,10 @@ import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import ContextManagementPanel from "./ContextManagementPanel";
+
+vi.mock("./CurrentMemoryPanel", () => ({
+	default: () => <p>Current memory panel</p>,
+}));
 
 function message(id: string, role: Message["role"], content: string): Message {
 	return {
@@ -150,11 +154,17 @@ describe("ContextManagementPanel", () => {
 		fireEvent.change(screen.getByLabelText("Temperature"), {
 			target: { value: "1.2" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "JSON" }));
 
 		expect(useContextManagementStore.getState().advanced.temperature).toBe(1.2);
-		expect(useContextManagementStore.getState().advanced.responseFormat).toBe(
-			"json_object",
-		);
+		expect(screen.queryByLabelText("Response format")).toBeNull();
+	});
+
+	it("opens current memory management from the side panel tabs", () => {
+		render(<ContextManagementPanel />);
+
+		fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
+
+		expect(screen.getByText("Current memory panel")).toBeDefined();
+		expect(useContextManagementStore.getState().contextPanelTab).toBe("memory");
 	});
 });

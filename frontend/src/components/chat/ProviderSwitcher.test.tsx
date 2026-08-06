@@ -114,6 +114,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ProviderSwitcher defaults", () => {
+	it("sizes the trigger from its content within a responsive maximum", () => {
+		const { container } = render(<ProviderSwitcher />);
+		const trigger = screen.getByRole("button", {
+			name: /Select default provider and model/,
+		});
+
+		expect(container.firstElementChild?.className).toContain("w-fit");
+		expect(trigger.className).toContain("w-fit");
+		expect(trigger.className).toContain("max-w-full");
+	});
+
 	it("never offers embedding-only models as conversation models", () => {
 		providerState.profiles[0] = {
 			...providerState.profiles[0],

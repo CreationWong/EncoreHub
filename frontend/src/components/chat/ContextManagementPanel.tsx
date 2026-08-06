@@ -1,5 +1,5 @@
 import {
-	Braces,
+	BrainCircuit,
 	CircleDollarSign,
 	Gauge,
 	Layers3,
@@ -20,6 +20,7 @@ import {
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import CurrentMemoryPanel from "./CurrentMemoryPanel";
 
 function formatTokens(value: number): string {
 	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
@@ -310,6 +311,16 @@ export default function ContextManagementPanel() {
 					<button
 						type="button"
 						role="tab"
+						aria-selected={tab === "memory"}
+						onClick={() => setTab("memory")}
+						className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${tab === "memory" ? "bg-selected text-text-primary" : "text-text-muted hover:bg-control hover:text-text-primary"}`}
+					>
+						<BrainCircuit className="h-3.5 w-3.5" />
+						Memory
+					</button>
+					<button
+						type="button"
+						role="tab"
 						aria-selected={tab === "parameters"}
 						onClick={() => setTab("parameters")}
 						className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${tab === "parameters" ? "bg-selected text-text-primary" : "text-text-muted hover:bg-control hover:text-text-primary"}`}
@@ -320,7 +331,9 @@ export default function ContextManagementPanel() {
 				</div>
 			</header>
 
-			{tab === "context" ? (
+			{tab === "memory" ? (
+				<CurrentMemoryPanel />
+			) : tab === "context" ? (
 				<div
 					role="tabpanel"
 					aria-label="Context"
@@ -584,33 +597,6 @@ export default function ContextManagementPanel() {
 								onChange={(topLogprobs) => setAdvanced({ topLogprobs })}
 							/>
 						)}
-					</div>
-					<div className="border-t border-border py-3">
-						<div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-text-primary">
-							<Braces className="h-3.5 w-3.5 text-text-muted" />
-							Response format
-						</div>
-						<fieldset
-							aria-label="Response format"
-							className="grid grid-cols-2 gap-1 rounded-md bg-control p-1"
-						>
-							{(
-								[
-									["text", "Text"],
-									["json_object", "JSON"],
-								] as const
-							).map(([value, label]) => (
-								<button
-									key={value}
-									type="button"
-									aria-pressed={advanced.responseFormat === value}
-									onClick={() => setAdvanced({ responseFormat: value })}
-									className={`h-7 rounded text-xs font-medium ${advanced.responseFormat === value ? "bg-workspace text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
-								>
-									{label}
-								</button>
-							))}
-						</fieldset>
 					</div>
 				</div>
 			)}

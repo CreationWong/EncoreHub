@@ -40,6 +40,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import CharacterAvatar from "./CharacterAvatar";
 import CharacterHistory from "./CharacterHistory";
+import CharacterMemorySettings from "./CharacterMemorySettings";
 import {
 	CHARACTER_LIMITS,
 	type CharacterDraft,
@@ -62,6 +63,48 @@ function providerModels(profile: ProviderProfile): Array<{
 		id,
 		name: configured.get(id)?.name?.trim() || id,
 	}));
+}
+
+function selectableProviderProfiles(
+	providers: ProviderProfile[],
+): ProviderProfile[] {
+	return providers.filter(
+		(provider) => provider.enabled && providerModels(provider).length > 0,
+	);
+}
+
+function resolveDraftDefaults(
+	draft: CharacterDraft,
+	providers: ProviderProfile[],
+	appProvider: string,
+	appModel: string,
+): CharacterDraft {
+	const selectableProviders = selectableProviderProfiles(providers);
+	const selectedProvider =
+		selectableProviders.find(
+			(provider) => provider.id === draft.defaultProvider,
+		) ??
+		selectableProviders.find((provider) => provider.id === appProvider) ??
+		selectableProviders[0];
+	if (!selectedProvider) {
+		return { ...draft, defaultProvider: "", defaultModel: "" };
+	}
+
+	const models = providerModels(selectedProvider);
+	const currentModel =
+		selectedProvider.id === draft.defaultProvider
+			? models.find((model) => model.id === draft.defaultModel)?.id
+			: undefined;
+	const appDefaultModel =
+		selectedProvider.id === appProvider
+			? models.find((model) => model.id === appModel)?.id
+			: undefined;
+
+	return {
+		...draft,
+		defaultProvider: selectedProvider.id,
+		defaultModel: currentModel ?? appDefaultModel ?? models[0]?.id ?? "",
+	};
 }
 
 function modelIsAvailable(
@@ -184,7 +227,11 @@ export default function CharacterManager({
 	const valid = Object.keys(errors).length === 0;
 	const dirty = characterDraftSignature(draft) !== sourceSignature;
 	const promptTokens = estimatePromptTokens(draft.systemPrompt);
-	const selectedProvider = providers.find(
+	const selectableProviders = useMemo(
+		() => selectableProviderProfiles(providers),
+		[providers],
+	);
+	const selectedProvider = selectableProviders.find(
 		(item) => item.id === draft.defaultProvider,
 	);
 	const models = selectedProvider ? providerModels(selectedProvider) : [];
@@ -193,10 +240,7 @@ export default function CharacterManager({
 		draft.defaultProvider,
 		draft.defaultModel,
 	);
-	const appModelAvailable = modelIsAvailable(providers, appProvider, appModel);
-	const resolvedModelAvailable = draft.defaultProvider
-		? modelAvailable
-		: appModelAvailable;
+	const resolvedModelAvailable = modelAvailable;
 
 	useEffect(() => {
 		if (!open) return;
@@ -212,9 +256,17 @@ export default function CharacterManager({
 				availableCharacters.find((item) => item.id === DEFAULT_CHARACTER_ID) ??
 				availableCharacters[0] ??
 				null);
-		const nextDraft = profile
+		const storedDraft = profile
 			? draftFromCharacter(profile)
 			: emptyCharacterDraft();
+		const providerState = useProviderStore.getState().profiles;
+		const settingsState = useSettingsStore.getState();
+		const nextDraft = resolveDraftDefaults(
+			storedDraft,
+			providerState,
+			settingsState.provider,
+			settingsState.model,
+		);
 		setEditingId(profile?.id ?? null);
 		setCreating(requestedCreating || !profile);
 		setDraft(nextDraft);
@@ -235,12 +287,18 @@ export default function CharacterManager({
 	if (!open) return null;
 
 	function resetEditor(profile: CharacterProfile | null, copy = false) {
-		const nextDraft = profile
+		const storedDraft = profile
 			? {
 					...draftFromCharacter(profile),
 					...(copy ? { name: uniqueCopyName(profile.name, characters) } : {}),
 				}
 			: emptyCharacterDraft();
+		const nextDraft = resolveDraftDefaults(
+			storedDraft,
+			providers,
+			appProvider,
+			appModel,
+		);
 		setEditingId(copy ? null : (profile?.id ?? null));
 		setCreating(copy || !profile);
 		setDraft(nextDraft);
@@ -392,8 +450,8 @@ export default function CharacterManager({
 	async function startTestConversation() {
 		const profile = dirty || creating ? await persistDraft() : currentProfile;
 		if (!profile) return;
-		const provider = profile.default_provider || appProvider;
-		const model = profile.default_model || appModel;
+		const provider = draft.defaultProvider;
+		const model = draft.defaultModel;
 		const id = await newConversation({
 			characterId: profile.id,
 			...(provider && model ? { provider, model } : {}),
@@ -405,7 +463,7 @@ export default function CharacterManager({
 
 	function handleProviderChange(event: ChangeEvent<HTMLSelectElement>) {
 		const providerId = event.target.value;
-		const provider = providers.find((item) => item.id === providerId);
+		const provider = selectableProviders.find((item) => item.id === providerId);
 		setDraft((current) => ({
 			...current,
 			defaultProvider: providerId,
@@ -691,18 +749,15 @@ export default function CharacterManager({
 												value={draft.defaultProvider}
 												onChange={handleProviderChange}
 												aria-invalid={Boolean(errors.defaultProvider)}
+												disabled={selectableProviders.length === 0}
 												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
 											>
-												<option value="">Use app default</option>
-												{draft.defaultProvider && !selectedProvider && (
-													<option value={draft.defaultProvider}>
-														{draft.defaultProvider} (unavailable)
-													</option>
+												{selectableProviders.length === 0 && (
+													<option value="">No enabled providers</option>
 												)}
-												{providers.map((provider) => (
+												{selectableProviders.map((provider) => (
 													<option key={provider.id} value={provider.id}>
 														{provider.name}
-														{provider.enabled ? "" : " (disabled)"}
 													</option>
 												))}
 											</select>
@@ -722,23 +777,13 @@ export default function CharacterManager({
 												onChange={(event) =>
 													setField("defaultModel", event.target.value)
 												}
-												disabled={!draft.defaultProvider}
+												disabled={!selectedProvider || models.length === 0}
 												aria-invalid={Boolean(errors.defaultModel)}
 												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
 											>
-												<option value="">
-													{draft.defaultProvider
-														? "Choose a model"
-														: "Use app default"}
-												</option>
-												{draft.defaultModel &&
-													!models.some(
-														(model) => model.id === draft.defaultModel,
-													) && (
-														<option value={draft.defaultModel}>
-															{draft.defaultModel} (unavailable)
-														</option>
-													)}
+												{models.length === 0 && (
+													<option value="">No chat models available</option>
+												)}
 												{models.map((model) => (
 													<option key={model.id} value={model.id}>
 														{model.name}
@@ -787,6 +832,10 @@ export default function CharacterManager({
 										/>
 									</label>
 								</div>
+
+								{editingId && !creating && (
+									<CharacterMemorySettings characterId={editingId} />
+								)}
 
 								<div className="px-5 py-5">
 									<div className="mb-2 flex items-center justify-between gap-3">

@@ -139,13 +139,18 @@ afterEach(cleanup);
 
 describe("MemoryPanel", () => {
 	it("renders the list returned by memoriesApi.list", async () => {
-		render(<MemoryPanel />);
+		const { container } = render(<MemoryPanel />);
 		await waitFor(() => expect(list).toHaveBeenCalled());
 		await waitFor(() => {
 			expect(screen.getByText(/EncoreHub uses Tauri/)).toBeDefined();
 			expect(screen.getByText("fact")).toBeDefined();
 			expect(screen.getByText("long_term")).toBeDefined();
 		});
+		expect(container.firstElementChild?.className).toContain("h-full");
+		expect(container.firstElementChild?.className).toContain("bg-surface");
+		expect(
+			screen.getByRole("button", { name: "Add memory group" }),
+		).toBeDefined();
 	});
 
 	it("Enter on the search box hits memoriesApi.search with q + top_k", async () => {
@@ -177,7 +182,7 @@ describe("MemoryPanel", () => {
 			target: { value: "rag" },
 		});
 		fireEvent.click(screen.getByRole("checkbox"));
-		fireEvent.click(screen.getByText("Save"));
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await waitFor(() =>
 			expect(updateCharacterSettings).toHaveBeenCalledWith("default", {

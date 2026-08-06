@@ -103,6 +103,7 @@ const FULL_BLEED_TABS: readonly SettingsTab[] = [
 	"logs",
 	"database",
 	"usage",
+	"memories",
 ];
 
 function LoadingPanel({ label }: { label: string }) {

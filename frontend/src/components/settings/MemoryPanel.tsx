@@ -44,6 +44,17 @@ const GROUP_TYPE_LABELS: Record<MemoryGroup["group_type"], string> = {
 	custom: "Custom",
 };
 
+function policySignature(
+	value: CharacterMemorySettingsResponse | null,
+): string {
+	if (!value) return "";
+	return JSON.stringify({
+		defaultMode: value.settings.default_mode,
+		realisticEnabled: value.settings.realistic_enabled,
+		inheritedGroups: value.inherited_groups,
+	});
+}
+
 function GroupIcon({ type }: { type: MemoryGroup["group_type"] }) {
 	if (type === "global") return <Globe2 className="h-3.5 w-3.5" />;
 	if (type === "custom") return <Folder className="h-3.5 w-3.5" />;
@@ -59,6 +70,7 @@ export default function MemoryPanel() {
 	const [policy, setPolicy] = useState<CharacterMemorySettingsResponse | null>(
 		null,
 	);
+	const [savedPolicySignature, setSavedPolicySignature] = useState("");
 	const [query, setQuery] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
@@ -137,13 +149,17 @@ export default function MemoryPanel() {
 	useEffect(() => {
 		if (!policyCharacterId) {
 			setPolicy(null);
+			setSavedPolicySignature("");
 			return;
 		}
 		let cancelled = false;
 		memoriesApi
 			.getCharacterSettings(policyCharacterId)
 			.then((response) => {
-				if (!cancelled) setPolicy(response);
+				if (!cancelled) {
+					setPolicy(response);
+					setSavedPolicySignature(policySignature(response));
+				}
 			})
 			.catch((error) => {
 				if (!cancelled)
@@ -209,6 +225,7 @@ export default function MemoryPanel() {
 				},
 			);
 			setPolicy(response);
+			setSavedPolicySignature(policySignature(response));
 			toast.success("Character memory settings saved");
 		} catch (error) {
 			toast.error(
@@ -308,65 +325,85 @@ export default function MemoryPanel() {
 			group.group_type !== "global" &&
 			group.owner_character_id !== policyCharacterId,
 	);
+	const policyDirty = Boolean(
+		policy && policySignature(policy) !== savedPolicySignature,
+	);
 
 	return (
-		<div className="grid min-h-[32rem] grid-cols-[12rem_minmax(0,1fr)] overflow-hidden border border-border max-[760px]:grid-cols-1">
-			<aside className="border-r border-border bg-surface-alt/35 p-2 max-[760px]:border-b max-[760px]:border-r-0">
-				<GroupSection
-					label="By character"
-					groups={characterGroups}
-					selectedId={selectedGroupId}
-					onSelect={setSelectedGroupId}
-					characterNames={characterNames}
-				/>
-				<GroupSection
-					label="Global"
-					groups={globalGroups}
-					selectedId={selectedGroupId}
-					onSelect={setSelectedGroupId}
-					characterNames={characterNames}
-				/>
-				<GroupSection
-					label="Custom"
-					groups={customGroups}
-					selectedId={selectedGroupId}
-					onSelect={setSelectedGroupId}
-					characterNames={characterNames}
-					onCreate={beginCreateGroup}
-					onRename={beginRenameGroup}
-					onArchive={archiveGroup}
-					onDelete={deleteGroup}
-				/>
-				{editingGroupId === "new" && (
-					<GroupNameEditor
-						value={groupNameDraft}
-						onChange={setGroupNameDraft}
-						onSave={() => void saveGroup()}
-						onCancel={() => setEditingGroupId(null)}
+		<div className="relative flex h-full min-h-0 overflow-hidden bg-surface max-[700px]:flex-col">
+			<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[900px]:w-48 max-[700px]:max-h-52 max-[700px]:w-full max-[700px]:border-b max-[700px]:border-r-0">
+				<div className="min-h-0 flex-1 overflow-y-auto p-2">
+					<GroupSection
+						label="By character"
+						groups={characterGroups}
+						selectedId={selectedGroupId}
+						onSelect={setSelectedGroupId}
+						characterNames={characterNames}
 					/>
-				)}
-				{editingGroupId && editingGroupId !== "new" && (
-					<GroupNameEditor
-						value={groupNameDraft}
-						onChange={setGroupNameDraft}
-						onSave={() => void saveGroup()}
-						onCancel={() => setEditingGroupId(null)}
+					<GroupSection
+						label="Global"
+						groups={globalGroups}
+						selectedId={selectedGroupId}
+						onSelect={setSelectedGroupId}
+						characterNames={characterNames}
 					/>
-				)}
+					<GroupSection
+						label="Custom"
+						groups={customGroups}
+						selectedId={selectedGroupId}
+						onSelect={setSelectedGroupId}
+						characterNames={characterNames}
+						onRename={beginRenameGroup}
+						onArchive={archiveGroup}
+						onDelete={deleteGroup}
+					/>
+					{editingGroupId === "new" && (
+						<GroupNameEditor
+							value={groupNameDraft}
+							onChange={setGroupNameDraft}
+							onSave={() => void saveGroup()}
+							onCancel={() => setEditingGroupId(null)}
+						/>
+					)}
+					{editingGroupId && editingGroupId !== "new" && (
+						<GroupNameEditor
+							value={groupNameDraft}
+							onChange={setGroupNameDraft}
+							onSave={() => void saveGroup()}
+							onCancel={() => setEditingGroupId(null)}
+						/>
+					)}
+				</div>
+				<div className="border-t border-border p-2">
+					<button
+						type="button"
+						onClick={beginCreateGroup}
+						title="Create group"
+						className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+					>
+						<Plus className="h-4 w-4" />
+						Add memory group
+					</button>
+				</div>
 			</aside>
 
-			<div className="min-w-0">
+			<main className="flex min-w-0 flex-1 flex-col">
 				<section
-					className="border-b border-border p-3"
+					className="shrink-0 border-b border-border px-5 py-4"
 					aria-label="Character memory settings"
 				>
-					<div className="mb-2 flex flex-wrap items-end gap-2">
-						<label className="min-w-44 flex-1 text-xs text-text-muted">
-							Character
+					<h3 className="mb-3 text-sm font-semibold text-text-primary">
+						Character memory policy
+					</h3>
+					<div className="grid gap-4 sm:grid-cols-2">
+						<label className="min-w-0">
+							<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+								Character
+							</span>
 							<select
 								value={policyCharacterId}
 								onChange={(event) => setPolicyCharacterId(event.target.value)}
-								className="mt-1 h-8 w-full border border-border bg-surface-alt px-2 text-sm text-text-primary"
+								className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
 							>
 								{characters.map((character) => (
 									<option key={character.id} value={character.id}>
@@ -375,8 +412,10 @@ export default function MemoryPanel() {
 								))}
 							</select>
 						</label>
-						<label className="min-w-40 flex-1 text-xs text-text-muted">
-							Default mode
+						<label className="min-w-0">
+							<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+								Default mode
+							</span>
 							<select
 								value={policy?.settings.default_mode ?? "simple"}
 								onChange={(event) =>
@@ -388,7 +427,7 @@ export default function MemoryPanel() {
 										},
 									}))
 								}
-								className="mt-1 h-8 w-full border border-border bg-surface-alt px-2 text-sm text-text-primary"
+								className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
 							>
 								{MODE_OPTIONS.map((mode) => (
 									<option key={mode.id} value={mode.id}>
@@ -397,22 +436,9 @@ export default function MemoryPanel() {
 								))}
 							</select>
 						</label>
-						<button
-							type="button"
-							onClick={savePolicy}
-							disabled={!policy || saving}
-							className="flex h-8 items-center gap-1.5 bg-accent px-3 text-xs font-medium text-white disabled:opacity-50"
-						>
-							{saving ? (
-								<Loader2 className="h-3.5 w-3.5 animate-spin" />
-							) : (
-								<Save className="h-3.5 w-3.5" />
-							)}
-							Save
-						</button>
 					</div>
 					{policy && inheritableGroups.length > 0 && (
-						<div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2">
+						<div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3">
 							{inheritableGroups.map((group) => {
 								const entry = policy.inherited_groups.find(
 									(item) => item.group_id === group.id,
@@ -420,7 +446,7 @@ export default function MemoryPanel() {
 								return (
 									<div
 										key={group.id}
-										className="flex h-7 items-center gap-1.5 text-xs"
+										className="flex h-8 items-center gap-2 text-xs"
 									>
 										<input
 											type="checkbox"
@@ -444,7 +470,7 @@ export default function MemoryPanel() {
 															.value as MemoryGroupInheritance["access_mode"],
 													)
 												}
-												className="h-6 border border-border bg-surface-alt px-1 text-[11px]"
+												className="h-7 rounded-md border border-border bg-control px-2 text-[11px] text-text-primary"
 											>
 												<option value="read">Read</option>
 												<option value="read_write">Read/write</option>
@@ -457,20 +483,20 @@ export default function MemoryPanel() {
 					)}
 				</section>
 
-				<div className="flex items-center gap-2 border-b border-border p-3">
+				<header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
 					<div className="min-w-0 flex-1">
-						<div className="truncate text-sm font-medium text-text-primary">
+						<h3 className="truncate text-base font-semibold text-text-primary">
 							{selectedGroup?.name ?? "All memories"}
-						</div>
-						<div className="text-[11px] text-text-muted">
+						</h3>
+						<p className="text-xs text-text-muted">
 							{selectedGroup
 								? GROUP_TYPE_LABELS[selectedGroup.group_type]
 								: "All groups"}{" "}
 							· {items.length} memories
-						</div>
+						</p>
 					</div>
-					<div className="relative w-64 max-w-[45%]">
-						<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+					<div className="relative w-64 max-w-[45%] shrink-0">
+						<Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 						<input
 							autoComplete="off"
 							value={query}
@@ -480,71 +506,92 @@ export default function MemoryPanel() {
 									void loadMemories(query, selectedGroupId);
 							}}
 							placeholder="Search memories"
-							className="h-8 w-full border border-border bg-surface-alt pl-8 pr-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+							aria-label="Search memories"
+							className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 						/>
 					</div>
-				</div>
+				</header>
 
-				{loading ? (
-					<div className="flex items-center justify-center py-12 text-text-muted">
-						<Loader2 className="h-4 w-4 animate-spin" />
-					</div>
-				) : items.length === 0 ? (
-					<p className="py-12 text-center text-sm text-text-muted">
-						No memories in this group.
-					</p>
-				) : (
-					<ul className="divide-y divide-border">
-						{items.map((memory) => (
-							<li
-								key={memory.id}
-								className="group px-3 py-2.5 hover:bg-surface-hover/40"
-							>
-								<div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-text-muted">
-									<span className="flex min-w-0 items-center gap-1.5">
-										<span className="border border-border px-1.5 py-0.5 uppercase">
-											{memory.kind}
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					{loading ? (
+						<div className="flex min-h-48 items-center justify-center text-text-muted">
+							<Loader2 className="h-4 w-4 animate-spin" />
+						</div>
+					) : items.length === 0 ? (
+						<p className="flex min-h-48 items-center justify-center text-sm text-text-muted">
+							No memories in this group.
+						</p>
+					) : (
+						<ul className="divide-y divide-border">
+							{items.map((memory) => (
+								<li
+									key={memory.id}
+									className="group px-5 py-3 hover:bg-surface-hover/40"
+								>
+									<div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-text-muted">
+										<span className="flex min-w-0 items-center gap-1.5">
+											<span className="rounded border border-border px-1.5 py-0.5 uppercase">
+												{memory.kind}
+											</span>
+											<span className="rounded border border-border px-1.5 py-0.5">
+												{memory.state}
+											</span>
+											<span className="truncate">
+												{groups.find((group) => group.id === memory.group_id)
+													?.name ?? memory.group_id}
+											</span>
 										</span>
-										<span className="border border-border px-1.5 py-0.5">
-											{memory.state}
+										<span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+											<button
+												type="button"
+												onClick={() => {
+													setDraft(`> [memory] ${memory.content}`);
+													closeSettings();
+												}}
+												aria-label="Quote into chat input"
+												title="Quote into chat input"
+												className="text-text-muted hover:text-accent"
+											>
+												<Quote className="h-3.5 w-3.5" />
+											</button>
+											<button
+												type="button"
+												onClick={() => void onDelete(memory.id)}
+												aria-label="Delete memory"
+												title="Delete"
+												className="text-text-muted hover:text-danger"
+											>
+												<Trash2 className="h-3.5 w-3.5" />
+											</button>
 										</span>
-										<span className="truncate">
-											{groups.find((group) => group.id === memory.group_id)
-												?.name ?? memory.group_id}
-										</span>
-									</span>
-									<span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-										<button
-											type="button"
-											onClick={() => {
-												setDraft(`> [memory] ${memory.content}`);
-												closeSettings();
-											}}
-											aria-label="Quote into chat input"
-											title="Quote into chat input"
-											className="text-text-muted hover:text-accent"
-										>
-											<Quote className="h-3.5 w-3.5" />
-										</button>
-										<button
-											type="button"
-											onClick={() => void onDelete(memory.id)}
-											aria-label="Delete memory"
-											title="Delete"
-											className="text-text-muted hover:text-danger"
-										>
-											<Trash2 className="h-3.5 w-3.5" />
-										</button>
-									</span>
-								</div>
-								<p className="whitespace-pre-wrap break-words text-sm text-text-primary">
-									{memory.content}
-								</p>
-							</li>
-						))}
-					</ul>
-				)}
-			</div>
+									</div>
+									<p className="whitespace-pre-wrap break-words text-sm text-text-primary">
+										{memory.content}
+									</p>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+				<footer className="flex h-14 shrink-0 items-center justify-between gap-3 border-t border-border bg-surface px-5">
+					<span className="text-xs text-text-muted">
+						{policyDirty ? "Unsaved memory settings" : "All changes saved"}
+					</span>
+					<button
+						type="button"
+						onClick={() => void savePolicy()}
+						disabled={!policyDirty || saving}
+						className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{saving ? (
+							<Loader2 className="h-3.5 w-3.5 animate-spin" />
+						) : (
+							<Save className="h-3.5 w-3.5" />
+						)}
+						Save changes
+					</button>
+				</footer>
+			</main>
 		</div>
 	);
 }
@@ -555,7 +602,6 @@ function GroupSection({
 	selectedId,
 	onSelect,
 	characterNames,
-	onCreate,
 	onRename,
 	onArchive,
 	onDelete,
@@ -565,46 +611,41 @@ function GroupSection({
 	selectedId: string;
 	onSelect: (id: string) => void;
 	characterNames: Map<string, string>;
-	onCreate?: () => void;
 	onRename?: (group: MemoryGroup) => void;
 	onArchive?: (group: MemoryGroup) => void;
 	onDelete?: (group: MemoryGroup) => void;
 }) {
 	return (
-		<div className="mb-3">
-			<div className="mb-1 flex items-center justify-between px-2 text-[10px] font-semibold uppercase text-text-muted">
+		<div className="mb-4">
+			<div className="mb-1.5 px-2 text-[10px] font-semibold uppercase text-text-muted">
 				{label}
-				{onCreate && (
-					<button
-						type="button"
-						onClick={onCreate}
-						aria-label="Create custom memory group"
-						title="Create group"
-						className="text-text-muted hover:text-accent"
-					>
-						<Plus className="h-3.5 w-3.5" />
-					</button>
-				)}
 			</div>
 			{groups.map((group) => (
 				<div
 					key={group.id}
-					className={`group mb-0.5 flex h-8 w-full items-center text-xs ${
+					className={`group mb-1 flex min-h-11 w-full items-center rounded-md border text-xs transition-colors ${
 						selectedId === group.id
-							? "bg-selected text-text-primary"
-							: "text-text-secondary hover:bg-surface-hover"
+							? "border-border bg-surface text-text-primary shadow-sm"
+							: "border-transparent text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 					}`}
 				>
 					<button
 						type="button"
 						onClick={() => onSelect(group.id)}
-						className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-left"
+						className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
 					>
-						<GroupIcon type={group.group_type} />
-						<span className="truncate">
-							{group.owner_character_id
-								? (characterNames.get(group.owner_character_id) ?? group.name)
-								: group.name}
+						<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-hover text-text-secondary">
+							<GroupIcon type={group.group_type} />
+						</span>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm font-medium">
+								{group.owner_character_id
+									? (characterNames.get(group.owner_character_id) ?? group.name)
+									: group.name}
+							</span>
+							<span className="block text-[10px] capitalize text-text-muted">
+								{GROUP_TYPE_LABELS[group.group_type]}
+							</span>
 						</span>
 					</button>
 					{onRename && onArchive && onDelete && (
@@ -676,13 +717,14 @@ function GroupNameEditor({
 					if (event.key === "Escape") onCancel();
 				}}
 				aria-label="Memory group name"
-				className="h-7 min-w-0 flex-1 border border-border bg-surface px-1.5 text-xs text-text-primary"
+				className="h-8 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-xs text-text-primary outline-none focus:border-accent"
 			/>
 			<button
 				type="button"
 				onClick={onSave}
 				aria-label="Save group name"
 				title="Save"
+				className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-surface-hover"
 			>
 				<Check className="h-3.5 w-3.5 text-success" />
 			</button>
@@ -691,6 +733,7 @@ function GroupNameEditor({
 				onClick={onCancel}
 				aria-label="Cancel group edit"
 				title="Cancel"
+				className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-surface-hover"
 			>
 				<X className="h-3.5 w-3.5 text-text-muted" />
 			</button>

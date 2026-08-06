@@ -125,7 +125,7 @@ export default function ProviderSwitcher() {
 	};
 
 	return (
-		<div ref={rootRef} className="relative min-w-0">
+		<div ref={rootRef} className="relative w-fit max-w-full min-w-0">
 			<button
 				ref={triggerRef}
 				type="button"
@@ -144,14 +144,14 @@ export default function ProviderSwitcher() {
 				aria-busy={updating}
 				title={triggerLabel}
 				disabled={updating}
-				className="flex h-9 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-control hover:text-text-primary disabled:cursor-wait disabled:opacity-70"
+				className="flex h-9 w-fit max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary transition-colors hover:bg-control hover:text-text-primary disabled:cursor-wait disabled:opacity-70"
 			>
 				{updating ? (
 					<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
 				) : (
 					<Cpu className="h-3.5 w-3.5 shrink-0" />
 				)}
-				<span className="hidden min-w-0 max-w-[42%] truncate min-[1200px]:block">
+				<span className="hidden min-w-0 max-w-32 truncate min-[1200px]:block">
 					{providerName}
 				</span>
 				<span
@@ -160,7 +160,7 @@ export default function ProviderSwitcher() {
 				>
 					·
 				</span>
-				<span className="min-w-0 flex-1 truncate font-medium text-text-primary">
+				<span className="min-w-0 max-w-80 truncate font-medium text-text-primary">
 					{modelName}
 				</span>
 				{unavailable && (

@@ -1,21 +1,8 @@
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../services/conversation";
 
-const confirmAsk = vi.fn();
-vi.mock("../../stores/confirmStore", () => ({
-	confirm: { ask: (...args: unknown[]) => confirmAsk(...args) },
-}));
-
 const toggleSidebar = vi.fn();
-const generateTitle = vi.fn();
-const deleteConversation = vi.fn();
 const openCharacter = vi.fn();
 
 let conversationState: {
@@ -23,8 +10,6 @@ let conversationState: {
 	conversations: Conversation[];
 	loading: boolean;
 	streaming: boolean;
-	generateTitle: typeof generateTitle;
-	deleteConversation: typeof deleteConversation;
 };
 
 let settingsState: {
@@ -92,18 +77,13 @@ function conversation(): Conversation {
 }
 
 beforeEach(() => {
-	confirmAsk.mockReset().mockResolvedValue(true);
 	toggleSidebar.mockReset();
-	generateTitle.mockReset().mockResolvedValue(undefined);
-	deleteConversation.mockReset().mockResolvedValue(undefined);
 	openCharacter.mockReset();
 	conversationState = {
 		activeId: "conversation-1",
 		conversations: [conversation()],
 		loading: false,
 		streaming: false,
-		generateTitle,
-		deleteConversation,
 	};
 	settingsState = {
 		sidebarOpen: true,
@@ -140,6 +120,8 @@ describe("ContextHeader context and layout commands", () => {
 			Node.DOCUMENT_POSITION_FOLLOWING,
 		);
 		expect(provider.parentElement?.className).toContain("ml-auto");
+		expect(provider.parentElement?.className).toContain("max-w-[55%]");
+		expect(provider.parentElement?.className).not.toContain("w-[32%]");
 		expect(header.textContent).toContain(
 			"Saved archivistA deliberately long conversation",
 		);
@@ -171,7 +153,7 @@ describe("ContextHeader context and layout commands", () => {
 		expect(screen.queryByRole("button", { name: /focus mode/i })).toBeNull();
 	});
 
-	it("shows only real loading and generation states", () => {
+	it("keeps transient generation status out of the navigation header", () => {
 		conversationState.loading = true;
 		const { rerender } = render(<ContextHeader />);
 		expect(screen.getByLabelText("Loading conversation")).toBeDefined();
@@ -179,7 +161,8 @@ describe("ContextHeader context and layout commands", () => {
 		conversationState.loading = false;
 		conversationState.streaming = true;
 		rerender(<ContextHeader />);
-		expect(screen.getByLabelText("Generating response")).toBeDefined();
+		expect(screen.queryByLabelText("Loading conversation")).toBeNull();
+		expect(screen.queryByLabelText("Generating response")).toBeNull();
 
 		conversationState.streaming = false;
 		rerender(<ContextHeader />);
@@ -187,65 +170,15 @@ describe("ContextHeader context and layout commands", () => {
 	});
 });
 
-describe("ContextHeader conversation actions", () => {
-	function openActions() {
-		fireEvent.click(
-			screen.getByRole("button", {
+describe("ContextHeader removed commands", () => {
+	it("does not expose a conversation actions menu", () => {
+		render(<ContextHeader />);
+
+		expect(screen.queryByTitle("Conversation actions")).toBeNull();
+		expect(
+			screen.queryByRole("button", {
 				name: "Actions for A deliberately long conversation",
 			}),
-		);
-	}
-
-	it("regenerates the active conversation title with force semantics", () => {
-		render(<ContextHeader />);
-		openActions();
-		fireEvent.click(screen.getByRole("menuitem", { name: "Regenerate title" }));
-
-		expect(generateTitle).toHaveBeenCalledWith("conversation-1", true);
-	});
-
-	it("deletes only after explicit confirmation", async () => {
-		confirmAsk.mockResolvedValueOnce(false);
-		render(<ContextHeader />);
-		openActions();
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Delete conversation" }),
-		);
-		await waitFor(() => expect(confirmAsk).toHaveBeenCalledTimes(1));
-		expect(deleteConversation).not.toHaveBeenCalled();
-	});
-
-	it("deletes the active conversation after confirmation", async () => {
-		render(<ContextHeader />);
-		openActions();
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Delete conversation" }),
-		);
-		await waitFor(() =>
-			expect(deleteConversation).toHaveBeenCalledWith("conversation-1"),
-		);
-	});
-
-	it("closes on Escape and restores focus to the action trigger", () => {
-		render(<ContextHeader />);
-		const trigger = screen.getByRole("button", {
-			name: "Actions for A deliberately long conversation",
-		});
-		fireEvent.click(trigger);
-		fireEvent.keyDown(window, { key: "Escape" });
-
-		expect(screen.queryByRole("menu")).toBeNull();
-		expect(document.activeElement).toBe(trigger);
-	});
-
-	it("does not show conversation actions before a conversation exists", () => {
-		conversationState.activeId = null;
-		conversationState.conversations = [];
-		render(<ContextHeader />);
-
-		expect(
-			screen.getByRole("heading", { name: "New conversation" }),
-		).toBeDefined();
-		expect(screen.queryByTitle("Conversation actions")).toBeNull();
+		).toBeNull();
 	});
 });

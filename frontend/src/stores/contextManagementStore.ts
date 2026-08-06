@@ -386,13 +386,15 @@ export function buildCompactionSummary(
 	};
 }
 
+export type ContextPanelTab = "context" | "memory" | "parameters";
+
 interface ContextManagementState {
 	records: UsageRecord[];
 	autoCompact: boolean;
 	advanced: AdvancedParameters;
 	compactions: Record<string, CompactionState>;
 	contextPanelOpen: boolean;
-	contextPanelTab: "parameters" | "context";
+	contextPanelTab: ContextPanelTab;
 	recordUsage: (record: Omit<UsageRecord, "id">) => void;
 	clearUsage: () => void;
 	setAutoCompact: (enabled: boolean) => void;
@@ -403,7 +405,7 @@ interface ContextManagementState {
 	) => CompactionState | null;
 	clearCompaction: (conversationId: string) => void;
 	setContextPanelOpen: (open: boolean) => void;
-	setContextPanelTab: (tab: "parameters" | "context") => void;
+	setContextPanelTab: (tab: ContextPanelTab) => void;
 }
 
 export const useContextManagementStore = create<ContextManagementState>(
