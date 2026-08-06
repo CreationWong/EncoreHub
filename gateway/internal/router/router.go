@@ -1,3 +1,4 @@
+// Package router owns the public Gateway route and middleware topology.
 package router
 
 import (
@@ -84,6 +85,7 @@ func Setup(cfg Config) *gin.Engine {
 			// Character upgrades are previewed and applied by the authoritative Engine.
 			conv.GET("/:id/character-upgrade", engineProxy.Forward)
 			conv.POST("/:id/character-upgrade", engineProxy.Forward)
+			conv.POST("/:id/memory-mode/resolve", engineProxy.Forward)
 		}
 
 		// Search
@@ -109,7 +111,7 @@ func Setup(cfg Config) *gin.Engine {
 		// proxy. All standard CRUD verbs land on the proxy; engine enforces shape.
 		// Secrets carry key material — they ride the same localhost trust boundary
 		// as the X-Provider-Key header the gateway already forwards.
-		for _, res := range []string{"skills", "memories", "knowledge", "secrets", "characters", "config", "usage"} {
+		for _, res := range []string{"skills", "memories", "memory-groups", "knowledge", "secrets", "characters", "config", "usage"} {
 			api.Any("/"+res, engineProxy.Forward)
 			api.Any("/"+res+"/*rest", engineProxy.Forward)
 		}

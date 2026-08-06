@@ -1,3 +1,5 @@
+//! SQLite persistence for versioned characters and their conversation snapshots.
+
 use super::{
     conversation_from_row, now_ms, parse_tags_json, Database, Result, CONVERSATION_COLUMNS,
 };
@@ -293,6 +295,24 @@ impl Database {
                 profile.created_at.timestamp_millis(),
             ],
         )?;
+        let memory_group_id = format!("character:{}", profile.id);
+        transaction.execute(
+            "INSERT INTO memory_groups
+                (id, profile_id, name, group_type, owner_character_id, created_at, updated_at)
+             VALUES (?1, 'local', ?2, 'character', ?3, ?4, ?4)",
+            params![
+                memory_group_id,
+                profile.name,
+                profile.id,
+                profile.created_at.timestamp_millis(),
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO character_memory_settings
+                (character_id, default_mode, realistic_enabled, updated_at)
+             VALUES (?1, 'simple', 0, ?2)",
+            params![profile.id, profile.created_at.timestamp_millis()],
+        )?;
         transaction.commit()?;
         Ok(())
     }
@@ -579,6 +599,17 @@ impl Database {
                 tags_json,
                 conversation.created_at.timestamp_millis(),
                 conversation.updated_at.timestamp_millis(),
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO conversation_character_memory_modes
+                (conversation_id, character_id, mode_floor, updated_at)
+             SELECT ?1, ?2, default_mode, ?3
+               FROM character_memory_settings WHERE character_id = ?2",
+            params![
+                conversation.id,
+                conversation.character_id,
+                conversation.created_at.timestamp_millis(),
             ],
         )?;
         transaction.commit()?;

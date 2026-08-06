@@ -7,8 +7,8 @@ use axum::{
     Json,
 };
 use encorehub_core::{
-    CharacterSnapshot, CharacterUpgradePreview, Conversation, Memory, MemoryScope, MemoryType,
-    Message, MessageStatus, Role, ToolCall, DEFAULT_CHARACTER_ID,
+    CharacterSnapshot, CharacterUpgradePreview, Conversation, Message, MessageStatus, Role,
+    ToolCall, DEFAULT_CHARACTER_ID,
 };
 use encorehub_storage::{AttachmentRecord, BlobStore, Database};
 use serde::{Deserialize, Serialize};
@@ -698,13 +698,6 @@ pub async fn finalize_turn(
             .db
             .get_tool_calls(&stored.id)
             .map_err(internal_error)?;
-        if status == MessageStatus::Completed {
-            if let Err(error) =
-                super::memories::store_turn_memory(&state, &conv_id, &user.content, &stored.content)
-            {
-                tracing::warn!(conversation_id = %conv_id, error = %error, "turn memory indexing failed");
-            }
-        }
         Some(build_msg_response(&state.db, &stored, &stored_calls))
     } else {
         None
@@ -812,9 +805,6 @@ pub async fn send_message(
         let _ = state.db.update_conversation_title(&conv_id, &title);
     }
 
-    // 5. Consolidate conversation memory (store summary to global memory)
-    maybe_consolidate_memory(&state, &conv_id, &req.content, &mock_reply);
-
     Ok(Json(SendMessageResponse {
         user_message: build_msg_response(&state.db, &user_msg, &[]),
         assistant_message: build_msg_response(&state.db, &assistant_msg, &[]),
@@ -847,12 +837,11 @@ fn generate_mock_reply(user_input: &str, history: &[Message]) -> String {
     if input_lower.contains("memory") || input_lower.contains("记忆") {
         return format!(
             "**Memory System Status**\n\n\
-             - Conversation memory: active ({} messages stored in SQLite)\n\
-             - Episodic memory: active (SQLite-Vec)\n\
+             - Conversation history: active ({} messages stored in SQLite)\n\
+             - Curated memory: created only by an explicit memory tool call\n\
              - Knowledge vectors: LanceDB primary, SQLite-Vec fallback\n\
-             - FTS5 full-text search: enabled\n\
-             - Memory consolidation: runs after each user-assistant pair\n\n\
-             Your messages are being persisted and will be searchable!",
+             - FTS5 full-text search: enabled\n\n\
+             Messages are persisted separately from curated memory.",
             history.len()
         );
     }
@@ -893,39 +882,6 @@ fn generate_title(content: &str) -> String {
         "New Chat".into()
     } else {
         title
-    }
-}
-
-/// After each user-assistant exchange, consolidate memories.
-fn maybe_consolidate_memory(state: &SharedState, conv_id: &str, user_input: &str, ai_reply: &str) {
-    // Store conversation-scoped episodic memory
-    let mem = Memory::new(
-        MemoryScope::Conversation,
-        MemoryType::Episodic,
-        Some(conv_id.to_string()),
-        format!("User: {}\nAssistant: {}", user_input, ai_reply),
-        0.5,
-    );
-    if let Err(e) = state.db.store_memory(&mem) {
-        tracing::warn!("Failed to store memory: {}", e);
-    }
-
-    // Every 5th exchange, also create a global memory
-    if let Ok(msgs) = state.db.get_messages(conv_id) {
-        let user_count = msgs.iter().filter(|m| m.role == Role::User).count();
-        if user_count > 0 && user_count % 5 == 0 {
-            let global_mem = Memory::new(
-                MemoryScope::Global,
-                MemoryType::Semantic,
-                None,
-                format!(
-                    "In conversation '{}', the user discussed: {}",
-                    conv_id, user_input
-                ),
-                0.7,
-            );
-            let _ = state.db.store_memory(&global_mem);
-        }
     }
 }
 

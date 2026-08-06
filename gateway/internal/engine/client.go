@@ -442,8 +442,64 @@ type memorySearchResponse struct {
 	Results []MemoryHit `json:"results"`
 }
 
+// RememberMemoryRequest contains trusted conversation provenance plus the
+// bounded semantic fields selected by the model.
+type RememberMemoryRequest struct {
+	ConversationID string  `json:"conversation_id"`
+	CharacterID    string  `json:"character_id"`
+	SourceTurnID   string  `json:"source_turn_id"`
+	CreatedByModel string  `json:"created_by_model"`
+	Content        string  `json:"content"`
+	Kind           string  `json:"kind"`
+	Reason         string  `json:"reason"`
+	Importance     float64 `json:"importance"`
+	Confidence     float64 `json:"confidence"`
+	CanonicalKey   *string `json:"canonical_key,omitempty"`
+	TargetGroupID  *string `json:"target_group_id,omitempty"`
+}
+
+type RememberedMemory struct {
+	ID      string `json:"id"`
+	GroupID string `json:"group_id"`
+	State   string `json:"state"`
+	Kind    string `json:"kind"`
+}
+
+// ConversationMemoryMode is the monotonic mode resolved by the Engine for a
+// conversation and its immutable character association.
+type ConversationMemoryMode struct {
+	ConversationID string `json:"conversation_id"`
+	CharacterID    string `json:"character_id"`
+	Mode           string `json:"mode"`
+}
+
+func (c *Client) RememberMemory(ctx context.Context, request RememberMemoryRequest) (*RememberedMemory, error) {
+	var response RememberedMemory
+	if err := c.doJSON(ctx, http.MethodPost, "/api/memories", request, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// ResolveConversationMemoryMode advances, but never lowers, the conversation's
+// role-scoped mode floor.
+func (c *Client) ResolveConversationMemoryMode(ctx context.Context, conversationID string) (*ConversationMemoryMode, error) {
+	var response ConversationMemoryMode
+	path := "/api/conversations/" + url.PathEscape(conversationID) + "/memory-mode/resolve"
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
 // SearchMemories runs FTS memory search via the engine.
 func (c *Client) SearchMemories(ctx context.Context, q string, topK int) ([]MemoryHit, error) {
+	return c.SearchMemoriesForCharacter(ctx, q, "", topK)
+}
+
+// SearchMemoriesForCharacter restricts candidates to the character's own,
+// global, and explicitly inherited memory groups.
+func (c *Client) SearchMemoriesForCharacter(ctx context.Context, q, characterID string, topK int) ([]MemoryHit, error) {
 	if q == "" {
 		return nil, nil
 	}
@@ -451,6 +507,9 @@ func (c *Client) SearchMemories(ctx context.Context, q string, topK int) ([]Memo
 		topK = 3
 	}
 	path := fmt.Sprintf("/api/memories/search?q=%s&top_k=%d", url.QueryEscape(q), topK)
+	if characterID != "" {
+		path += "&character_id=" + url.QueryEscape(characterID)
+	}
 	var resp memorySearchResponse
 	if err := c.doJSON(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err

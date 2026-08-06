@@ -1,3 +1,5 @@
+//! Authenticated Engine HTTP router and shared API state.
+
 mod attachments;
 mod characters;
 mod config;
@@ -148,15 +150,34 @@ pub fn build_router_with(
         .route("/api/knowledge/search", get(knowledge::search))
         .route("/api/knowledge/:id", delete(knowledge::delete))
         // Memory search
-        .route("/api/memories", get(memories::list))
+        .route(
+            "/api/memories",
+            get(memories::list).post(memories::remember),
+        )
         .route("/api/memories/search", get(memories::search))
         .route("/api/memories/:id", delete(memories::delete))
+        .route(
+            "/api/memory-groups",
+            get(memories::list_groups).post(memories::create_group),
+        )
+        .route(
+            "/api/memory-groups/:id",
+            axum::routing::patch(memories::update_group).delete(memories::delete_group),
+        )
         // Versioned character profiles
         .route(
             "/api/characters/:id",
             get(characters::get_one)
                 .patch(characters::update)
                 .delete(characters::delete),
+        )
+        .route(
+            "/api/characters/:id/memory-settings",
+            get(memories::character_settings).put(memories::update_character_settings),
+        )
+        .route(
+            "/api/conversations/:id/memory-mode/resolve",
+            post(memories::resolve_conversation_mode),
         )
         .route(
             "/api/characters",

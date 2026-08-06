@@ -1,3 +1,4 @@
+// Package handler tests end-to-end chat orchestration against a stub Engine.
 package handler
 
 import (
@@ -58,22 +59,41 @@ type chatEngineStub struct {
 	beginRequests         int
 	beginReplaceMessageID string
 	finalizeRequests      []engine.FinalizeTurnRequest
+	rememberRequests      []engine.RememberMemoryRequest
 	conversationMessages  []engine.Message
 	searchConfig          string
+	memoryMode            string
+	memoryResults         []engine.MemoryHit
+	memorySearchQueries   []string
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/conversations/c1":
 		writeTestJSON(w, http.StatusOK, engine.ConversationDetail{
-			ID:       "c1",
-			Title:    "Existing",
-			Provider: "test",
-			Model:    "model-test",
-			Messages: s.conversationMessages,
+			ID:          "c1",
+			Title:       "Existing",
+			Provider:    "test",
+			Model:       "model-test",
+			CharacterID: "character-default",
+			Messages:    s.conversationMessages,
 		})
-	case r.Method == http.MethodGet && (r.URL.Path == "/api/memories/search" || r.URL.Path == "/api/knowledge/search"):
+	case r.Method == http.MethodGet && r.URL.Path == "/api/memories/search":
+		s.mu.Lock()
+		s.memorySearchQueries = append(s.memorySearchQueries, r.URL.RawQuery)
+		results := append([]engine.MemoryHit(nil), s.memoryResults...)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, map[string]any{"results": results})
+	case r.Method == http.MethodGet && r.URL.Path == "/api/knowledge/search":
 		writeTestJSON(w, http.StatusOK, map[string]any{"results": []any{}})
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/memory-mode/resolve":
+		mode := s.memoryMode
+		if mode == "" {
+			mode = "simple"
+		}
+		writeTestJSON(w, http.StatusOK, engine.ConversationMemoryMode{
+			ConversationID: "c1", CharacterID: "character-default", Mode: mode,
+		})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/config/web_search_settings" && s.searchConfig != "":
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.searchConfig))
@@ -145,6 +165,15 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeTestJSON(w, http.StatusOK, engine.FinalizeTurnResponse{
 			UserMessage:      user,
 			AssistantMessage: assistant,
+		})
+	case r.Method == http.MethodPost && r.URL.Path == "/api/memories":
+		var request engine.RememberMemoryRequest
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.mu.Lock()
+		s.rememberRequests = append(s.rememberRequests, request)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusCreated, engine.RememberedMemory{
+			ID: "memory-1", GroupID: "character:character-default", State: "long_term", Kind: request.Kind,
 		})
 	case r.Method == http.MethodPatch && r.URL.Path == "/api/conversations/c1":
 		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: "Renamed"})
@@ -270,6 +299,18 @@ func (s *chatEngineStub) finalizations() []engine.FinalizeTurnRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]engine.FinalizeTurnRequest(nil), s.finalizeRequests...)
+}
+
+func (s *chatEngineStub) remembered() []engine.RememberMemoryRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]engine.RememberMemoryRequest(nil), s.rememberRequests...)
+}
+
+func (s *chatEngineStub) memoryQueries() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.memorySearchQueries...)
 }
 
 func writeTestJSON(w http.ResponseWriter, status int, value any) {
@@ -713,6 +754,89 @@ func TestSendMessage_ToolRoundsAccumulateContentAndUsage(t *testing.T) {
 	if len(requests[0].Assistant.ToolCalls) != 1 || requests[0].Assistant.ToolCalls[0].Status != "success" {
 		t.Fatalf("executed tool call was not persisted authoritatively: %+v", requests[0].Assistant.ToolCalls)
 	}
+}
+
+func TestSendMessage_MemoryToolUsesTrustedTurnProvenance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				if !hasToolNamed(request.Tools, "memory_remember") {
+					t.Fatal("memory_remember was not registered for streamed chat")
+				}
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index:     0,
+					ID:        "memory-call",
+					Name:      "memory_remember",
+					Arguments: `{"content":"The user leads release engineering.","kind":"fact","reason":"Stable responsibility","importance":0.9,"confidence":0.8,"conversation_id":"forged","character_id":"forged","source_turn_id":"forged","created_by_model":"forged"}`,
+				}}), nil
+			case 2:
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "Understood.", FinishReason: "stop"}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	requests := stub.remembered()
+	if len(requests) != 1 {
+		t.Fatalf("memory requests = %+v", requests)
+	}
+	request := requests[0]
+	if request.ConversationID != "c1" || request.CharacterID != "character-default" ||
+		request.SourceTurnID != "turn-1" || request.CreatedByModel != "model-test" {
+		t.Fatalf("untrusted memory provenance reached Engine: %+v", request)
+	}
+	if request.Content != "The user leads release engineering." || request.Kind != "fact" {
+		t.Fatalf("model-selected semantic fields were lost: %+v", request)
+	}
+}
+
+func TestSendMessage_RAGSearchIsRestrictedToCharacterGroups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{
+		memoryMode: "rag",
+		memoryResults: []engine.MemoryHit{{
+			Content: "The user prefers concise technical answers.",
+			Scope:   "global",
+		}},
+	}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			if !strings.Contains(request.SystemPrompt, "The user prefers concise technical answers.") {
+				t.Fatalf("RAG memory missing from prompt: %s", request.SystemPrompt)
+			}
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "Answer", FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	queries := stub.memoryQueries()
+	if len(queries) != 1 || !strings.Contains(queries[0], "character_id=character-default") {
+		t.Fatalf("memory search was not role-scoped: %v", queries)
+	}
+}
+
+func hasToolNamed(tools []provider.Tool, name string) bool {
+	for _, tool := range tools {
+		if tool.Function != nil && tool.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSendMessage_DisabledReasoningSuppressesUnexpectedProviderThinking(t *testing.T) {

@@ -7,7 +7,8 @@ EncoreHub 项目变更记录。日期均为 UTC。
 ### Added
 
 - **附件与本地检索**：聊天输入框支持按钮和拖拽上传图片、富文本及普通文本；附件元数据和内容寻址位置写入 SQLite，图片按模型视觉声明直传，非视觉模型由用户显式选择系统 OCR 或视觉模型。
-- **Memory 与 Knowledge**：Knowledge 使用嵌入式本地 LanceDB 主索引并同步 SQLite-Vec 后备，LanceDB 不可用时自动回退；每轮完成的对话以 SQLite-Vec 建立 episodic memory 索引。
+- **角色记忆与 Knowledge**：记忆模式绑定角色，记忆按角色默认组、全局组和自定义组隔离；模型只有在判断信息长期有用时才调用 `memory_remember`，普通消息不会自动写入。简单模式只写关系库，RAG 使用 SQLite-Vec，增强模式混合本地 LanceDB Knowledge；LanceDB 不可用时自动回退 SQLite-Vec。
+- **记忆组管理**：记忆设置默认按角色分组，支持自定义组的新建、重命名、归档和显式删除；角色可继承其他组并分别授予只读或读写权限，角色默认组与全局组受保护。
 - **Rust 数据管线**：移除 Python、FastAPI、PyOxidizer 与 Chroma；384 维本地 embedding、Unicode 分块及 DOCX/ODT/EPUB/HTML/RTF 回退解析全部在 Rust Engine 内完成，Pandoc 仍作为可选的高保真首选转换器。
 - **开源合规清单**：桌面发布按 Rust 目标三元组自动解析 npm、Cargo 和 Go 的生产依赖闭包，生成带精确版本与 SPDX 许可证标识的完整组件清单；About 弹窗支持按包名、版本、许可证和生态搜索，未知许可证会阻止发布构建。
 - **供应商调试**：开发者模式下可从模型供应商和元数据供应商打开侧边调试面板，按当前草稿的供应商、端点和模型筛选实时网络通信记录。

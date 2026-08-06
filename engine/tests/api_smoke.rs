@@ -464,9 +464,8 @@ async fn knowledge_ingest_list_search_delete() {
 
 #[tokio::test]
 async fn memories_list_and_search_are_empty_initially() {
-    // Memories are populated by chat-side consolidation logic; from a fresh
-    // db the HTTP surface should still respond with empty arrays rather than
-    // 500.
+    // A fresh database has groups and role settings, but no memory is created
+    // until a model explicitly invokes a memory tool.
     let (_dir, app) = make_app();
 
     let resp = app
@@ -497,6 +496,388 @@ async fn memories_list_and_search_are_empty_initially() {
     let v = body_json(resp).await;
     assert_eq!(v["query"], "anything");
     assert!(v["results"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn character_memory_groups_and_mode_settings_are_role_scoped() {
+    let (_dir, app) = make_app();
+    let created = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/characters",
+            json!({"name": "Archivist"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let character_id = body_json(created).await["id"].as_str().unwrap().to_string();
+
+    let groups = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memory-groups")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(groups.status(), StatusCode::OK);
+    let groups = body_json(groups).await;
+    assert!(groups["groups"].as_array().unwrap().iter().any(|group| {
+        group["owner_character_id"] == character_id && group["group_type"] == "character"
+    }));
+    assert!(groups["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|group| group["group_type"] == "global"));
+
+    let settings_path = format!("/api/characters/{character_id}/memory-settings");
+    let settings = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(&settings_path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(settings.status(), StatusCode::OK);
+    let settings = body_json(settings).await;
+    assert_eq!(settings["settings"]["default_mode"], "simple");
+    assert!(settings["visible_group_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "global"));
+
+    let updated = app
+        .oneshot(json_post(
+            "PUT",
+            &settings_path,
+            json!({
+                "default_mode": "rag",
+                "realistic_enabled": false,
+                "inherited_groups": []
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    assert_eq!(body_json(updated).await["settings"]["default_mode"], "rag");
+}
+
+#[tokio::test]
+async fn conversation_memory_mode_only_upgrades_and_never_enters_realistic() {
+    let (_dir, app) = make_app();
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "mode floor", "character_id": "default"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resolve_path = format!("/api/conversations/{conversation_id}/memory-mode/resolve");
+
+    let initial = app
+        .clone()
+        .oneshot(json_post("POST", &resolve_path, json!({})))
+        .await
+        .unwrap();
+    assert_eq!(body_json(initial).await["mode"], "simple");
+
+    let rag = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/characters/default/memory-settings",
+            json!({
+                "default_mode": "rag",
+                "realistic_enabled": false,
+                "inherited_groups": []
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rag.status(), StatusCode::OK);
+    let upgraded = app
+        .clone()
+        .oneshot(json_post("POST", &resolve_path, json!({})))
+        .await
+        .unwrap();
+    assert_eq!(body_json(upgraded).await["mode"], "rag");
+
+    let simple = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/characters/default/memory-settings",
+            json!({
+                "default_mode": "simple",
+                "realistic_enabled": false,
+                "inherited_groups": []
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(simple.status(), StatusCode::OK);
+    let retained = app
+        .clone()
+        .oneshot(json_post("POST", &resolve_path, json!({})))
+        .await
+        .unwrap();
+    assert_eq!(body_json(retained).await["mode"], "rag");
+
+    let realistic = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/characters/default/memory-settings",
+            json!({
+                "default_mode": "realistic",
+                "realistic_enabled": true,
+                "inherited_groups": []
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(realistic.status(), StatusCode::OK);
+    let still_rag = app
+        .oneshot(json_post("POST", &resolve_path, json!({})))
+        .await
+        .unwrap();
+    assert_eq!(body_json(still_rag).await["mode"], "rag");
+}
+
+#[tokio::test]
+async fn custom_memory_group_crud_requires_explicit_memory_disposition() {
+    let (_dir, app) = make_app();
+    let source = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memory-groups",
+            json!({"name": "Shared research"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(source.status(), StatusCode::CREATED);
+    let source_id = body_json(source).await["id"].as_str().unwrap().to_string();
+
+    let renamed = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/memory-groups/{source_id}"),
+            json!({"name": "Release research"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(renamed.status(), StatusCode::OK);
+    assert_eq!(body_json(renamed).await["name"], "Release research");
+
+    let target = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memory-groups",
+            json!({"name": "Archive target"}),
+        ))
+        .await
+        .unwrap();
+    let target_id = body_json(target).await["id"].as_str().unwrap().to_string();
+
+    let settings = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/characters/default/memory-settings",
+            json!({
+                "default_mode": "simple",
+                "realistic_enabled": false,
+                "inherited_groups": [{
+                    "character_id": "default",
+                    "group_id": source_id,
+                    "access_mode": "read_write",
+                    "priority": 0
+                }]
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(settings.status(), StatusCode::OK);
+
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "group transfer", "character_id": "default"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let remembered = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-transfer",
+                "created_by_model": "test-model",
+                "content": "Release research belongs to the shared project.",
+                "kind": "fact",
+                "reason": "group transfer test",
+                "target_group_id": source_id
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(remembered.status(), StatusCode::CREATED);
+
+    let missing_strategy = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/memory-groups/{source_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_strategy.status(), StatusCode::BAD_REQUEST);
+
+    let deleted = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!(
+                    "/api/memory-groups/{source_id}?strategy=transfer&target_group_id={target_id}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+    let transferred = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/memories?group_id={target_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(transferred.status(), StatusCode::OK);
+    assert_eq!(body_json(transferred).await["total"], 1);
+
+    let protected = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/memory-groups/global?strategy=delete_memories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(protected.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn memory_remember_requires_explicit_call_and_role_group_permission() {
+    let (_dir, app) = make_app();
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "memory", "character_id": "default"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let saved = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-1",
+                "created_by_model": "test-model",
+                "content": "The user prefers concise technical answers.",
+                "kind": "preference",
+                "reason": "This preference is useful across future conversations.",
+                "importance": 0.8,
+                "confidence": 0.95,
+                "canonical_key": "preference.response_style"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::CREATED);
+    let saved = body_json(saved).await;
+    assert_eq!(saved["group_id"], "character:default");
+    assert_eq!(saved["state"], "long_term");
+    assert_eq!(saved["kind"], "preference");
+    assert_eq!(saved["canonical_key"], "preference.response_style");
+
+    let listed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories?character_id=default")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    assert_eq!(body_json(listed).await["total"], 1);
+
+    let denied = app
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-2",
+                "created_by_model": "test-model",
+                "content": "Do not write private role data into the global group.",
+                "kind": "fact",
+                "reason": "permission test",
+                "target_group_id": "global"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -1652,6 +2033,18 @@ async fn chat_turn_begin_and_finalize_return_authoritative_messages() {
     let (_, conversation) = get_text(&app, &format!("/api/conversations/{conversation_id}")).await;
     assert_eq!(conversation["messages"][0], finalized["user_message"]);
     assert_eq!(conversation["messages"][1], finalized["assistant_message"]);
+
+    let memories = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(memories.status(), StatusCode::OK);
+    assert_eq!(body_json(memories).await["total"], 0);
 }
 
 #[tokio::test]

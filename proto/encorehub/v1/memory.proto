@@ -11,6 +11,9 @@ service MemoryService {
   rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
   rpc ConsolidateMemories(ConsolidateRequest) returns (ConsolidateResponse);
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+  rpc ListMemoryGroups(ListMemoryGroupsRequest) returns (ListMemoryGroupsResponse);
+  rpc CreateMemoryGroup(CreateMemoryGroupRequest) returns (MemoryGroup);
+  rpc UpdateCharacterMemorySettings(UpdateCharacterMemorySettingsRequest) returns (CharacterMemorySettings);
 }
 
 message Memory {
@@ -22,6 +25,42 @@ message Memory {
   float importance = 6;  // 0.0 - 1.0
   Timestamp created_at = 7;
   Timestamp last_accessed = 8;
+  string group_id = 9;
+  string source_character_id = 10;
+  MemoryState state = 11;
+  MemoryKind kind = 12;
+  string canonical_key = 13;
+  string reason = 14;
+  string source_turn_id = 15;
+  string created_by_model = 16;
+  float confidence = 17;
+}
+
+enum MemoryState {
+  MEMORY_STATE_UNSPECIFIED = 0;
+  MEMORY_STATE_TRANSIENT = 1;
+  MEMORY_STATE_SHORT_TERM = 2;
+  MEMORY_STATE_LONG_TERM = 3;
+  MEMORY_STATE_PERMANENT_CANDIDATE = 4;
+  MEMORY_STATE_PERMANENT = 5;
+  MEMORY_STATE_FORGOTTEN = 6;
+}
+
+enum MemoryKind {
+  MEMORY_KIND_UNSPECIFIED = 0;
+  MEMORY_KIND_FACT = 1;
+  MEMORY_KIND_PREFERENCE = 2;
+  MEMORY_KIND_EVENT = 3;
+  MEMORY_KIND_INSTRUCTION = 4;
+  MEMORY_KIND_SUMMARY = 5;
+}
+
+enum MemoryMode {
+  MEMORY_MODE_UNSPECIFIED = 0;
+  MEMORY_MODE_SIMPLE = 1;
+  MEMORY_MODE_RAG = 2;
+  MEMORY_MODE_RAG_ENHANCED = 3;
+  MEMORY_MODE_REALISTIC = 4;
 }
 
 enum MemoryScope {
@@ -77,4 +116,49 @@ message DeleteMemoryRequest {
 
 message DeleteMemoryResponse {
   bool success = 1;
+}
+
+message MemoryGroup {
+  string id = 1;
+  string profile_id = 2;
+  string name = 3;
+  string group_type = 4;
+  string owner_character_id = 5;
+  Timestamp archived_at = 6;
+  Timestamp created_at = 7;
+  Timestamp updated_at = 8;
+}
+
+message ListMemoryGroupsRequest {
+  bool include_archived = 1;
+}
+
+message ListMemoryGroupsResponse {
+  repeated MemoryGroup groups = 1;
+}
+
+message CreateMemoryGroupRequest {
+  string name = 1;
+}
+
+message MemoryGroupInheritance {
+  string character_id = 1;
+  string group_id = 2;
+  string access_mode = 3;
+  int64 priority = 4;
+}
+
+message CharacterMemorySettings {
+  string character_id = 1;
+  MemoryMode default_mode = 2;
+  bool realistic_enabled = 3;
+  repeated MemoryGroupInheritance inherited_groups = 4;
+  Timestamp updated_at = 5;
+}
+
+message UpdateCharacterMemorySettingsRequest {
+  string character_id = 1;
+  MemoryMode default_mode = 2;
+  bool realistic_enabled = 3;
+  repeated MemoryGroupInheritance inherited_groups = 4;
 }

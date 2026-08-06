@@ -274,7 +274,7 @@ fn memory_fts_search_finds_global_content() {
 
 #[test]
 fn memory_delete_removes_from_fts() {
-    let (_dir, db) = fresh_db();
+    let (_dir, db, db_path) = fresh_db_with_path();
     let mem = Memory::new(
         MemoryScope::Global,
         MemoryType::Episodic,
@@ -283,6 +283,7 @@ fn memory_delete_removes_from_fts() {
         0.5,
     );
     db.store_memory(&mem).unwrap();
+    db.index_memory(&mem).unwrap();
 
     let before = db
         .search_memories_fts("widgets", None, 10)
@@ -298,6 +299,16 @@ fn memory_delete_removes_from_fts() {
         after.iter().all(|m| m.id != mem.id),
         "deleted memory must not surface in FTS"
     );
+
+    let connection = rusqlite::Connection::open(db_path).unwrap();
+    for table in ["memories_fts", "memory_vectors", "memory_vector_metadata"] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "deleted memory left an orphan in {table}");
+    }
 }
 
 type SecretSnapshot = (

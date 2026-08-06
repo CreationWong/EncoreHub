@@ -358,6 +358,112 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE VIRTUAL TABLE memory_vectors USING vec0(embedding float[384]);
     ",
+    // 016: Role-scoped memory groups, lifecycle state, and mode settings.
+    //
+    // Existing memories remain queryable in the built-in global group until a
+    // user explicitly reclassifies them. No legacy row is promoted by this
+    // migration.
+    "
+    CREATE TABLE memory_groups (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        group_type TEXT NOT NULL CHECK(group_type IN ('character', 'global', 'custom')),
+        owner_character_id TEXT REFERENCES character_profiles(id) ON DELETE CASCADE,
+        archived_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(profile_id, name)
+    );
+
+    CREATE UNIQUE INDEX idx_memory_groups_profile_global
+        ON memory_groups(profile_id) WHERE group_type = 'global';
+    CREATE UNIQUE INDEX idx_memory_groups_character_default
+        ON memory_groups(owner_character_id) WHERE group_type = 'character';
+    CREATE INDEX idx_memory_groups_profile
+        ON memory_groups(profile_id, group_type, updated_at DESC);
+
+    INSERT INTO memory_groups
+        (id, profile_id, name, group_type, created_at, updated_at)
+    VALUES
+        ('global', 'local', 'Global', 'global',
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+         CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+    INSERT INTO memory_groups
+        (id, profile_id, name, group_type, owner_character_id, created_at, updated_at)
+    SELECT 'character:' || id, 'local', name, 'character', id,
+           CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+           CAST(strftime('%s', 'now') AS INTEGER) * 1000
+      FROM character_profiles
+     WHERE deleted_at IS NULL;
+
+    CREATE TABLE character_memory_settings (
+        character_id TEXT PRIMARY KEY REFERENCES character_profiles(id) ON DELETE CASCADE,
+        default_mode TEXT NOT NULL DEFAULT 'simple'
+            CHECK(default_mode IN ('simple', 'rag', 'rag_enhanced', 'realistic')),
+        realistic_enabled INTEGER NOT NULL DEFAULT 0 CHECK(realistic_enabled IN (0, 1)),
+        updated_at INTEGER NOT NULL
+    );
+
+    INSERT INTO character_memory_settings(character_id, default_mode, realistic_enabled, updated_at)
+    SELECT id, 'simple', 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+      FROM character_profiles
+     WHERE deleted_at IS NULL;
+
+    CREATE TABLE character_memory_group_inheritance (
+        character_id TEXT NOT NULL REFERENCES character_profiles(id) ON DELETE CASCADE,
+        group_id TEXT NOT NULL REFERENCES memory_groups(id) ON DELETE CASCADE,
+        access_mode TEXT NOT NULL DEFAULT 'read'
+            CHECK(access_mode IN ('read', 'read_write')),
+        priority INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(character_id, group_id)
+    );
+
+    ALTER TABLE memories ADD COLUMN group_id TEXT NOT NULL DEFAULT 'global';
+    ALTER TABLE memories ADD COLUMN source_character_id TEXT;
+    ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'long_term'
+        CHECK(state IN ('transient', 'short_term', 'long_term', 'permanent_candidate', 'permanent', 'forgotten'));
+    ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'
+        CHECK(kind IN ('fact', 'preference', 'event', 'instruction', 'summary'));
+    ALTER TABLE memories ADD COLUMN canonical_key TEXT;
+    ALTER TABLE memories ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+    ALTER TABLE memories ADD COLUMN source_turn_id TEXT;
+    ALTER TABLE memories ADD COLUMN created_by_model TEXT NOT NULL DEFAULT '';
+    ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5
+        CHECK(confidence >= 0.0 AND confidence <= 1.0);
+
+    CREATE INDEX idx_memories_group_state
+        ON memories(group_id, state, last_accessed_at DESC);
+    CREATE INDEX idx_memories_source_character
+        ON memories(source_character_id, created_at DESC);
+    CREATE UNIQUE INDEX idx_memories_permanent_key
+        ON memories(group_id, canonical_key)
+        WHERE state = 'permanent' AND canonical_key IS NOT NULL;
+    ",
+    // 017: Conversation + character memory-mode high-water mark.
+    //
+    // A role's default seeds new conversations. Existing conversations may
+    // move from Simple to RAG to RAG Enhanced, but never move backwards or
+    // enter Realistic mode after the conversation has started.
+    "
+    CREATE TABLE conversation_character_memory_modes (
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        character_id TEXT NOT NULL REFERENCES character_profiles(id) ON DELETE CASCADE,
+        mode_floor TEXT NOT NULL
+            CHECK(mode_floor IN ('simple', 'rag', 'rag_enhanced', 'realistic')),
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(conversation_id, character_id)
+    );
+
+    INSERT INTO conversation_character_memory_modes
+        (conversation_id, character_id, mode_floor, updated_at)
+    SELECT c.id, c.character_id, COALESCE(s.default_mode, 'simple'),
+           CAST(strftime('%s', 'now') AS INTEGER) * 1000
+      FROM conversations c
+      LEFT JOIN character_memory_settings s ON s.character_id = c.character_id;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -516,8 +622,8 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // The legacy row must advance through the attachment migration.
-        assert_eq!(version, 15);
+        // The legacy row must advance through conversation mode high-water marks.
+        assert_eq!(version, 17);
     }
 
     #[test]
@@ -578,8 +684,61 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        // Legacy rows advance through attachment and vector-index migrations.
-        assert_eq!(version, 15);
+        // Legacy rows advance through conversation mode high-water marks.
+        assert_eq!(version, 17);
+    }
+
+    #[test]
+    fn role_memory_migration_seeds_groups_settings_and_legacy_columns() {
+        let conn = open_test_connection();
+        run(&conn).unwrap();
+
+        let global_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memory_groups
+                  WHERE id = 'global' AND group_type = 'global'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(global_count, 1);
+
+        let default_group: (String, String) = conn
+            .query_row(
+                "SELECT id, owner_character_id FROM memory_groups
+                  WHERE owner_character_id = 'default'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            default_group,
+            ("character:default".into(), "default".into())
+        );
+
+        let mode: String = conn
+            .query_row(
+                "SELECT default_mode FROM character_memory_settings
+                  WHERE character_id = 'default'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(mode, "simple");
+
+        let memory_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('memories')
+                  WHERE name IN (
+                      'group_id', 'source_character_id', 'state', 'kind',
+                      'canonical_key', 'reason', 'source_turn_id',
+                      'created_by_model', 'confidence'
+                  )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(memory_columns, 9);
     }
 
     #[test]

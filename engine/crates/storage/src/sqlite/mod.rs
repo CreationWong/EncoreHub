@@ -15,13 +15,16 @@ pub(crate) use vectors::local_embedding;
 pub use vectors::{VectorBackend, VectorSearchHit, EMBEDDING_DIMENSIONS};
 
 use encorehub_core::{
-    CharacterSnapshot, ConfigEntry, Conversation, ConversationSummary, CryptoMeta, Document,
-    DocumentChunk, EngineError, Memory, MemoryScope, MemoryType, Message, PinnedMessage, Role,
-    SearchCacheEntry, SecretRow, ToolCall,
+    CharacterMemorySettings, CharacterSnapshot, ConfigEntry, Conversation, ConversationSummary,
+    CryptoMeta, Document, DocumentChunk, EngineError, Memory, MemoryGroup, MemoryGroupInheritance,
+    MemoryGroupType, MemoryKind, MemoryMode, MemoryScope, MemoryState, MemoryType, Message,
+    PinnedMessage, Role, SearchCacheEntry, SecretRow, ToolCall,
 };
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
+use uuid::Uuid;
 
 pub type Result<T> = std::result::Result<T, EngineError>;
 
@@ -174,6 +177,17 @@ impl Database {
                 tags_json,
                 conv.created_at.timestamp_millis(),
                 conv.updated_at.timestamp_millis(),
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO conversation_character_memory_modes
+                (conversation_id, character_id, mode_floor, updated_at)
+             SELECT ?1, ?2, default_mode, ?3
+               FROM character_memory_settings WHERE character_id = ?2",
+            params![
+                conv.id,
+                conv.character_id,
+                conv.created_at.timestamp_millis()
             ],
         )?;
         Ok(())
@@ -562,8 +576,12 @@ impl Database {
     pub fn store_memory(&self, mem: &Memory) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO memories (id, scope, type, conversation_id, content, importance, created_at, last_accessed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO memories
+                (id, scope, type, conversation_id, content, importance, created_at,
+                 last_accessed_at, group_id, source_character_id, state, kind,
+                 canonical_key, reason, source_turn_id, created_by_model, confidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                     ?13, ?14, ?15, ?16, ?17)",
             params![
                 mem.id,
                 mem.scope.as_str(),
@@ -573,6 +591,15 @@ impl Database {
                 mem.importance,
                 mem.created_at.timestamp_millis(),
                 mem.last_accessed_at.timestamp_millis(),
+                mem.group_id,
+                mem.source_character_id,
+                mem.state.as_str(),
+                mem.kind.as_str(),
+                mem.canonical_key,
+                mem.reason,
+                mem.source_turn_id,
+                mem.created_by_model,
+                mem.confidence,
             ],
         )?;
         // FTS index
@@ -586,22 +613,38 @@ impl Database {
     pub fn get_memory(&self, id: &str) -> Result<Memory> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, scope, type, conversation_id, content, importance, created_at, last_accessed_at
+            "SELECT id, scope, type, conversation_id, content, importance, created_at,
+                    last_accessed_at, group_id, source_character_id, state, kind,
+                    canonical_key, reason, source_turn_id, created_by_model, confidence
              FROM memories WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Memory {
                     id: row.get(0)?,
-                    scope: MemoryScope::from_str(&row.get::<_, String>(1)?).unwrap_or(MemoryScope::Global),
-                    memory_type: MemoryType::from_str(&row.get::<_, String>(2)?).unwrap_or(MemoryType::Semantic),
+                    scope: MemoryScope::from_str(&row.get::<_, String>(1)?)
+                        .unwrap_or(MemoryScope::Global),
+                    memory_type: MemoryType::from_str(&row.get::<_, String>(2)?)
+                        .unwrap_or(MemoryType::Semantic),
                     conversation_id: row.get(3)?,
                     content: row.get(4)?,
                     importance: row.get(5)?,
                     created_at: ts_to_dt(row.get::<_, i64>(6)?),
                     last_accessed_at: ts_to_dt(row.get::<_, i64>(7)?),
+                    group_id: row.get(8)?,
+                    source_character_id: row.get(9)?,
+                    state: MemoryState::from_str(&row.get::<_, String>(10)?)
+                        .unwrap_or(MemoryState::LongTerm),
+                    kind: MemoryKind::from_str(&row.get::<_, String>(11)?)
+                        .unwrap_or(MemoryKind::Event),
+                    canonical_key: row.get(12)?,
+                    reason: row.get(13)?,
+                    source_turn_id: row.get(14)?,
+                    created_by_model: row.get(15)?,
+                    confidence: row.get(16)?,
                 })
             },
-        ).map_err(|e| match e {
+        )
+        .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
                 resource: "memory".into(),
                 id: id.into(),
@@ -623,7 +666,10 @@ impl Database {
 
         let results: Vec<Memory> = if let Some(s) = scope {
             let mut stmt = conn.prepare(
-                "SELECT m.id, m.scope, m.type, m.conversation_id, m.content, m.importance, m.created_at, m.last_accessed_at
+                "SELECT m.id, m.scope, m.type, m.conversation_id, m.content, m.importance,
+                        m.created_at, m.last_accessed_at, m.group_id, m.source_character_id,
+                        m.state, m.kind, m.canonical_key, m.reason, m.source_turn_id,
+                        m.created_by_model, m.confidence
                  FROM memories m
                  INNER JOIN memories_fts fts ON m.rowid = fts.rowid
                  WHERE memories_fts MATCH ?1 AND m.scope = ?2
@@ -633,7 +679,10 @@ impl Database {
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         } else {
             let mut stmt = conn.prepare(
-                "SELECT m.id, m.scope, m.type, m.conversation_id, m.content, m.importance, m.created_at, m.last_accessed_at
+                "SELECT m.id, m.scope, m.type, m.conversation_id, m.content, m.importance,
+                        m.created_at, m.last_accessed_at, m.group_id, m.source_character_id,
+                        m.state, m.kind, m.canonical_key, m.reason, m.source_turn_id,
+                        m.created_by_model, m.confidence
                  FROM memories m
                  INNER JOIN memories_fts fts ON m.rowid = fts.rowid
                  WHERE memories_fts MATCH ?1
@@ -657,7 +706,10 @@ impl Database {
 
         // Simple approach: build query manually for clarity
         let mut sql = String::from(
-            "SELECT id, scope, type, conversation_id, content, importance, created_at, last_accessed_at FROM memories WHERE 1=1",
+            "SELECT id, scope, type, conversation_id, content, importance, created_at,
+                    last_accessed_at, group_id, source_character_id, state, kind,
+                    canonical_key, reason, source_turn_id, created_by_model, confidence
+             FROM memories WHERE 1=1",
         );
         let mut param_values: Vec<String> = Vec::new();
 
@@ -691,9 +743,141 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub fn delete_memory(&self, id: &str) -> Result<()> {
+    pub fn list_memories_for_groups(
+        &self,
+        scope: Option<&MemoryScope>,
+        memory_type: Option<&MemoryType>,
+        group_ids: &[String],
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Memory>> {
+        if group_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        let mut sql = String::from(
+            "SELECT id, scope, type, conversation_id, content, importance, created_at,
+                    last_accessed_at, group_id, source_character_id, state, kind,
+                    canonical_key, reason, source_turn_id, created_by_model, confidence
+               FROM memories WHERE 1=1",
+        );
+        let mut values: Vec<String> = Vec::new();
+        if let Some(s) = scope {
+            sql.push_str(&format!(" AND scope = ?{}", values.len() + 1));
+            values.push(s.as_str().into());
+        }
+        if let Some(t) = memory_type {
+            sql.push_str(&format!(" AND type = ?{}", values.len() + 1));
+            values.push(t.as_str().into());
+        }
+        let placeholders = (0..group_ids.len())
+            .map(|index| format!("?{}", values.len() + index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str(&format!(" AND group_id IN ({placeholders})"));
+        values.extend(group_ids.iter().cloned());
+        sql.push_str(&format!(
+            " ORDER BY last_accessed_at DESC LIMIT ?{} OFFSET ?{}",
+            values.len() + 1,
+            values.len() + 2
+        ));
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = values
+            .into_iter()
+            .map(|value| Box::new(value) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        params.push(Box::new(limit));
+        params.push(Box::new(offset));
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|value| value.as_ref()).collect();
+        let rows = stmt.query_map(refs.as_slice(), memory_row_mapper)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn visible_memory_group_ids(&self, character_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id FROM memory_groups
+              WHERE profile_id = 'local'
+                AND archived_at IS NULL
+                AND (group_type = 'global'
+                     OR owner_character_id = ?1
+                     OR id IN (
+                         SELECT group_id FROM character_memory_group_inheritance
+                          WHERE character_id = ?1
+                     ))
+              ORDER BY CASE WHEN owner_character_id = ?1 THEN 0
+                            WHEN group_type = 'global' THEN 2 ELSE 1 END,
+                       id",
+        )?;
+        let rows = stmt.query_map(params![character_id], |row| row.get(0))?;
+        rows.collect::<std::result::Result<Vec<String>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn can_character_write_memory_group(
+        &self,
+        character_id: &str,
+        group_id: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM memory_groups g
+                 WHERE g.id = ?2
+                   AND g.profile_id = 'local'
+                   AND g.archived_at IS NULL
+                   AND g.group_type != 'global'
+                   AND (
+                       g.owner_character_id = ?1
+                       OR EXISTS(
+                           SELECT 1 FROM character_memory_group_inheritance i
+                            WHERE i.character_id = ?1
+                              AND i.group_id = g.id
+                              AND i.access_mode = 'read_write'
+                       )
+                   )
+            )",
+            params![character_id, group_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn delete_memory(&self, id: &str) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let rowid = transaction
+            .query_row(
+                "SELECT rowid FROM memories WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(rowid) = rowid else {
+            return Err(EngineError::NotFound {
+                resource: "memory".into(),
+                id: id.into(),
+            });
+        };
+        let vector_rowid = transaction
+            .query_row(
+                "SELECT rowid FROM memory_vector_metadata WHERE memory_id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if let Some(vector_rowid) = vector_rowid {
+            transaction.execute(
+                "DELETE FROM memory_vectors WHERE rowid = ?1",
+                [vector_rowid],
+            )?;
+        }
+        transaction.execute("DELETE FROM memories_fts WHERE rowid = ?1", [rowid])?;
+        transaction.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -704,6 +888,370 @@ impl Database {
             params![now_ms(), id],
         )?;
         Ok(())
+    }
+
+    // ===== Role-scoped memory groups =====
+
+    pub fn list_memory_groups(&self, include_archived: bool) -> Result<Vec<MemoryGroup>> {
+        let conn = self.conn.lock().unwrap();
+        let archived_filter = if include_archived {
+            ""
+        } else {
+            "WHERE archived_at IS NULL"
+        };
+        let sql = format!(
+            "SELECT id, profile_id, name, group_type, owner_character_id,
+                    archived_at, created_at, updated_at
+               FROM memory_groups {archived_filter}
+              ORDER BY CASE group_type WHEN 'character' THEN 0 WHEN 'global' THEN 1 ELSE 2 END,
+                       name COLLATE NOCASE"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], memory_group_row_mapper)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// Create an active custom group in the local profile.
+    pub fn create_custom_memory_group(&self, name: &str) -> Result<MemoryGroup> {
+        let group = MemoryGroup {
+            id: format!("custom:{}", Uuid::new_v4()),
+            profile_id: "local".into(),
+            name: name.to_string(),
+            group_type: MemoryGroupType::Custom,
+            owner_character_id: None,
+            archived_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO memory_groups
+                (id, profile_id, name, group_type, owner_character_id,
+                 archived_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'custom', NULL, NULL, ?4, ?5)",
+            params![
+                group.id,
+                group.profile_id,
+                group.name,
+                group.created_at.timestamp_millis(),
+                group.updated_at.timestamp_millis(),
+            ],
+        )?;
+        Ok(group)
+    }
+
+    /// Rename or archive a custom group without changing its memories.
+    pub fn update_custom_memory_group(
+        &self,
+        group_id: &str,
+        name: Option<&str>,
+        archived: Option<bool>,
+    ) -> Result<MemoryGroup> {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE memory_groups
+                SET name = COALESCE(?1, name),
+                    archived_at = CASE
+                        WHEN ?2 IS NULL THEN archived_at
+                        WHEN ?2 = 1 THEN ?3
+                        ELSE NULL
+                    END,
+                    updated_at = ?3
+              WHERE id = ?4 AND profile_id = 'local' AND group_type = 'custom'",
+            params![name, archived.map(i64::from), now_ms(), group_id],
+        )?;
+        if updated == 0 {
+            return Err(EngineError::NotFound {
+                resource: "custom memory group".into(),
+                id: group_id.into(),
+            });
+        }
+        conn.query_row(
+            "SELECT id, profile_id, name, group_type, owner_character_id,
+                    archived_at, created_at, updated_at
+               FROM memory_groups WHERE id = ?1",
+            params![group_id],
+            memory_group_row_mapper,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Delete a custom group after explicitly transferring or deleting its memories.
+    pub fn delete_custom_memory_group(
+        &self,
+        group_id: &str,
+        transfer_target: Option<&str>,
+        delete_memories: bool,
+    ) -> Result<()> {
+        if transfer_target.is_some() == delete_memories {
+            return Err(EngineError::InvalidArgument(
+                "choose exactly one deletion strategy: transfer or delete_memories".into(),
+            ));
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let group_type = transaction
+            .query_row(
+                "SELECT group_type FROM memory_groups
+                  WHERE id = ?1 AND profile_id = 'local'",
+                params![group_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                    resource: "memory group".into(),
+                    id: group_id.into(),
+                },
+                other => other.into(),
+            })?;
+        if group_type != "custom" {
+            return Err(EngineError::InvalidArgument(
+                "only custom memory groups can be deleted".into(),
+            ));
+        }
+
+        if let Some(target_id) = transfer_target {
+            if target_id == group_id {
+                return Err(EngineError::InvalidArgument(
+                    "transfer target must differ from the deleted group".into(),
+                ));
+            }
+            let target_exists: bool = transaction.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM memory_groups
+                     WHERE id = ?1 AND profile_id = 'local' AND archived_at IS NULL
+                )",
+                params![target_id],
+                |row| row.get(0),
+            )?;
+            if !target_exists {
+                return Err(EngineError::InvalidArgument(
+                    "transfer target must be an active memory group".into(),
+                ));
+            }
+            transaction.execute(
+                "UPDATE memories SET group_id = ?1 WHERE group_id = ?2",
+                params![target_id, group_id],
+            )?;
+        } else {
+            let mut statement = transaction.prepare(
+                "SELECT m.rowid, v.rowid
+                   FROM memories m
+                   LEFT JOIN memory_vector_metadata v ON v.memory_id = m.id
+                  WHERE m.group_id = ?1",
+            )?;
+            let rowids = statement
+                .query_map(params![group_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(statement);
+            for (memory_rowid, vector_rowid) in rowids {
+                if let Some(vector_rowid) = vector_rowid {
+                    transaction.execute(
+                        "DELETE FROM memory_vectors WHERE rowid = ?1",
+                        [vector_rowid],
+                    )?;
+                }
+                transaction.execute("DELETE FROM memories_fts WHERE rowid = ?1", [memory_rowid])?;
+            }
+            transaction.execute(
+                "DELETE FROM memories WHERE group_id = ?1",
+                params![group_id],
+            )?;
+        }
+        transaction.execute("DELETE FROM memory_groups WHERE id = ?1", params![group_id])?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn get_character_memory_settings(
+        &self,
+        character_id: &str,
+    ) -> Result<CharacterMemorySettings> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT character_id, default_mode, realistic_enabled, updated_at
+               FROM character_memory_settings WHERE character_id = ?1",
+            params![character_id],
+            |row| {
+                Ok(CharacterMemorySettings {
+                    character_id: row.get(0)?,
+                    default_mode: MemoryMode::from_str(&row.get::<_, String>(1)?)
+                        .unwrap_or(MemoryMode::Simple),
+                    realistic_enabled: row.get::<_, i64>(2)? != 0,
+                    updated_at: ts_to_dt(row.get(3)?),
+                })
+            },
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                resource: "character memory settings".into(),
+                id: character_id.into(),
+            },
+            other => other.into(),
+        })
+    }
+
+    pub fn list_character_memory_inheritance(
+        &self,
+        character_id: &str,
+    ) -> Result<Vec<MemoryGroupInheritance>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT character_id, group_id, access_mode, priority
+               FROM character_memory_group_inheritance
+              WHERE character_id = ?1
+              ORDER BY priority ASC, group_id ASC",
+        )?;
+        let rows = stmt.query_map(params![character_id], |row| {
+            Ok(MemoryGroupInheritance {
+                character_id: row.get(0)?,
+                group_id: row.get(1)?,
+                access_mode: row.get(2)?,
+                priority: row.get(3)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn update_character_memory_configuration(
+        &self,
+        settings: &CharacterMemorySettings,
+        entries: &[MemoryGroupInheritance],
+    ) -> Result<()> {
+        let character_id = settings.character_id.as_str();
+        let own_group = format!("character:{character_id}");
+        let mut seen_groups = HashSet::new();
+        for entry in entries {
+            if entry.character_id != character_id {
+                return Err(EngineError::InvalidArgument(
+                    "inheritance character_id does not match route".into(),
+                ));
+            }
+            if entry.group_id == own_group {
+                return Err(EngineError::InvalidArgument(
+                    "a character cannot inherit its own default group".into(),
+                ));
+            }
+            if !seen_groups.insert(entry.group_id.as_str()) {
+                return Err(EngineError::InvalidArgument(
+                    "an inherited memory group may only appear once".into(),
+                ));
+            }
+            if !matches!(entry.access_mode.as_str(), "read" | "read_write") {
+                return Err(EngineError::InvalidArgument(
+                    "access_mode must be read or read_write".into(),
+                ));
+            }
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let updated = transaction.execute(
+            "UPDATE character_memory_settings
+                SET default_mode = ?1, realistic_enabled = ?2, updated_at = ?3
+              WHERE character_id = ?4",
+            params![
+                settings.default_mode.as_str(),
+                settings.realistic_enabled as i64,
+                settings.updated_at.timestamp_millis(),
+                character_id,
+            ],
+        )?;
+        if updated == 0 {
+            return Err(EngineError::NotFound {
+                resource: "character memory settings".into(),
+                id: character_id.into(),
+            });
+        }
+        transaction.execute(
+            "DELETE FROM character_memory_group_inheritance WHERE character_id = ?1",
+            params![character_id],
+        )?;
+        for entry in entries {
+            transaction.execute(
+                "INSERT INTO character_memory_group_inheritance
+                    (character_id, group_id, access_mode, priority, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    character_id,
+                    entry.group_id,
+                    entry.access_mode,
+                    entry.priority,
+                    now_ms(),
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Resolve and persist the effective mode for one conversation + character pair.
+    pub fn resolve_conversation_memory_mode(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(String, MemoryMode)> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let (character_id, default_mode, floor_mode) = transaction
+            .query_row(
+                "SELECT c.character_id, s.default_mode,
+                        COALESCE(m.mode_floor, s.default_mode)
+                   FROM conversations c
+                   JOIN character_memory_settings s ON s.character_id = c.character_id
+                   LEFT JOIN conversation_character_memory_modes m
+                     ON m.conversation_id = c.id AND m.character_id = c.character_id
+                  WHERE c.id = ?1",
+                params![conversation_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                    resource: "conversation memory mode".into(),
+                    id: conversation_id.into(),
+                },
+                other => other.into(),
+            })?;
+        let default_mode = MemoryMode::from_str(&default_mode).unwrap_or(MemoryMode::Simple);
+        let floor_mode = MemoryMode::from_str(&floor_mode).unwrap_or(MemoryMode::Simple);
+
+        // Realistic is an isolated experimental track. It may seed a new
+        // conversation, but an established conversation never upgrades into it.
+        let effective_mode = if matches!(floor_mode, MemoryMode::Realistic)
+            || matches!(default_mode, MemoryMode::Realistic)
+        {
+            floor_mode
+        } else if default_mode.rank() > floor_mode.rank() {
+            default_mode
+        } else {
+            floor_mode
+        };
+        transaction.execute(
+            "INSERT INTO conversation_character_memory_modes
+                (conversation_id, character_id, mode_floor, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(conversation_id, character_id) DO UPDATE SET
+                mode_floor = excluded.mode_floor,
+                updated_at = excluded.updated_at",
+            params![
+                conversation_id,
+                character_id,
+                effective_mode.as_str(),
+                now_ms(),
+            ],
+        )?;
+        transaction.commit()?;
+        Ok((character_id, effective_mode))
     }
 
     // ===== Search Cache =====
@@ -1074,5 +1622,31 @@ fn memory_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<Memory> {
         importance: row.get(5)?,
         created_at: ts_to_dt(row.get::<_, i64>(6)?),
         last_accessed_at: ts_to_dt(row.get::<_, i64>(7)?),
+        group_id: row.get(8)?,
+        source_character_id: row.get(9)?,
+        state: MemoryState::from_str(&row.get::<_, String>(10)?).unwrap_or(MemoryState::LongTerm),
+        kind: MemoryKind::from_str(&row.get::<_, String>(11)?).unwrap_or(MemoryKind::Event),
+        canonical_key: row.get(12)?,
+        reason: row.get(13)?,
+        source_turn_id: row.get(14)?,
+        created_by_model: row.get(15)?,
+        confidence: row.get(16)?,
+    })
+}
+
+fn memory_group_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<MemoryGroup> {
+    Ok(MemoryGroup {
+        id: row.get(0)?,
+        profile_id: row.get(1)?,
+        name: row.get(2)?,
+        group_type: match row.get::<_, String>(3)?.as_str() {
+            "character" => MemoryGroupType::Character,
+            "custom" => MemoryGroupType::Custom,
+            _ => MemoryGroupType::Global,
+        },
+        owner_character_id: row.get(4)?,
+        archived_at: row.get::<_, Option<i64>>(5)?.map(ts_to_dt),
+        created_at: ts_to_dt(row.get(6)?),
+        updated_at: ts_to_dt(row.get(7)?),
     })
 }

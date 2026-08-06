@@ -102,11 +102,26 @@ impl Database {
         conversation_id: Option<&str>,
         limit: i64,
     ) -> Result<Vec<VectorSearchHit<Memory>>> {
+        self.search_memory_vectors_for_groups(query, conversation_id, None, limit)
+    }
+
+    /// Search memory vectors while enforcing the role-visible group boundary.
+    pub fn search_memory_vectors_for_groups(
+        &self,
+        query: &str,
+        conversation_id: Option<&str>,
+        group_ids: Option<&[String]>,
+        limit: i64,
+    ) -> Result<Vec<VectorSearchHit<Memory>>> {
         let candidates = self.search_memory_rowids(query, limit.saturating_mul(4))?;
         let mut hits = Vec::new();
         for (memory_id, score) in candidates {
             let memory = self.get_memory(&memory_id)?;
-            if conversation_id.is_none_or(|id| memory.conversation_id.as_deref() == Some(id)) {
+            let group_visible =
+                group_ids.is_none_or(|groups| groups.iter().any(|group| group == &memory.group_id));
+            if group_visible
+                && conversation_id.is_none_or(|id| memory.conversation_id.as_deref() == Some(id))
+            {
                 hits.push(VectorSearchHit {
                     item: memory,
                     score,

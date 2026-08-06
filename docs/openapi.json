@@ -445,6 +445,50 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/memory-mode/resolve": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "post": {
+        "tags": ["Memories"],
+        "operationId": "resolveConversationMemoryMode",
+        "description": "Advances the conversation + character mode floor when the role default is higher. Existing conversations never downgrade or upgrade into Realistic mode.",
+        "responses": {
+          "200": {
+            "description": "Effective monotonic memory mode",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationMemoryMode" } } }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/memory-settings": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "get": {
+        "tags": ["Memories"],
+        "operationId": "getCharacterMemorySettings",
+        "responses": {
+          "200": {
+            "description": "Role-scoped memory policy and inherited groups",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CharacterMemorySettingsResponse" } } }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "tags": ["Memories"],
+        "operationId": "updateCharacterMemorySettings",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateCharacterMemorySettingsRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated role-scoped memory policy",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CharacterMemorySettingsResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/characters/history": {
       "get": {
         "tags": ["Characters"],
@@ -868,7 +912,9 @@
         "tags": ["Memories"],
         "operationId": "listMemories",
         "parameters": [
-          { "name": "scope", "in": "query", "schema": { "type": "string" } }
+          { "name": "scope", "in": "query", "schema": { "type": "string" } },
+          { "name": "character_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "group_id", "in": "query", "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
@@ -880,6 +926,23 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": ["Memories"],
+        "operationId": "rememberMemory",
+        "description": "Persists one model-selected memory. Gateway supplies conversation, character, turn, and model provenance; the model cannot promote a memory to permanent state.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RememberMemoryRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created memory",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Memory" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/api/v1/memories/search": {
@@ -889,6 +952,9 @@
         "parameters": [
           { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
           { "name": "scope", "in": "query", "schema": { "type": "string" } },
+          { "name": "conversation_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "character_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "group_id", "in": "query", "schema": { "type": "string" } },
           { "name": "top_k", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
         ],
         "responses": {
@@ -913,6 +979,64 @@
         "responses": {
           "204": { "$ref": "#/components/responses/NoContent" },
           "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/memory-groups": {
+      "get": {
+        "tags": ["Memories"],
+        "operationId": "listMemoryGroups",
+        "responses": {
+          "200": {
+            "description": "Active role, global, and custom groups",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryGroupList" } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Memories"],
+        "operationId": "createMemoryGroup",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateMemoryGroupRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created custom memory group",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryGroup" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/memory-groups/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ResourceId" }],
+      "patch": {
+        "tags": ["Memories"],
+        "operationId": "updateMemoryGroup",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateMemoryGroupRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated custom memory group",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryGroup" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Memories"],
+        "operationId": "deleteMemoryGroup",
+        "description": "Only custom groups may be deleted. The caller must explicitly delete contained memories or transfer them to an active target group.",
+        "parameters": [
+          { "name": "strategy", "in": "query", "required": true, "schema": { "enum": ["transfer", "delete_memories"] } },
+          { "name": "target_group_id", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "400": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -2161,12 +2285,21 @@
       },
       "Memory": {
         "type": "object",
-        "required": ["id", "scope", "memory_type", "content", "importance", "created_at", "last_accessed_at"],
+        "required": ["id", "scope", "memory_type", "group_id", "state", "kind", "reason", "created_by_model", "confidence", "content", "importance", "created_at", "last_accessed_at"],
         "properties": {
           "id": { "type": "string" },
           "scope": { "type": "string" },
           "memory_type": { "type": "string" },
           "conversation_id": { "type": ["string", "null"] },
+          "group_id": { "type": "string" },
+          "source_character_id": { "type": ["string", "null"] },
+          "state": { "enum": ["transient", "short_term", "long_term", "permanent_candidate", "permanent", "forgotten"] },
+          "kind": { "enum": ["fact", "preference", "event", "instruction", "summary"] },
+          "canonical_key": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "source_turn_id": { "type": ["string", "null"] },
+          "created_by_model": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
           "content": { "type": "string" },
           "importance": { "type": "number" },
           "created_at": { "type": "string" },
@@ -2183,10 +2316,113 @@
       },
       "MemorySearchResponse": {
         "type": "object",
-        "required": ["results", "query"],
+        "required": ["results", "query", "backend"],
         "properties": {
           "results": { "type": "array", "items": { "$ref": "#/components/schemas/Memory" } },
-          "query": { "type": "string" }
+          "query": { "type": "string" },
+          "backend": { "const": "sqlite_vec" }
+        }
+      },
+      "RememberMemoryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conversation_id", "character_id", "source_turn_id", "created_by_model", "content", "kind", "reason"],
+        "properties": {
+          "conversation_id": { "type": "string" },
+          "character_id": { "type": "string" },
+          "source_turn_id": { "type": "string" },
+          "created_by_model": { "type": "string" },
+          "content": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "kind": { "enum": ["fact", "preference", "event", "instruction", "summary"] },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "importance": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7 },
+          "canonical_key": { "type": ["string", "null"] },
+          "target_group_id": { "type": ["string", "null"] }
+        }
+      },
+      "MemoryGroup": {
+        "type": "object",
+        "required": ["id", "profile_id", "name", "group_type", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "profile_id": { "type": "string" },
+          "name": { "type": "string" },
+          "group_type": { "enum": ["character", "global", "custom"] },
+          "owner_character_id": { "type": ["string", "null"] },
+          "archived_at": { "type": ["string", "null"], "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MemoryGroupList": {
+        "type": "object",
+        "required": ["groups", "total"],
+        "properties": {
+          "groups": { "type": "array", "items": { "$ref": "#/components/schemas/MemoryGroup" } },
+          "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CreateMemoryGroupRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 80 } }
+      },
+      "UpdateMemoryGroupRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "archived": { "type": "boolean" }
+        }
+      },
+      "MemoryGroupInheritance": {
+        "type": "object",
+        "required": ["character_id", "group_id", "access_mode", "priority"],
+        "properties": {
+          "character_id": { "type": "string" },
+          "group_id": { "type": "string" },
+          "access_mode": { "enum": ["read", "read_write"] },
+          "priority": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CharacterMemorySettings": {
+        "type": "object",
+        "required": ["character_id", "default_mode", "realistic_enabled", "updated_at"],
+        "properties": {
+          "character_id": { "type": "string" },
+          "default_mode": { "enum": ["simple", "rag", "rag_enhanced", "realistic"] },
+          "realistic_enabled": { "type": "boolean" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ConversationMemoryMode": {
+        "type": "object",
+        "required": ["conversation_id", "character_id", "mode"],
+        "properties": {
+          "conversation_id": { "type": "string" },
+          "character_id": { "type": "string" },
+          "mode": { "enum": ["simple", "rag", "rag_enhanced", "realistic"] }
+        }
+      },
+      "CharacterMemorySettingsResponse": {
+        "type": "object",
+        "required": ["settings", "inherited_groups", "visible_group_ids"],
+        "properties": {
+          "settings": { "$ref": "#/components/schemas/CharacterMemorySettings" },
+          "inherited_groups": { "type": "array", "items": { "$ref": "#/components/schemas/MemoryGroupInheritance" } },
+          "visible_group_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "UpdateCharacterMemorySettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["default_mode", "realistic_enabled", "inherited_groups"],
+        "properties": {
+          "default_mode": { "enum": ["simple", "rag", "rag_enhanced", "realistic"] },
+          "realistic_enabled": { "type": "boolean" },
+          "inherited_groups": { "type": "array", "maxItems": 64, "items": { "$ref": "#/components/schemas/MemoryGroupInheritance" } }
         }
       },
       "KnowledgeDocument": {

@@ -1,3 +1,4 @@
+// Package handler orchestrates authenticated chat turns and model tool execution.
 package handler
 
 import (
@@ -347,18 +348,25 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		titleTool = &t
 	}
 
-	// Step 2: Pull relevant memories + knowledge chunks via the engine client
-	// (uses ENGINE_URL — no hardcoded localhost).
 	var memoryContext string
-	if hits, err := h.engine.SearchMemories(ctx, req.Content, 3); err == nil && len(hits) > 0 {
-		memoryContext = "\n\n[Relevant Memories]\n"
-		for i, m := range hits {
-			memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, m.Scope, m.Content)
+	memoryMode := "simple"
+	if resolved, resolveErr := h.engine.ResolveConversationMemoryMode(ctx, convID); resolveErr != nil {
+		log.Debug().Err(resolveErr).Msg("conversation memory mode resolution failed (using Simple)")
+	} else {
+		memoryMode = resolved.Mode
+	}
+	if memoryMode == "rag" || memoryMode == "rag_enhanced" {
+		if hits, searchErr := h.engine.SearchMemoriesForCharacter(ctx, req.Content, convDetail.CharacterID, 3); searchErr == nil && len(hits) > 0 {
+			memoryContext = "\n\n[Relevant Memories]\n"
+			for i, memory := range hits {
+				memoryContext += fmt.Sprintf("%d. [%s] %s\n", i+1, memory.Scope, memory.Content)
+			}
+		} else if searchErr != nil {
+			log.Debug().Err(searchErr).Msg("role-scoped memory search failed (non-fatal)")
 		}
-	} else if err != nil {
-		log.Debug().Err(err).Msg("memory search failed (non-fatal)")
 	}
 
+	// Pull relevant Knowledge chunks via the engine client.
 	var knowledgeContext string
 	if hits, err := h.engine.SearchKnowledge(ctx, req.Content, 3); err == nil && len(hits) > 0 {
 		knowledgeContext = "\n\n[Knowledge Base]\n"
@@ -408,7 +416,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	if req.Stream {
-		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, *userMessage, initialToolCalls)
+		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, convDetail.CharacterID, *userMessage, initialToolCalls)
 		return
 	}
 
@@ -494,7 +502,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 // ===== Streaming with optional tool-call loop =====
 
 func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
-	req *provider.ChatRequest, apiKey, convID string, userMessage engine.Message,
+	req *provider.ChatRequest, apiKey, convID, characterID string, userMessage engine.Message,
 	initialToolCalls []engine.ToolCallInput) {
 
 	requestID := c.GetString("request_id")
@@ -802,6 +810,52 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			}
 		}
 
+		// Memory writes are always explicit model tool calls. The Engine adds
+		// conversation provenance and enforces role/group policy; the model only
+		// supplies bounded semantic fields.
+		for i := range toolCalls {
+			tc := &toolCalls[i]
+			if tc.Name != "memory_remember" {
+				continue
+			}
+			var args struct {
+				Content       string  `json:"content"`
+				Kind          string  `json:"kind"`
+				Reason        string  `json:"reason"`
+				Importance    float64 `json:"importance"`
+				Confidence    float64 `json:"confidence"`
+				CanonicalKey  *string `json:"canonical_key"`
+				TargetGroupID *string `json:"target_group_id"`
+			}
+			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
+				tc.Result = "memory_remember arguments must be valid JSON"
+				tc.Status = "error"
+				hasGatewayTool = true
+				continue
+			}
+			remembered, err := h.engine.RememberMemory(ctx, engine.RememberMemoryRequest{
+				ConversationID: convID,
+				CharacterID:    characterID,
+				SourceTurnID:   userMessage.ID,
+				CreatedByModel: req.Model,
+				Content:        args.Content,
+				Kind:           args.Kind,
+				Reason:         args.Reason,
+				Importance:     args.Importance,
+				Confidence:     args.Confidence,
+				CanonicalKey:   args.CanonicalKey,
+				TargetGroupID:  args.TargetGroupID,
+			})
+			if err != nil {
+				tc.Result = fmt.Sprintf("Memory was not saved: %v", err)
+				tc.Status = "error"
+			} else {
+				tc.Result = fmt.Sprintf("Memory saved in %s state (%s).", remembered.State, remembered.Kind)
+				tc.Status = "success"
+			}
+			hasGatewayTool = true
+		}
+
 		allToolCalls = append(allToolCalls, toolCalls...)
 		if ctx.Err() != nil {
 			finalizeError("stopped", "stopped", "Generation stopped", "cancelled")
@@ -823,6 +877,12 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 					"status": tc.Status,
 				})
 			} else if tc.Name == "update_conversation_title" {
+				writeFrame("tool_result", map[string]string{
+					"id":     tc.ID,
+					"result": tc.Result,
+					"status": tc.Status,
+				})
+			} else if tc.Name == "memory_remember" {
 				writeFrame("tool_result", map[string]string{
 					"id":     tc.ID,
 					"result": tc.Result,
@@ -1623,6 +1683,9 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	if searchTool != nil {
 		toolInstructions = webSearchSystemPrompt
 	}
+	if cr.Stream {
+		toolInstructions = strings.TrimSpace(toolInstructions + "\n\n" + memoryRememberSystemPrompt)
+	}
 	if context.ToolResults != "" {
 		toolInstructions = strings.TrimSpace(toolInstructions + "\n\n" + preexecutedToolPrompt)
 	}
@@ -1641,6 +1704,9 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	}
 	if titleTool != nil {
 		tools = append(tools, *titleTool)
+	}
+	if cr.Stream {
+		tools = append(tools, newMemoryRememberTool())
 	}
 	cr.Tools = tools
 
@@ -1682,6 +1748,56 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 }
 
 // ===== Web search tool =====
+
+const memoryRememberSystemPrompt = `Memory policy: only call memory_remember when the user has shared a stable fact, durable preference, long-term responsibility, or explicit instruction that will help in future conversations. Never save greetings, routine questions, temporary tasks, raw messages, your own answers, secrets, tool output, or a whole conversation. Permanent promotion is handled separately by the Engine; do not claim that a memory is permanent.`
+
+func newMemoryRememberTool() provider.Tool {
+	return provider.Tool{
+		Type: "function",
+		Function: &provider.FunctionDefinition{
+			Name:        "memory_remember",
+			Description: "Save one concise, user-derived fact for future conversations. Use only when it is stable and genuinely reusable; do not save ordinary chat or assistant-generated content.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"content": map[string]any{
+						"type":        "string",
+						"description": "One normalized atomic fact, preference, responsibility, event, instruction, or summary.",
+					},
+					"kind": map[string]any{
+						"type": "string",
+						"enum": []string{"fact", "preference", "event", "instruction", "summary"},
+					},
+					"reason": map[string]any{
+						"type":        "string",
+						"description": "Why this is useful in a future conversation.",
+					},
+					"importance": map[string]any{
+						"type":        "number",
+						"minimum":     0,
+						"maximum":     1,
+						"description": "Ranking signal only; it does not grant permanent status.",
+					},
+					"confidence": map[string]any{
+						"type":        "number",
+						"minimum":     0,
+						"maximum":     1,
+						"description": "Confidence that the extracted fact is accurate.",
+					},
+					"canonical_key": map[string]any{
+						"type":        "string",
+						"description": "Stable key such as identity.name or preference.language when applicable.",
+					},
+					"target_group_id": map[string]any{
+						"type":        "string",
+						"description": "Optional group with explicit write permission; omit to use this character's default group.",
+					},
+				},
+				"required": []string{"content", "kind", "reason"},
+			},
+		},
+	}
+}
 
 // newWebSearchTool returns a Tool definition for the named search provider.
 // The provider name is baked into the tool description so the model is aware

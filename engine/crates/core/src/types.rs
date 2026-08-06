@@ -391,6 +391,19 @@ pub struct Memory {
     pub scope: MemoryScope,
     pub memory_type: MemoryType,
     pub conversation_id: Option<String>,
+    /// The single owning memory group. Legacy rows use `global` until they are
+    /// explicitly reclassified by the user.
+    pub group_id: String,
+    /// Character active when the memory was created. Null is allowed for user
+    /// authored global memories.
+    pub source_character_id: Option<String>,
+    pub state: MemoryState,
+    pub kind: MemoryKind,
+    pub canonical_key: Option<String>,
+    pub reason: String,
+    pub source_turn_id: Option<String>,
+    pub created_by_model: String,
+    pub confidence: f32,
     pub content: String,
     pub importance: f32,
     pub created_at: DateTime<Utc>,
@@ -411,11 +424,48 @@ impl Memory {
             scope,
             memory_type,
             conversation_id,
+            group_id: "global".into(),
+            source_character_id: None,
+            state: MemoryState::LongTerm,
+            kind: MemoryKind::Event,
+            canonical_key: None,
+            reason: String::new(),
+            source_turn_id: None,
+            created_by_model: String::new(),
+            confidence: 0.5,
             content: content.into(),
             importance: importance.clamp(0.0, 1.0),
             created_at: now,
             last_accessed_at: now,
         }
+    }
+
+    pub fn new_in_group(
+        group_id: impl Into<String>,
+        source_character_id: Option<String>,
+        conversation_id: Option<String>,
+        content: impl Into<String>,
+        importance: f32,
+        kind: MemoryKind,
+        state: MemoryState,
+    ) -> Self {
+        let scope = if matches!(state, MemoryState::Transient | MemoryState::ShortTerm) {
+            MemoryScope::Conversation
+        } else {
+            MemoryScope::Global
+        };
+        let mut memory = Self::new(
+            scope,
+            kind.legacy_type(),
+            conversation_id,
+            content,
+            importance,
+        );
+        memory.group_id = group_id.into();
+        memory.source_character_id = source_character_id;
+        memory.kind = kind;
+        memory.state = state;
+        memory
     }
 }
 
@@ -473,6 +523,180 @@ impl MemoryType {
             _ => None,
         }
     }
+
+    pub fn kind(&self) -> MemoryKind {
+        match self {
+            MemoryType::Working => MemoryKind::Event,
+            MemoryType::Episodic => MemoryKind::Event,
+            MemoryType::Semantic => MemoryKind::Fact,
+            MemoryType::Pinned => MemoryKind::Instruction,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryState {
+    Transient,
+    ShortTerm,
+    LongTerm,
+    PermanentCandidate,
+    Permanent,
+    Forgotten,
+}
+
+impl MemoryState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Transient => "transient",
+            Self::ShortTerm => "short_term",
+            Self::LongTerm => "long_term",
+            Self::PermanentCandidate => "permanent_candidate",
+            Self::Permanent => "permanent",
+            Self::Forgotten => "forgotten",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "transient" => Some(Self::Transient),
+            "short_term" => Some(Self::ShortTerm),
+            "long_term" => Some(Self::LongTerm),
+            "permanent_candidate" => Some(Self::PermanentCandidate),
+            "permanent" => Some(Self::Permanent),
+            "forgotten" => Some(Self::Forgotten),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    Fact,
+    Preference,
+    Event,
+    Instruction,
+    Summary,
+}
+
+impl MemoryKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Fact => "fact",
+            Self::Preference => "preference",
+            Self::Event => "event",
+            Self::Instruction => "instruction",
+            Self::Summary => "summary",
+        }
+    }
+
+    pub fn legacy_type(&self) -> MemoryType {
+        match self {
+            Self::Fact | Self::Preference => MemoryType::Semantic,
+            Self::Event | Self::Summary => MemoryType::Episodic,
+            Self::Instruction => MemoryType::Pinned,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "fact" => Some(Self::Fact),
+            "preference" => Some(Self::Preference),
+            "event" => Some(Self::Event),
+            "instruction" => Some(Self::Instruction),
+            "summary" => Some(Self::Summary),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryMode {
+    Simple,
+    Rag,
+    RagEnhanced,
+    Realistic,
+}
+
+impl MemoryMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Simple => "simple",
+            Self::Rag => "rag",
+            Self::RagEnhanced => "rag_enhanced",
+            Self::Realistic => "realistic",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "simple" => Some(Self::Simple),
+            "rag" => Some(Self::Rag),
+            "rag_enhanced" => Some(Self::RagEnhanced),
+            "realistic" => Some(Self::Realistic),
+            _ => None,
+        }
+    }
+
+    pub fn rank(&self) -> u8 {
+        match self {
+            Self::Simple => 0,
+            Self::Rag => 1,
+            Self::RagEnhanced => 2,
+            Self::Realistic => 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryGroupType {
+    Character,
+    Global,
+    Custom,
+}
+
+impl MemoryGroupType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Character => "character",
+            Self::Global => "global",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGroup {
+    pub id: String,
+    pub profile_id: String,
+    pub name: String,
+    pub group_type: MemoryGroupType,
+    pub owner_character_id: Option<String>,
+    pub archived_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterMemorySettings {
+    pub character_id: String,
+    pub default_mode: MemoryMode,
+    pub realistic_enabled: bool,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGroupInheritance {
+    pub character_id: String,
+    pub group_id: String,
+    pub access_mode: String,
+    pub priority: i64,
 }
 
 // ===== Search =====
