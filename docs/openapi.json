@@ -936,9 +936,13 @@
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RememberMemoryRequest" } } }
         },
         "responses": {
+          "200": {
+            "description": "Equivalent memory already existed; no duplicate was created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RememberMemoryResponse" } } }
+          },
           "201": {
             "description": "Created memory",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Memory" } } }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RememberMemoryResponse" } } }
           },
           "400": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" }
@@ -955,6 +959,7 @@
           { "name": "conversation_id", "in": "query", "schema": { "type": "string" } },
           { "name": "character_id", "in": "query", "schema": { "type": "string" } },
           { "name": "group_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "retrieval", "in": "query", "schema": { "enum": ["vector", "lexical"], "default": "vector" } },
           { "name": "top_k", "in": "query", "schema": { "type": "integer", "minimum": 1 } }
         ],
         "responses": {
@@ -2320,8 +2325,20 @@
         "properties": {
           "results": { "type": "array", "items": { "$ref": "#/components/schemas/Memory" } },
           "query": { "type": "string" },
-          "backend": { "const": "sqlite_vec" }
+          "backend": { "enum": ["sqlite_vec", "sqlite_fts"] }
         }
+      },
+      "RememberMemoryResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Memory" },
+          {
+            "type": "object",
+            "required": ["created"],
+            "properties": {
+              "created": { "type": "boolean", "description": "False when an equivalent active memory already exists in the target group." }
+            }
+          }
+        ]
       },
       "RememberMemoryRequest": {
         "type": "object",

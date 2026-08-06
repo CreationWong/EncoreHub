@@ -173,7 +173,7 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.rememberRequests = append(s.rememberRequests, request)
 		s.mu.Unlock()
 		writeTestJSON(w, http.StatusCreated, engine.RememberedMemory{
-			ID: "memory-1", GroupID: "character:character-default", State: "long_term", Kind: request.Kind,
+			ID: "memory-1", GroupID: "character:character-default", State: "long_term", Kind: request.Kind, Created: true,
 		})
 	case r.Method == http.MethodPatch && r.URL.Path == "/api/conversations/c1":
 		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: "Renamed"})
@@ -827,6 +827,58 @@ func TestSendMessage_RAGSearchIsRestrictedToCharacterGroups(t *testing.T) {
 	queries := stub.memoryQueries()
 	if len(queries) != 1 || !strings.Contains(queries[0], "character_id=character-default") {
 		t.Fatalf("memory search was not role-scoped: %v", queries)
+	}
+}
+
+func TestSendMessage_SimpleMemorySearchRecallsAcrossConversations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{
+		memoryMode: "simple",
+		memoryResults: []engine.MemoryHit{{
+			Content: "User's name is Sam.",
+			Scope:   "global",
+		}},
+	}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				if !hasToolNamed(request.Tools, "memory_search") {
+					t.Fatal("memory_search was not registered in Simple mode")
+				}
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "memory-search-call", Name: "memory_search",
+					Arguments: `{"query":"user name identity","top_k":5}`,
+				}}), nil
+			case 2:
+				if len(request.Messages) < 2 || request.Messages[len(request.Messages)-1].Role != "tool" ||
+					!strings.Contains(request.Messages[len(request.Messages)-1].Content, "Sam") {
+					t.Fatalf("memory result missing from follow-up: %+v", request.Messages)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "You are Sam.", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	queries := stub.memoryQueries()
+	if len(queries) != 1 || !strings.Contains(queries[0], "character_id=character-default") ||
+		!strings.Contains(queries[0], "retrieval=lexical") {
+		t.Fatalf("Simple memory search was not lexical and role-scoped: %v", queries)
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Assistant == nil ||
+		requests[0].Assistant.Content != "You are Sam." {
+		t.Fatalf("cross-conversation recall was not persisted: %+v", requests)
 	}
 }
 

@@ -463,6 +463,7 @@ type RememberedMemory struct {
 	GroupID string `json:"group_id"`
 	State   string `json:"state"`
 	Kind    string `json:"kind"`
+	Created bool   `json:"created"`
 }
 
 // ConversationMemoryMode is the monotonic mode resolved by the Engine for a
@@ -500,6 +501,16 @@ func (c *Client) SearchMemories(ctx context.Context, q string, topK int) ([]Memo
 // SearchMemoriesForCharacter restricts candidates to the character's own,
 // global, and explicitly inherited memory groups.
 func (c *Client) SearchMemoriesForCharacter(ctx context.Context, q, characterID string, topK int) ([]MemoryHit, error) {
+	return c.searchMemoriesForCharacter(ctx, q, characterID, topK, "vector")
+}
+
+// SearchMemoriesLexicalForCharacter reads Simple-mode memories without a
+// vector index while preserving the same role-visible group boundary.
+func (c *Client) SearchMemoriesLexicalForCharacter(ctx context.Context, q, characterID string, topK int) ([]MemoryHit, error) {
+	return c.searchMemoriesForCharacter(ctx, q, characterID, topK, "lexical")
+}
+
+func (c *Client) searchMemoriesForCharacter(ctx context.Context, q, characterID string, topK int, retrieval string) ([]MemoryHit, error) {
 	if q == "" {
 		return nil, nil
 	}
@@ -509,6 +520,9 @@ func (c *Client) SearchMemoriesForCharacter(ctx context.Context, q, characterID 
 	path := fmt.Sprintf("/api/memories/search?q=%s&top_k=%d", url.QueryEscape(q), topK)
 	if characterID != "" {
 		path += "&character_id=" + url.QueryEscape(characterID)
+	}
+	if retrieval != "vector" {
+		path += "&retrieval=" + url.QueryEscape(retrieval)
 	}
 	var resp memorySearchResponse
 	if err := c.doJSON(ctx, "GET", path, nil, &resp); err != nil {

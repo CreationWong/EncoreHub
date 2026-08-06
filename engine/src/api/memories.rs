@@ -23,6 +23,7 @@ pub struct SearchQuery {
     pub conversation_id: Option<String>,
     pub character_id: Option<String>,
     pub group_id: Option<String>,
+    pub retrieval: Option<String>,
 }
 
 fn default_top_k() -> i64 {
@@ -55,6 +56,14 @@ pub struct SearchResponse {
     pub results: Vec<MemoryResponse>,
     pub query: String,
     pub backend: &'static str,
+}
+
+/// Result of an idempotent model-selected memory write.
+#[derive(Debug, Serialize)]
+pub struct RememberResponse {
+    #[serde(flatten)]
+    pub memory: MemoryResponse,
+    pub created: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -138,7 +147,7 @@ fn default_confidence() -> f32 {
     0.7
 }
 
-/// Search memories using the embedded SQLite-Vec index.
+/// Search memories using role-scoped vector or lexical retrieval.
 pub async fn search(
     State(state): State<SharedState>,
     Query(params): Query<SearchQuery>,
@@ -174,62 +183,70 @@ pub async fn search(
         }
         visible_groups = Some(vec![group_id.to_string()]);
     }
-    let results = state
-        .db
-        .search_memory_vectors_for_groups(
-            &params.q,
-            params.conversation_id.as_deref(),
-            visible_groups.as_deref(),
-            params.top_k,
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
+    let retrieval = params.retrieval.as_deref().unwrap_or("vector");
+    let (results, backend) = match retrieval {
+        "lexical" => {
+            let mut results = if let Some(groups) = visible_groups.as_deref() {
+                state
+                    .db
+                    .search_memories_fts_for_groups(&params.q, groups, params.top_k)
+            } else {
+                state
+                    .db
+                    .search_memories_fts(&params.q, scope.as_ref(), params.top_k)
+            }
+            .map_err(internal_error)?;
+            if results.is_empty() {
+                if let Some(groups) = visible_groups.as_deref() {
+                    // Simple mode may store English-normalized facts while the
+                    // recall query is in another language. A bounded recent
+                    // fallback remains explicit and role-scoped.
+                    results = state
+                        .db
+                        .list_memories_for_groups(None, None, groups, params.top_k.clamp(1, 10), 0)
+                        .map_err(internal_error)?;
+                }
+            }
+            (results, "sqlite_fts")
+        }
+        "vector" => {
+            let results = state
+                .db
+                .search_memory_vectors_for_groups(
+                    &params.q,
+                    params.conversation_id.as_deref(),
+                    visible_groups.as_deref(),
+                    params.top_k,
+                )
+                .map_err(internal_error)?
+                .into_iter()
+                .map(|hit| hit.item)
+                .collect();
+            (results, "sqlite_vec")
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
                 Json(super::ErrorResponse {
-                    error: e.to_string(),
+                    error: "retrieval must be vector or lexical".into(),
                 }),
-            )
-        })?;
+            ));
+        }
+    };
 
-    // Touch accessed memories
     let results = results
         .into_iter()
-        .filter(|hit| scope.as_ref().is_none_or(|value| &hit.item.scope == value))
+        .filter(|memory| scope.as_ref().is_none_or(|value| &memory.scope == value))
         .collect::<Vec<_>>();
-    for hit in &results {
-        let _ = state.db.touch_memory(&hit.item.id);
+    for memory in &results {
+        let _ = state.db.touch_memory(&memory.id);
     }
-
-    let items: Vec<MemoryResponse> = results
-        .into_iter()
-        .map(|hit| {
-            let m = hit.item;
-            MemoryResponse {
-                id: m.id,
-                scope: m.scope.as_str().to_string(),
-                memory_type: m.memory_type.as_str().to_string(),
-                conversation_id: m.conversation_id,
-                group_id: m.group_id,
-                source_character_id: m.source_character_id,
-                state: m.state.as_str().into(),
-                kind: m.kind.as_str().into(),
-                canonical_key: m.canonical_key,
-                reason: m.reason,
-                source_turn_id: m.source_turn_id,
-                created_by_model: m.created_by_model,
-                confidence: m.confidence,
-                content: m.content,
-                importance: m.importance,
-                created_at: m.created_at.to_rfc3339(),
-                last_accessed_at: m.last_accessed_at.to_rfc3339(),
-            }
-        })
-        .collect();
+    let items = results.into_iter().map(memory_response).collect();
 
     Ok(Json(SearchResponse {
         results: items,
         query: params.q,
-        backend: "sqlite_vec",
+        backend,
     }))
 }
 
@@ -319,7 +336,7 @@ pub async fn list(
 pub async fn remember(
     State(state): State<SharedState>,
     Json(request): Json<RememberRequest>,
-) -> Result<(StatusCode, Json<MemoryResponse>), (StatusCode, Json<super::ErrorResponse>)> {
+) -> Result<(StatusCode, Json<RememberResponse>), (StatusCode, Json<super::ErrorResponse>)> {
     let content = request.content.trim();
     let reason = request.reason.trim();
     if content.is_empty() || content.chars().count() > 4_000 {
@@ -402,6 +419,19 @@ pub async fn remember(
             }),
         ));
     }
+    if let Some(existing) = state
+        .db
+        .find_equivalent_memory(&group_id, &kind, content)
+        .map_err(internal_error)?
+    {
+        return Ok((
+            StatusCode::OK,
+            Json(RememberResponse {
+                memory: memory_response(existing),
+                created: false,
+            }),
+        ));
+    }
     let memory_state =
         if matches!(settings.default_mode, MemoryMode::Realistic) && settings.realistic_enabled {
             MemoryState::Transient
@@ -439,26 +469,13 @@ pub async fn remember(
             tracing::warn!(memory_id = %memory.id, %error, "memory vector indexing failed");
         }
     }
-    let response = MemoryResponse {
-        id: memory.id,
-        scope: memory.scope.as_str().into(),
-        memory_type: memory.memory_type.as_str().into(),
-        conversation_id: memory.conversation_id,
-        group_id: memory.group_id,
-        source_character_id: memory.source_character_id,
-        state: memory.state.as_str().into(),
-        kind: memory.kind.as_str().into(),
-        canonical_key: memory.canonical_key,
-        reason: memory.reason,
-        source_turn_id: memory.source_turn_id,
-        created_by_model: memory.created_by_model,
-        confidence: memory.confidence,
-        content: memory.content,
-        importance: memory.importance,
-        created_at: memory.created_at.to_rfc3339(),
-        last_accessed_at: memory.last_accessed_at.to_rfc3339(),
-    };
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((
+        StatusCode::CREATED,
+        Json(RememberResponse {
+            memory: memory_response(memory),
+            created: true,
+        }),
+    ))
 }
 
 /// List role, global, and custom memory groups for the local profile.
@@ -726,6 +743,29 @@ fn internal_error(error: encorehub_core::EngineError) -> (StatusCode, Json<super
             error: error.to_string(),
         }),
     )
+}
+
+/// Serialize the shared relational memory shape consistently across endpoints.
+fn memory_response(memory: Memory) -> MemoryResponse {
+    MemoryResponse {
+        id: memory.id,
+        scope: memory.scope.as_str().into(),
+        memory_type: memory.memory_type.as_str().into(),
+        conversation_id: memory.conversation_id,
+        group_id: memory.group_id,
+        source_character_id: memory.source_character_id,
+        state: memory.state.as_str().into(),
+        kind: memory.kind.as_str().into(),
+        canonical_key: memory.canonical_key,
+        reason: memory.reason,
+        source_turn_id: memory.source_turn_id,
+        created_by_model: memory.created_by_model,
+        confidence: memory.confidence,
+        content: memory.content,
+        importance: memory.importance,
+        created_at: memory.created_at.to_rfc3339(),
+        last_accessed_at: memory.last_accessed_at.to_rfc3339(),
+    }
 }
 
 /// Delete a memory.

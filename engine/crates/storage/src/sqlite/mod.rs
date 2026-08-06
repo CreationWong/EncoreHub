@@ -695,6 +695,83 @@ impl Database {
         Ok(results)
     }
 
+    /// Search lexical memory content while enforcing a role-visible group set.
+    pub fn search_memories_fts_for_groups(
+        &self,
+        query: &str,
+        group_ids: &[String],
+        limit: i64,
+    ) -> Result<Vec<Memory>> {
+        let Some(query) = literal_fts_or_query(query) else {
+            return Ok(Vec::new());
+        };
+        if group_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = (0..group_ids.len())
+            .map(|index| format!("?{}", index + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT m.id, m.scope, m.type, m.conversation_id, m.content, m.importance,
+                    m.created_at, m.last_accessed_at, m.group_id, m.source_character_id,
+                    m.state, m.kind, m.canonical_key, m.reason, m.source_turn_id,
+                    m.created_by_model, m.confidence
+               FROM memories m
+               JOIN memories_fts fts ON m.rowid = fts.rowid
+              WHERE memories_fts MATCH ?1
+                AND m.group_id IN ({placeholders})
+                AND m.state != 'forgotten'
+              ORDER BY rank LIMIT ?{}",
+            group_ids.len() + 2
+        );
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(&sql)?;
+        let mut values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(query) as Box<dyn rusqlite::types::ToSql>];
+        values.extend(
+            group_ids
+                .iter()
+                .cloned()
+                .map(|group| Box::new(group) as Box<dyn rusqlite::types::ToSql>),
+        );
+        values.push(Box::new(limit.clamp(1, 50)));
+        let params = values
+            .iter()
+            .map(|value| value.as_ref())
+            .collect::<Vec<_>>();
+        let rows = statement.query_map(params.as_slice(), memory_row_mapper)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// Find a semantically identical active memory for idempotent model writes.
+    pub fn find_equivalent_memory(
+        &self,
+        group_id: &str,
+        kind: &MemoryKind,
+        content: &str,
+    ) -> Result<Option<Memory>> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(
+            "SELECT id, scope, type, conversation_id, content, importance, created_at,
+                    last_accessed_at, group_id, source_character_id, state, kind,
+                    canonical_key, reason, source_turn_id, created_by_model, confidence
+               FROM memories
+              WHERE group_id = ?1 AND kind = ?2 AND state != 'forgotten'
+              ORDER BY created_at DESC",
+        )?;
+        let rows = statement.query_map(params![group_id, kind.as_str()], memory_row_mapper)?;
+        let fingerprint = memory_content_fingerprint(content);
+        for row in rows {
+            let memory = row?;
+            if memory_content_fingerprint(&memory.content) == fingerprint {
+                return Ok(Some(memory));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn list_memories(
         &self,
         scope: Option<&MemoryScope>,
@@ -1599,6 +1676,25 @@ fn literal_fts_query(input: &str) -> Option<String> {
             .collect::<Vec<_>>()
             .join(" "),
     )
+}
+
+/// Compile a recall query that accepts any literal term and lets FTS rank hits.
+fn literal_fts_or_query(input: &str) -> Option<String> {
+    let terms = input
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .map(|term| format!("\"{term}\""))
+        .collect::<Vec<_>>();
+    (!terms.is_empty()).then(|| terms.join(" OR "))
+}
+
+/// Normalize case, whitespace, and punctuation for conservative write idempotency.
+fn memory_content_fingerprint(input: &str) -> String {
+    input
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|character| character.is_alphanumeric())
+        .collect()
 }
 
 fn secret_row_mapper(row: &rusqlite::Row) -> rusqlite::Result<SecretRow> {

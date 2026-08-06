@@ -846,6 +846,46 @@ async fn memory_remember_requires_explicit_call_and_role_group_permission() {
     assert_eq!(saved["state"], "long_term");
     assert_eq!(saved["kind"], "preference");
     assert_eq!(saved["canonical_key"], "preference.response_style");
+    assert_eq!(saved["created"], true);
+    let saved_id = saved["id"].as_str().unwrap().to_string();
+
+    let duplicate = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-duplicate",
+                "created_by_model": "test-model",
+                "content": "The user prefers concise technical answers",
+                "kind": "preference",
+                "reason": "The model attempted to remember the same fact again.",
+                "canonical_key": "preference.response_style"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::OK);
+    let duplicate = body_json(duplicate).await;
+    assert_eq!(duplicate["created"], false);
+    assert_eq!(duplicate["id"], saved_id);
+
+    let lexical = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories/search?q=%E6%88%91%E6%98%AF%E8%B0%81&character_id=default&retrieval=lexical")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(lexical.status(), StatusCode::OK);
+    let lexical = body_json(lexical).await;
+    assert_eq!(lexical["backend"], "sqlite_fts");
+    assert_eq!(lexical["results"].as_array().unwrap().len(), 1);
 
     let listed = app
         .clone()
