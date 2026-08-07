@@ -273,6 +273,80 @@ fn memory_fts_search_finds_global_content() {
 }
 
 #[test]
+fn memory_store_replaces_a_stale_fts_row_atomically() {
+    let (_dir, db, db_path) = fresh_db_with_path();
+    let connection = rusqlite::Connection::open(db_path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO memories_fts(rowid, content) VALUES (1, 'stale memory')",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let memory = Memory::new(
+        MemoryScope::Global,
+        MemoryType::Semantic,
+        None,
+        "Sam lives in the United States",
+        0.8,
+    );
+    db.store_memory(&memory)
+        .expect("a stale FTS row must not reject the authoritative memory write");
+
+    let hits = db
+        .search_memories_fts("Sam", Some(&MemoryScope::Global), 10)
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, memory.id);
+}
+
+#[test]
+fn memory_fts_repair_migration_reindexes_authoritative_content() {
+    let (_dir, db, db_path) = fresh_db_with_path();
+    let memory = Memory::new(
+        MemoryScope::Global,
+        MemoryType::Semantic,
+        None,
+        "outdated indexed content",
+        0.8,
+    );
+    db.store_memory(&memory).unwrap();
+    drop(db);
+
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    connection
+        .execute(
+            "UPDATE memories SET content = 'Sam lives in the United States' WHERE id = ?1",
+            [&memory.id],
+        )
+        .unwrap();
+    connection
+        .execute("DELETE FROM _migrations WHERE version = 18", [])
+        .unwrap();
+    drop(connection);
+
+    let repaired = Database::open_and_return(&db_path).unwrap();
+    let hits = repaired
+        .search_memories_fts("Sam", Some(&MemoryScope::Global), 10)
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, memory.id);
+
+    let connection = rusqlite::Connection::open(db_path).unwrap();
+    let mismatches: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memories m
+             JOIN memories_fts f ON f.rowid = m.rowid
+             WHERE m.content <> f.content",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(mismatches, 0);
+}
+
+#[test]
 fn memory_delete_removes_from_fts() {
     let (_dir, db, db_path) = fresh_db_with_path();
     let mem = Memory::new(

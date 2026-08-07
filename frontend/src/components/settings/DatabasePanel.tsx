@@ -9,6 +9,12 @@ import {
 
 const DATABASE_PAGE_SIZE = 100;
 
+function errorMessage(error: unknown, fallback: string) {
+	if (error instanceof Error && error.message.trim()) return error.message;
+	if (typeof error === "string" && error.trim()) return error;
+	return fallback;
+}
+
 export default function DatabasePanel() {
 	const [overview, setOverview] = useState<DatabaseOverview | null>(null);
 	const [page, setPage] = useState<DatabasePage | null>(null);
@@ -29,11 +35,7 @@ export default function DatabasePanel() {
 			setSelectedTable(table);
 			setPage(nextPage);
 		} catch (loadError) {
-			setError(
-				loadError instanceof Error
-					? loadError.message
-					: "Failed to read database table",
-			);
+			setError(errorMessage(loadError, "Failed to read database table"));
 		} finally {
 			setLoading(false);
 		}
@@ -62,11 +64,7 @@ export default function DatabasePanel() {
 				setPage(null);
 			}
 		} catch (loadError) {
-			setError(
-				loadError instanceof Error
-					? loadError.message
-					: "Failed to inspect database",
-			);
+			setError(errorMessage(loadError, "Failed to inspect database"));
 		} finally {
 			setLoading(false);
 		}

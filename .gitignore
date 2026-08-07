@@ -56,7 +56,7 @@ frontend/node_modules/
 .cache/
 tmp/
 temp/
-frontend/src-tauri/binaries/*.exe
+frontend/src-tauri/binaries/
 
 # Local UI verification artifacts
 docs/ui-baseline/

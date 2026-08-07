@@ -202,4 +202,14 @@ describe("Developer feature workspace", () => {
 		expect(screen.getByText("Test conversation")).toBeDefined();
 		expect(screen.getByText(/encorehub\.db/)).toBeDefined();
 	});
+
+	it("shows string errors returned by a database command", async () => {
+		databaseOverview.mockRejectedValueOnce("developer mode is not enabled");
+
+		render(<DatabasePanel />);
+
+		await waitFor(() =>
+			expect(screen.getByText("developer mode is not enabled")).toBeDefined(),
+		);
+	});
 });

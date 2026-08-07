@@ -368,14 +368,80 @@ test("Local build workflows keep Tauri development outside timed release steps",
 	assert.match(attributes, /^\*\.ps1 text eol=crlf$/m);
 });
 
+test("Desktop loads a versioned cross-platform Engine Runtime module", async () => {
+	const [
+		cargo,
+		main,
+		loader,
+		runtimeCargo,
+		runtime,
+		windows,
+		linux,
+		macos,
+		rootPackage,
+	] =
+		await Promise.all([
+			read("frontend/src-tauri/Cargo.toml"),
+			read("frontend/src-tauri/src/main.rs"),
+			read("frontend/src-tauri/src/engine_runtime.rs"),
+			read("engine/crates/desktop-runtime/Cargo.toml"),
+			read("engine/crates/desktop-runtime/src/lib.rs"),
+			read("frontend/src-tauri/tauri.windows.conf.json"),
+			read("frontend/src-tauri/tauri.linux.conf.json"),
+			read("frontend/src-tauri/tauri.macos.conf.json"),
+			read("package.json"),
+		]);
+	assert.doesNotMatch(cargo, /encorehub-engine\s*=/);
+	assert.match(cargo, /libloading/);
+	assert.match(main, /EngineRuntimeLibrary::load/);
+	assert.match(loader, /ENGINE_RUNTIME_ABI_VERSION:\s*u32\s*=\s*1/);
+	assert.match(runtimeCargo, /crate-type\s*=\s*\["cdylib"\]/);
+	assert.match(runtime, /encorehub_engine_runtime_abi_version/);
+	assert.match(runtime, /encorehub_engine_runtime_start/);
+	assert.match(runtime, /encorehub_engine_runtime_stop/);
+	assert.match(windows, /encorehub_desktop_runtime\.dll/);
+	assert.match(linux, /libencorehub_desktop_runtime\.so/);
+	assert.match(macos, /libencorehub_desktop_runtime\.dylib/);
+	const scripts = JSON.parse(rootPackage).scripts;
+	assert.match(scripts["build:desktop"], /engine,gateway,desktop/);
+});
+
+test("Component builds select one or several modules on every host", async () => {
+	const [builder, powershell, shell] = await Promise.all([
+		read("scripts/build-components.mjs"),
+		read("scripts/build.ps1"),
+		read("scripts/build.sh"),
+	]);
+	assert.match(builder, /engine-standalone/);
+	assert.match(builder, /components\.join/);
+	assert.match(powershell, /\[string\[\]\]\$Components/);
+	assert.match(powershell, /build-components\.mjs/);
+	assert.match(shell, /--components/);
+	assert.match(shell, /build-components\.mjs/);
+});
+
 test("Local builds resolve a vendored protoc without a global installation", async () => {
-	const [powershell, shell, cargo, resolverCargo, resolverMain] =
+	const [
+		powershell,
+		shell,
+		cargo,
+		resolverCargo,
+		resolverMain,
+		nodeResolver,
+		runtimeBuilder,
+		componentBuilder,
+		rootPackage,
+	] =
 		await Promise.all([
 			read("scripts/build.ps1"),
 			read("scripts/build.sh"),
 			read("engine/Cargo.toml"),
 			read("engine/crates/protoc-resolver/Cargo.toml"),
 			read("engine/crates/protoc-resolver/src/main.rs"),
+			read("scripts/resolve-protoc.mjs"),
+			read("scripts/prepare-engine-runtime.mjs"),
+			read("scripts/build-components.mjs"),
+			read("package.json"),
 		]);
 
 	assert.match(cargo, /"crates\/protoc-resolver"/);
@@ -387,6 +453,16 @@ test("Local builds resolve a vendored protoc without a global installation", asy
 	assert.match(shell, /resolve_protoc "\$NEEDS_CARGO"/);
 	assert.match(shell, /export PROTOC/);
 	assert.doesNotMatch(shell, /check_command protoc/);
+	assert.match(nodeResolver, /protoc-resolver/);
+	assert.match(nodeResolver, /process\.env\.PROTOC/);
+	assert.match(runtimeBuilder, /PROTOC: resolveProtoc\(root\)/);
+	assert.match(componentBuilder, /PROTOC: resolveProtoc\(root\)/);
+	for (const name of ["check:engine", "test:engine", "lint:engine"]) {
+		assert.match(
+			JSON.parse(rootPackage).scripts[name],
+			/run-with-protoc\.mjs/,
+		);
+	}
 });
 
 test("Expensive builds only run from the manual workflow", async () => {

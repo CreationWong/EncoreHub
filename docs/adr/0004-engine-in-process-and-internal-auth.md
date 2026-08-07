@@ -2,7 +2,7 @@
 
 * **Status**: Accepted
 * **Date**: 2026-07-19
-* **Amended**: 2026-07-29 (app-data runtime layout and native export)
+* **Amended**: 2026-08-07 (versioned dynamic Engine Runtime)
 * **Decision makers**: Project lead
 
 ## Context
@@ -21,10 +21,12 @@ HTTP contract or standalone binary.
 
 ### Desktop process topology
 
-The Tauri desktop binary links the `encorehub-engine` library and starts its
-Axum server as a task on Tauri's Tokio runtime. Gateway is the only packaged
-sidecar. Gateway continues to call Engine over loopback HTTP/JSON, preserving
-the same boundary used by standalone deployments.
+The Tauri desktop process loads `encorehub-desktop-runtime` as a platform
+dynamic library (`.dll`, `.so`, or `.dylib`) and starts its Axum server through
+a versioned C lifecycle ABI. No Rust type crosses this dynamic boundary.
+Gateway remains a packaged sidecar and continues to call Engine over loopback
+HTTP/JSON, preserving the same data-plane boundary used by standalone
+deployments.
 
 The standalone Engine binaries remain behind the Cargo `standalone` feature
 for Docker, headless development, and CI. Desktop and standalone modes share
@@ -71,8 +73,9 @@ Standalone paths remain explicitly configurable through environment variables.
 
 ## Consequences
 
-- Desktop ships one sidecar instead of two and no longer searches for an
-  Engine executable.
+- Desktop ships one Gateway sidecar and one Engine Runtime dynamic library.
+  It no longer statically links Engine's storage, LanceDB, or document pipeline
+  into the desktop executable.
 - Desktop database and daily logs use one platform-owned app-data root on
   Windows, macOS, and Linux; installed program directories remain immutable.
 - Log export no longer depends on WebView blob-download behavior and reports
@@ -90,8 +93,10 @@ Standalone paths remain explicitly configurable through environment variables.
 
 - **Keep two desktop sidecars**: preserves stronger process isolation but
   retains platform-specific discovery, migration, and packaging complexity.
-- **Call Engine through Rust FFI only**: removes the HTTP hop but creates a
-  second desktop-only contract and diverges from standalone behavior.
+- **Use Rust's native `dylib` ABI**: simpler to link, but compiler-version
+  coupling makes independent module upgrades unsafe.
+- **Call Engine data APIs through C FFI**: removes the HTTP hop but creates a
+  second desktop-only data contract and diverges from standalone behavior.
 - **Expose Engine directly to React**: leaks the internal trust boundary into
   the webview and duplicates Gateway authentication, CORS, and routing policy.
 - **Reuse the external Gateway token**: couples two different trust domains
@@ -103,5 +108,7 @@ Standalone paths remain explicitly configurable through environment variables.
   supersedes only its desktop packaging consequence.
 - [ADR-0002](0002-http-first-grpc-later.md) keeps HTTP/JSON as the current
   Gateway-to-Engine transport.
+- [ADR-0008](0008-versioned-desktop-runtime-modules.md) defines module ABI,
+  manifests, and selective builds.
 - [Remaining work](../REMAINING_WORK.md) tracks the outstanding platform,
   authentication, and packaging validation.

@@ -226,6 +226,7 @@ export default function CharacterMemorySettings({
 										>
 											<label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-text-primary">
 												<input
+													autoComplete="off"
 													type="checkbox"
 													checked={Boolean(inheritance)}
 													onChange={(event) =>

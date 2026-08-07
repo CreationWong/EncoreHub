@@ -10,19 +10,19 @@ AI 聊天桌面客户端 — 在一个跨平台桌面工作区中聚合多家模
 ```
 frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> engine (Rust, axum)
       │                                         │                    │
-      │  Tauri 桌面壳：engine 跑在进程内          │ 多 provider 适配    │ SQLite/SQLite-Vec + LanceDB
-      │  (tokio task)，gateway 为唯一 sidecar     │ (OpenAI / Anthropic │ 密钥加密(AES-256-GCM)
+      │  Tauri 桌面壳 + Engine Runtime 动态库      │ 多 provider 适配    │ SQLite/SQLite-Vec + LanceDB
+      │  (.dll/.so/.dylib) + gateway sidecar       │ (OpenAI / Anthropic │ 密钥加密(AES-256-GCM)
       │                                         │  / DeepSeek)        │ 对话/记忆/知识/Skill
 ```
 
 | 模块 | 语言 | 角色 |
 |------|------|------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 工具补全；Tauri 层启动 engine in-process + 拉起 gateway sidecar，端口自动协商，日志落盘 |
+| `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 工具补全；Tauri 通过版本化 C ABI 加载 Engine Runtime 动态库并拉起 Gateway sidecar，端口自动协商，日志落盘 |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，内置联网搜索工具，认证/限流/CORS，引擎反向代理 |
-| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | 对话/记忆/知识/附件/Skill/密钥存储与 API；Rust 文档解析与分块；LanceDB Knowledge 主索引；SQLite-Vec Knowledge 回退和单轮 Memory 索引；桌面模式下 Tauri 在进程内启动 axum |
+| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | 对话/记忆/知识/附件/Skill/密钥存储与 API；Rust 文档解析与分块；LanceDB Knowledge 主索引；SQLite-Vec Knowledge 回退和单轮 Memory 索引；桌面模式产出可独立升级的 Engine Runtime 动态库 |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
-为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)；桌面 Engine 进程模型与内部认证见 [`docs/adr/0004-engine-in-process-and-internal-auth.md`](docs/adr/0004-engine-in-process-and-internal-auth.md)；角色版本与对话快照边界见 [`docs/adr/0005-character-profile-snapshots.md`](docs/adr/0005-character-profile-snapshots.md)。
+为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)；桌面 Engine 进程模型与内部认证见 [`docs/adr/0004-engine-in-process-and-internal-auth.md`](docs/adr/0004-engine-in-process-and-internal-auth.md)；可独立升级的桌面模块边界见 [`docs/adr/0008-versioned-desktop-runtime-modules.md`](docs/adr/0008-versioned-desktop-runtime-modules.md)；角色版本与对话快照边界见 [`docs/adr/0005-character-profile-snapshots.md`](docs/adr/0005-character-profile-snapshots.md)。
 
 ## Quickstart（开发模式）
 
@@ -170,11 +170,17 @@ Frontend production build 会检查首屏静态 JavaScript 依赖闭包，默认
 ## 桌面打包
 
 ```bash
-# 构建当前平台的 Gateway sidecar 与 Tauri 安装包
+# 构建当前平台的 Engine Runtime、Gateway 与 Tauri 桌面程序
 pnpm build:desktop
+
+# 仅升级 Engine Runtime 动态库
+pnpm build:components -- --components engine --release
+
+# 同时构建 Engine Runtime 与 Gateway，不重建桌面程序
+pnpm build:components -- --components engine,gateway --release
 ```
 
-产物在 `frontend/src-tauri/target/release/bundle/`；Windows 生成 `msi/` 与 `nsis/`。脚本会为当前 Rust host target 构建 Gateway sidecar，Tauri 运行时通过官方 sidecar resolver 启动；Engine 已内嵌在 Tauri 进程中。macOS/Linux 安装包在完成对应平台安装后 smoke 前不作为受支持发布物。
+完整产物仍在 `frontend/src-tauri/target/release/bundle/`。桌面运行单元分为 `EncoreHub` 主程序、`encorehub_desktop_runtime.dll` / `libencorehub_desktop_runtime.so` / `libencorehub_desktop_runtime.dylib`、`encorehub-gateway` sidecar 和只读资源。Engine Runtime 使用版本化 C ABI，模块清单写入 `engine-runtime.json`；桌面启动时拒绝加载 ABI 不兼容的单独升级。PowerShell 可使用 `.\scripts\build.ps1 -Components engine,gateway`，Unix 可使用 `./scripts/build.sh --components engine,gateway`。macOS/Linux 安装包在完成对应平台安装后 smoke 前不作为受支持发布物。
 
 ## 安全说明
 

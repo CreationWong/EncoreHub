@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +14,7 @@ const builtBinary = path.join(
 	`encorehub-gateway${extension}`,
 );
 const goCache = process.env.GOCACHE || path.join(root, ".cache", "go-build");
+const release = process.argv.slice(2).includes("--release");
 
 function run(command, args, options = {}) {
 	const result = spawnSync(command, args, {
@@ -31,7 +33,10 @@ function run(command, args, options = {}) {
 mkdirSync(path.dirname(builtBinary), { recursive: true });
 mkdirSync(binariesDir, { recursive: true });
 mkdirSync(goCache, { recursive: true });
-run("go", ["build", "-trimpath", "-o", builtBinary, "./cmd/gateway"], {
+const goArgs = ["build", "-trimpath"];
+if (release) goArgs.push("-ldflags", "-s -w");
+goArgs.push("-o", builtBinary, "./cmd/gateway");
+run("go", goArgs, {
 	cwd: gatewayDir,
 	env: { ...process.env, GOCACHE: goCache },
 });
@@ -55,4 +60,30 @@ copyFileSync(
 	builtBinary,
 	path.join(binariesDir, `encorehub-gateway-${target}${extension}`),
 );
-console.log(`Prepared Gateway sidecar for ${target}`);
+const bytes = readFileSync(builtBinary);
+const tauriConfig = JSON.parse(
+	readFileSync(
+		path.join(root, "frontend", "src-tauri", "tauri.conf.json"),
+		"utf8",
+	),
+);
+writeFileSync(
+	path.join(binariesDir, "gateway-runtime.json"),
+	`${JSON.stringify(
+		{
+			schemaVersion: 1,
+			module: "encorehub-gateway",
+			version: tauriConfig.version,
+			target,
+			profile: release ? "release" : "debug",
+			file: `encorehub-gateway${extension}`,
+			size: bytes.length,
+			sha256: createHash("sha256").update(bytes).digest("hex"),
+		},
+		null,
+		2,
+	)}\n`,
+);
+console.log(
+	`Prepared Gateway sidecar (${release ? "release" : "debug"}, ${target})`,
+);

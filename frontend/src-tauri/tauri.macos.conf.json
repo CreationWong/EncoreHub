@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/schemas/refs/heads/master/tauri/tauri.conf.schema.json",
+  "bundle": {
+    "resources": {
+      "../../skills/": "skills/",
+      "binaries/gateway-runtime.json": "lib/gateway-runtime.json",
+      "binaries/libencorehub_desktop_runtime.dylib": "lib/libencorehub_desktop_runtime.dylib",
+      "binaries/engine-runtime.json": "lib/engine-runtime.json"
+    }
+  }
+}

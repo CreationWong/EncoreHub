@@ -42,7 +42,8 @@
       "binaries/encorehub-gateway"
     ],
     "resources": {
-      "../../skills/": "skills/"
+      "../../skills/": "skills/",
+      "binaries/gateway-runtime.json": "lib/gateway-runtime.json"
     },
     "windows": {
       "wix": {

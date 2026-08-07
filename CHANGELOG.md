@@ -17,12 +17,15 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Changed
 
+- **桌面运行时模块化**：Tauri 主程序不再静态链接完整 Engine，改为按平台加载带 ABI 版本校验的 Engine Runtime `.dll` / `.so` / `.dylib`；Engine、Gateway、Desktop、Frontend 和 standalone Engine 可按一个或多个组件独立构建与升级。
+- **依赖收敛**：移除前端未使用的路由、查询、命令面板、样式合并及 Tauri 插件依赖，清理 Rust 工作区和子 crate 的未消费声明；Blob SHA-256 的十六进制编码改用 Rust 标准库实现，`tower` 限定为测试依赖。
 - **通信日志隐私**：完整请求和响应内容仅保存在进程内存中，不再写入日常日志文件；导出时通过系统原生保存对话框由用户指定路径。
 - **诊断覆盖**：供应商验证和模型发现统一使用诊断 HTTP 客户端；未开启完整记录时仍保留不含请求头和正文的通信元数据。
 - **供应商保存逻辑**：草稿发生任何变更后即可触发保存，验证错误在保存时集中提示；模型发现的独立保存不会覆盖尚未提交的端点、路由或密钥编辑。
 
 ### Fixed
 
+- **记忆工具写入失败**：Memory 关系行与 SQLite FTS 索引改为单事务写入，遇到历史遗留的 FTS rowid 时自动替换，不再出现记忆实际落库但 `memory_remember` 返回 `constraint failed`；迁移 18 会从权威关系表重建已有错配索引。
 - **跨对话记忆读取**：Simple 模式注册受角色可见组约束的 `memory_search` 工具，通过 SQLite FTS 按需读取既有记忆；模型不再因新对话缺少历史上下文而声称没有已存记忆。
 - **重复记忆写入**：Engine 对同组、同种类且仅大小写、空白或标点不同的记忆执行幂等写入，重复 `memory_remember` 调用返回已有记录而不新增副本。
 - **LanceDB 构建工具**：本地构建在未全局安装 `protoc` 时通过 Cargo 自动解析当前平台的 vendored binary，不再要求用户手动修改 `PATH`。

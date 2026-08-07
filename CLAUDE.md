@@ -9,18 +9,19 @@ EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, A
 ```
 frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, axum)
        |                                        |                   |
-       |  Tauri: engine in-process               |  multi-provider   |  SQLite + SQLite-Vec
+       |  Tauri loads Engine Runtime             |  multi-provider   |  SQLite + SQLite-Vec
        |                                        |                   |  local LanceDB (primary knowledge)
-       |  (tokio task); gateway is               |  adapters         |  AES-256-GCM secret crypto
-       |  the only sidecar                       |                   |  conversation crate (token)
+       |  (.dll/.so/.dylib); Gateway             |  adapters         |  AES-256-GCM secret crypto
+       |  remains a sidecar                      |                   |  conversation crate (token)
 ```
 
-In the **desktop app** the engine is not a separate process: the Tauri shell
-depends on the `encorehub-engine` crate and starts its axum service in-process
-on Tauri's tokio runtime. The gateway is the **only sidecar** spawned as a child
-process. The engine also still builds as a **standalone binary** (gated by the
-`standalone` Cargo feature) for headless deployment, pure-web dev, and CI.
-See [ADR-0004](docs/adr/0004-engine-in-process-and-internal-auth.md).
+In the **desktop app** the engine still runs in the desktop process, but the
+Tauri executable loads it from the versioned Engine Runtime dynamic library
+instead of statically linking it. The gateway remains a child-process sidecar.
+The engine also builds as a **standalone binary** (gated by the `standalone`
+Cargo feature) for headless deployment, pure-web dev, and CI. See
+[ADR-0004](docs/adr/0004-engine-in-process-and-internal-auth.md) and
+[ADR-0008](docs/adr/0008-versioned-desktop-runtime-modules.md).
 
 Ports are negotiated at startup: in Tauri/client mode `find_free_port()` scans
 from 10000 upward; in headless/dev mode the env vars `ENGINE_BIND` / `LISTEN_ADDR`
@@ -31,7 +32,6 @@ only the actual Gateway port via the `get_service_ports` Tauri command.
 
 - Commit messages: English, format `type(scope): description` (e.g. `fix(engine): handle empty conversation list`)
 - No copyright headers on new files
-- Prefer native/standard-library APIs; avoid pulling in dependencies for trivial operations
 - Before modifying auth-related code, flag the security implications explicitly
 - Never log or comment API keys, tokens, or secrets — treat them as opaque strings
 - Before writing code for non-trivial changes, briefly explain the approach; when multiple valid approaches exist, present them as options
@@ -39,6 +39,16 @@ only the actual Gateway port via the `get_service_ports` Tauri command.
 - Frontend UI: use semantic color tokens (`success`/`warning`/`danger`/`info` + `-bg`/`-border` variants, defined in `styles/globals.css`, wired through `tailwind.config.js`) — never hardcode Tailwind palette colors like `red-400`
 - Frontend errors/feedback: surface via the global toast store (`stores/toastStore.ts` — `toast.success/error/info`), not inline error bars
 - Frontend a11y: icon-only buttons must carry an `aria-label`; keyboard focus uses the global `:focus-visible` ring (no per-component focus styling needed)
+
+### Dependency Policy
+
+- Use the language standard library, browser APIs, and platform-native APIs first. Do not add a dependency for basic formatting, parsing, collection operations, file or process handling, hashing wrappers, retries, small state helpers, or ordinary UI composition when the existing runtime can implement it clearly and safely.
+- A new third-party dependency must provide substantial behavior that will be reused by multiple modules, features, or workflows. Adding one or more packages solely to implement one simple feature is prohibited by default.
+- Do not adopt a "one feature, one dependency" design. Before adding a package, document its consumers, why the standard library or an existing dependency is insufficient, maintenance and security implications, and the removal boundary.
+- Exceptions require an explicit technical justification. Valid examples include security-reviewed cryptography, standards-compliant protocol or document parsers, complex domain engines, database or platform integration, or deliberate redundancy and fallback required for reliability.
+- Prefer an already-approved project dependency when it fits the requirement without weakening correctness or creating inappropriate coupling. Do not add overlapping libraries that solve the same problem without a documented migration or fallback plan.
+- Remove a dependency when its last real consumer is removed. Generated manifests and lockfiles must be regenerated in the same change.
+- Apply this policy equally to production code, tests, build scripts, code generation, and developer tooling.
 
 ### Code Comments and Change History
 
@@ -76,7 +86,7 @@ Node 22+ / pnpm 10 / Go 1.25 / Rust stable. The standard build scripts resolve a
 
 ```bash
 pnpm setup
-pnpm dev       # prepare the current-target Gateway sidecar and start Tauri
+pnpm dev       # prepare Engine Runtime and Gateway, then start Tauri
 ```
 
 Root `package.json` scripts are the canonical workspace entrypoint:
@@ -88,6 +98,7 @@ pnpm test:docs     # Markdown links, OpenAPI/routes, ADR and command contracts
 pnpm lint          # all component lint gates
 pnpm format        # Biome + rustfmt + gofmt
 pnpm build:desktop # current-platform Tauri bundle
+pnpm build:components -- --components engine,gateway --release # selected modules
 ```
 
 The Makefile is a compatibility shim that delegates to these scripts; do not add build logic there.
@@ -121,7 +132,7 @@ The Makefile is a compatibility shim that delegates to these scripts; do not add
 **Engine** (`cd engine`):
 
 The engine compiles in two modes via the `standalone` Cargo feature. Without it
-the crate is library-only (consumed in-process by the Tauri desktop app); with
+the crate is library-only and is linked into `encorehub-desktop-runtime`; with
 it the `encorehub-engine` and `encorehub-mcp` binaries are built. Run/build
 commands that need an actual executable must pass `--features standalone`.
 
@@ -147,7 +158,7 @@ cd engine   && cargo test test_name
 
 ## Port Negotiation
 
-- **Tauri / client mode**: When `ENGINE_BIND` and `LISTEN_ADDR` are unset, the desktop app calls `find_free_port(10000)` from `engine/src/lib.rs` to find two free ports on `127.0.0.1` (engine first, gateway next). The gateway sidecar receives `ENGINE_URL` and `LISTEN_ADDR` as env vars. The frontend calls `invoke("get_service_ports")` at startup to resolve only the Gateway port.
+- **Tauri / client mode**: When `ENGINE_BIND` and `LISTEN_ADDR` are unset, the Engine Runtime and desktop shell negotiate two free ports on `127.0.0.1` (engine first, gateway next). The gateway sidecar receives `ENGINE_URL` and `LISTEN_ADDR` as env vars. The frontend calls `invoke("get_service_ports")` at startup to resolve only the Gateway port.
 - **Headless / dev mode**: Ports always come from env vars (`ENGINE_BIND`, `LISTEN_ADDR`, `ENGINE_URL`) or their defaults (`127.0.0.1:3000`, `:8080`).
 - The Tauri `ServiceState` struct stores `engine_port` and `gateway_port`; `check_engine_health` and `check_gateway_health` use them instead of hardcoded ports.
 - Frontend `config.ts` exports `applyServicePorts(gwPort)` and Gateway URL getters (`apiBase()`, `gatewayUrl()`, `gatewayLivenessUrl()`, `gatewayReadinessUrl()`) — React never connects directly to Engine.
@@ -156,9 +167,9 @@ cd engine   && cargo test test_name
 
 The Tauri v2 config is at `frontend/src-tauri/tauri.conf.json`. Key points when building the installer:
 
-- **External binaries**: `tauri.conf.json` → `bundle.externalBin` references only `binaries/encorehub-gateway` (the engine runs in-process). The build input is `encorehub-gateway-<rust-host-target>[.exe]`; `pnpm prepare:sidecar` creates it. Runtime launch must use `app.shell().sidecar("encorehub-gateway")`, which resolves the bundled platform name. Do not add executable filename search tables.
+- **Runtime modules**: `tauri.conf.json` -> `bundle.externalBin` references `binaries/encorehub-gateway`; platform overlays package `encorehub_desktop_runtime.dll`, `libencorehub_desktop_runtime.so`, or `libencorehub_desktop_runtime.dylib` under `lib/`. Runtime launch uses `app.shell().sidecar("encorehub-gateway")`, while the desktop validates the Engine Runtime ABI before resolving lifecycle symbols.
 - **Resources and mutable state**: built-in skills are mapped to `resource_dir/skills`. All Desktop mutable state lives under `app_data_dir`: SQLite at `data/encorehub.db` and daily file logs at `log/encorehub-YYYY-MM-DD.log`. Developer-panel exports use a native Tauri command, writing to the OS Downloads directory or `app_data_dir/log` as fallback. The installation directory contains only binaries, runtime libraries, bundled resources, and startup configuration. Startup configuration comes from packaged files, environment variables, or process-memory values and must not be persisted in SQLite. Windows legacy installation-directory `data/` and `log/` remain read-only migration sources, are copy-verified with a marker, and are retained until explicit uninstall.
-- **Build script**: `pnpm build:desktop` is canonical and prepares the current-target sidecar before invoking Tauri. The PowerShell/Bash scripts remain compatibility tooling.
+- **Build scripts**: `pnpm build:desktop` builds Engine Runtime, Gateway, and the current-platform Tauri bundle. `pnpm build:components -- --components <list>` accepts `engine`, `gateway`, `desktop`, `frontend`, and `engine-standalone`; PowerShell/Bash wrappers expose the same selection.
 - Build output: MSI at `src-tauri/target/release/bundle/msi/`, NSIS exe at `bundle/nsis/`.
 - The Tauri binary itself is at `src-tauri/target/release/encorehub-desktop.exe`.
 
@@ -244,14 +255,16 @@ Typing `/` opens an LLM-tool completion menu backed by metadata in `frontend/src
 
 ### Engine Crate Structure
 
-The engine is a Cargo workspace with four crates:
+The engine is a Cargo workspace with six crates:
 - `crates/core` — shared `EngineError` type and data types (`Message`, `Conversation`, `Memory`, `Role`, `Usage`, etc.)
 - `crates/conversation` — token counting (`rough_token_count`, `estimate_message_tokens`, `token_count_with_estimation`, `exceeds_token_limit`, `Usage` struct with total() method)
+- `crates/desktop-runtime` — versioned C ABI dynamic library that owns the Engine Tokio runtime and HTTP lifecycle in desktop builds
+- `crates/protoc-resolver` — vendored cross-platform `protoc` path resolver used by build tooling
 - `crates/storage` — SQLite relational/blob storage, SQLite-Vec Memory and fallback indexes, plus embedded LanceDB Knowledge storage
 - `crates/skill` — `SkillRegistry` that loads Markdown skills from a directory, with YAML frontmatter parsing
 - Built-in skills: `code-explainer`, `summarize`, `web-search` (with dynamic tool support)
 
-The main binary (`src/main.rs`) wires: open SQLite → load skills → install a reloadable tracing subscriber → resolve `ENGINE_BIND` (or default `127.0.0.1:3000`) → call `encorehub_engine::serve(...)`. `serve()` (in `src/lib.rs`) builds the axum router and runs it; it is shared by the standalone binary and the Tauri desktop app (which calls it from `tokio::spawn` on its own runtime). `lib.rs` also exports `find_free_port(start_port)` — a synchronous TCP probe used by Tauri for port negotiation. `main.rs` and `mcp_server.rs` are gated behind `#![cfg(feature = "standalone")]` so the library build skips them. The router is defined in `src/api/mod.rs` and each resource group (conversations, knowledge, memories, skills, plugins, secrets, config) is a submodule.
+The main binary (`src/main.rs`) wires: open SQLite → load skills → install a reloadable tracing subscriber → resolve `ENGINE_BIND` (or default `127.0.0.1:3000`) → call `encorehub_engine::serve(...)`. `serve()` (in `src/lib.rs`) builds the axum router and runs it; it is shared by the standalone binary and `crates/desktop-runtime`, which owns its own Tokio runtime behind the C ABI. `lib.rs` also exports `find_free_port(start_port)` for port negotiation. `main.rs` and `mcp_server.rs` are gated behind `#![cfg(feature = "standalone")]` so the library build skips them. The router is defined in `src/api/mod.rs` and each resource group (conversations, knowledge, memories, skills, plugins, secrets, config) is a submodule.
 
 ### Skills Directory
 

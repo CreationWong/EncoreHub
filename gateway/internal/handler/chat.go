@@ -391,6 +391,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		Knowledge:   knowledgeContext,
 		ToolResults: formatPreexecutedToolContext(initialToolCalls),
 	}, searchTool, titleTool)
+	autoTitle := shouldGenerateAutomaticTitle(convDetail, req)
 
 	userMessage, err := h.engine.BeginTurnWithAttachments(
 		ctx,
@@ -416,16 +417,18 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	if req.Stream {
-		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, convDetail.CharacterID, *userMessage, initialToolCalls)
+		h.providerStream(ctx, c, adapter, chatReq, apiKey, convID, convDetail.CharacterID, *userMessage, initialToolCalls, autoTitle)
 		return
 	}
 
 	// Non-streaming — fire AI-refined title concurrently (best-effort, only once).
-	requestID := c.GetString("request_id")
-	go func() {
-		titleCtx := withLogRequestID(ctx, requestID)
-		h.generateTitle(titleCtx, convID, req.Provider, req.Model, apiKey)
-	}()
+	if autoTitle {
+		requestID := c.GetString("request_id")
+		go func() {
+			titleCtx := withLogRequestID(ctx, requestID)
+			h.generateTitle(titleCtx, convID, req.Provider, req.Model, apiKey)
+		}()
+	}
 
 	providerStarted := time.Now()
 	chatResp, err := adapter.Chat(ctx, chatReq, apiKey)
@@ -503,7 +506,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapter provider.Adapter,
 	req *provider.ChatRequest, apiKey, convID, characterID string, userMessage engine.Message,
-	initialToolCalls []engine.ToolCallInput) {
+	initialToolCalls []engine.ToolCallInput, autoTitle bool) {
 
 	requestID := c.GetString("request_id")
 	c.Header("Content-Type", "text/event-stream")
@@ -679,15 +682,6 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		result titleResult
 		err    error
 	}
-	titleDone := make(chan asyncTitleResult, 1)
-	go func() {
-		baseTitleCtx := withLogRequestID(ctx, requestID)
-		titleCtx, cancel := context.WithTimeout(baseTitleCtx, titleGenerationTimeout)
-		defer cancel()
-		result, err := h.generateTitleSync(titleCtx, convID, adapter.ID(), req.Model, apiKey, false)
-		titleDone <- asyncTitleResult{result: result, err: err}
-	}()
-
 	writeTitleResult := func(res asyncTitleResult) {
 		if res.err != nil {
 			writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
@@ -700,6 +694,19 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 			"conversation_id": convID,
 			"title":           res.result.title,
 		})
+	}
+	var titleDone <-chan struct{}
+	if autoTitle {
+		done := make(chan struct{})
+		titleDone = done
+		go func() {
+			defer close(done)
+			baseTitleCtx := withLogRequestID(ctx, requestID)
+			titleCtx, cancel := context.WithTimeout(baseTitleCtx, titleGenerationTimeout)
+			defer cancel()
+			result, err := h.generateTitleSync(titleCtx, convID, adapter.ID(), req.Model, apiKey, false)
+			writeTitleResult(asyncTitleResult{result: result, err: err})
+		}()
 	}
 
 	finalizeError := func(status, code, message, finishReason string) {
@@ -717,6 +724,7 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		writeTerminalFrame("error", newChatErrorPayload(code, message, finalized))
 	}
 
+	emptyToolFollowupRetries := 0
 	for round := 0; round < maxToolRounds; round++ {
 		result := processOneStream(cr, round)
 		fullContent += result.content
@@ -747,6 +755,24 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 				code, message := providerErrorResponse(result.err)
 				finalizeError("failed", code, message, "error")
 			}
+			return
+		}
+		if round > 0 && len(allToolCalls) > 0 && len(result.toolCalls) == 0 && strings.TrimSpace(result.content) == "" {
+			if emptyToolFollowupRetries == 0 {
+				emptyToolFollowupRetries++
+				log.Warn().
+					Str("request_id", requestID).
+					Str("conv_id", convID).
+					Int("round", round).
+					Msg("model returned empty tool follow-up; retrying once")
+				continue
+			}
+			finalizeError(
+				"failed",
+				"empty_response",
+				"Model returned no response after tool execution",
+				"empty",
+			)
 			return
 		}
 		toolCalls := result.toolCalls
@@ -966,13 +992,15 @@ func (h *ChatHandler) providerStream(ctx context.Context, c *gin.Context, adapte
 		return
 	}
 
-	// Emit any hidden automatic-title result before done. The title request has
-	// its own 30s timeout and ran in parallel with the visible chat stream.
-	select {
-	case res := <-titleDone:
-		writeTitleResult(res)
-	case <-ctx.Done():
-		writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
+	// The first-turn title normally arrives while content is still streaming.
+	// If the visible answer wins the race, keep the stream open until the title
+	// task finishes so the client observes both authoritative results.
+	if titleDone != nil {
+		select {
+		case <-titleDone:
+		case <-ctx.Done():
+			writeFrame("title_error", map[string]string{"message": "Failed to generate title"})
+		}
 	}
 
 	writeTerminalFrame("done", chatDonePayload{
@@ -1978,6 +2006,12 @@ func formatSearchToolResult(results []search.Result) string {
 // possible characters — a topic keyword/phrase, never a full sentence.
 const defaultConversationTitle = "New Chat"
 const titleGenerationTimeout = 30 * time.Second
+
+func shouldGenerateAutomaticTitle(conv *engine.ConversationDetail, req SendMessageRequest) bool {
+	return req.ReplaceMessageID == "" &&
+		len(conv.Messages) == 0 &&
+		strings.TrimSpace(conv.Title) == defaultConversationTitle
+}
 
 const (
 	titleChineseMaxRunes = 20

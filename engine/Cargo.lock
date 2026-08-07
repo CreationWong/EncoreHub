@@ -1809,9 +1809,6 @@ name = "encorehub-conversation"
 version = "0.1.0"
 dependencies = [
  "encorehub-core",
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -1824,6 +1821,18 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "encorehub-desktop-runtime"
+version = "0.1.0"
+dependencies = [
+ "encorehub-engine",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1873,22 +1882,18 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "thiserror",
  "tracing",
- "uuid",
 ]
 
 [[package]]
 name = "encorehub-storage"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "arrow-array",
  "arrow-schema",
  "chrono",
  "encorehub-core",
  "futures",
- "hex",
  "lancedb",
  "rusqlite",
  "serde",
@@ -1896,7 +1901,6 @@ dependencies = [
  "sha2 0.10.9",
  "sqlite-vec",
  "tempfile",
- "thiserror",
  "tokio",
  "tracing",
  "uuid",

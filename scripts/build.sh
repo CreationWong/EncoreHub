@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # EncoreHub build workflow - Linux, macOS, and WSL
-# Usage: ./scripts/build.sh [--skip-engine] [--skip-gateway] [--skip-frontend] [--debug] [--tauri] [--parallel] [--skip-install]
+# Usage: ./scripts/build.sh [--skip-engine] [--skip-gateway] [--skip-frontend] [--debug] [--tauri] [--parallel] [--skip-install] [--components <names>]
 #
 # Examples:
 #   ./scripts/build.sh
@@ -10,6 +10,8 @@
 #   ./scripts/build.sh --parallel
 #   ./scripts/build.sh --skip-engine --skip-gateway
 #   ./scripts/build.sh --skip-install
+#   ./scripts/build.sh --components engine,gateway
+#   ./scripts/build.sh --components desktop
 
 set -Eeuo pipefail
 
@@ -24,9 +26,10 @@ DEBUG_BUILD=false
 TAURI_BUILD=false
 PARALLEL=false
 SKIP_INSTALL=false
+COMPONENTS=""
 
-for arg in "$@"; do
-    case "$arg" in
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --skip-engine)   SKIP_ENGINE=true ;;
         --skip-gateway)  SKIP_GATEWAY=true ;;
         --skip-frontend) SKIP_FRONTEND=true ;;
@@ -34,9 +37,18 @@ for arg in "$@"; do
         --tauri)         TAURI_BUILD=true ;;
         --parallel)      PARALLEL=true ;;
         --skip-install)  SKIP_INSTALL=true ;;
+        --components)
+            shift
+            if [ "$#" -eq 0 ]; then
+                echo "--components requires a comma-separated value" >&2
+                exit 2
+            fi
+            COMPONENTS="$1"
+            ;;
         --help|-h)       show_usage; exit 0 ;;
-        *) echo "Unknown argument: $arg" >&2; show_usage >&2; exit 2 ;;
+        *) echo "Unknown argument: $1" >&2; show_usage >&2; exit 2 ;;
     esac
+    shift
 done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,6 +56,21 @@ FRONTEND_DIR="$REPO_ROOT/frontend"
 ENGINE_DIR="$REPO_ROOT/engine"
 GATEWAY_DIR="$REPO_ROOT/gateway"
 BINARY_DIR="$FRONTEND_DIR/src-tauri/binaries"
+
+if [ -n "$COMPONENTS" ]; then
+    if [ "$TAURI_BUILD" = true ] || [ "$SKIP_ENGINE" = true ] || \
+       [ "$SKIP_GATEWAY" = true ] || [ "$SKIP_FRONTEND" = true ] || \
+       [ "$PARALLEL" = true ] || [ "$SKIP_INSTALL" = true ]; then
+        echo "--components cannot be combined with legacy build-selection switches" >&2
+        exit 2
+    fi
+    PROFILE_FLAG="--release"
+    if [ "$DEBUG_BUILD" = true ]; then
+        PROFILE_FLAG="--debug"
+    fi
+    exec node "$REPO_ROOT/scripts/build-components.mjs" \
+        --components "$COMPONENTS" "$PROFILE_FLAG"
+fi
 
 CARGO_TARGET="debug"
 CARGO_ARGS=()
@@ -169,12 +196,15 @@ resolve_protoc() {
 
 build_engine() {
     if [ "$TAURI_BUILD" = true ]; then
-        section "Engine library"
-        warn "The engine runs in-process for Tauri; checking the library only"
-        if ! (cd "$ENGINE_DIR" && cargo check "${CARGO_ARGS[@]}"); then
+        section "Engine Runtime library"
+        local profile_flag="--debug"
+        if [ "$DEBUG_BUILD" = false ]; then
+            profile_flag="--release"
+        fi
+        if ! node "$REPO_ROOT/scripts/prepare-engine-runtime.mjs" "$profile_flag"; then
             return 1
         fi
-        ok "engine library checked"
+        ok "engine runtime library prepared"
         return
     fi
 
@@ -193,8 +223,11 @@ build_engine() {
 
 build_gateway() {
     section "Gateway"
-    mkdir -p "$GATEWAY_DIR/bin"
-    if ! (cd "$GATEWAY_DIR" && go build "${GO_BUILD_ARGS[@]}" -o "bin/$GATEWAY_BIN" ./cmd/gateway); then
+    local profile_flag="--debug"
+    if [ "$DEBUG_BUILD" = false ]; then
+        profile_flag="--release"
+    fi
+    if ! node "$REPO_ROOT/scripts/prepare-gateway-sidecar.mjs" "$profile_flag"; then
         return 1
     fi
     if [ ! -f "$GATEWAY_SOURCE" ]; then
@@ -265,6 +298,22 @@ prepare_tauri_sidecar() {
         return 1
     fi
     ok "host target triple: $target_triple"
+
+    local runtime_library="libencorehub_desktop_runtime.so"
+    case "$(uname -s)" in
+        Darwin*) runtime_library="libencorehub_desktop_runtime.dylib" ;;
+        MINGW*|MSYS*|CYGWIN*) runtime_library="encorehub_desktop_runtime.dll" ;;
+    esac
+    if [ ! -f "$BINARY_DIR/$runtime_library" ] || \
+       [ ! -f "$BINARY_DIR/engine-runtime.json" ]; then
+        warn "Engine Runtime module is missing; build the engine component first"
+        return 1
+    fi
+    ok "engine runtime module ready"
+    if [ ! -f "$BINARY_DIR/gateway-runtime.json" ]; then
+        warn "Gateway module manifest is missing; build the gateway component first"
+        return 1
+    fi
 
     if [ "$SKIP_GATEWAY" = true ]; then
         warn "gateway build was skipped; using the existing binary when available"

@@ -42,7 +42,12 @@ impl BlobStore {
     pub fn store(&self, data: &[u8]) -> Result<String> {
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(data);
-        let hex = hex::encode(hash);
+        let mut hex = String::with_capacity(hash.len() * 2);
+        const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+        for byte in hash {
+            hex.push(HEX_DIGITS[(byte >> 4) as usize] as char);
+            hex.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
+        }
 
         let path = self.blob_path(&hex);
         if let Some(parent) = path.parent() {
@@ -72,5 +77,25 @@ impl BlobStore {
         } else {
             Ok(false)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlobStore;
+
+    /// The standard-library encoder must preserve the persisted digest format.
+    #[test]
+    fn store_uses_lowercase_sha256_and_round_trips_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(directory.path()).unwrap();
+
+        let digest = store.store(b"abc").unwrap();
+
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(store.get(&digest).unwrap(), Some(b"abc".to_vec()));
     }
 }

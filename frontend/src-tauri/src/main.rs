@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app_info;
+mod engine_runtime;
 mod log_layer;
 mod logs;
 mod runtime_paths;
@@ -8,20 +9,18 @@ mod runtime_paths;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
 
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use tauri::{Manager, State};
-use tokio::sync::oneshot;
-use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use app_info::get_app_info;
-use encorehub_engine::logging::{normalize_level, LogControl};
-use encorehub_engine::{find_free_port, Database, SkillRegistry, ENGINE_AUTH_TOKEN_ENV};
+use engine_runtime::{EngineRuntimeHandle, EngineRuntimeLibrary, ENGINE_AUTH_TOKEN_ENV};
 use log_layer::LogBufferLayer;
 use logs::{export_log_entries, Level, LogBuffer, LogEntry, Source};
 #[cfg(target_os = "windows")]
@@ -72,15 +71,9 @@ struct ServiceHandle {
     running: Arc<AtomicBool>,
 }
 
-struct EngineHandle {
-    shutdown: oneshot::Sender<()>,
-    task: tauri::async_runtime::JoinHandle<()>,
-    started: Instant,
-    running: Arc<AtomicBool>,
-}
-
 struct ServiceState {
-    engine: Mutex<Option<EngineHandle>>,
+    engine: Mutex<Option<EngineRuntimeHandle>>,
+    engine_library: Arc<EngineRuntimeLibrary>,
     gateway: Mutex<Option<ServiceHandle>>,
     logs: Arc<LogBuffer>,
     /// File logs share the platform app-data root with the SQLite database.
@@ -92,7 +85,6 @@ struct ServiceState {
     /// state is intentionally not serializable and no Tauri command returns it.
     internal_auth_token: Arc<str>,
     runtime_paths: RuntimePaths,
-    log_control: LogControl,
     developer_mode: AtomicBool,
     full_communication_logs: AtomicBool,
 }
@@ -185,13 +177,13 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
     ]
 }
 
-fn engine_status(slot: &Mutex<Option<EngineHandle>>, port: u16) -> ServiceStatus {
+fn engine_status(slot: &Mutex<Option<EngineRuntimeHandle>>, port: u16) -> ServiceStatus {
     let guard = slot.lock().unwrap();
     match guard.as_ref() {
         Some(handle) => ServiceStatus {
             name: "engine".into(),
             pid: Some(std::process::id()),
-            running: handle.running.load(Ordering::Acquire),
+            running: handle.is_running(),
             uptime_secs: handle.started.elapsed().as_secs(),
             port,
         },
@@ -384,28 +376,15 @@ async fn restart_gateway(
 async fn restart_engine(state: State<'_, ServiceState>) -> Result<ServiceStatus, String> {
     require_developer_mode(&state)?;
 
-    let previous = state.engine.lock().unwrap().take();
-    if let Some(handle) = previous {
-        let EngineHandle {
-            shutdown, mut task, ..
-        } = handle;
-        let _ = shutdown.send(());
-        if tokio::time::timeout(Duration::from_secs(5), &mut task)
-            .await
-            .is_err()
-        {
-            task.abort();
-            let _ = task.await;
-            tracing::warn!("forced in-process Engine task to stop during restart");
-        }
+    if let Some(handle) = state.engine.lock().unwrap().take() {
+        handle.stop();
     }
 
-    let handle = start_engine(
+    let handle = state.engine_library.start(
         &state.runtime_paths,
-        state.log_control.clone(),
         state.engine_port,
         state.logs.clone(),
-        state.internal_auth_token.clone(),
+        &state.internal_auth_token,
     )?;
     state.engine.lock().unwrap().replace(handle);
     tracing::info!("Engine restart completed");
@@ -558,8 +537,24 @@ async fn restart_gateway_process(
 }
 
 fn open_developer_database(path: &std::path::Path) -> Result<Connection, String> {
+    register_sqlite_vec();
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| format!("failed to open database read-only: {error}"))
+}
+
+fn register_sqlite_vec() {
+    static REGISTER: Once = Once::new();
+    REGISTER.call_once(|| unsafe {
+        type ExtensionEntry = unsafe extern "C" fn(
+            *mut rusqlite::ffi::sqlite3,
+            *mut *mut std::ffi::c_char,
+            *const rusqlite::ffi::sqlite3_api_routines,
+        ) -> std::ffi::c_int;
+        let entry = std::mem::transmute::<*const (), ExtensionEntry>(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        );
+        rusqlite::ffi::sqlite3_auto_extension(Some(entry));
+    });
 }
 
 fn database_columns(connection: &Connection, table: &str) -> Result<Vec<String>, String> {
@@ -668,7 +663,9 @@ fn main() {
 
             let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
-            let log_control = install_logging(logs.clone());
+            install_logging(logs.clone());
+            let engine_library =
+                EngineRuntimeLibrary::load(&resource_dir).map_err(std::io::Error::other)?;
 
             #[cfg(target_os = "windows")]
             if native_titlebar_rollback_requested() {
@@ -704,10 +701,22 @@ fn main() {
             tracing::info!("EncoreHub app data: {:?}", app_data_dir);
             tracing::info!("EncoreHub log directory: {:?}", runtime_paths.logs);
             tracing::info!("EncoreHub resources: {:?}", resource_dir);
+            tracing::info!("Engine Runtime library: {:?}", engine_library.path());
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 
+            let engine = engine_library
+                .start(
+                    &runtime_paths,
+                    engine_port,
+                    logs.clone(),
+                    &internal_auth_token,
+                )
+                .map_err(std::io::Error::other)?;
+            apply_persisted_file_log_level(&runtime_paths.database, &logs);
+
             app.manage(ServiceState {
-                engine: Mutex::new(None),
+                engine: Mutex::new(Some(engine)),
+                engine_library,
                 gateway: Mutex::new(None),
                 logs: logs.clone(),
                 log_dir: runtime_paths.logs.clone(),
@@ -715,25 +724,9 @@ fn main() {
                 gateway_port,
                 internal_auth_token: internal_auth_token.clone(),
                 runtime_paths: runtime_paths.clone(),
-                log_control: log_control.clone(),
                 developer_mode: AtomicBool::new(false),
                 full_communication_logs: AtomicBool::new(false),
             });
-
-            // ---- Start engine in-process ----
-            let engine = start_engine(
-                &runtime_paths,
-                log_control,
-                engine_port,
-                logs.clone(),
-                internal_auth_token.clone(),
-            )
-            .map_err(std::io::Error::other)?;
-            app.state::<ServiceState>()
-                .engine
-                .lock()
-                .unwrap()
-                .replace(engine);
 
             // ---- Spawn gateway (still a sidecar) ----
             if let Some(handle) = spawn_gateway(
@@ -767,7 +760,7 @@ fn main() {
                     let _ = h.child.kill();
                 }
                 if let Some(engine) = window.state::<ServiceState>().engine.lock().unwrap().take() {
-                    let _ = engine.shutdown.send(());
+                    engine.stop();
                 }
             }
         })
@@ -775,23 +768,14 @@ fn main() {
         .expect("error while running EncoreHub");
 }
 
-fn install_logging(logs: Arc<LogBuffer>) -> LogControl {
+fn install_logging(logs: Arc<LogBuffer>) {
     let initial_filter =
         EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
-    let (filter_layer, reload_handle) = reload::Layer::new(initial_filter);
     tracing_subscriber::registry()
-        .with(filter_layer)
+        .with(initial_filter)
         .with(fmt::layer().with_target(false))
         .with(LogBufferLayer::new(logs))
         .init();
-
-    LogControl::new(move |level| {
-        let directive =
-            normalize_level(level).ok_or_else(|| format!("invalid log level: {level}"))?;
-        reload_handle
-            .reload(EnvFilter::new(directive))
-            .map_err(|error| error.to_string())
-    })
 }
 
 fn negotiate_ports() -> (u16, u16) {
@@ -806,79 +790,38 @@ fn negotiate_ports() -> (u16, u16) {
     (engine_port, gateway_port)
 }
 
-/// Open the engine's database + skills and start its axum service on Tauri's
-/// tokio runtime. Replaces the old `spawn_service(.., "encorehub-engine", ..)`
-/// path — the engine is now a library task in this process, not a sidecar exe.
-fn start_engine(
-    runtime_paths: &RuntimePaths,
-    log_control: LogControl,
-    port: u16,
-    logs: Arc<LogBuffer>,
-    internal_auth_token: Arc<str>,
-) -> Result<EngineHandle, String> {
-    let db = Database::open_and_return(&runtime_paths.database).map_err(|error| {
-        format!(
-            "failed to open engine database at {:?}: {error}",
-            runtime_paths.database
-        )
-    })?;
+fn find_free_port(start_port: u16) -> u16 {
+    (start_port..=u16::MAX)
+        .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok())
+        .unwrap_or(start_port)
+}
 
-    if let Ok(Some(entry)) = db.get_config("log_level") {
-        if let Ok(level) = serde_json::from_str::<String>(&entry.value_json) {
-            let _ = log_control.set(&level);
+fn apply_persisted_file_log_level(database_path: &std::path::Path, logs: &LogBuffer) {
+    let value = Connection::open(database_path)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT value_json FROM config WHERE key = ?1",
+                    [FILE_LOG_LEVEL_CONFIG_KEY],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+        })
+        .ok()
+        .flatten();
+    let Some(value) = value else {
+        return;
+    };
+    match serde_json::from_str::<String>(&value)
+        .ok()
+        .and_then(|level| Level::parse(&level))
+    {
+        Some(level) => {
+            logs.set_file_level(level);
+            tracing::info!("applied persisted file log level: {}", level.as_str());
         }
+        None => tracing::warn!("ignored invalid persisted file log level: {value}"),
     }
-
-    if let Ok(Some(entry)) = db.get_config(FILE_LOG_LEVEL_CONFIG_KEY) {
-        match serde_json::from_str::<String>(&entry.value_json)
-            .ok()
-            .and_then(|level| Level::parse(&level))
-        {
-            Some(level) => {
-                logs.set_file_level(level);
-                tracing::info!("applied persisted file log level: {}", level.as_str());
-            }
-            None => {
-                tracing::warn!(
-                    "ignored invalid persisted file log level: {}",
-                    entry.value_json
-                );
-            }
-        }
-    }
-
-    let skill_registry = SkillRegistry::load(&runtime_paths.skills);
-    tracing::info!("Skills loaded: {} total", skill_registry.list().len());
-
-    let bind_addr = format!("127.0.0.1:{port}");
-    tracing::info!("Engine starting in-process on http://{bind_addr}");
-
-    let (shutdown, shutdown_rx) = oneshot::channel();
-    let running = Arc::new(AtomicBool::new(true));
-    let task_running = running.clone();
-    let task = tauri::async_runtime::spawn(async move {
-        if let Err(e) = encorehub_engine::serve_with_shutdown(
-            db,
-            skill_registry,
-            Some(log_control),
-            bind_addr,
-            internal_auth_token.to_string(),
-            async move {
-                let _ = shutdown_rx.await;
-            },
-        )
-        .await
-        {
-            tracing::error!("engine serve exited: {e}");
-        }
-        task_running.store(false, Ordering::Release);
-    });
-    Ok(EngineHandle {
-        shutdown,
-        task,
-        started: Instant::now(),
-        running,
-    })
 }
 
 /// Resolve and spawn the bundled Gateway through Tauri's platform-aware
@@ -1107,6 +1050,19 @@ mod tests {
         assert!(read_only
             .execute("INSERT INTO sample (value) VALUES ('blocked')", [])
             .is_err());
+    }
+
+    #[test]
+    fn developer_database_connection_registers_sqlite_vec() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("developer.db");
+        drop(Connection::open(&path).unwrap());
+
+        let read_only = open_developer_database(&path).unwrap();
+        let version: String = read_only
+            .query_row("SELECT vec_version()", [], |row| row.get(0))
+            .unwrap();
+        assert!(!version.is_empty());
     }
 
     #[test]

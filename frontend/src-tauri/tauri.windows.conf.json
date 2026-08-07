@@ -15,5 +15,13 @@
         "transparent": false
       }
     ]
+  },
+  "bundle": {
+    "resources": {
+      "../../skills/": "skills/",
+      "binaries/gateway-runtime.json": "lib/gateway-runtime.json",
+      "binaries/encorehub_desktop_runtime.dll": "lib/encorehub_desktop_runtime.dll",
+      "binaries/engine-runtime.json": "lib/engine-runtime.json"
+    }
   }
 }

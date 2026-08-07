@@ -153,6 +153,7 @@ export default function CurrentMemoryPanel() {
 				<div className="relative mt-3">
 					<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 					<input
+						autoComplete="off"
 						type="search"
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}

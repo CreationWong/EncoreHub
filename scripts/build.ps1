@@ -1,5 +1,5 @@
 # EncoreHub build workflow - Windows PowerShell
-# Usage: .\scripts\build.ps1 [-SkipEngine] [-SkipGateway] [-SkipFrontend] [-Debug] [-Tauri] [-Parallel] [-SkipInstall]
+# Usage: .\scripts\build.ps1 [-SkipEngine] [-SkipGateway] [-SkipFrontend] [-Debug] [-Tauri] [-Parallel] [-SkipInstall] [-Components <names>]
 #
 # Examples:
 #   .\scripts\build.ps1
@@ -9,6 +9,8 @@
 #   .\scripts\build.ps1 -Parallel
 #   .\scripts\build.ps1 -SkipEngine -SkipGateway
 #   .\scripts\build.ps1 -SkipInstall
+#   .\scripts\build.ps1 -Components engine,gateway
+#   .\scripts\build.ps1 -Components desktop
 
 param(
     [switch]$SkipEngine,
@@ -17,7 +19,8 @@ param(
     [switch]$Debug,
     [switch]$Tauri,
     [switch]$Parallel,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [string[]]$Components = @()
 )
 
 Set-StrictMode -Version Latest
@@ -32,6 +35,29 @@ $binaryDir = Join-Path $frontendDir "src-tauri\binaries"
 $engineSource = Join-Path $engineDir "target\$cargoTarget\encorehub-engine.exe"
 $gatewaySource = Join-Path $gatewayDir "bin\encorehub-gateway.exe"
 $timings = [ordered]@{}
+
+if ($Components.Count -gt 0) {
+    if ($Tauri -or $SkipEngine -or $SkipGateway -or $SkipFrontend -or $Parallel -or $SkipInstall) {
+        throw "-Components cannot be combined with legacy build-selection switches"
+    }
+    $componentNames = @(
+        $Components |
+            ForEach-Object { $_ -split "," } |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    $componentArguments = @(
+        (Join-Path $repoRoot "scripts\build-components.mjs"),
+        "--components",
+        ($componentNames -join ","),
+        $(if ($Debug) { "--debug" } else { "--release" })
+    )
+    & node @componentArguments
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+    exit 0
+}
 
 function Write-Section {
     param([Parameter(Mandatory)][string]$Message)
@@ -185,13 +211,12 @@ function Build-Engine {
     Push-Location $engineDir
     try {
         if ($Tauri) {
-            Write-WarningMessage "The engine runs in-process for Tauri; checking the library only"
-            $cargoArguments = @("check")
-            if (-not $Debug) {
-                $cargoArguments += "--release"
-            }
-            Invoke-NativeCommand -Command "cargo" -Arguments $cargoArguments
-            Write-Success "engine library checked"
+            $profileFlag = if ($Debug) { "--debug" } else { "--release" }
+            Invoke-NativeCommand -Command "node" -Arguments @(
+                (Join-Path $repoRoot "scripts\prepare-engine-runtime.mjs"),
+                $profileFlag
+            )
+            Write-Success "engine runtime library prepared"
             return
         }
 
@@ -212,25 +237,15 @@ function Build-Engine {
 }
 
 function Build-Gateway {
-    Push-Location $gatewayDir
-    try {
-        New-Item -ItemType Directory -Force -Path "bin" | Out-Null
-        $goArguments = @("build", "-trimpath")
-        if ($Debug) {
-            $goArguments += @("-gcflags", "all=-N -l")
-        } else {
-            $goArguments += @("-ldflags", "-s -w")
-        }
-        $goArguments += @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
-        Invoke-NativeCommand -Command "go" -Arguments $goArguments
-
-        if (Test-Path -LiteralPath $gatewaySource) {
-            Write-Success "gateway built ($(Format-FileSize (Get-Item -LiteralPath $gatewaySource).Length))"
-        } else {
-            throw "gateway command completed without producing $gatewaySource"
-        }
-    } finally {
-        Pop-Location
+    $profileFlag = if ($Debug) { "--debug" } else { "--release" }
+    Invoke-NativeCommand -Command "node" -Arguments @(
+        (Join-Path $repoRoot "scripts\prepare-gateway-sidecar.mjs"),
+        $profileFlag
+    )
+    if (Test-Path -LiteralPath $gatewaySource) {
+        Write-Success "gateway built ($(Format-FileSize (Get-Item -LiteralPath $gatewaySource).Length))"
+    } else {
+        throw "gateway command completed without producing $gatewaySource"
     }
 }
 
@@ -271,18 +286,15 @@ function Invoke-ParallelCoreBuilds {
             Set-Location (Join-Path $Root "engine")
 
             if ($UseTauri) {
-                $cargoArguments = @("check")
-                if (-not $UseDebug) {
-                    $cargoArguments += "--release"
-                }
-                & cargo @cargoArguments
+                $profileFlag = if ($UseDebug) { "--debug" } else { "--release" }
+                & node (Join-Path $Root "scripts\prepare-engine-runtime.mjs") $profileFlag
                 if ($LASTEXITCODE -ne 0) {
-                    throw "cargo check exited with code $LASTEXITCODE"
+                    throw "Engine Runtime build exited with code $LASTEXITCODE"
                 }
                 [pscustomobject]@{
                     EncoreHubBuildResult = $true
                     Component = "engine"
-                    Operation = "checked"
+                    Operation = "prepared"
                     SizeBytes = 0
                 }
             } else {
@@ -312,20 +324,10 @@ function Invoke-ParallelCoreBuilds {
         $jobs += Start-Job -Name "encorehub-gateway-build" -ArgumentList $gatewayJobArguments -ScriptBlock {
             param($Root, $UseDebug, $GatewayOutput)
             $ErrorActionPreference = "Stop"
-            $gatewayDirectory = Join-Path $Root "gateway"
-            Set-Location $gatewayDirectory
-            New-Item -ItemType Directory -Force -Path "bin" | Out-Null
-
-            $goArguments = @("build", "-trimpath")
-            if ($UseDebug) {
-                $goArguments += @("-gcflags", "all=-N -l")
-            } else {
-                $goArguments += @("-ldflags", "-s -w")
-            }
-            $goArguments += @("-o", "bin\encorehub-gateway.exe", ".\cmd\gateway")
-            & go @goArguments
+            $profileFlag = if ($UseDebug) { "--debug" } else { "--release" }
+            & node (Join-Path $Root "scripts\prepare-gateway-sidecar.mjs") $profileFlag
             if ($LASTEXITCODE -ne 0) {
-                throw "go build exited with code $LASTEXITCODE"
+                throw "Gateway build exited with code $LASTEXITCODE"
             }
             if (-not (Test-Path -LiteralPath $GatewayOutput)) {
                 throw "gateway command completed without producing $GatewayOutput"
@@ -364,8 +366,8 @@ function Invoke-ParallelCoreBuilds {
         }
 
         foreach ($result in $results) {
-            if ($result.Operation -eq "checked") {
-                Write-Success "$($result.Component) library checked"
+            if ($result.Operation -eq "prepared") {
+                Write-Success "$($result.Component) runtime library prepared"
             } elseif ([long]$result.SizeBytes -gt 0) {
                 Write-Success "$($result.Component) built ($(Format-FileSize ([long]$result.SizeBytes)))"
             } else {
@@ -393,6 +395,18 @@ function Invoke-ParallelCoreBuilds {
 
 function Prepare-TauriSidecar {
     New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
+
+    $runtimeLibrary = Join-Path $binaryDir "encorehub_desktop_runtime.dll"
+    $runtimeManifest = Join-Path $binaryDir "engine-runtime.json"
+    $gatewayManifest = Join-Path $binaryDir "gateway-runtime.json"
+    if (-not (Test-Path -LiteralPath $runtimeLibrary) -or
+        -not (Test-Path -LiteralPath $runtimeManifest)) {
+        throw "Engine Runtime module is missing; build the engine component first"
+    }
+    Write-Success "engine runtime module ready ($(Format-FileSize (Get-Item -LiteralPath $runtimeLibrary).Length))"
+    if (-not (Test-Path -LiteralPath $gatewayManifest)) {
+        throw "Gateway module manifest is missing; build the gateway component first"
+    }
 
     $rustcDetails = @(& rustc -vV)
     if ($LASTEXITCODE -ne 0) {

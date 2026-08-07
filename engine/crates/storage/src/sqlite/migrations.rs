@@ -464,6 +464,16 @@ const MIGRATIONS: &[&str] = &[
       FROM conversations c
       LEFT JOIN character_memory_settings s ON s.character_id = c.character_id;
     ",
+    // 018: Repair and realign the derived memory FTS index.
+    //
+    // Older non-transactional writes could persist a memory row after an FTS
+    // rowid collision returned an error. Rebuild from the authoritative table;
+    // future writes replace stale rowids atomically in `store_memory`.
+    "
+    DELETE FROM memories_fts;
+    INSERT INTO memories_fts(rowid, content)
+    SELECT rowid, content FROM memories;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -623,7 +633,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // The legacy row must advance through conversation mode high-water marks.
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
     }
 
     #[test]
@@ -685,7 +695,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Legacy rows advance through conversation mode high-water marks.
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
     }
 
     #[test]

@@ -1,9 +1,8 @@
 //! Library facade for `encorehub-engine`.
 //!
 //! `main.rs` and `mcp_server.rs` are thin binary entrypoints (compiled only
-//! with the `standalone` feature). This crate is also consumed directly by the
-//! Tauri desktop app, which calls [`serve`] to run the axum service in-process
-//! on its own tokio runtime instead of spawning a separate engine executable.
+//! with the `standalone` feature). The versioned `desktop-runtime` cdylib wraps
+//! this crate for Tauri without exposing Rust types across the module boundary.
 //! Integration tests under `tests/` likewise import the [`api`] router builder
 //! without spawning a process.
 
@@ -77,7 +76,7 @@ pub async fn serve(
 
 /// Run the engine until `shutdown` resolves.
 ///
-/// The desktop host uses this variant so the in-process engine can be restarted
+/// The desktop runtime module uses this variant so Engine can be restarted
 /// without terminating the Tauri process. Standalone deployments keep using
 /// [`serve`], which has no external shutdown future.
 pub async fn serve_with_shutdown<F>(

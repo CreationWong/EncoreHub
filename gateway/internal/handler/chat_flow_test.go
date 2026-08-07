@@ -65,18 +65,26 @@ type chatEngineStub struct {
 	memoryMode            string
 	memoryResults         []engine.MemoryHit
 	memorySearchQueries   []string
+	conversationTitle     string
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/conversations/c1":
+		s.mu.Lock()
+		title := s.conversationTitle
+		if title == "" {
+			title = "Existing"
+		}
+		messages := append([]engine.Message(nil), s.conversationMessages...)
+		s.mu.Unlock()
 		writeTestJSON(w, http.StatusOK, engine.ConversationDetail{
 			ID:          "c1",
-			Title:       "Existing",
+			Title:       title,
 			Provider:    "test",
 			Model:       "model-test",
 			CharacterID: "character-default",
-			Messages:    s.conversationMessages,
+			Messages:    messages,
 		})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/memories/search":
 		s.mu.Lock()
@@ -113,16 +121,18 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ReplaceMessageID string `json:"replace_message_id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
-		s.mu.Lock()
-		s.beginReplaceMessageID = request.ReplaceMessageID
-		s.mu.Unlock()
-		writeTestJSON(w, http.StatusOK, engine.Message{
+		message := engine.Message{
 			ID:        "turn-1",
 			Role:      "user",
 			Content:   request.Content,
 			Status:    "pending",
 			CreatedAt: "2026-07-16T00:00:00Z",
-		})
+		}
+		s.mu.Lock()
+		s.beginReplaceMessageID = request.ReplaceMessageID
+		s.conversationMessages = append(s.conversationMessages, message)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, message)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/turns/turn-1/finalize":
 		var request engine.FinalizeTurnRequest
 		_ = json.NewDecoder(r.Body).Decode(&request)
@@ -176,7 +186,14 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ID: "memory-1", GroupID: "character:character-default", State: "long_term", Kind: request.Kind, Created: true,
 		})
 	case r.Method == http.MethodPatch && r.URL.Path == "/api/conversations/c1":
-		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: "Renamed"})
+		var request struct {
+			Title string `json:"title"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.mu.Lock()
+		s.conversationTitle = request.Title
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: request.Title})
 	default:
 		http.Error(w, "unexpected engine request: "+r.Method+" "+r.URL.String(), http.StatusNotFound)
 	}
@@ -334,6 +351,112 @@ func newChatTestRouter(adapter provider.Adapter, stub *chatEngineStub) (*gin.Eng
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/chat", handler.SendMessage)
 	return router, engineServer
+}
+
+type titleEventRecorder struct {
+	*httptest.ResponseRecorder
+	titleEvent chan struct{}
+	once       sync.Once
+}
+
+func (r *titleEventRecorder) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte("event: title_update")) {
+		r.once.Do(func() { close(r.titleEvent) })
+	}
+	return r.ResponseRecorder.Write(data)
+}
+
+func (r *titleEventRecorder) Flush() {}
+
+func TestSendMessage_FirstTurnStreamsTitleWhileAnswerIsGenerating(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	titleEvent := make(chan struct{})
+	var titleWaitTimedOut atomic.Bool
+	var invalidTitleRequest atomic.Bool
+	adapter := &scriptedAdapter{
+		chatFn: func(_ context.Context, request *provider.ChatRequest) (*provider.ChatResponse, error) {
+			if request.Stream || !request.DisableReasoning {
+				invalidTitleRequest.Store(true)
+			}
+			return &provider.ChatResponse{Content: "First Turn Title"}, nil
+		},
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			events := make(chan provider.StreamEvent)
+			go func() {
+				defer close(events)
+				events <- provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer-start "}}
+				select {
+				case <-titleEvent:
+				case <-time.After(2 * time.Second):
+					titleWaitTimedOut.Store(true)
+				}
+				events <- provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "answer-end", FinishReason: "stop"}}
+			}()
+			return events, nil
+		},
+	}
+	stub := &chatEngineStub{conversationTitle: defaultConversationTitle}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"hello","provider":"test","model":"model-test","stream":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := &titleEventRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		titleEvent:       titleEvent,
+	}
+	router.ServeHTTP(recorder, request)
+
+	if titleWaitTimedOut.Load() {
+		t.Fatal("title_update was not streamed while the answer was still generating")
+	}
+	if invalidTitleRequest.Load() {
+		t.Fatal("title request enabled streaming or reasoning")
+	}
+	body := recorder.Body.String()
+	titleIndex := strings.Index(body, "event: title_update")
+	answerEndIndex := strings.Index(body, "answer-end")
+	doneIndex := strings.Index(body, "event: done")
+	if titleIndex < 0 || answerEndIndex < 0 || doneIndex < 0 || titleIndex > answerEndIndex || answerEndIndex > doneIndex {
+		t.Fatalf("unexpected first-turn event order: %s", body)
+	}
+	if adapter.chatCalls.Load() != 1 {
+		t.Fatalf("title provider calls = %d, want 1", adapter.chatCalls.Load())
+	}
+}
+
+func TestSendMessage_DoesNotGenerateAutomaticTitleAfterFirstTurn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{
+		conversationTitle: defaultConversationTitle,
+		conversationMessages: []engine.Message{
+			{ID: "user-old", Role: "user", Content: "first"},
+			{ID: "assistant-old", Role: "assistant", Content: "answer"},
+		},
+	}
+	adapter := &scriptedAdapter{
+		chatFn: func(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
+			return &provider.ChatResponse{Content: "Unexpected Title"}, nil
+		},
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "next answer", FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if adapter.chatCalls.Load() != 0 {
+		t.Fatalf("title provider calls = %d, want 0", adapter.chatCalls.Load())
+	}
+	if strings.Contains(recorder.Body.String(), "event: title_update") {
+		t.Fatalf("unexpected title update after first turn: %s", recorder.Body.String())
+	}
 }
 
 func performStreamRequest(t *testing.T, router http.Handler, ctx context.Context) *httptest.ResponseRecorder {
@@ -978,6 +1101,74 @@ func TestSendMessage_ToolFollowupDoesNotPersistDSMLProtocolText(t *testing.T) {
 	}
 	if requests[0].Assistant.Content != "The requested population table is ready." {
 		t.Fatalf("unexpected assistant content: %q", requests[0].Assistant.Content)
+	}
+}
+
+func TestSendMessage_RetriesEmptyToolFollowupOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Recovered"}`,
+				}}), nil
+			case 2:
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{FinishReason: "stop"}}), nil
+			case 3:
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "Recovered answer.", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool follow-up")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if adapter.streamCalls.Load() != 3 {
+		t.Fatalf("stream calls = %d, want one bounded retry", adapter.streamCalls.Load())
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Status != "completed" || requests[0].Assistant == nil ||
+		requests[0].Assistant.Content != "Recovered answer." {
+		t.Fatalf("empty follow-up was not recovered: %+v", requests)
+	}
+}
+
+func TestSendMessage_FailsRepeatedEmptyToolFollowup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			if call == 1 {
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Empty"}`,
+				}}), nil
+			}
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if adapter.streamCalls.Load() != 3 {
+		t.Fatalf("stream calls = %d, retry was not bounded", adapter.streamCalls.Load())
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "event: error") ||
+		!strings.Contains(body, `"code":"empty_response"`) {
+		t.Fatalf("repeated empty response did not produce a terminal error: %s", body)
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Status != "failed" {
+		t.Fatalf("repeated empty response was not finalized as failed: %+v", requests)
 	}
 }
 

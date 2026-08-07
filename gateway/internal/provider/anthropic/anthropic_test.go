@@ -241,6 +241,31 @@ func TestBuildRequest_MapsToolsAndExecutedResultsToAnthropicBlocks(t *testing.T)
 	}
 }
 
+func TestBuildRequest_GroupsParallelToolResultsInOneUserMessage(t *testing.T) {
+	req := &provider.ChatRequest{
+		Messages: []provider.Message{
+			{Role: "assistant", ToolCalls: []provider.ToolCallMessage{
+				{ID: "call_0", Name: "web_search", Arguments: `{"query":"first"}`},
+				{ID: "call_1", Name: "web_search", Arguments: `{"query":"second"}`},
+			}},
+			{Role: "tool", ToolCallID: "call_0", Content: "first result"},
+			{Role: "tool", ToolCallID: "call_1", Content: "No search results found."},
+		},
+	}
+
+	body := buildRequest(req, true)
+	if len(body.Messages) != 2 {
+		t.Fatalf("messages = %#v, want one assistant message followed by one user result message", body.Messages)
+	}
+	results, ok := body.Messages[1].Content.([]anthropicMessageContent)
+	if !ok {
+		t.Fatalf("result content type = %T", body.Messages[1].Content)
+	}
+	if len(results) != 2 || results[0].ToolUseID != "call_0" || results[1].ToolUseID != "call_1" {
+		t.Fatalf("tool result blocks = %#v", results)
+	}
+}
+
 func TestBuildRequest_ExplicitlyDisablesThinking(t *testing.T) {
 	body := buildRequest(&provider.ChatRequest{
 		Model: "deepseek/deepseek-v4-flash", DisableReasoning: true, ThinkingBudget: 2048,

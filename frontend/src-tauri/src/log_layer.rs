@@ -1,12 +1,6 @@
-//! A `tracing` layer that forwards in-process events into the
-//! shared [`LogBuffer`].
-//!
-//! Before the merge, the engine ran as a separate process and its stdout/stderr
-//! were drained line-by-line into the developer panel. Now that the engine runs
-//! in-process on Tauri's tokio runtime there is no pipe to drain, so instead we
-//! install this layer on the global tracing subscriber: every engine event is
-//! captured, formatted, redacted (by `LogBuffer`), and appended at its real
-//! level.
+//! A `tracing` layer that forwards Desktop events into the shared [`LogBuffer`].
+//! Engine Runtime events arrive through the versioned dynamic-library callback
+//! and use the same buffer, redaction, and file-retention path.
 
 use std::fmt::Write as _;
 use std::sync::Arc;

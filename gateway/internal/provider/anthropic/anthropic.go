@@ -393,7 +393,8 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 		})
 	}
 
-	for _, msg := range req.Messages {
+	for messageIndex := 0; messageIndex < len(req.Messages); messageIndex++ {
+		msg := req.Messages[messageIndex]
 		role := msg.Role
 		if role == "system" {
 			// System messages become the top-level system field in Anthropic
@@ -420,14 +421,22 @@ func buildRequest(req *provider.ChatRequest, stream bool) *anthropicReq {
 			continue
 		}
 		if role == "tool" {
-			// Anthropic returns tool outputs as user content associated with the
-			// preceding assistant tool_use id rather than a separate tool role.
+			// Anthropic requires every result for parallel tool_use blocks in one
+			// immediately following user message. Separate user messages make all
+			// but the first result appear missing to the provider.
+			blocks := make([]anthropicMessageContent, 0, 1)
+			for messageIndex < len(req.Messages) && req.Messages[messageIndex].Role == "tool" {
+				toolMessage := req.Messages[messageIndex]
+				blocks = append(blocks, anthropicMessageContent{
+					Type: "tool_result", ToolUseID: toolMessage.ToolCallID, Content: toolMessage.Content,
+				})
+				messageIndex++
+			}
 			body.Messages = append(body.Messages, anthropicMessage{
-				Role: "user",
-				Content: []anthropicMessageContent{{
-					Type: "tool_result", ToolUseID: msg.ToolCallID, Content: msg.Content,
-				}},
+				Role:    "user",
+				Content: blocks,
 			})
+			messageIndex--
 			continue
 		}
 		if len(msg.Parts) > 0 {

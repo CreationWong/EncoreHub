@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/conversation",
+    "crates/desktop-runtime",
     "crates/protoc-resolver",
     "crates/storage",
     "crates/skill",
@@ -34,11 +35,7 @@ arrow-schema = "58"
 axum = { version = "0.7", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
-# gRPC
-tonic = "0.12"
-prost = "0.13"
 # Async streaming
-async-stream = "0.3"
 futures = "0.3"
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -47,11 +44,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-# Config
-toml = "0.8"
-dotenvy = "0.15"
 # Text processing
-unicode-segmentation = "1"
 regex = "1"
 quick-xml = "0.39"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
@@ -74,9 +67,9 @@ license.workspace = true
 [features]
 default = []
 # `standalone` compiles the binary entrypoints (encorehub-engine + encorehub-mcp).
-# With it off, this crate is library-only — consumed in-process by the Tauri
-# desktop app, which starts axum on its own tokio runtime. The feature adds no
-# extra dependencies; axum/tokio are workspace deps used in both modes.
+# With it off, this crate is library-only and consumed by the versioned Engine
+# Runtime dynamic library. The feature adds no extra
+# dependencies; axum/tokio are workspace dependencies used in both modes.
 standalone = []
 
 # `[[bin]]` targets can't be `#[cfg]`-gated directly, so we gate them with
@@ -110,7 +103,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-tower.workspace = true
 tower-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -125,3 +117,4 @@ zip.workspace = true
 tempfile = "3"
 http-body-util = "0.1"
 rusqlite.workspace = true
+tower.workspace = true

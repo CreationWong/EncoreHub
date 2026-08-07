@@ -397,11 +397,17 @@ impl Default for LogBuffer {
     }
 }
 
-/// Best-effort level detection. Looks for a level keyword anywhere in the line
-/// (covers both `ERROR foo` and `[2024-...] WARN foo` shapes); falls back to
-/// the stream — stderr is treated as a warning, stdout as info.
+/// Best-effort level detection. Structured loggers put the level near the
+/// beginning of the line, so prefer that prefix before inspecting message
+/// text. This prevents payloads such as URLs containing "error" from
+/// overriding an explicit `INF` level.
 fn detect_level(line: &str, stream: &str) -> Level {
-    let lower = strip_ansi(line).to_ascii_lowercase();
+    let clean = strip_ansi(line);
+    if let Some(level) = clean.split_whitespace().take(4).find_map(parse_level_token) {
+        return level;
+    }
+
+    let lower = clean.to_ascii_lowercase();
     if ["error", "err", "fatal", "ftl"]
         .iter()
         .any(|level| contains_word(&lower, level))
@@ -427,6 +433,32 @@ fn detect_level(line: &str, stream: &str) -> Level {
         Level::Warn
     } else {
         Level::Info
+    }
+}
+
+fn parse_level_token(token: &str) -> Option<Level> {
+    let token = token.trim_matches(|character: char| !character.is_ascii_alphanumeric());
+    if token.eq_ignore_ascii_case("error")
+        || token.eq_ignore_ascii_case("err")
+        || token.eq_ignore_ascii_case("fatal")
+        || token.eq_ignore_ascii_case("ftl")
+    {
+        Some(Level::Error)
+    } else if token.eq_ignore_ascii_case("warn")
+        || token.eq_ignore_ascii_case("warning")
+        || token.eq_ignore_ascii_case("wrn")
+    {
+        Some(Level::Warn)
+    } else if token.eq_ignore_ascii_case("debug")
+        || token.eq_ignore_ascii_case("dbg")
+        || token.eq_ignore_ascii_case("trace")
+        || token.eq_ignore_ascii_case("trc")
+    {
+        Some(Level::Debug)
+    } else if token.eq_ignore_ascii_case("info") || token.eq_ignore_ascii_case("inf") {
+        Some(Level::Info)
+    } else {
+        None
     }
 }
 
@@ -697,6 +729,9 @@ mod tests {
         assert_eq!(detect_level(zerolog_info, "err"), Level::Info);
         let zerolog_warn = "\u{1b}[90m10:09AM\u{1b}[0m \u{1b}[33mWRN\u{1b}[0m search fallback";
         assert_eq!(detect_level(zerolog_warn, "err"), Level::Warn);
+
+        let successful_search = "11:39AM INF restricted communication trace activity= channel=communication direction=outbound duration=1670.6443 method=GET status=200 url=https://html.duckduckgo.com/html/?q=FreeCAD+%22Datum%22+%22is+invalid%22+%22constraint+with+index%22+sketch+error+angle";
+        assert_eq!(detect_level(successful_search, "err"), Level::Info);
     }
 
     #[test]

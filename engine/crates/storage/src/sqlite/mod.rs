@@ -573,9 +573,11 @@ impl Database {
 
     // ===== Memory =====
 
+    /// Persist the authoritative memory row and its lexical index atomically.
     pub fn store_memory(&self, mem: &Memory) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        transaction.execute(
             "INSERT INTO memories
                 (id, scope, type, conversation_id, content, importance, created_at,
                  last_accessed_at, group_id, source_character_id, state, kind,
@@ -602,11 +604,16 @@ impl Database {
                 mem.confidence,
             ],
         )?;
-        // FTS index
-        conn.execute(
-            "INSERT INTO memories_fts (rowid, content) VALUES ((SELECT rowid FROM memories WHERE id = ?1), ?2)",
-            params![mem.id, mem.content],
+        let rowid = transaction.last_insert_rowid();
+        // A historical failed delete can leave an FTS row whose rowid is later
+        // reused by SQLite. Replace that derived row inside the same transaction
+        // so callers never observe a saved memory as a failed tool invocation.
+        transaction.execute("DELETE FROM memories_fts WHERE rowid = ?1", [rowid])?;
+        transaction.execute(
+            "INSERT INTO memories_fts (rowid, content) VALUES (?1, ?2)",
+            params![rowid, mem.content],
         )?;
+        transaction.commit()?;
         Ok(())
     }
 
