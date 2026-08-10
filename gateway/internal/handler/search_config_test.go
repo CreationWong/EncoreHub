@@ -2,86 +2,79 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	// Internal packages use EncoreHub's stable reverse-domain namespace.
 	"com.0d000721.encorehub/gateway/internal/engine"
 )
 
-func TestResolveWebSearchProviderUsesEngineConfigAndSecret(t *testing.T) {
-	var customRequest *http.Request
-	customServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		customRequest = r.Clone(r.Context())
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"items":[{"heading":"EncoreHub","link":"https://example.com","summary":"Result"}]}}`)
-	}))
-	t.Cleanup(customServer.Close)
-
-	engineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
-		}
+func TestResolveWebSearchProviderUsesConfiguredSearXNGEndpoint(t *testing.T) {
+	var networkRequest struct {
+		URL     string `json:"url"`
+		Purpose string `json:"purpose"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/config/web_search_settings":
-			_, _ = io.WriteString(w, `{"provider":"custom","max_results":3,"custom":{"name":"Internal index","endpoint":"`+customServer.URL+`","query_parameter":"query","limit_parameter":"limit","api_key_header":"X-Search-Key","api_key_prefix":"Token ","results_path":"data.items","title_path":"heading","url_path":"link","snippet_path":"summary"}}`)
-		case "/api/secrets/system.search.custom":
-			_, _ = io.WriteString(w, `{"key":"secret"}`)
+			_, _ = io.WriteString(w, `{"enabled":true,"provider":"searxng","max_results":3,"searxng":{"endpoint":"http://127.0.0.1:8888"}}`)
+		case "/api/network/fetch":
+			if err := json.NewDecoder(r.Body).Decode(&networkRequest); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			_, _ = io.WriteString(w, `{"status":200,"final_url":"http://127.0.0.1:8888/search","content_type":"application/json","body":"{\"results\":[{\"title\":\"EncoreHub\",\"url\":\"https://example.com\",\"content\":\"Result\"}]}","backend":"curl"}`)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	t.Cleanup(engineServer.Close)
+	t.Cleanup(server.Close)
 
-	provider, settings, err := resolveWebSearchProvider(
-		context.Background(),
-		engine.NewClient(engineServer.URL, "test-token"),
-		"",
-	)
+	provider, settings, err := resolveWebSearchProvider(context.Background(), engine.NewClient(server.URL, "test-token"), "")
 	if err != nil {
-		t.Fatalf("resolve provider: %v", err)
+		t.Fatalf("resolve: %v", err)
 	}
-	if provider.Name() != "Internal index" || settings.MaxResults != 3 {
-		t.Fatalf("unexpected resolution: provider=%q max=%d", provider.Name(), settings.MaxResults)
-	}
-
 	response, err := provider.Search(context.Background(), "desktop AI", settings.MaxResults)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(response.Results) != 1 || response.Results[0].Title != "EncoreHub" {
-		t.Fatalf("results = %+v", response.Results)
+	if provider.Name() != "searxng" || settings.MaxResults != 3 || len(response.Results) != 1 {
+		t.Fatalf("unexpected provider response: provider=%s settings=%+v response=%+v", provider.Name(), settings, response)
 	}
-	if customRequest == nil || customRequest.URL.Query().Get("query") != "desktop AI" ||
-		customRequest.URL.Query().Get("limit") != "3" ||
-		customRequest.Header.Get("X-Search-Key") != "Token secret" {
-		t.Fatalf("custom request was not configured correctly: %+v", customRequest)
+	if !strings.Contains(networkRequest.URL, "q=desktop+AI") || networkRequest.Purpose != "configured_search_provider" {
+		t.Fatalf("configured endpoint did not use private-network policy: %+v", networkRequest)
 	}
 }
 
-func TestResolveWebSearchProviderRejectsMissingCredentials(t *testing.T) {
-	engineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestResolveWebSearchProviderUsesOpenSERPSettings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/config/web_search_settings":
-			_, _ = io.WriteString(w, `{"provider":"bing"}`)
-		case "/api/secrets/system.search.bing":
-			http.NotFound(w, r)
-		default:
-			http.NotFound(w, r)
+		if r.URL.Path == "/api/config/web_search_settings" {
+			_, _ = io.WriteString(w, `{"provider":"openserp","openserp":{"endpoint":"http://localhost:7000","engine":"google","engines":"bing,duckduckgo"}}`)
+			return
 		}
+		http.NotFound(w, r)
 	}))
-	t.Cleanup(engineServer.Close)
+	t.Cleanup(server.Close)
+	provider, settings, err := resolveWebSearchProvider(context.Background(), engine.NewClient(server.URL, "token"), "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if provider.Name() != "openserp" || settings.OpenSERP.Engine != "google" || settings.OpenSERP.Engines != "bing,duckduckgo" {
+		t.Fatalf("settings were not preserved: %+v", settings)
+	}
+}
 
-	_, _, err := resolveWebSearchProvider(
-		context.Background(),
-		engine.NewClient(engineServer.URL, "test-token"),
-		"",
-	)
-	if err == nil {
-		t.Fatal("missing Bing key should fail instead of switching providers")
+func TestResolveWebSearchProviderRejectsMissingConfiguredEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"provider":"searxng"}`)
+	}))
+	t.Cleanup(server.Close)
+	if _, _, err := resolveWebSearchProvider(context.Background(), engine.NewClient(server.URL, "token"), ""); err == nil {
+		t.Fatal("missing SearXNG endpoint should fail")
 	}
 }

@@ -19,7 +19,7 @@ frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> 
 |------|------|------|
 | `frontend/` | TypeScript + React 18 + Tauri 2 | 桌面 UI、流式 SSE、token 计数展示、设置/Skill/Memory/Knowledge/Web Search/Security/Developer 面板、Slash 工具补全；Tauri 通过版本化 C ABI 加载 Engine Runtime 动态库并拉起 Gateway sidecar，端口自动协商，日志落盘 |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE 入口，模板化多 provider 适配，内置联网搜索工具，认证/限流/CORS，引擎反向代理 |
-| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | 对话/记忆/知识/附件/Skill/密钥存储与 API；Rust 文档解析与分块；LanceDB Knowledge 主索引；SQLite-Vec Knowledge 回退和单轮 Memory 索引；桌面模式产出可独立升级的 Engine Runtime 动态库 |
+| `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | 对话/记忆/知识/附件/Skill/密钥存储与 API；Rust 文档解析与分块；LanceDB Knowledge 主索引；SQLite-Vec Knowledge 回退和单轮 Memory 索引；桌面模式产出 Engine Runtime 与独立 RUSTScrapling 动态库 |
 | `proto/` | protobuf 定义 | gRPC schema（**目前 stub 未生成、未启用**） |
 
 为什么是这种语言切分，见 [`docs/adr/0001-language-split.md`](docs/adr/0001-language-split.md)；桌面 Engine 进程模型与内部认证见 [`docs/adr/0004-engine-in-process-and-internal-auth.md`](docs/adr/0004-engine-in-process-and-internal-auth.md)；可独立升级的桌面模块边界见 [`docs/adr/0008-versioned-desktop-runtime-modules.md`](docs/adr/0008-versioned-desktop-runtime-modules.md)；角色版本与对话快照边界见 [`docs/adr/0005-character-profile-snapshots.md`](docs/adr/0005-character-profile-snapshots.md)。
@@ -57,9 +57,6 @@ pnpm dev
 | `ENCOREHUB_TRUSTED_PROXIES` | _空_ | 可提供转发 IP 的代理 IP/CIDR（逗号分隔）；桌面/直连模式保持为空 |
 | `ENCOREHUB_LANCEDB_PATH` | `<engine data>/lancedb` | 可选的 LanceDB 本地目录覆盖；默认与 Engine SQLite 数据目录同属 app data |
 | `ENCOREHUB_DEV_MOCK` | _空_ | `1`/`true` 时无 API key 也能拿到 mock 回复（仅本地） |
-| `BING_SEARCH_API_KEY` | _空_ | Bing 搜索密钥的 headless 环境变量回退；桌面端优先使用 Web Search 设置中保存的密钥 |
-| `GOOGLE_SEARCH_API_KEY` | _空_ | Google Custom Search 密钥的 headless 环境变量回退 |
-| `GOOGLE_CSE_CX` | _空_ | Google Programmable Search Engine ID 的 headless 环境变量回退 |
 
 前端用 `frontend/.env.example` → `.env.local`：`VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`。React 不配置或直连 Engine。
 
@@ -105,7 +102,8 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 - **密钥加密（可选）**：Security 标签设主密码后，API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥）。开启后每次打开需解锁；主密钥仅驻内存。保护**静态磁盘泄露**，不防运行中已解锁会话。未开启时密钥明文落库或仅会话内存
 - **开发者模式**：Appearance 里开启后，Developer 标签可看 engine/gateway/desktop 三方存活状态（含动态端口号）、实时日志（按来源/级别过滤、搜索、导出），并运行时调整日志等级
 - **RAG 上下文注入**：每次对话自动把 memory 与 knowledge 检索结果拼到 system prompt（top_k=3）
-- **联网搜索**：Gateway 内置 `web_search` 系统工具，不依赖或暴露为 Skill。输入区地球菜单控制当前对话是否允许搜索；默认开关、结果数量和 DuckDuckGo/Bing/Google/自定义 JSON Provider 在 Web Search 设置中统一配置。Bing、Google 和自定义 Provider 的密钥独立存入 Engine Secrets，不进入普通配置或 `localStorage`；自定义 Provider 可配置 HTTP(S) 端点、查询参数、鉴权 Header 与点路径响应映射
+- **联网搜索**：Gateway 内置 `web_search` 系统工具，不依赖或暴露为 Skill。输入区地球菜单控制当前对话是否允许搜索；默认使用 DuckDuckGo Instant Answer API，也可在 Web Search 设置中选择自定义 SearXNG 或 OpenSERP JSON 接口。搜索不抓取搜索引擎 HTML、不运行浏览器，也没有 CAPTCHA 交互或隐式 provider 降级
+- **网页读取**：`web_fetch` 由 Engine 内的 Curl 执行 DNS、重定向、超时、大小限制和 SSRF 策略；HTML 交给同目录独立打包的 RUSTScrapling 动态库提取正文，脚本、样式和页面 chrome 不进入模型上下文
 
 ## 仓库导航
 
@@ -121,7 +119,7 @@ ENCOREHUB_AUTH_TOKEN=<独立生成的随机值>
 │   ├── handler/          chat / conversation / engine_proxy / search + config / loglevel / 供应商档案
 │   ├── provider/         openaicompat(模板) / anthropic 适配 + 运行时 registry
 │   ├── router/           CORS / auth / rate-limit
-│   ├── search/           DuckDuckGo / Bing / Google / 自定义 JSON Provider
+│   ├── search/           DuckDuckGo Instant Answer / SearXNG / OpenSERP Provider
 │   └── engine/           Rust 引擎 HTTP 客户端
 ├── engine/
 │   ├── src/api/          axum routes (conversations / memories / knowledge / skills / config / secrets)
@@ -180,7 +178,7 @@ pnpm build:components -- --components engine --release
 pnpm build:components -- --components engine,gateway --release
 ```
 
-完整产物仍在 `frontend/src-tauri/target/release/bundle/`。桌面运行单元分为 `EncoreHub` 主程序、`encorehub_desktop_runtime.dll` / `libencorehub_desktop_runtime.so` / `libencorehub_desktop_runtime.dylib`、`encorehub-gateway` sidecar 和只读资源。Engine Runtime 使用版本化 C ABI，模块清单写入 `engine-runtime.json`；桌面启动时拒绝加载 ABI 不兼容的单独升级。PowerShell 可使用 `.\scripts\build.ps1 -Components engine,gateway`，Unix 可使用 `./scripts/build.sh --components engine,gateway`。macOS/Linux 安装包在完成对应平台安装后 smoke 前不作为受支持发布物。
+完整产物仍在 `frontend/src-tauri/target/release/bundle/`。桌面运行单元分为 `EncoreHub` 主程序、`encorehub_desktop_runtime.dll` / `libencorehub_desktop_runtime.so` / `libencorehub_desktop_runtime.dylib`、独立的 `encorehub_rust_scrapling.dll` / `libencorehub_rust_scrapling.so` / `libencorehub_rust_scrapling.dylib`、同目录动态链接的 libcurl 原生库、`encorehub-gateway` sidecar 和只读资源。Engine Runtime 使用版本化 C ABI，模块清单会记录主 Runtime、RUSTScrapling companion 及其 ABI、大小、SHA-256 和原生依赖；桌面构建会拒绝静态回退、缺少 companion/libcurl 或 ABI 不兼容的产物。Windows 构建会通过仓库 `vcpkg.json` 将 shared triplet 安装到 `.cache/vcpkg-runtime`；可通过 `VCPKG_EXE` 指定 vcpkg，Visual Studio 常见安装位置会自动探测。Linux 需要 shared libcurl 开发包，macOS 使用 Homebrew curl，打包脚本会保留或重写同目录加载路径。PowerShell 可使用 `.\scripts\build.ps1 -Components engine,gateway`，Unix 可使用 `./scripts/build.sh --components engine,gateway`。macOS/Linux 安装包在完成对应平台安装后 smoke 前不作为受支持发布物。
 
 ## 安全说明
 

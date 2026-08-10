@@ -1,26 +1,31 @@
 import { apiFetch } from "./api";
 
-export type SearchProvider = "duckduckgo" | "bing" | "google" | "custom";
+export type SearchProvider = "duckduckgo" | "searxng" | "openserp";
+export type OpenSERPEngine =
+	| "mega"
+	| "google"
+	| "bing"
+	| "duckduckgo"
+	| "baidu"
+	| "yandex"
+	| "ecosia";
 
-export interface CustomSearchSettings {
-	name: string;
+export interface SearXNGSearchSettings {
 	endpoint: string;
-	query_parameter: string;
-	limit_parameter: string;
-	api_key_header: string;
-	api_key_prefix: string;
-	results_path: string;
-	title_path: string;
-	url_path: string;
-	snippet_path: string;
+}
+
+export interface OpenSERPSearchSettings {
+	endpoint: string;
+	engine: OpenSERPEngine;
+	engines: string;
 }
 
 export interface WebSearchSettings {
 	enabled: boolean;
 	provider: SearchProvider;
 	max_results: number;
-	google_cse_id: string;
-	custom: CustomSearchSettings;
+	searxng: SearXNGSearchSettings;
+	openserp: OpenSERPSearchSettings;
 }
 
 export interface WebSearchResult {
@@ -35,36 +40,27 @@ export interface WebSearchResponse {
 	query: string;
 }
 
-export const SEARCH_SECRET_IDS = {
-	bing: "system.search.bing",
-	google: "system.search.google",
-	custom: "system.search.custom",
-} as const;
-
 export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 	enabled: false,
 	provider: "duckduckgo",
 	max_results: 5,
-	google_cse_id: "",
-	custom: {
-		name: "Custom search",
-		endpoint: "",
-		query_parameter: "q",
-		limit_parameter: "count",
-		api_key_header: "",
-		api_key_prefix: "Bearer ",
-		results_path: "results",
-		title_path: "title",
-		url_path: "url",
-		snippet_path: "snippet",
-	},
+	searxng: { endpoint: "" },
+	openserp: { endpoint: "", engine: "mega", engines: "" },
 };
 
 const SEARCH_PROVIDERS: readonly SearchProvider[] = [
 	"duckduckgo",
-	"bing",
+	"searxng",
+	"openserp",
+];
+const OPENSERP_ENGINES: readonly OpenSERPEngine[] = [
+	"mega",
 	"google",
-	"custom",
+	"bing",
+	"duckduckgo",
+	"baidu",
+	"yandex",
+	"ecosia",
 ];
 
 function stringValue(value: unknown, fallback: string): string {
@@ -76,7 +72,11 @@ export function normalizeWebSearchSettings(
 	fallback: WebSearchSettings = DEFAULT_WEB_SEARCH_SETTINGS,
 ): WebSearchSettings {
 	if (!value || typeof value !== "object") {
-		return { ...fallback, custom: { ...fallback.custom } };
+		return {
+			...fallback,
+			searxng: { ...fallback.searxng },
+			openserp: { ...fallback.openserp },
+		};
 	}
 	const stored = value as Partial<WebSearchSettings>;
 	const provider = SEARCH_PROVIDERS.includes(stored.provider as SearchProvider)
@@ -87,44 +87,31 @@ export function normalizeWebSearchSettings(
 		Number.isInteger(storedMaxResults) && storedMaxResults >= 1
 			? Math.min(10, storedMaxResults)
 			: fallback.max_results;
-	const custom: Partial<CustomSearchSettings> =
-		stored.custom && typeof stored.custom === "object" ? stored.custom : {};
+	const searxng: Partial<SearXNGSearchSettings> =
+		stored.searxng && typeof stored.searxng === "object" ? stored.searxng : {};
+	const openserp: Partial<OpenSERPSearchSettings> =
+		stored.openserp && typeof stored.openserp === "object"
+			? stored.openserp
+			: {};
+	const engine = OPENSERP_ENGINES.includes(openserp.engine as OpenSERPEngine)
+		? (openserp.engine as OpenSERPEngine)
+		: fallback.openserp.engine;
 
 	return {
 		enabled:
 			typeof stored.enabled === "boolean" ? stored.enabled : fallback.enabled,
 		provider,
 		max_results: maxResults,
-		google_cse_id: stringValue(stored.google_cse_id, fallback.google_cse_id),
-		custom: {
-			name: stringValue(custom.name, fallback.custom.name),
-			endpoint: stringValue(custom.endpoint, fallback.custom.endpoint),
-			query_parameter: stringValue(
-				custom.query_parameter,
-				fallback.custom.query_parameter,
-			),
-			limit_parameter: stringValue(
-				custom.limit_parameter,
-				fallback.custom.limit_parameter,
-			),
-			api_key_header: stringValue(
-				custom.api_key_header,
-				fallback.custom.api_key_header,
-			),
-			api_key_prefix: stringValue(
-				custom.api_key_prefix,
-				fallback.custom.api_key_prefix,
-			),
-			results_path: stringValue(
-				custom.results_path,
-				fallback.custom.results_path,
-			),
-			title_path: stringValue(custom.title_path, fallback.custom.title_path),
-			url_path: stringValue(custom.url_path, fallback.custom.url_path),
-			snippet_path: stringValue(
-				custom.snippet_path,
-				fallback.custom.snippet_path,
-			),
+		searxng: {
+			endpoint: stringValue(searxng.endpoint, fallback.searxng.endpoint).trim(),
+		},
+		openserp: {
+			endpoint: stringValue(
+				openserp.endpoint,
+				fallback.openserp.endpoint,
+			).trim(),
+			engine,
+			engines: stringValue(openserp.engines, fallback.openserp.engines).trim(),
 		},
 	};
 }

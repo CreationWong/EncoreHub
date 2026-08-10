@@ -23,6 +23,13 @@ pub const ENGINE_RUNTIME_LIBRARY_FILE: &str = "libencorehub_desktop_runtime.so";
 #[cfg(target_os = "macos")]
 pub const ENGINE_RUNTIME_LIBRARY_FILE: &str = "libencorehub_desktop_runtime.dylib";
 
+#[cfg(target_os = "windows")]
+pub const RUST_SCRAPLING_LIBRARY_FILE: &str = "encorehub_rust_scrapling.dll";
+#[cfg(target_os = "linux")]
+pub const RUST_SCRAPLING_LIBRARY_FILE: &str = "libencorehub_rust_scrapling.so";
+#[cfg(target_os = "macos")]
+pub const RUST_SCRAPLING_LIBRARY_FILE: &str = "libencorehub_rust_scrapling.dylib";
+
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
 type LogCallback = unsafe extern "C" fn(u8, *const u8, usize, *mut c_void);
 type StartFn = unsafe extern "C" fn(
@@ -52,6 +59,7 @@ struct RuntimeConfig<'a> {
     skills_path: &'a Path,
     bind_addr: String,
     internal_auth_token: &'a str,
+    rust_scrapling_library_path: &'a Path,
     log_level: &'a str,
 }
 
@@ -85,7 +93,7 @@ impl EngineRuntimeLibrary {
             })?;
 
         unsafe {
-            let library = Library::new(&path).map_err(|error| {
+            let library = load_runtime_library(&path).map_err(|error| {
                 format!(
                     "failed to load Engine Runtime at {}: {error}",
                     path.display()
@@ -131,11 +139,23 @@ impl EngineRuntimeLibrary {
         logs: Arc<LogBuffer>,
         internal_auth_token: &str,
     ) -> Result<EngineRuntimeHandle, String> {
+        let rust_scrapling_library_path = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(RUST_SCRAPLING_LIBRARY_FILE);
+        if !rust_scrapling_library_path.is_file() {
+            return Err(format!(
+                "RUSTScrapling library was not found at {}",
+                rust_scrapling_library_path.display()
+            ));
+        }
         let config = serde_json::to_vec(&RuntimeConfig {
             database_path: &runtime_paths.database,
             skills_path: &runtime_paths.skills,
             bind_addr: format!("127.0.0.1:{port}"),
             internal_auth_token,
+            rust_scrapling_library_path: &rust_scrapling_library_path,
             log_level: std::env::var("RUST_LOG").as_deref().unwrap_or("info"),
         })
         .map_err(|error| format!("failed to encode Engine Runtime configuration: {error}"))?;
@@ -170,6 +190,21 @@ impl EngineRuntimeLibrary {
             log_context,
             started: Instant::now(),
         })
+    }
+}
+
+unsafe fn load_runtime_library(path: &Path) -> Result<Library, libloading::Error> {
+    #[cfg(target_os = "windows")]
+    {
+        use libloading::os::windows::{Library as WindowsLibrary, LOAD_WITH_ALTERED_SEARCH_PATH};
+
+        return WindowsLibrary::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH)
+            .map(Into::into);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Library::new(path)
     }
 }
 

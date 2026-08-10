@@ -6,6 +6,7 @@ mod config;
 mod conversations;
 mod knowledge;
 mod memories;
+mod network;
 mod plugins;
 mod secrets;
 mod skills;
@@ -239,6 +240,8 @@ pub fn build_router_with(
         )
         // Usage reports are aggregated in Engine so desktop clients only render data.
         .route("/api/usage", get(usage::report))
+        // All search providers and direct public page reads share this Curl boundary.
+        .route("/api/network/fetch", post(network::fetch))
         // Config (key/value JSON store — e.g. provider_profiles)
         .route("/api/config/:key", get(config::get).put(config::put))
         // Secrets / encryption lifecycle

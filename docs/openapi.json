@@ -1795,7 +1795,7 @@
           "model": { "type": "string" },
           "stream": { "type": "boolean" },
           "search": { "type": "boolean" },
-          "search_provider": { "enum": ["duckduckgo", "bing", "google", "custom"] },
+          "search_provider": { "enum": ["duckduckgo", "searxng", "openserp"] },
           "temperature": { "type": "number" },
           "top_p": { "type": "number" },
           "max_tokens": { "type": "integer" },
@@ -1950,7 +1950,7 @@
         "properties": {
           "query": { "type": "string", "minLength": 1, "maxLength": 500 },
           "max_results": { "type": "integer", "minimum": 1, "maximum": 10 },
-          "provider": { "enum": ["duckduckgo", "bing", "google", "custom"] }
+          "provider": { "enum": ["duckduckgo", "searxng", "openserp"] }
         }
       },
       "SearchResult": {

@@ -375,6 +375,8 @@ test("Desktop loads a versioned cross-platform Engine Runtime module", async () 
 		loader,
 		runtimeCargo,
 		runtime,
+		scraplingCargo,
+		scraplingRuntime,
 		windows,
 		linux,
 		macos,
@@ -386,6 +388,8 @@ test("Desktop loads a versioned cross-platform Engine Runtime module", async () 
 			read("frontend/src-tauri/src/engine_runtime.rs"),
 			read("engine/crates/desktop-runtime/Cargo.toml"),
 			read("engine/crates/desktop-runtime/src/lib.rs"),
+			read("engine/crates/rust-scrapling-runtime/Cargo.toml"),
+			read("engine/crates/rust-scrapling-runtime/src/lib.rs"),
 			read("frontend/src-tauri/tauri.windows.conf.json"),
 			read("frontend/src-tauri/tauri.linux.conf.json"),
 			read("frontend/src-tauri/tauri.macos.conf.json"),
@@ -395,15 +399,73 @@ test("Desktop loads a versioned cross-platform Engine Runtime module", async () 
 	assert.match(cargo, /libloading/);
 	assert.match(main, /EngineRuntimeLibrary::load/);
 	assert.match(loader, /ENGINE_RUNTIME_ABI_VERSION:\s*u32\s*=\s*1/);
+	assert.match(loader, /LOAD_WITH_ALTERED_SEARCH_PATH/);
+	assert.match(loader, /WindowsLibrary::load_with_flags/);
 	assert.match(runtimeCargo, /crate-type\s*=\s*\["cdylib"\]/);
 	assert.match(runtime, /encorehub_engine_runtime_abi_version/);
 	assert.match(runtime, /encorehub_engine_runtime_start/);
 	assert.match(runtime, /encorehub_engine_runtime_stop/);
+	assert.match(scraplingCargo, /crate-type\s*=\s*\["cdylib"\]/);
+	assert.match(scraplingCargo, /rust_scrapling\s*=\s*\{\s*path/);
+	assert.match(scraplingRuntime, /encorehub_rust_scrapling_abi_version/);
+	assert.match(scraplingRuntime, /encorehub_rust_scrapling_extract_html/);
 	assert.match(windows, /encorehub_desktop_runtime\.dll/);
+	assert.match(windows, /encorehub_rust_scrapling\.dll/);
+	assert.match(windows, /binaries\/engine-native\//);
 	assert.match(linux, /libencorehub_desktop_runtime\.so/);
+	assert.match(linux, /libencorehub_rust_scrapling\.so/);
+	assert.match(linux, /binaries\/engine-native\//);
 	assert.match(macos, /libencorehub_desktop_runtime\.dylib/);
+	assert.match(macos, /libencorehub_rust_scrapling\.dylib/);
+	assert.match(macos, /binaries\/engine-native\//);
 	const scripts = JSON.parse(rootPackage).scripts;
 	assert.match(scripts["build:desktop"], /engine,gateway,desktop/);
+});
+
+test("Engine Runtime dynamically links and packages libcurl", async () => {
+	const [preparer, builder, workflow] = await Promise.all([
+		read("scripts/prepare-engine-runtime.mjs"),
+		read("scripts/build-components.mjs"),
+		read(".github/workflows/build.yml"),
+	]);
+	assert.match(preparer, /VCPKGRS_DYNAMIC/);
+	assert.match(preparer, /--x-manifest-root/);
+	assert.match(preparer, /libcurl[^\n]*\.dll/);
+	assert.match(preparer, /does not import shared libcurl/);
+	assert.match(preparer, /nativeDependencies/);
+	assert.match(preparer, /encorehub-rust-scrapling/);
+	assert.match(preparer, /rustScraplingBytes/);
+	assert.match(preparer, /path\.join\(binariesDir, name\)/);
+	assert.match(builder, /engineManifest\.nativeDependencies/);
+	assert.match(builder, /engineManifest\.rustScrapling/);
+	assert.match(workflow, /Install shared libcurl for Engine Runtime/);
+	assert.match(workflow, /brew install curl pkg-config/);
+	assert.match(workflow, /Prepare current-target Engine Runtime/);
+	const manifest = JSON.parse(await read("vcpkg.json"));
+	assert.ok(manifest.dependencies.includes("curl"));
+});
+
+test("Open-source manifest includes the independent RUSTScrapling graph", async () => {
+	const generator = await read("scripts/generate-oss-compliance.mjs");
+	assert.match(generator, /engine[\\"', ]+Cargo\.toml/);
+	assert.match(generator, /encorehub-rust-scrapling/);
+	assert.match(generator, /pkg\.name === "rust_scrapling"/);
+});
+
+test("Routine release builds keep Engine Runtime linking iterative", async () => {
+	const cargo = await read("engine/Cargo.toml");
+	const releaseHeader = "[profile.release]";
+	const releaseStart = cargo.indexOf(releaseHeader);
+	assert.notEqual(releaseStart, -1, "engine release profile is missing");
+	const releaseTail = cargo.slice(releaseStart + releaseHeader.length);
+	const nextSection = releaseTail.search(/^\[/m);
+	const releaseProfile =
+		nextSection === -1 ? releaseTail : releaseTail.slice(0, nextSection);
+	assert.match(releaseProfile, /^lto\s*=\s*false\s*$/m);
+	assert.match(releaseProfile, /^codegen-units\s*=\s*16\s*$/m);
+	assert.doesNotMatch(releaseProfile, /^lto\s*=\s*true\s*$/m);
+	assert.doesNotMatch(releaseProfile, /^lto\s*=\s*"thin"\s*$/m);
+	assert.doesNotMatch(releaseProfile, /^codegen-units\s*=\s*1\s*$/m);
 });
 
 test("Component builds select one or several modules on every host", async () => {

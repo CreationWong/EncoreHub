@@ -278,33 +278,38 @@ function cargoRuntimeClosure(metadata, roots) {
 	return visited;
 }
 
-/** Collect target-filtered Rust crates linked into the desktop executable. */
-export function collectCargoComponents(target) {
-	const stdout = run("cargo", [
-		"metadata",
-		"--manifest-path",
-		path.join(frontendDir, "src-tauri", "Cargo.toml"),
-		"--locked",
-		"--format-version",
-		"1",
-		"--filter-platform",
-		target,
-	]);
-	const metadata = JSON.parse(stdout);
-	const desktop = metadata.packages.find(
-		(pkg) => pkg.name === "encorehub-desktop",
+/** Load one target-filtered Cargo graph without build-only dependencies. */
+function cargoMetadata(manifestPath, target) {
+	return JSON.parse(
+		run("cargo", [
+			"metadata",
+			"--manifest-path",
+			manifestPath,
+			"--locked",
+			"--format-version",
+			"1",
+			"--filter-platform",
+			target,
+		]),
 	);
-	if (!desktop) throw new Error("Cargo metadata is missing encorehub-desktop");
-	const runtime = cargoRuntimeClosure(metadata, [desktop.id]);
-	const engineRoots = metadata.packages
+}
+
+/** Convert one runtime closure into licensed third-party component records. */
+function cargoComponentsForRoots(metadata, rootNames, layer) {
+	const roots = metadata.packages
+		.filter((pkg) => rootNames.includes(pkg.name))
+		.map((pkg) => pkg.id);
+	if (roots.length !== rootNames.length) {
+		throw new Error(
+			`Cargo metadata is missing runtime roots: ${rootNames.join(", ")}`,
+		);
+	}
+	const runtime = cargoRuntimeClosure(metadata, roots);
+	return metadata.packages
 		.filter(
 			(pkg) =>
-				pkg.name.startsWith("encorehub-") && pkg.name !== "encorehub-desktop",
+				runtime.has(pkg.id) && (pkg.source || pkg.name === "rust_scrapling"),
 		)
-		.map((pkg) => pkg.id);
-	const engineRuntime = cargoRuntimeClosure(metadata, engineRoots);
-	return metadata.packages
-		.filter((pkg) => runtime.has(pkg.id) && pkg.source)
 		.map((pkg) => {
 			const license = normalizeLicense(pkg.license);
 			if (!license) {
@@ -314,13 +319,37 @@ export function collectCargoComponents(target) {
 			}
 			return {
 				ecosystem: "cargo",
-				layer: engineRuntime.has(pkg.id) ? "Engine" : "Desktop",
+				layer,
 				name: pkg.name,
 				packageName: pkg.name,
 				version: pkg.version,
 				license,
 			};
 		});
+}
+
+/** Collect target-filtered Rust crates from Desktop and independent runtimes. */
+export function collectCargoComponents(target) {
+	const desktopMetadata = cargoMetadata(
+		path.join(frontendDir, "src-tauri", "Cargo.toml"),
+		target,
+	);
+	const engineMetadata = cargoMetadata(
+		path.join(root, "engine", "Cargo.toml"),
+		target,
+	);
+	return [
+		...cargoComponentsForRoots(
+			desktopMetadata,
+			["encorehub-desktop"],
+			"Desktop",
+		),
+		...cargoComponentsForRoots(
+			engineMetadata,
+			["encorehub-desktop-runtime", "encorehub-rust-scrapling"],
+			"Engine",
+		),
+	];
 }
 
 /** Collect Go modules compiled into the target-specific Gateway sidecar. */

@@ -25,6 +25,7 @@ The desktop release consists of independently buildable runtime modules:
 | --- | --- | --- |
 | Desktop | `encorehub-desktop` executable | Tauri commands and Engine Runtime C ABI |
 | Engine | `encorehub_desktop_runtime.dll`, `libencorehub_desktop_runtime.so`, or `libencorehub_desktop_runtime.dylib` | C ABI version plus Engine HTTP API |
+| HTML parser | `encorehub_rust_scrapling.dll`, `libencorehub_rust_scrapling.so`, or `libencorehub_rust_scrapling.dylib` | RUSTScrapling C ABI version |
 | Gateway | `encorehub-gateway` executable | Gateway/Engine HTTP health and API contract |
 | Frontend | Assets embedded by the Desktop build | Tauri command and Gateway HTTP APIs |
 
@@ -35,10 +36,12 @@ caller. Errors use a caller-owned buffer, and logs use a callback valid until
 the opaque handle is stopped.
 
 Every Engine build emits `engine-runtime.json` with module version, ABI
-version, target triple, profile, size, and SHA-256. Desktop verifies the ABI
-export before resolving any lifecycle function. An Engine module with a new
-ABI requires a coordinated Desktop rebuild; an implementation-only Engine
-upgrade may replace the library and manifest independently.
+version, target triple, profile, size, SHA-256, native dependencies, and the
+same identity fields for the independently packaged RUSTScrapling companion.
+Desktop verifies the Engine ABI export before resolving lifecycle functions,
+and the component builder verifies the parser artifact against the manifest.
+An incompatible ABI requires a coordinated rebuild; implementation-only
+upgrades may replace a library and manifest independently.
 
 Component builds accept one or several comma-separated names:
 
@@ -56,6 +59,8 @@ already exist; it never silently rebuilds modules omitted by the caller.
 ## Consequences
 
 - Engine-heavy dependencies leave the Tauri executable's link graph.
+- RUSTScrapling and its dependency graph also remain outside both the Tauri
+  executable and the main Engine Runtime dynamic library.
 - Engine and Gateway can be rebuilt, tested, and upgraded without rebuilding
   Desktop when their compatibility boundaries remain satisfied.
 - Windows, Linux, and macOS use the same ABI and build selection semantics;

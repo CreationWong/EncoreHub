@@ -18,6 +18,8 @@ frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, ax
 In the **desktop app** the engine still runs in the desktop process, but the
 Tauri executable loads it from the versioned Engine Runtime dynamic library
 instead of statically linking it. The gateway remains a child-process sidecar.
+HTML extraction is provided by a separately packaged RUSTScrapling dynamic
+library; Curl remains inside Engine Runtime as the network and SSRF boundary.
 The engine also builds as a **standalone binary** (gated by the `standalone`
 Cargo feature) for headless deployment, pure-web dev, and CI. See
 [ADR-0004](docs/adr/0004-engine-in-process-and-internal-auth.md) and
@@ -167,7 +169,7 @@ cd engine   && cargo test test_name
 
 The Tauri v2 config is at `frontend/src-tauri/tauri.conf.json`. Key points when building the installer:
 
-- **Runtime modules**: `tauri.conf.json` -> `bundle.externalBin` references `binaries/encorehub-gateway`; platform overlays package `encorehub_desktop_runtime.dll`, `libencorehub_desktop_runtime.so`, or `libencorehub_desktop_runtime.dylib` under `lib/`. Runtime launch uses `app.shell().sidecar("encorehub-gateway")`, while the desktop validates the Engine Runtime ABI before resolving lifecycle symbols.
+- **Runtime modules**: `tauri.conf.json` -> `bundle.externalBin` references `binaries/encorehub-gateway`; platform overlays package `encorehub_desktop_runtime.dll`, `libencorehub_desktop_runtime.so`, or `libencorehub_desktop_runtime.dylib` under `lib/`, together with the dynamically linked libcurl dependencies declared by `engine-runtime.json`. Runtime launch uses `app.shell().sidecar("encorehub-gateway")`, while the desktop validates the Engine Runtime ABI before resolving lifecycle symbols.
 - **Resources and mutable state**: built-in skills are mapped to `resource_dir/skills`. All Desktop mutable state lives under `app_data_dir`: SQLite at `data/encorehub.db` and daily file logs at `log/encorehub-YYYY-MM-DD.log`. Developer-panel exports use a native Tauri command, writing to the OS Downloads directory or `app_data_dir/log` as fallback. The installation directory contains only binaries, runtime libraries, bundled resources, and startup configuration. Startup configuration comes from packaged files, environment variables, or process-memory values and must not be persisted in SQLite. Windows legacy installation-directory `data/` and `log/` remain read-only migration sources, are copy-verified with a marker, and are retained until explicit uninstall.
 - **Build scripts**: `pnpm build:desktop` builds Engine Runtime, Gateway, and the current-platform Tauri bundle. `pnpm build:components -- --components <list>` accepts `engine`, `gateway`, `desktop`, `frontend`, and `engine-standalone`; PowerShell/Bash wrappers expose the same selection.
 - Build output: MSI at `src-tauri/target/release/bundle/msi/`, NSIS exe at `bundle/nsis/`.
@@ -216,7 +218,9 @@ When the user toggles search on (globe icon in the input box):
 2. The provider adapter passes tools via `ChatRequest.Tools` → `go-openai` SDK. The adapter's `toOpenAITools()` maps `provider.Tool` → `goopenai.Tool`, passing `FunctionDefinition.Parameters` as `map[string]any` (**never** `[]byte` — `encoding/json` base64-encodes `[]byte` and providers reject it).
 3. **Model returns tool_calls** → gateway's `providerStream()` loop intercepts `web_search`, executes the selected configured Provider without silently switching providers, formats results, builds a follow-up request via `cloneRequestForNextRound()` that appends an assistant message (with `ToolCalls`) and a tool message (with `ToolCallID`), then calls the model again (max 3 rounds).
 4. **Frontend** receives `tool_call` and `tool_result` SSE events → `conversationStore` tracks `streamingToolCalls` → rendered in `MessageBubble.ToolCallCard` (collapsed by default, click to expand). The `warning` SSE event triggers `toast.warning()`.
-5. Search providers live in `gateway/internal/search/`. DuckDuckGo uses `html.duckduckgo.com` (no-JS version, parsed with `golang.org/x/net/html`). The Instant Answer API (`api.duckduckgo.com`) is **not used** — it only returns Wikipedia abstracts, not web results.
+5. Search providers live in `gateway/internal/search/`. DuckDuckGo uses its Instant Answer JSON API; SearXNG and OpenSERP use explicitly configured JSON endpoints. Providers preserve upstream order and only validate URLs, deduplicate, and enforce the result limit. There is no HTML search fallback, CAPTCHA flow, browser automation, client-side relevance score, or silent provider switch.
+6. Every provider request uses the authenticated Engine `/api/network/fetch` endpoint. Curl applies redirect, DNS/SSRF, timeout, and response-size policy. Explicitly configured SearXNG/OpenSERP endpoints may target private addresses; DuckDuckGo and `web_fetch` cannot.
+7. The same toggle registers `web_fetch` for a specific public URL. Public page reads cannot carry custom headers or cookies. Curl retrieves the page, then the independently packaged RUSTScrapling library strips scripts, styles, and page chrome and bounds readable HTML text. Gateway only retains a plain-text/JSON/XML fallback and marks all page data untrusted.
 
 ### Auto-Generated Conversation Titles
 
@@ -255,10 +259,11 @@ Typing `/` opens an LLM-tool completion menu backed by metadata in `frontend/src
 
 ### Engine Crate Structure
 
-The engine is a Cargo workspace with six crates:
+The engine is a Cargo workspace with seven crates:
 - `crates/core` — shared `EngineError` type and data types (`Message`, `Conversation`, `Memory`, `Role`, `Usage`, etc.)
 - `crates/conversation` — token counting (`rough_token_count`, `estimate_message_tokens`, `token_count_with_estimation`, `exceeds_token_limit`, `Usage` struct with total() method)
 - `crates/desktop-runtime` — versioned C ABI dynamic library that owns the Engine Tokio runtime and HTTP lifecycle in desktop builds
+- `crates/rust-scrapling-runtime` — stable C ABI wrapper around vendored RUSTScrapling, packaged as an independent parser dynamic library
 - `crates/protoc-resolver` — vendored cross-platform `protoc` path resolver used by build tooling
 - `crates/storage` — SQLite relational/blob storage, SQLite-Vec Memory and fallback indexes, plus embedded LanceDB Knowledge storage
 - `crates/skill` — `SkillRegistry` that loads Markdown skills from a directory, with YAML frontmatter parsing
@@ -293,7 +298,7 @@ Skills are Markdown files with YAML frontmatter. Desktop loads bundled skills fr
 - `VITE_GATEWAY_URL` / `VITE_AUTH_TOKEN`
 - In Tauri/client mode these are overridden at runtime by `applyServicePorts()` after `get_service_ports` resolves.
 
-AI provider API keys are entered through the frontend and sent via `X-Provider-Key` or loaded from the Engine vault; they are not read from root `.env`. Bing/Google web-search credentials remain server-side environment variables. Provider keys live in session memory only or encrypted at rest when the secrets vault is enabled.
+AI provider API keys are entered through the frontend and sent via `X-Provider-Key` or loaded from the Engine vault; they are not read from root `.env`. SearXNG and OpenSERP search settings contain only their configured endpoint and engine options. Provider keys live in session memory only or encrypted at rest when the secrets vault is enabled.
 
 ## CI
 
@@ -315,7 +320,7 @@ The table below is only a quick index.
 | `GET/PATCH/DELETE /api/v1/conversations/:id` | CRUD for a single conversation |
 | `POST /api/v1/conversations/:id/generate-title` | AI-generate conversation title (`force` controls manual vs guarded automatic behavior) |
 | `GET/PUT /api/v1/providers` | List / update provider profiles |
-| `POST /api/v1/search` | Web search (DuckDuckGo, Bing, Google) |
+| `POST /api/v1/search` | Structured web search (DuckDuckGo, SearXNG, OpenSERP) |
 | `/api/v1/{skills,memories,knowledge,secrets}/*` | Proxied to engine |
 
 All requests get an `X-Request-ID` header (generated if missing, propagated downstream).
@@ -323,7 +328,7 @@ All requests get an `X-Request-ID` header (generated if missing, propagated down
 ### Recent Updates & Completed Features
 
 - ✅ **Auto-generating conversation titles** with `/retitle` command
-- ✅ **Enhanced web search tool** with DuckDuckGo, Bing, and Google providers
+- ✅ **Structured web search tool** with DuckDuckGo, SearXNG, and OpenSERP providers
 - ✅ **Token counting** with rough estimation and API usage tracking
 - ✅ **Provider adapter expansion** with full sampling parameter support
 - ✅ **CORS duplicate header fix** for engine proxy

@@ -226,6 +226,12 @@ function Build-Engine {
         }
         Invoke-NativeCommand -Command "cargo" -Arguments $cargoArguments
 
+        $parserArguments = @("build", "-p", "encorehub-rust-scrapling")
+        if (-not $Debug) {
+            $parserArguments += "--release"
+        }
+        Invoke-NativeCommand -Command "cargo" -Arguments $parserArguments
+
         if (Test-Path -LiteralPath $engineSource) {
             Write-Success "engine built ($(Format-FileSize (Get-Item -LiteralPath $engineSource).Length))"
         } else {
@@ -305,6 +311,14 @@ function Invoke-ParallelCoreBuilds {
                 & cargo @cargoArguments
                 if ($LASTEXITCODE -ne 0) {
                     throw "cargo build exited with code $LASTEXITCODE"
+                }
+                $parserArguments = @("build", "-p", "encorehub-rust-scrapling")
+                if (-not $UseDebug) {
+                    $parserArguments += "--release"
+                }
+                & cargo @parserArguments
+                if ($LASTEXITCODE -ne 0) {
+                    throw "RUSTScrapling build exited with code $LASTEXITCODE"
                 }
                 $sizeBytes = if (Test-Path -LiteralPath $EngineOutput) {
                     (Get-Item -LiteralPath $EngineOutput).Length
@@ -397,11 +411,13 @@ function Prepare-TauriSidecar {
     New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
 
     $runtimeLibrary = Join-Path $binaryDir "encorehub_desktop_runtime.dll"
+    $rustScraplingLibrary = Join-Path $binaryDir "encorehub_rust_scrapling.dll"
     $runtimeManifest = Join-Path $binaryDir "engine-runtime.json"
     $gatewayManifest = Join-Path $binaryDir "gateway-runtime.json"
     if (-not (Test-Path -LiteralPath $runtimeLibrary) -or
+        -not (Test-Path -LiteralPath $rustScraplingLibrary) -or
         -not (Test-Path -LiteralPath $runtimeManifest)) {
-        throw "Engine Runtime module is missing; build the engine component first"
+        throw "Engine Runtime or RUSTScrapling module is missing; build the engine component first"
     }
     Write-Success "engine runtime module ready ($(Format-FileSize (Get-Item -LiteralPath $runtimeLibrary).Length))"
     if (-not (Test-Path -LiteralPath $gatewayManifest)) {

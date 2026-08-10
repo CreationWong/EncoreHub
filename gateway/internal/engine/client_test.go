@@ -9,7 +9,47 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"com.0d000721.encorehub/gateway/internal/search"
 )
+
+func TestNetworkFetchMethodsPreserveTrustMode(t *testing.T) {
+	var requests []networkFetchRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/network/fetch" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		var request networkFetchRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requests = append(requests, request)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"final_url":"https://example.com/final","content_type":"text/html","body":"page","backend":"curl"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "internal-engine-token")
+	status, _, _, body, err := client.FetchSearchURL(
+		context.Background(), "https://search.example", map[string]string{"Authorization": "secret"}, 1024, search.FetchPolicyPublicAPI,
+	)
+	if err != nil || status != http.StatusOK || string(body) != "page" {
+		t.Fatalf("search fetch = status %d body %q err %v", status, body, err)
+	}
+	if _, err := client.FetchPublicURL(context.Background(), "https://example.com", 2048); err != nil {
+		t.Fatalf("public fetch: %v", err)
+	}
+	_, _, _, _, err = client.FetchSearchURL(context.Background(), "http://127.0.0.1:8888/search", nil, 1024, search.FetchPolicyConfiguredAPI)
+	if err != nil {
+		t.Fatalf("configured search fetch: %v", err)
+	}
+	if len(requests) != 3 || requests[0].Purpose != "search_provider" ||
+		requests[0].Headers["Authorization"] != "secret" || requests[0].TimeoutMS != 15_000 ||
+		requests[1].Purpose != "public_page" || requests[1].TimeoutMS != 10_000 ||
+		len(requests[1].Headers) != 0 || !requests[1].Extract || requests[2].Purpose != "configured_search_provider" {
+		t.Fatalf("unexpected trust modes: %#v", requests)
+	}
+}
 
 func TestBeginTurnReplacingSendsReplacementID(t *testing.T) {
 	var body map[string]string

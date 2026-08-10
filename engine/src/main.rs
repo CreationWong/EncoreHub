@@ -15,6 +15,17 @@ async fn main() -> anyhow::Result<()> {
     // Resolve authentication before opening storage or binding a socket. A
     // standalone Engine without an internal token must never start.
     let internal_auth_token = encorehub_engine::require_internal_auth_token()?;
+    let scrapling_path = std::env::var_os("ENCOREHUB_RUST_SCRAPLING_LIBRARY")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.join(scrapling_library_file()))
+            })
+        })
+        .ok_or_else(|| anyhow::anyhow!("RUSTScrapling library path is unavailable"))?;
+    encorehub_engine::scrapling::configure_library_path(scrapling_path)
+        .map_err(anyhow::Error::msg)?;
 
     // Open the database first so we can read the persisted log level before the
     // subscriber is built.
@@ -72,4 +83,17 @@ async fn main() -> anyhow::Result<()> {
         internal_auth_token,
     )
     .await
+}
+
+#[cfg(target_os = "windows")]
+const fn scrapling_library_file() -> &'static str {
+    "encorehub_rust_scrapling.dll"
+}
+#[cfg(target_os = "linux")]
+const fn scrapling_library_file() -> &'static str {
+    "libencorehub_rust_scrapling.so"
+}
+#[cfg(target_os = "macos")]
+const fn scrapling_library_file() -> &'static str {
+    "libencorehub_rust_scrapling.dylib"
 }

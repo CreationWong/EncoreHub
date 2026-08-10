@@ -5,6 +5,8 @@
       "../../skills/": "skills/",
       "binaries/gateway-runtime.json": "lib/gateway-runtime.json",
       "binaries/libencorehub_desktop_runtime.dylib": "lib/libencorehub_desktop_runtime.dylib",
+	  "binaries/libencorehub_rust_scrapling.dylib": "lib/libencorehub_rust_scrapling.dylib",
+      "binaries/engine-native/": "lib/",
       "binaries/engine-runtime.json": "lib/engine-runtime.json"
     }
   }

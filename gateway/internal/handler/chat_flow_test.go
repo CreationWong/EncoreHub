@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,6 +108,43 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.searchConfig))
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/secrets/"):
 		w.WriteHeader(http.StatusNotFound)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/network/fetch":
+		// The stub represents Engine Curl by forwarding to the test-only provider.
+		var request struct {
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid fetch request", http.StatusBadRequest)
+			return
+		}
+		upstreamRequest, err := http.NewRequestWithContext(r.Context(), http.MethodGet, request.URL, nil)
+		if err != nil {
+			http.Error(w, "invalid upstream URL", http.StatusBadRequest)
+			return
+		}
+		for name, value := range request.Headers {
+			upstreamRequest.Header.Set(name, value)
+		}
+		upstreamResponse, err := http.DefaultClient.Do(upstreamRequest)
+		if err != nil {
+			http.Error(w, "test upstream failed", http.StatusBadGateway)
+			return
+		}
+		defer upstreamResponse.Body.Close()
+		body, _ := io.ReadAll(upstreamResponse.Body)
+		response := engine.NetworkFetchResponse{
+			Status:      upstreamResponse.StatusCode,
+			FinalURL:    request.URL,
+			ContentType: upstreamResponse.Header.Get("Content-Type"),
+			Body:        string(body),
+			Backend:     "curl",
+		}
+		if strings.HasPrefix(strings.ToLower(response.ContentType), "text/html") {
+			response.Title = "Example Article"
+			response.ExtractedText = "Page content for the model."
+		}
+		writeTestJSON(w, http.StatusOK, response)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/turns":
 		s.mu.Lock()
 		s.beginRequests++
@@ -245,7 +283,7 @@ func TestSendMessage_SlashWebSearchUsesConfiguredProviderBeforeLLM(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	var searchFinished atomic.Bool
 	searchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if query := r.URL.Query().Get("query"); query != "搜索2026消息" {
+		if query := r.URL.Query().Get("q"); query != "搜索2026消息" {
 			t.Fatalf("search query = %q", query)
 		}
 		searchFinished.Store(true)
@@ -253,14 +291,14 @@ func TestSendMessage_SlashWebSearchUsesConfiguredProviderBeforeLLM(t *testing.T)
 			"results": []map[string]string{{
 				"title":   "2026 update",
 				"url":     "https://example.com/2026",
-				"snippet": "Current result",
+				"content": "Current result",
 			}},
 		})
 	}))
 	defer searchServer.Close()
 
 	stub := &chatEngineStub{searchConfig: fmt.Sprintf(
-		`{"enabled":false,"provider":"custom","max_results":2,"custom":{"name":"Configured search","endpoint":%q,"query_parameter":"query","limit_parameter":"limit","results_path":"results","title_path":"title","url_path":"url","snippet_path":"snippet"}}`,
+		`{"enabled":false,"provider":"searxng","max_results":2,"searxng":{"endpoint":%q}}`,
 		searchServer.URL,
 	)}
 	adapter := &scriptedAdapter{
@@ -288,7 +326,7 @@ func TestSendMessage_SlashWebSearchUsesConfiguredProviderBeforeLLM(t *testing.T)
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/conversations/c1/chat",
-		bytes.NewBufferString(`{"content":"/web_search 搜索2026消息","provider":"test","model":"model-test","stream":true,"search":false,"search_provider":"bing"}`),
+		bytes.NewBufferString(`{"content":"/web_search 搜索2026消息","provider":"test","model":"model-test","stream":true,"search":false,"search_provider":"searxng"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Provider-Key", "provider-key")
@@ -307,6 +345,78 @@ func TestSendMessage_SlashWebSearchUsesConfiguredProviderBeforeLLM(t *testing.T)
 	if len(finalizations) != 1 || finalizations[0].Assistant == nil ||
 		len(finalizations[0].Assistant.ToolCalls) != 1 ||
 		finalizations[0].Assistant.ToolCalls[0].Name != "web_search" ||
+		finalizations[0].Assistant.ToolCalls[0].Status != "success" {
+		t.Fatalf("Slash tool call was not persisted: %+v", finalizations)
+	}
+}
+
+func TestSendMessage_SlashWebFetchReadsPageBeforeLLM(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var fetchFinished atomic.Bool
+	pageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/article" {
+			t.Fatalf("page path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<html><head><title>Example Article</title></head><body><main><p>Page content for the model.</p></main></body></html>`)
+		fetchFinished.Store(true)
+	}))
+	defer pageServer.Close()
+
+	pageURL := pageServer.URL + "/article"
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			if !fetchFinished.Load() {
+				t.Fatal("LLM was called before Slash page fetch completed")
+			}
+			if len(request.Messages) != 1 || request.Messages[0].Content != "/web_fetch "+pageURL {
+				t.Fatalf("original Slash request missing: %+v", request.Messages)
+			}
+			if !strings.Contains(request.SystemPrompt, "Example Article") ||
+				!strings.Contains(request.SystemPrompt, "Page content for the model.") ||
+				!strings.Contains(request.SystemPrompt, preexecutedToolPrompt) {
+				t.Fatalf("page content missing from model context: %s", request.SystemPrompt)
+			}
+			for _, tool := range request.Tools {
+				if tool.Function != nil && tool.Function.Name == "web_fetch" {
+					t.Fatal("pre-executed web fetch was registered for duplicate execution")
+				}
+			}
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "page answer", FinishReason: "stop"}}), nil
+		},
+	}
+	stub := &chatEngineStub{}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	payload, err := json.Marshal(map[string]any{
+		"content":  "/web_fetch " + pageURL,
+		"provider": "test",
+		"model":    "model-test",
+		"stream":   true,
+		"search":   false,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/conversations/c1/chat", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: tool_call") || !strings.Contains(body, "event: tool_result") ||
+		!strings.Contains(body, `"name":"web_fetch"`) {
+		t.Fatalf("Slash tool lifecycle missing from stream: %s", body)
+	}
+	finalizations := stub.finalizations()
+	if len(finalizations) != 1 || finalizations[0].Assistant == nil ||
+		len(finalizations[0].Assistant.ToolCalls) != 1 ||
+		finalizations[0].Assistant.ToolCalls[0].Name != "web_fetch" ||
 		finalizations[0].Assistant.ToolCalls[0].Status != "success" {
 		t.Fatalf("Slash tool call was not persisted: %+v", finalizations)
 	}
@@ -1177,19 +1287,19 @@ func TestSendMessage_ExecutesTextOnlyDSMLToolCall(t *testing.T) {
 	const dsmlCall = `<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">nginx 1.26.1 vulnerabilities CVE</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>`
 
 	searchServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if query := r.URL.Query().Get("query"); query != "nginx 1.26.1 vulnerabilities CVE" {
+		if query := r.URL.Query().Get("q"); query != "nginx 1.26.1 vulnerabilities CVE" {
 			t.Fatalf("search query = %q", query)
 		}
 		writeTestJSON(w, http.StatusOK, map[string]any{
 			"results": []map[string]string{{
-				"title": "Population source", "url": "https://example.com/population", "snippet": "Current data",
+				"title": "Population source", "url": "https://example.com/population", "content": "Current data",
 			}},
 		})
 	}))
 	t.Cleanup(searchServer.Close)
 
 	stub := &chatEngineStub{searchConfig: fmt.Sprintf(
-		`{"enabled":true,"provider":"custom","max_results":2,"custom":{"name":"Configured search","endpoint":%q,"query_parameter":"query","limit_parameter":"limit","results_path":"results","title_path":"title","url_path":"url","snippet_path":"snippet"}}`,
+		`{"enabled":true,"provider":"searxng","max_results":2,"searxng":{"endpoint":%q}}`,
 		searchServer.URL,
 	)}
 	adapter := &scriptedAdapter{
@@ -1220,7 +1330,7 @@ func TestSendMessage_ExecutesTextOnlyDSMLToolCall(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/conversations/c1/chat",
-		bytes.NewBufferString(`{"content":"hello","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"custom"}`),
+		bytes.NewBufferString(`{"content":"hello","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"searxng"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Provider-Key", "provider-key")

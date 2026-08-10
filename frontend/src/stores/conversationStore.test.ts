@@ -1029,7 +1029,7 @@ describe("sendMessage", () => {
 		);
 		useSettingsStore.setState({
 			searchEnabled: true,
-			searchProvider: "bing",
+			searchProvider: "searxng",
 		});
 		useProviderStore.setState({
 			loaded: true,
@@ -1059,7 +1059,7 @@ describe("sendMessage", () => {
 		await useConversationStore.getState().sendMessage("latest news");
 
 		expect(sendMessageStream.mock.calls[0][5]).toBe(false);
-		expect(sendMessageStream.mock.calls[0][6]).toBe("bing");
+		expect(sendMessageStream.mock.calls[0][6]).toBe("searxng");
 	});
 
 	it("keeps the greatest streamed provider duration in conversation state", async () => {

@@ -16,6 +16,7 @@ import (
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
 	"com.0d000721.encorehub/gateway/internal/diagnostics"
+	"com.0d000721.encorehub/gateway/internal/search"
 )
 
 // Attachment is Engine-owned metadata; binary content is fetched on demand.
@@ -43,6 +44,29 @@ type MessageAttachment struct {
 	ErrorMessage     string `json:"error_message"`
 }
 
+// NetworkFetchResponse is a bounded public resource returned by the Engine's
+// Curl network boundary. Body text is already capped before JSON decoding.
+type NetworkFetchResponse struct {
+	Status        int    `json:"status"`
+	FinalURL      string `json:"final_url"`
+	ContentType   string `json:"content_type"`
+	Body          string `json:"body"`
+	Backend       string `json:"backend"`
+	Title         string `json:"title"`
+	ExtractedText string `json:"extracted_text"`
+}
+
+// networkFetchRequest is internal-only because callers must use one of the
+// purpose-specific methods below instead of selecting their own trust mode.
+type networkFetchRequest struct {
+	URL       string            `json:"url"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	MaxBytes  int               `json:"max_bytes,omitempty"`
+	TimeoutMS int               `json:"timeout_ms,omitempty"`
+	Purpose   string            `json:"purpose"`
+	Extract   bool              `json:"extract,omitempty"`
+}
+
 // AuthTokenEnv is the shared secret used only for Gateway -> Engine calls.
 const AuthTokenEnv = "ENCOREHUB_ENGINE_AUTH_TOKEN"
 
@@ -51,6 +75,7 @@ type Client struct {
 	baseURL           string
 	internalAuthToken string
 	httpClient        *http.Client
+	privateHTTPClient *http.Client
 }
 
 // HTTPError preserves the Engine status for Gateway policy without requiring
@@ -166,6 +191,8 @@ func NewClient(baseURL, internalAuthToken string) *Client {
 		baseURL:           baseURL,
 		internalAuthToken: strings.TrimSpace(internalAuthToken),
 		httpClient:        diagnostics.NewHTTPClient(30 * time.Second),
+		// Credential-bearing network envelopes bypass communication body capture.
+		privateHTTPClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -559,6 +586,47 @@ func (c *Client) SearchKnowledge(ctx context.Context, q string, topK int) ([]Kno
 	return resp.Results, nil
 }
 
+// FetchSearchURL retrieves a search-provider response through Engine Curl.
+// It satisfies search.Fetcher without importing the search package and is the
+// only Gateway path allowed to attach provider authentication headers.
+func (c *Client) FetchSearchURL(
+	ctx context.Context,
+	rawURL string,
+	headers map[string]string,
+	maxBytes int,
+	policy search.FetchPolicy,
+) (int, string, string, []byte, error) {
+	purpose := "search_provider"
+	if policy == search.FetchPolicyConfiguredAPI {
+		purpose = "configured_search_provider"
+	}
+	response, err := c.fetchNetworkURL(ctx, networkFetchRequest{
+		URL: rawURL, Headers: headers, MaxBytes: maxBytes, TimeoutMS: 15_000, Purpose: purpose,
+	})
+	if err != nil {
+		return 0, "", "", nil, err
+	}
+	return response.Status, response.ContentType, response.FinalURL, []byte(response.Body), nil
+}
+
+// FetchPublicURL retrieves one credential-free page for the model's web_fetch
+// tool. The Engine revalidates every redirect and rejects local destinations.
+func (c *Client) FetchPublicURL(ctx context.Context, rawURL string, maxBytes int) (*NetworkFetchResponse, error) {
+	return c.fetchNetworkURL(ctx, networkFetchRequest{
+		URL: rawURL, MaxBytes: maxBytes, TimeoutMS: 10_000, Purpose: "public_page", Extract: true,
+	})
+}
+
+// fetchNetworkURL calls the authenticated Engine endpoint without exposing a
+// generic purpose flag to higher-level handlers.
+func (c *Client) fetchNetworkURL(ctx context.Context, request networkFetchRequest) (*NetworkFetchResponse, error) {
+	var response NetworkFetchResponse
+	if err := c.doPrivateJSON(ctx, http.MethodPost, "/api/network/fetch", request, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
 // GetConfig reads a JSON config value by key from the engine. `out` is the
 // destination to unmarshal into. A null/unset key leaves `out` at its zero
 // value (json.Unmarshal of `null` is a no-op for most types) without erroring.
@@ -654,6 +722,38 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
+	return c.doJSONWith(ctx, method, path, reqBody, respBody, c.Do)
+}
+
+// doPrivateJSON sends credential-bearing internal envelopes without the
+// diagnostics transport that can capture request and response bodies in full
+// communication mode. The Engine still authenticates the request normally.
+func (c *Client) doPrivateJSON(ctx context.Context, method, path string, reqBody interface{}, respBody interface{}) error {
+	return c.doJSONWith(ctx, method, path, reqBody, respBody, c.doPrivate)
+}
+
+// doPrivate applies Engine authentication but intentionally omits diagnostic
+// body capture. Callers must not use this for ordinary observable traffic.
+func (c *Client) doPrivate(req *http.Request) (*http.Response, error) {
+	if c.internalAuthToken == "" {
+		return nil, fmt.Errorf("engine authentication token is not configured")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.internalAuthToken)
+	if id := requestIDFromCtx(req.Context()); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
+	return c.privateHTTPClient.Do(req)
+}
+
+// doJSONWith implements the shared JSON contract while allowing sensitive
+// calls to select a transport that cannot retain bodies.
+func (c *Client) doJSONWith(
+	ctx context.Context,
+	method, path string,
+	reqBody interface{},
+	respBody interface{},
+	do func(*http.Request) (*http.Response, error),
+) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -677,7 +777,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, reqBody interf
 		req.Header.Set("X-Request-ID", id)
 	}
 
-	resp, err := c.Do(req)
+	resp, err := do(req)
 	if err != nil {
 		return fmt.Errorf("engine http: %w", err)
 	}

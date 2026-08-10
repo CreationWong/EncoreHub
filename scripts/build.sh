@@ -212,6 +212,9 @@ build_engine() {
     if ! (cd "$ENGINE_DIR" && cargo build --features standalone "${CARGO_ARGS[@]}"); then
         return 1
     fi
+    if ! (cd "$ENGINE_DIR" && cargo build -p encorehub-rust-scrapling "${CARGO_ARGS[@]}"); then
+        return 1
+    fi
     if [ -f "$ENGINE_SOURCE" ]; then
         local bytes
         bytes="$(wc -c < "$ENGINE_SOURCE")"
@@ -300,13 +303,21 @@ prepare_tauri_sidecar() {
     ok "host target triple: $target_triple"
 
     local runtime_library="libencorehub_desktop_runtime.so"
+    local rust_scrapling_library="libencorehub_rust_scrapling.so"
     case "$(uname -s)" in
-        Darwin*) runtime_library="libencorehub_desktop_runtime.dylib" ;;
-        MINGW*|MSYS*|CYGWIN*) runtime_library="encorehub_desktop_runtime.dll" ;;
+        Darwin*)
+            runtime_library="libencorehub_desktop_runtime.dylib"
+            rust_scrapling_library="libencorehub_rust_scrapling.dylib"
+            ;;
+        MINGW*|MSYS*|CYGWIN*)
+            runtime_library="encorehub_desktop_runtime.dll"
+            rust_scrapling_library="encorehub_rust_scrapling.dll"
+            ;;
     esac
     if [ ! -f "$BINARY_DIR/$runtime_library" ] || \
+       [ ! -f "$BINARY_DIR/$rust_scrapling_library" ] || \
        [ ! -f "$BINARY_DIR/engine-runtime.json" ]; then
-        warn "Engine Runtime module is missing; build the engine component first"
+        warn "Engine Runtime or RUSTScrapling module is missing; build the engine component first"
         return 1
     fi
     ok "engine runtime module ready"

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,6 +78,13 @@ function runtimeLibraryName(target) {
 	return "libencorehub_desktop_runtime.so";
 }
 
+function rustScraplingLibraryName(target) {
+	if (target.includes("windows")) return "encorehub_rust_scrapling.dll";
+	if (target.includes("apple-darwin"))
+		return "libencorehub_rust_scrapling.dylib";
+	return "libencorehub_rust_scrapling.so";
+}
+
 function sidecarName(target) {
 	return target.includes("windows")
 		? `encorehub-gateway-${target}.exe`
@@ -90,6 +98,7 @@ function requireDesktopModules(release) {
 	const gatewayManifestPath = path.join(binaries, "gateway-runtime.json");
 	const required = [
 		path.join(binaries, runtimeLibraryName(target)),
+		path.join(binaries, rustScraplingLibraryName(target)),
 		engineManifestPath,
 		path.join(binaries, sidecarName(target)),
 		gatewayManifestPath,
@@ -114,6 +123,44 @@ function requireDesktopModules(release) {
 		throw new Error(
 			`Engine Runtime ABI ${engineManifest.abiVersion} is incompatible with Desktop ABI 1`,
 		);
+	}
+	const rustScrapling = engineManifest.rustScrapling;
+	if (
+		rustScrapling?.module !== "encorehub-rust-scrapling" ||
+		rustScrapling.abiVersion !== 1 ||
+		rustScrapling.file !== rustScraplingLibraryName(target)
+	) {
+		throw new Error("Engine Runtime manifest has an incompatible RUSTScrapling module");
+	}
+	const rustScraplingBytes = readFileSync(
+		path.join(binaries, rustScrapling.file),
+	);
+	const rustScraplingHash = createHash("sha256")
+		.update(rustScraplingBytes)
+		.digest("hex");
+	if (
+		rustScrapling.size !== rustScraplingBytes.length ||
+		rustScrapling.sha256 !== rustScraplingHash
+	) {
+		throw new Error("RUSTScrapling module does not match the Engine Runtime manifest");
+	}
+	if (
+		!Array.isArray(engineManifest.nativeDependencies) ||
+		engineManifest.nativeDependencies.length === 0
+	) {
+		throw new Error("Engine Runtime manifest has no shared libcurl dependency");
+	}
+	for (const dependency of engineManifest.nativeDependencies) {
+		const dependencyPath = path.join(binaries, "engine-native", dependency);
+		if (!existsSync(dependencyPath)) {
+			throw new Error(`Engine Runtime native dependency is missing: ${dependencyPath}`);
+		}
+		const developmentDependencyPath = path.join(binaries, dependency);
+		if (!existsSync(developmentDependencyPath)) {
+			throw new Error(
+				`Engine Runtime development dependency is missing: ${developmentDependencyPath}`,
+			);
+		}
 	}
 }
 
@@ -140,6 +187,15 @@ export function buildComponents(options) {
 			...process.env,
 			PROTOC: resolveProtoc(root),
 		});
+		const parserArgs = [
+			"build",
+			"--manifest-path",
+			"engine/Cargo.toml",
+			"-p",
+			"encorehub-rust-scrapling",
+		];
+		if (options.release) parserArgs.push("--release");
+		run("cargo", parserArgs);
 	}
 	if (selected.has("gateway")) {
 		run("node", ["scripts/prepare-gateway-sidecar.mjs", profileFlag]);

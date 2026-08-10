@@ -21,6 +21,8 @@
       "../../skills/": "skills/",
       "binaries/gateway-runtime.json": "lib/gateway-runtime.json",
       "binaries/encorehub_desktop_runtime.dll": "lib/encorehub_desktop_runtime.dll",
+	  "binaries/encorehub_rust_scrapling.dll": "lib/encorehub_rust_scrapling.dll",
+      "binaries/engine-native/": "lib/",
       "binaries/engine-runtime.json": "lib/engine-runtime.json"
     }
   }

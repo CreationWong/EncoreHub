@@ -5,36 +5,42 @@ import {
 } from "./webSearch";
 
 describe("web search settings", () => {
-	it("normalizes persisted configuration and clamps result counts", () => {
-		expect(
-			normalizeWebSearchSettings({
-				enabled: true,
-				provider: "custom",
-				max_results: 50,
-				custom: {
-					endpoint: "https://search.example.com/api",
-					results_path: "data.items",
-				},
-			}),
-		).toMatchObject({
+	it("normalizes structured providers and clamps result counts", () => {
+		const settings = normalizeWebSearchSettings({
 			enabled: true,
-			provider: "custom",
+			provider: "openserp",
+			max_results: 50,
+			searxng: { endpoint: " http://127.0.0.1:8888 " },
+			openserp: {
+				endpoint: " http://localhost:7000 ",
+				engine: "bing",
+				engines: "google,bing",
+			},
+			browser: { mode: "virtual" },
+			custom: { endpoint: "https://legacy.example" },
+		});
+		expect(settings).toEqual({
+			enabled: true,
+			provider: "openserp",
 			max_results: 10,
-			custom: {
-				endpoint: "https://search.example.com/api",
-				results_path: "data.items",
-				title_path: "title",
+			searxng: { endpoint: "http://127.0.0.1:8888" },
+			openserp: {
+				endpoint: "http://localhost:7000",
+				engine: "bing",
+				engines: "google,bing",
 			},
 		});
+		expect(settings).not.toHaveProperty("browser");
+		expect(settings).not.toHaveProperty("custom");
 	});
 
-	it("falls back to safe defaults for unknown providers", () => {
+	it("migrates removed providers to DuckDuckGo", () => {
 		const settings = normalizeWebSearchSettings({
-			provider: "unknown",
+			provider: "bing",
 			max_results: 0,
 		});
-
 		expect(settings).toEqual(DEFAULT_WEB_SEARCH_SETTINGS);
-		expect(settings.custom).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.custom);
+		expect(settings.searxng).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.searxng);
+		expect(settings.openserp).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.openserp);
 	});
 });

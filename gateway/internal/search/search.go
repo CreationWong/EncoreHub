@@ -1,30 +1,14 @@
-// Package search provides web search capabilities.
-//
-// Supports multiple search backends:
-// - DuckDuckGo HTML search (free, no API key; scrapes html.duckduckgo.com)
-// - Bing Web Search API v7 (requires BING_SEARCH_API_KEY)
-// - Google Custom Search JSON API (requires GOOGLE_SEARCH_API_KEY + GOOGLE_CSE_CX)
-// - Custom JSON endpoints with configurable query parameters and result mapping
-//
-// Results are injected into chat context for RAG-like behavior.
+// Package search provides structured web-search API adapters.
 package search
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"regexp"
+	"path"
 	"strings"
-	"time"
 	"unicode/utf8"
-
-	// Internal packages use EncoreHub's stable reverse-domain namespace.
-	"com.0d000721.encorehub/gateway/internal/diagnostics"
-	"golang.org/x/net/html"
 )
 
 const (
@@ -34,10 +18,136 @@ const (
 	MaxProviderResponseBytes = 2 << 20
 )
 
-var ErrProviderResponseTooLarge = errors.New("search provider response exceeds size limit")
+// Result is the provider-neutral search result returned to chat tools.
+type Result struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+}
 
-// ValidateRequest bounds inputs for every caller, including chat tool calls
-// that do not pass through the standalone Search HTTP handler.
+// SearchResponse wraps normalized results and preserves the original query.
+type SearchResponse struct {
+	Results  []Result `json:"results"`
+	Provider string   `json:"provider"`
+	Query    string   `json:"query"`
+}
+
+// Provider executes one structured search API request.
+type Provider interface {
+	Name() string
+	Search(context.Context, string, int) (*SearchResponse, error)
+}
+
+// FetchPolicy distinguishes fixed public APIs from endpoints explicitly
+// configured by the user, which may be self-hosted on a private address.
+type FetchPolicy string
+
+const (
+	FetchPolicyPublicAPI     FetchPolicy = "public_api"
+	FetchPolicyConfiguredAPI FetchPolicy = "configured_api"
+)
+
+// Fetcher is implemented by Engine's bounded Curl network service.
+type Fetcher interface {
+	FetchSearchURL(
+		context.Context,
+		string,
+		map[string]string,
+		int,
+		FetchPolicy,
+	) (status int, contentType, finalURL string, body []byte, err error)
+}
+
+type SearXNGConfig struct {
+	Endpoint string
+}
+
+type OpenSERPConfig struct {
+	Endpoint string
+	Engine   string
+	Engines  string
+}
+
+type ProviderOption func(Provider)
+
+func WithFetcher(fetcher Fetcher) ProviderOption {
+	return func(provider Provider) {
+		switch value := provider.(type) {
+		case *DuckDuckGo:
+			value.fetcher = fetcher
+		case *SearXNG:
+			value.fetcher = fetcher
+		case *OpenSERP:
+			value.fetcher = fetcher
+		}
+	}
+}
+
+func WithSearXNGConfig(config SearXNGConfig) ProviderOption {
+	return func(provider Provider) {
+		if value, ok := provider.(*SearXNG); ok {
+			value.config = config
+		}
+	}
+}
+
+func WithOpenSERPConfig(config OpenSERPConfig) ProviderOption {
+	return func(provider Provider) {
+		if value, ok := provider.(*OpenSERP); ok {
+			value.config = config
+		}
+	}
+}
+
+// NewProvider constructs one of EncoreHub's supported structured APIs.
+func NewProvider(name string, options ...ProviderOption) (Provider, error) {
+	var provider Provider
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "duckduckgo":
+		provider = &DuckDuckGo{}
+	case "searxng":
+		provider = &SearXNG{}
+	case "openserp":
+		provider = &OpenSERP{}
+	default:
+		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, searxng, openserp)", name)
+	}
+	for _, option := range options {
+		option(provider)
+	}
+	if err := validateProvider(provider); err != nil {
+		return nil, err
+	}
+	return provider, nil
+}
+
+func validateProvider(provider Provider) error {
+	switch value := provider.(type) {
+	case *DuckDuckGo:
+		if value.fetcher == nil {
+			return fmt.Errorf("duckduckgo search: Curl fetcher is required")
+		}
+	case *SearXNG:
+		if value.fetcher == nil {
+			return fmt.Errorf("searxng search: Curl fetcher is required")
+		}
+		if _, err := parseConfiguredEndpoint(value.config.Endpoint); err != nil {
+			return fmt.Errorf("searxng search: %w", err)
+		}
+	case *OpenSERP:
+		if value.fetcher == nil {
+			return fmt.Errorf("openserp search: Curl fetcher is required")
+		}
+		if _, err := parseConfiguredEndpoint(value.config.Endpoint); err != nil {
+			return fmt.Errorf("openserp search: %w", err)
+		}
+		if !validOpenSERPEngine(value.config.Engine) {
+			return fmt.Errorf("openserp search: unsupported engine %q", value.config.Engine)
+		}
+	}
+	return nil
+}
+
 func ValidateRequest(query string, maxResults int) error {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -52,669 +162,358 @@ func ValidateRequest(query string, maxResults int) error {
 	return nil
 }
 
-func readProviderResponse(provider string, response *http.Response) ([]byte, error) {
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("%s returned status %d", provider, response.StatusCode)
-	}
-	if response.ContentLength > MaxProviderResponseBytes {
-		return nil, fmt.Errorf("%s: %w", provider, ErrProviderResponseTooLarge)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, MaxProviderResponseBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("%s read: %w", provider, err)
-	}
-	if len(body) > MaxProviderResponseBytes {
-		return nil, fmt.Errorf("%s: %w", provider, ErrProviderResponseTooLarge)
-	}
-	return body, nil
-}
-
-// Result represents a single search result.
-type Result struct {
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Snippet string `json:"snippet"`
-}
-
-// SearchResponse wraps search results.
-type SearchResponse struct {
-	Results  []Result `json:"results"`
-	Provider string   `json:"provider"`
-	Query    string   `json:"query"`
-}
-
-// Provider executes web searches.
-type Provider interface {
-	Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error)
-	Name() string
-}
-
-// NewProvider creates a search provider by name.
-//
-// Supported names: "duckduckgo", "bing", "google", "custom".
-//   - duckduckgo: no key required
-//   - bing: pass apiKey (BING_SEARCH_API_KEY)
-//   - google: pass apiKey (GOOGLE_SEARCH_API_KEY); the key is used with GOOGLE_CSE_CX
-//     which must be set via WithGoogleCSEcx.
-func NewProvider(name, apiKey string, opts ...ProviderOption) (Provider, error) {
-	switch strings.ToLower(name) {
-	case "duckduckgo":
-		return NewDuckDuckGo(), nil
-	case "bing":
-		if apiKey == "" {
-			return nil, fmt.Errorf("bing search: missing API key")
-		}
-		return NewBing(apiKey), nil
-	case "google":
-		if apiKey == "" {
-			return nil, fmt.Errorf("google search: missing API key")
-		}
-		p := &Google{apiKey: apiKey, client: diagnostics.NewHTTPClient(10 * time.Second)}
-		for _, opt := range opts {
-			opt(p)
-		}
-		if p.cseCX == "" {
-			return nil, fmt.Errorf("google search: missing CSE CX (set via WithGoogleCSEcx or GOOGLE_CSE_CX env)")
-		}
-		return p, nil
-	case "custom":
-		p := &Custom{
-			apiKey: apiKey,
-			client: diagnostics.NewHTTPClient(10 * time.Second),
-		}
-		for _, opt := range opts {
-			opt(p)
-		}
-		if err := p.validate(); err != nil {
-			return nil, err
-		}
-		return p, nil
-	default:
-		return nil, fmt.Errorf("unknown search provider: %q (supported: duckduckgo, bing, google, custom)", name)
-	}
-}
-
-// ProviderOption configures a search provider.
-type ProviderOption func(interface{})
-
-// WithGoogleCSEcx sets the Google Custom Search Engine ID.
-func WithGoogleCSEcx(cx string) ProviderOption {
-	return func(p interface{}) {
-		if g, ok := p.(*Google); ok {
-			g.cseCX = cx
-		}
-	}
-}
-
-// CustomConfig describes a JSON search endpoint. The endpoint must return an
-// array at ResultsPath; each item is mapped through the configured field paths.
-type CustomConfig struct {
-	Name           string
-	Endpoint       string
-	QueryParameter string
-	LimitParameter string
-	APIKeyHeader   string
-	APIKeyPrefix   string
-	ResultsPath    string
-	TitlePath      string
-	URLPath        string
-	SnippetPath    string
-}
-
-// WithCustomConfig applies the endpoint and response mapping to a custom provider.
-func WithCustomConfig(config CustomConfig) ProviderOption {
-	return func(p interface{}) {
-		if custom, ok := p.(*Custom); ok {
-			custom.config = config
-		}
-	}
-}
-
-// ============================================================
-// DuckDuckGo provider
-// ============================================================
-
-// DuckDuckGo provider using the no-JS HTML search endpoint.
-// The Instant Answer API (api.duckduckgo.com) only returns encyclopedic
-// data (Wikipedia abstracts) and is empty for real-time/news queries.
-// The HTML endpoint returns actual web search results.
 type DuckDuckGo struct {
-	client *http.Client
-}
-
-func NewDuckDuckGo() *DuckDuckGo {
-	return &DuckDuckGo{client: diagnostics.NewHTTPClient(10 * time.Second)}
+	fetcher Fetcher
 }
 
 func (d *DuckDuckGo) Name() string { return "duckduckgo" }
-
-// ddgRedirectRx matches DuckDuckGo redirect URLs like:
-//
-//	//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=...
-var ddgRedirectRx = regexp.MustCompile(`[?&]uddg=([^&]+)`)
-
-// extractURL decodes a DuckDuckGo redirect URL to the real target URL.
-func extractURL(raw string) string {
-	m := ddgRedirectRx.FindStringSubmatch(raw)
-	if len(m) < 2 {
-		return raw
-	}
-	decoded, err := url.QueryUnescape(m[1])
-	if err != nil {
-		return raw
-	}
-	return decoded
-}
-
-// stripTags removes HTML tags and common entities from s.
-func stripTags(s string) string {
-	// Quick path: if there are no angle brackets, just decode entities.
-	if !strings.ContainsAny(s, "<>") {
-		return html.UnescapeString(strings.TrimSpace(s))
-	}
-	var b strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		default:
-			if !inTag {
-				b.WriteRune(r)
-			}
-		}
-	}
-	return html.UnescapeString(strings.TrimSpace(b.String()))
-}
-
-// collapseWS replaces consecutive whitespace (including newlines) with a single space.
-func collapseWS(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
 
 func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
 	query = strings.TrimSpace(query)
 	if err := ValidateRequest(query, maxResults); err != nil {
 		return nil, err
 	}
-	apiURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s",
-		url.QueryEscape(query))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("duckduckgo request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := readProviderResponse(d.Name(), resp)
-	if err != nil {
-		return nil, err
-	}
-
-	results := parseDDGHTML(string(body), maxResults)
-
-	return &SearchResponse{
-		Results:  results,
-		Provider: "duckduckgo",
-		Query:    query,
-	}, nil
-}
-
-// parseDDGHTML extracts search results from the DuckDuckGo HTML page.
-//
-// The HTML uses CSS classes: result__title (h2 > a), result__snippet (a),
-// result__url (a). Each result block is a div.result__body containing all
-// three. We parse the token stream and track state with a small FSM.
-func parseDDGHTML(raw string, maxResults int) []Result {
-	if maxResults < 1 {
-		return nil
-	}
-	if maxResults > MaxResults {
-		maxResults = MaxResults
-	}
-	doc, err := html.Parse(strings.NewReader(raw))
-	if err != nil {
-		return nil
-	}
-
-	type state int
-	const (
-		stIdle      state = iota
-		stInBody          // inside a div.result__body
-		stInTitle         // inside h2.result__title
-		stInSnippet       // inside a.result__snippet
+	requestURL := "https://api.duckduckgo.com/?" + url.Values{
+		"q":             {query},
+		"format":        {"json"},
+		"no_html":       {"1"},
+		"no_redirect":   {"1"},
+		"skip_disambig": {"0"},
+	}.Encode()
+	status, _, _, body, err := d.fetcher.FetchSearchURL(
+		ctx,
+		requestURL,
+		map[string]string{"Accept": "application/json"},
+		MaxProviderResponseBytes,
+		FetchPolicyPublicAPI,
 	)
-
-	results := make([]Result, 0, maxResults)
-	var cur Result
-	var s state
-	var titleDepth int
-
-	var walk func(n *html.Node)
-	walk = func(n *html.Node) {
-		if len(results) >= maxResults {
-			return
-		}
-		if n.Type == html.ElementNode {
-			classes := attrVal(n, "class")
-
-			switch {
-			case n.Data == "div" && strings.Contains(classes, "result__body"):
-				// Start of a new result block.
-				if cur.URL != "" || cur.Snippet != "" {
-					results = append(results, cur)
-				}
-				cur = Result{}
-				s = stInBody
-
-			case n.Data == "h2" && strings.Contains(classes, "result__title"):
-				s = stInTitle
-				titleDepth = 0
-
-			case n.Data == "a" && strings.Contains(classes, "result__a") && s == stInTitle:
-				// Title link — capture URL from the href.
-				href := attrVal(n, "href")
-				if cur.URL == "" && href != "" {
-					cur.URL = extractURL(href)
-				}
-
-			case n.Data == "a" && strings.Contains(classes, "result__snippet"):
-				if s == stInBody || s == stInTitle {
-					href := attrVal(n, "href")
-					if cur.URL == "" && href != "" {
-						cur.URL = extractURL(href)
-					}
-					s = stInSnippet
-				}
-
-			case n.Data == "a" && strings.Contains(classes, "result__url"):
-				if cur.URL == "" {
-					href := attrVal(n, "href")
-					if href != "" {
-						cur.URL = extractURL(href)
-					}
-				}
-			}
-		}
-
-		if n.Type == html.TextNode {
-			text := collapseWS(stripTags(n.Data))
-			switch s {
-			case stInTitle:
-				if text != "" {
-					if cur.Title != "" {
-						cur.Title += " "
-					}
-					cur.Title += text
-					titleDepth++
-				}
-			case stInSnippet:
-				if text != "" {
-					if cur.Snippet != "" {
-						cur.Snippet += " "
-					}
-					cur.Snippet += text
-				}
-			}
-		}
-
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-
-		// When leaving a tracked element, drop back to the parent state.
-		if n.Type == html.ElementNode {
-			classes := attrVal(n, "class")
-			if n.Data == "h2" && strings.Contains(classes, "result__title") {
-				s = stInBody
-			}
-			if n.Data == "a" && strings.Contains(classes, "result__snippet") {
-				s = stInBody
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("duckduckgo Instant Answer request: %w", err)
 	}
-
-	walk(doc)
-
-	// Flush the last result.
-	if cur.URL != "" || cur.Snippet != "" {
-		results = append(results, cur)
-	}
-
-	// Truncate to maxResults.
-	if len(results) > maxResults {
-		results = results[:maxResults]
-	}
-
-	return results
-}
-
-// attrVal returns the value of the named attribute on n, or "".
-func attrVal(n *html.Node, name string) string {
-	for _, a := range n.Attr {
-		if a.Key == name {
-			return a.Val
-		}
-	}
-	return ""
-}
-
-// ============================================================
-// Bing Search API v7 provider
-// ============================================================
-
-// Bing provider using the Bing Web Search API v7.
-type Bing struct {
-	client *http.Client
-	apiKey string
-}
-
-func NewBing(apiKey string) *Bing {
-	return &Bing{
-		client: diagnostics.NewHTTPClient(10 * time.Second),
-		apiKey: apiKey,
-	}
-}
-
-func (b *Bing) Name() string { return "bing" }
-
-func (b *Bing) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
-	query = strings.TrimSpace(query)
-	if err := ValidateRequest(query, maxResults); err != nil {
+	if err := requireSuccess("duckduckgo Instant Answer", status); err != nil {
 		return nil, err
 	}
-	apiURL := fmt.Sprintf("https://api.bing.microsoft.com/v7.0/search?q=%s&count=%d&mkt=en-US",
-		url.QueryEscape(query), maxResults)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
+	var payload duckDuckGoPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("duckduckgo Instant Answer decode: %w", err)
 	}
-	req.Header.Set("Ocp-Apim-Subscription-Key", b.apiKey)
-	req.Header.Set("User-Agent", "EncoreHub/0.1")
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("bing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := readProviderResponse(b.Name(), resp)
-	if err != nil {
-		return nil, err
-	}
-
-	var data struct {
-		WebPages struct {
-			Value []struct {
-				Name    string `json:"name"`
-				URL     string `json:"url"`
-				Snippet string `json:"snippet"`
-			} `json:"value"`
-		} `json:"webPages"`
-	}
-
-	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("bing decode: %w", err)
-	}
-
-	results := make([]Result, 0, maxResults)
-	for _, wp := range data.WebPages.Value {
-		if len(results) >= maxResults {
-			break
-		}
-		results = append(results, Result{
-			Title:   wp.Name,
-			URL:     wp.URL,
-			Snippet: wp.Snippet,
+	candidates := make([]Result, 0, maxResults)
+	if payload.AbstractURL != "" && payload.AbstractText != "" {
+		candidates = append(candidates, Result{
+			Title:   firstNonEmpty(payload.Heading, payload.AbstractSource, query),
+			URL:     payload.AbstractURL,
+			Snippet: payload.AbstractText,
 		})
 	}
-
+	if payload.DefinitionURL != "" && payload.Definition != "" {
+		candidates = append(candidates, Result{
+			Title:   firstNonEmpty(payload.DefinitionSource, payload.Heading, query),
+			URL:     payload.DefinitionURL,
+			Snippet: payload.Definition,
+		})
+	}
+	appendDuckDuckGoTopics(&candidates, payload.Results)
+	appendDuckDuckGoTopics(&candidates, payload.RelatedTopics)
 	return &SearchResponse{
-		Results:  results,
-		Provider: "bing",
+		Results:  normalizeResults(candidates, maxResults),
+		Provider: d.Name(),
 		Query:    query,
 	}, nil
 }
 
-// ============================================================
-// Google Custom Search JSON API provider
-// ============================================================
-
-// Google provider using the Custom Search JSON API.
-type Google struct {
-	client *http.Client
-	apiKey string
-	cseCX  string
+type duckDuckGoTopic struct {
+	FirstURL string            `json:"FirstURL"`
+	Text     string            `json:"Text"`
+	Topics   []duckDuckGoTopic `json:"Topics"`
 }
 
-func (g *Google) Name() string { return "google" }
+type duckDuckGoPayload struct {
+	Heading          string            `json:"Heading"`
+	AbstractText     string            `json:"AbstractText"`
+	AbstractSource   string            `json:"AbstractSource"`
+	AbstractURL      string            `json:"AbstractURL"`
+	Definition       string            `json:"Definition"`
+	DefinitionSource string            `json:"DefinitionSource"`
+	DefinitionURL    string            `json:"DefinitionURL"`
+	Results          []duckDuckGoTopic `json:"Results"`
+	RelatedTopics    []duckDuckGoTopic `json:"RelatedTopics"`
+}
 
-func (g *Google) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+func appendDuckDuckGoTopics(results *[]Result, topics []duckDuckGoTopic) {
+	for _, topic := range topics {
+		if topic.FirstURL != "" && topic.Text != "" {
+			*results = append(*results, Result{
+				Title:   duckDuckGoTopicTitle(topic.Text, topic.FirstURL),
+				URL:     topic.FirstURL,
+				Snippet: topic.Text,
+			})
+		}
+		appendDuckDuckGoTopics(results, topic.Topics)
+	}
+}
+
+func duckDuckGoTopicTitle(text, rawURL string) string {
+	if before, _, found := strings.Cut(text, " - "); found && strings.TrimSpace(before) != "" {
+		return strings.TrimSpace(before)
+	}
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Hostname() != "" {
+		return parsed.Hostname()
+	}
+	return "DuckDuckGo result"
+}
+
+type SearXNG struct {
+	fetcher Fetcher
+	config  SearXNGConfig
+}
+
+func (s *SearXNG) Name() string { return "searxng" }
+
+func (s *SearXNG) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
 	query = strings.TrimSpace(query)
 	if err := ValidateRequest(query, maxResults); err != nil {
 		return nil, err
 	}
-	apiURL := fmt.Sprintf(
-		"https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&num=%d",
-		url.QueryEscape(g.apiKey),
-		url.QueryEscape(g.cseCX),
-		url.QueryEscape(query),
-		maxResults,
+	requestURL, err := configuredAPIURL(s.config.Endpoint, "search")
+	if err != nil {
+		return nil, fmt.Errorf("searxng search: %w", err)
+	}
+	values := requestURL.Query()
+	values.Set("q", query)
+	values.Set("format", "json")
+	values.Set("language", "auto")
+	values.Set("pageno", "1")
+	requestURL.RawQuery = values.Encode()
+	status, _, _, body, err := s.fetcher.FetchSearchURL(
+		ctx,
+		requestURL.String(),
+		map[string]string{"Accept": "application/json"},
+		MaxProviderResponseBytes,
+		FetchPolicyConfiguredAPI,
 	)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
+		return nil, fmt.Errorf("searxng request: %w", err)
+	}
+	if err := requireSuccess("searxng", status); err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "EncoreHub/0.1")
-
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("google request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := readProviderResponse(g.Name(), resp)
-	if err != nil {
-		return nil, err
-	}
-
-	var data struct {
-		Items []struct {
+	var payload struct {
+		Results []struct {
 			Title   string `json:"title"`
-			Link    string `json:"link"`
-			Snippet string `json:"snippet"`
-		} `json:"items"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
 	}
-
-	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("google decode: %w", err)
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("searxng decode: %w", err)
 	}
-
-	results := make([]Result, 0, maxResults)
-	for _, item := range data.Items {
-		if len(results) >= maxResults {
-			break
-		}
-		results = append(results, Result{
-			Title:   item.Title,
-			URL:     item.Link,
-			Snippet: item.Snippet,
-		})
+	candidates := make([]Result, 0, len(payload.Results))
+	for _, item := range payload.Results {
+		candidates = append(candidates, Result{Title: item.Title, URL: item.URL, Snippet: item.Content})
 	}
-
 	return &SearchResponse{
-		Results:  results,
-		Provider: "google",
+		Results:  normalizeResults(candidates, maxResults),
+		Provider: s.Name(),
 		Query:    query,
 	}, nil
 }
 
-// ============================================================
-// Custom JSON search provider
-// ============================================================
-
-type Custom struct {
-	client *http.Client
-	apiKey string
-	config CustomConfig
+type OpenSERP struct {
+	fetcher Fetcher
+	config  OpenSERPConfig
 }
 
-func (c *Custom) Name() string {
-	if name := strings.TrimSpace(c.config.Name); name != "" {
-		return name
+func (o *OpenSERP) Name() string { return "openserp" }
+
+func (o *OpenSERP) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
 	}
-	return "custom"
+	engine := normalizedOpenSERPEngine(o.config.Engine)
+	requestURL, err := configuredAPIURL(o.config.Endpoint, engine+"/search")
+	if err != nil {
+		return nil, fmt.Errorf("openserp search: %w", err)
+	}
+	values := requestURL.Query()
+	values.Set("text", query)
+	values.Set("limit", fmt.Sprintf("%d", maxResults))
+	values.Set("format", "json")
+	if engine == "mega" {
+		values.Set("mode", "balanced")
+		if engines := normalizeOpenSERPEngines(o.config.Engines); engines != "" {
+			values.Set("engines", engines)
+		}
+	}
+	requestURL.RawQuery = values.Encode()
+	status, _, _, body, err := o.fetcher.FetchSearchURL(
+		ctx,
+		requestURL.String(),
+		map[string]string{"Accept": "application/json"},
+		MaxProviderResponseBytes,
+		FetchPolicyConfiguredAPI,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("openserp request: %w", err)
+	}
+	if err := requireSuccess("openserp", status); err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Results []struct {
+			Type    string `json:"type"`
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Snippet string `json:"snippet"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("openserp decode: %w", err)
+	}
+	candidates := make([]Result, 0, len(payload.Results))
+	for _, item := range payload.Results {
+		if item.Type != "" && item.Type != "organic" {
+			continue
+		}
+		candidates = append(candidates, Result{Title: item.Title, URL: item.URL, Snippet: item.Snippet})
+	}
+	return &SearchResponse{
+		Results:  normalizeResults(candidates, maxResults),
+		Provider: o.Name(),
+		Query:    query,
+	}, nil
 }
 
-var customHeaderNameRx = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+func parseConfiguredEndpoint(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("endpoint must be an absolute URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("endpoint must use HTTP or HTTPS")
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("endpoint cannot contain credentials")
+	}
+	return parsed, nil
+}
 
-func (c *Custom) validate() error {
-	endpoint, err := url.Parse(strings.TrimSpace(c.config.Endpoint))
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
-		return fmt.Errorf("custom search: endpoint must be an absolute HTTP(S) URL")
+func configuredAPIURL(endpoint, suffix string) (*url.URL, error) {
+	parsed, err := parseConfiguredEndpoint(endpoint)
+	if err != nil {
+		return nil, err
 	}
-	if endpoint.User != nil {
-		return fmt.Errorf("custom search: endpoint credentials are not allowed")
+	cleanSuffix := strings.Trim(suffix, "/")
+	if strings.Trim(parsed.Path, "/") == cleanSuffix || strings.HasSuffix(strings.Trim(parsed.Path, "/"), "/"+cleanSuffix) {
+		return parsed, nil
 	}
-	if header := strings.TrimSpace(c.config.APIKeyHeader); header != "" {
-		if !customHeaderNameRx.MatchString(header) {
-			return fmt.Errorf("custom search: invalid API key header")
+	parsed.Path = path.Join(parsed.Path, cleanSuffix)
+	return parsed, nil
+}
+
+var openSERPEngines = map[string]struct{}{
+	"mega":       {},
+	"google":     {},
+	"bing":       {},
+	"duckduckgo": {},
+	"baidu":      {},
+	"yandex":     {},
+	"ecosia":     {},
+}
+
+func normalizedOpenSERPEngine(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "mega"
+	}
+	return value
+}
+
+func validOpenSERPEngine(value string) bool {
+	_, exists := openSERPEngines[normalizedOpenSERPEngine(value)]
+	return exists
+}
+
+func normalizeOpenSERPEngines(value string) string {
+	seen := make(map[string]struct{})
+	engines := make([]string, 0)
+	for _, candidate := range strings.Split(value, ",") {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if candidate == "" || candidate == "mega" {
+			continue
 		}
-		if c.apiKey == "" {
-			return fmt.Errorf("custom search: missing API key")
+		if _, valid := openSERPEngines[candidate]; !valid {
+			continue
 		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		engines = append(engines, candidate)
+	}
+	return strings.Join(engines, ",")
+}
+
+func requireSuccess(provider string, status int) error {
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("%s returned status %d", provider, status)
 	}
 	return nil
 }
 
-func (c *Custom) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
-	query = strings.TrimSpace(query)
-	if err := ValidateRequest(query, maxResults); err != nil {
-		return nil, err
-	}
-	if err := c.validate(); err != nil {
-		return nil, err
-	}
-
-	endpoint, _ := url.Parse(strings.TrimSpace(c.config.Endpoint))
-	params := endpoint.Query()
-	queryParameter := strings.TrimSpace(c.config.QueryParameter)
-	if queryParameter == "" {
-		queryParameter = "q"
-	}
-	limitParameter := strings.TrimSpace(c.config.LimitParameter)
-	if limitParameter == "" {
-		limitParameter = "count"
-	}
-	params.Set(queryParameter, query)
-	params.Set(limitParameter, fmt.Sprintf("%d", maxResults))
-	endpoint.RawQuery = params.Encode()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "EncoreHub/0.1")
-	if header := strings.TrimSpace(c.config.APIKeyHeader); header != "" {
-		request.Header.Set(header, c.config.APIKeyPrefix+c.apiKey)
-	}
-
-	response, err := c.client.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("custom search request: %w", err)
-	}
-	defer response.Body.Close()
-	body, err := readProviderResponse(c.Name(), response)
-	if err != nil {
-		return nil, err
-	}
-
-	var payload any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("custom search decode: %w", err)
-	}
-	itemsValue, ok := lookupJSONPath(payload, defaultPath(c.config.ResultsPath, "results"))
-	if !ok {
-		return nil, fmt.Errorf("custom search: results path not found")
-	}
-	items, ok := itemsValue.([]any)
-	if !ok {
-		return nil, fmt.Errorf("custom search: results path must contain an array")
-	}
-
-	results := make([]Result, 0, min(maxResults, len(items)))
-	for _, item := range items {
-		if len(results) >= maxResults {
+func normalizeResults(candidates []Result, maxResults int) []Result {
+	results := make([]Result, 0, min(maxResults, len(candidates)))
+	seen := make(map[string]struct{})
+	for _, candidate := range candidates {
+		if len(results) >= min(maxResults, MaxResults) {
 			break
 		}
-		result := Result{
-			Title:   stringAtPath(item, defaultPath(c.config.TitlePath, "title")),
-			URL:     stringAtPath(item, defaultPath(c.config.URLPath, "url")),
-			Snippet: stringAtPath(item, defaultPath(c.config.SnippetPath, "snippet")),
+		parsed, err := url.Parse(strings.TrimSpace(candidate.URL))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+			continue
 		}
-		if result.URL != "" {
-			results = append(results, result)
+		parsed.Fragment = ""
+		normalizedURL := parsed.String()
+		if _, exists := seen[normalizedURL]; exists {
+			continue
 		}
+		seen[normalizedURL] = struct{}{}
+		title := collapseWS(candidate.Title)
+		if title == "" {
+			title = parsed.Hostname()
+		}
+		results = append(results, Result{
+			Title:   title,
+			URL:     normalizedURL,
+			Snippet: collapseWS(candidate.Snippet),
+		})
 	}
-
-	return &SearchResponse{Results: results, Provider: c.Name(), Query: query}, nil
+	return results
 }
 
-func defaultPath(path, fallback string) string {
-	if path = strings.TrimSpace(path); path != "" {
-		return path
-	}
-	return fallback
-}
-
-func lookupJSONPath(value any, path string) (any, bool) {
-	current := value
-	for _, segment := range strings.Split(path, ".") {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = object[segment]
-		if !ok {
-			return nil, false
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = collapseWS(value); value != "" {
+			return value
 		}
 	}
-	return current, true
+	return "Search result"
 }
 
-func stringAtPath(value any, path string) string {
-	found, ok := lookupJSONPath(value, path)
-	if !ok {
-		return ""
-	}
-	text, _ := found.(string)
-	return strings.TrimSpace(text)
+func collapseWS(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
-// ============================================================
-// Formatter
-// ============================================================
-
-// FormatForContext formats search results as a string for injection into chat context.
-func FormatForContext(resp *SearchResponse) string {
-	if resp == nil || len(resp.Results) == 0 {
-		return ""
+// FormatForContext preserves the provider order and marks the data boundary.
+func FormatForContext(response *SearchResponse) string {
+	if response == nil || len(response.Results) == 0 {
+		return "No search results found."
 	}
-
-	out := fmt.Sprintf("\n\n[Web Search Results for: \"%s\" — Source: %s]\n", resp.Query, strings.ToUpper(resp.Provider))
-	for i, r := range resp.Results {
-		out += fmt.Sprintf("%d. %s\n   %s\n   URL: %s\n\n", i+1, r.Title, r.Snippet, r.URL)
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "UNTRUSTED WEB SEARCH DATA\nQuery: %s\nProvider: %s\n\n", response.Query, response.Provider)
+	for index, result := range response.Results {
+		fmt.Fprintf(&builder, "%d. %s\n%s\nURL: %s\n\n", index+1, result.Title, result.Snippet, result.URL)
 	}
-	return out
+	builder.WriteString("END UNTRUSTED WEB SEARCH DATA")
+	return builder.String()
 }

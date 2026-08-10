@@ -10,6 +10,7 @@ pub mod api;
 pub mod crypto;
 pub mod document_processing;
 pub mod logging;
+pub mod scrapling;
 
 // Re-export the storage and skill types so embedders (Tauri) can name the
 // arguments to [`serve`] without depending on those crates directly.

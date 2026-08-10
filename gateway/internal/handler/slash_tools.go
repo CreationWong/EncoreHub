@@ -30,6 +30,11 @@ type slashToolExecution struct {
 // The registry keeps Slash parsing independent from execution so new LLM tools
 // can be added without turning Slash entries into local application shortcuts.
 var slashToolRegistry = map[string]slashToolDefinition{
+	"web_fetch": {
+		name:        "web_fetch",
+		execute:     executeSlashWebFetch,
+		requireArgs: true,
+	},
 	"web_search": {
 		name:        "web_search",
 		execute:     executeSlashWebSearch,
@@ -63,6 +68,19 @@ func (request slashToolRequest) execute(ctx context.Context, handler *ChatHandle
 		Result:    execution.result,
 		Status:    execution.status,
 	}
+}
+
+func executeSlashWebFetch(ctx context.Context, handler *ChatHandler, rawURL string) slashToolExecution {
+	arguments, _ := json.Marshal(map[string]string{"url": rawURL})
+	execution := slashToolExecution{arguments: string(arguments), status: "error"}
+	result, err := executeWebFetch(ctx, handler.engine, rawURL)
+	if err != nil {
+		execution.result = "Web page fetch failed."
+		return execution
+	}
+	execution.result = result
+	execution.status = "success"
+	return execution
 }
 
 func executeSlashWebSearch(ctx context.Context, handler *ChatHandler, query string) slashToolExecution {

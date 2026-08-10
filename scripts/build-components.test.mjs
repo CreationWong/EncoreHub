@@ -3,7 +3,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseComponentArgs } from "./build-components.mjs";
-import { resolveCargoTargetDir } from "./prepare-engine-runtime.mjs";
+import {
+	dynamicCurlRustflags,
+	resolveCargoTargetDir,
+} from "./prepare-engine-runtime.mjs";
 
 const repoRoot = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -50,4 +53,15 @@ test("desktop components share one Cargo target directory", () => {
 
 	const absolute = path.resolve(repoRoot, "..", "encorehub-cargo-target");
 	assert.equal(resolveCargoTargetDir(repoRoot, absolute), absolute);
+});
+
+test("Windows runtime builds use a dynamic-curl Cargo fingerprint", () => {
+	assert.equal(
+		dynamicCurlRustflags("x86_64-pc-windows-msvc", "-C target-cpu=native"),
+		"-C target-cpu=native --cfg encorehub_dynamic_curl",
+	);
+	assert.equal(
+		dynamicCurlRustflags("x86_64-unknown-linux-gnu", "-C target-cpu=native"),
+		"-C target-cpu=native",
+	);
 });

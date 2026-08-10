@@ -43,6 +43,9 @@ const convState = {
 const setSearchEnabled = vi.fn((enabled: boolean) => {
 	settingsState.searchEnabled = enabled;
 });
+const setSearchProvider = vi.fn((provider: SearchProvider) => {
+	settingsState.searchProvider = provider;
+});
 const setDeepThinking = vi.fn((enabled: boolean) => {
 	settingsState.deepThinking = enabled;
 });
@@ -53,9 +56,9 @@ const settingsState: {
 	model: string;
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
-	customSearchSettings: { name: string };
 	deepThinking: boolean;
 	setSearchEnabled: typeof setSearchEnabled;
+	setSearchProvider: typeof setSearchProvider;
 	setDeepThinking: typeof setDeepThinking;
 } = {
 	openSettings: vi.fn(),
@@ -63,9 +66,9 @@ const settingsState: {
 	model: "gpt-4o",
 	searchEnabled: false,
 	searchProvider: "duckduckgo",
-	customSearchSettings: { name: "Custom search" },
 	deepThinking: false,
 	setSearchEnabled,
+	setSearchProvider,
 	setDeepThinking,
 };
 const providerState = {
@@ -121,6 +124,7 @@ beforeEach(() => {
 	setConversationDraft.mockClear();
 	clearConversationDraft.mockClear();
 	setSearchEnabled.mockClear();
+	setSearchProvider.mockClear();
 	settingsState.openSettings.mockClear();
 	setDeepThinking.mockClear();
 	settingsState.searchEnabled = false;
@@ -279,7 +283,7 @@ describe("InputBox composer surface", () => {
 		expect(ta.value).toHaveLength(100);
 	});
 
-	it("toggles search from the globe and opens settings from the chevron", () => {
+	it("toggles search and switches providers from the globe menu", () => {
 		render(<InputBox />);
 		const controls = screen.getByRole("group", {
 			name: "Web search controls",
@@ -305,7 +309,23 @@ describe("InputBox composer surface", () => {
 		expect(
 			screen.getByRole("menuitemcheckbox", { name: "Enable web search" }),
 		).toBeDefined();
-		expect(screen.getByText("DuckDuckGo")).toBeDefined();
+		expect(
+			screen
+				.getByRole("menuitemradio", { name: "DuckDuckGo" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
+
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "OpenSERP" }));
+		expect(setSearchProvider).toHaveBeenCalledWith("openserp");
+		expect(
+			screen.queryByRole("menu", { name: "Web search settings" }),
+		).toBeNull();
+
+		fireEvent.click(
+			within(controls).getByRole("button", {
+				name: "Open web search settings",
+			}),
+		);
 
 		fireEvent.click(
 			screen.getByRole("menuitem", { name: "Configure web search" }),
@@ -396,6 +416,15 @@ describe("InputBox conversation drafts", () => {
 });
 
 describe("InputBox plain send", () => {
+	it("clears the new-conversation composer after sending", async () => {
+		render(<InputBox />);
+		const ta = getTextarea();
+		fireEvent.change(ta, { target: { value: "first message" } });
+		fireEvent.keyDown(ta, { key: "Enter" });
+		await waitFor(() => expect(ta.value).toBe(""));
+		expect(clearConversationDraft).toHaveBeenCalledWith(null);
+	});
+
 	it("Enter on a non-slash message calls sendMessage", () => {
 		convState.activeId = "c1";
 		render(<InputBox />);

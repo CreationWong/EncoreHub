@@ -46,6 +46,7 @@ struct RuntimeConfig {
     skills_path: PathBuf,
     bind_addr: String,
     internal_auth_token: String,
+    rust_scrapling_library_path: PathBuf,
     #[serde(default = "default_log_level")]
     log_level: String,
 }
@@ -147,6 +148,8 @@ unsafe fn start_inner(
             "Engine Runtime internal authentication token is empty".into(),
         ));
     }
+    encorehub_engine::scrapling::configure_library_path(&config.rust_scrapling_library_path)
+        .map_err(|error| (START_FAILED, error))?;
 
     let db = Database::open_and_return(&config.database_path).map_err(|error| {
         (

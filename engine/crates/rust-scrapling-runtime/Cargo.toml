@@ -1,0 +1,13 @@
+[package]
+name = "encorehub-rust-scrapling"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rust_scrapling = { path = "../../vendor/rust-scrapling" }
+serde.workspace = true
+serde_json.workspace = true

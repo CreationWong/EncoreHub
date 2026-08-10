@@ -11,6 +11,11 @@ export const SLASH_TOOLS: readonly SlashTool[] = [
 		name: "/web_search",
 		description: "Search the web before asking the model",
 	},
+	{
+		id: "web_fetch",
+		name: "/web_fetch",
+		description: "Read a public web page before asking the model",
+	},
 ];
 
 export function matchSlashTools(input: string): SlashTool[] {

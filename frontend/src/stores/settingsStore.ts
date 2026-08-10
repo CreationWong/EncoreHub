@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import { secretsApi } from "../services/secrets";
 import {
-	type CustomSearchSettings,
 	DEFAULT_WEB_SEARCH_SETTINGS,
+	type OpenSERPSearchSettings,
+	type SearXNGSearchSettings,
 	type SearchProvider,
 	type WebSearchSettings,
 	normalizeWebSearchSettings,
@@ -71,8 +72,8 @@ interface SettingsState {
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
 	searchMaxResults: number;
-	googleSearchEngineId: string;
-	customSearchSettings: CustomSearchSettings;
+	searXNGSearchSettings: SearXNGSearchSettings;
+	openSERPSearchSettings: OpenSERPSearchSettings;
 	searchSettingsLoaded: boolean;
 	deepThinking: boolean;
 
@@ -312,15 +313,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-search-enabled") === "1"
 			: false,
-	searchProvider:
-		(typeof window !== "undefined"
-			? (localStorage.getItem(
-					"encorehub-search-provider",
-				) as SearchProvider | null)
-			: null) ?? "duckduckgo",
+	searchProvider: (() => {
+		const value =
+			typeof window !== "undefined"
+				? localStorage.getItem("encorehub-search-provider")
+				: null;
+		return value === "searxng" || value === "openserp" ? value : "duckduckgo";
+	})(),
 	searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
-	googleSearchEngineId: DEFAULT_WEB_SEARCH_SETTINGS.google_cse_id,
-	customSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.custom },
+	searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
+	openSERPSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
 	searchSettingsLoaded: false,
 	deepThinking:
 		typeof window !== "undefined"
@@ -562,8 +564,8 @@ function webSearchSettingsFromState(state: SettingsState): WebSearchSettings {
 		enabled: state.searchEnabled,
 		provider: state.searchProvider,
 		max_results: state.searchMaxResults,
-		google_cse_id: state.googleSearchEngineId,
-		custom: { ...state.customSearchSettings },
+		searxng: { ...state.searXNGSearchSettings },
+		openserp: { ...state.openSERPSearchSettings },
 	};
 }
 
@@ -572,8 +574,8 @@ function webSearchState(settings: WebSearchSettings) {
 		searchEnabled: settings.enabled,
 		searchProvider: settings.provider,
 		searchMaxResults: settings.max_results,
-		googleSearchEngineId: settings.google_cse_id,
-		customSearchSettings: { ...settings.custom },
+		searXNGSearchSettings: { ...settings.searxng },
+		openSERPSearchSettings: { ...settings.openserp },
 		searchSettingsLoaded: true,
 	};
 }

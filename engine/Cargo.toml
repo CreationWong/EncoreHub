@@ -5,9 +5,11 @@ members = [
     "crates/conversation",
     "crates/desktop-runtime",
     "crates/protoc-resolver",
+    "crates/rust-scrapling-runtime",
     "crates/storage",
     "crates/skill",
 ]
+exclude = ["vendor/rust-scrapling"]
 
 [workspace.package]
 version = "0.1.0"
@@ -48,13 +50,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 regex = "1"
 quick-xml = "0.39"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# Shared HTTP transfer core for search, direct page reads, and the future
+# stateful browser boundary. It is linked into the Engine Runtime module.
+curl = "0.4"
+libloading = "0.8"
+url = "2"
 # WASM runtime for plugins
 # wasmtime = "25"
 
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
+# LTO makes the modular desktop Runtime spend minutes in a single final rustc
+# step after every Engine change. The DLL is an independent optimization and
+# upgrade boundary, so routine release builds keep parallel code generation
+# without repeating whole-graph link-time optimization.
+lto = false
+codegen-units = 16
 strip = true
 
 # Root package — engine + MCP server binaries
@@ -112,6 +123,9 @@ thiserror.workspace = true
 regex.workspace = true
 quick-xml.workspace = true
 zip.workspace = true
+curl.workspace = true
+libloading.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

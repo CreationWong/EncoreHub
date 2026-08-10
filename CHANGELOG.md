@@ -6,6 +6,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Added
 
+- **结构化联网搜索与网页读取**：`web_search` 默认使用 DuckDuckGo Instant Answer API，并支持自定义 SearXNG 与 OpenSERP JSON 接口；移除 Bing/Google HTML 抓取、通用 JSON 映射、关键词相关性猜测、CAPTCHA 和可见浏览器流程。`web_fetch` 继续通过 Curl 执行逐跳 SSRF、DNS 固定、重定向、超时和大小限制，再由独立打包的 RUSTScrapling 动态库提取 HTML 正文并以不可信数据边界交给模型。
 - **附件与本地检索**：聊天输入框支持按钮和拖拽上传图片、富文本及普通文本；附件元数据和内容寻址位置写入 SQLite，图片按模型视觉声明直传，非视觉模型由用户显式选择系统 OCR 或视觉模型。
 - **角色记忆与 Knowledge**：记忆模式绑定角色，记忆按角色默认组、全局组和自定义组隔离；模型只有在判断信息长期有用时才调用 `memory_remember`，普通消息不会自动写入。简单模式只写关系库，RAG 使用 SQLite-Vec，增强模式混合本地 LanceDB Knowledge；LanceDB 不可用时自动回退 SQLite-Vec。
 - **记忆组管理**：记忆设置默认按角色分组，支持自定义组的新建、重命名、归档和显式删除；角色可继承其他组并分别授予只读或读写权限，角色默认组与全局组受保护。
@@ -18,6 +19,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 ### Changed
 
 - **桌面运行时模块化**：Tauri 主程序不再静态链接完整 Engine，改为按平台加载带 ABI 版本校验的 Engine Runtime `.dll` / `.so` / `.dylib`；Engine、Gateway、Desktop、Frontend 和 standalone Engine 可按一个或多个组件独立构建与升级。
+- **网页解析模块边界**：RUSTScrapling 以独立 `.dll` / `.so` / `.dylib` companion 随 Engine Runtime 构建和校验，不并入 `encorehub_desktop_runtime`；Curl 仍是唯一网络传输层，RUSTScrapling 只接收已经过网络策略校验的 HTML。
 - **依赖收敛**：移除前端未使用的路由、查询、命令面板、样式合并及 Tauri 插件依赖，清理 Rust 工作区和子 crate 的未消费声明；Blob SHA-256 的十六进制编码改用 Rust 标准库实现，`tower` 限定为测试依赖。
 - **通信日志隐私**：完整请求和响应内容仅保存在进程内存中，不再写入日常日志文件；导出时通过系统原生保存对话框由用户指定路径。
 - **诊断覆盖**：供应商验证和模型发现统一使用诊断 HTTP 客户端；未开启完整记录时仍保留不含请求头和正文的通信元数据。
@@ -25,6 +27,9 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Fixed
 
+- **搜索 API 偶发连接超时**：搜索提供商请求预算提高到 15 秒，Curl 连接阶段不再被额外截断为 5 秒；网络失败现在以脱敏的超时、DNS、连接或 TLS 类别返回，不再统一显示无法诊断的 `Curl request failed`。
+- **动态网页读取**：RUSTScrapling 在 JavaScript 页面壳没有静态正文时回退提取 OpenGraph 标题和 HTML meta 描述，不再把可解析但正文为空的页面误报为解析器失败；脚本、样式和动态挂载节点仍不会作为正文返回。
+- **Rust Release 构建性能**：模块化 Engine Runtime 的常规 Release profile 不再启用全量 LTO 和单代码生成单元，保留三级优化与符号裁剪并恢复 16 个并行 codegen units；Engine 变更后的 Runtime 增量构建不再长时间停在最后一个 crate。
 - **记忆工具写入失败**：Memory 关系行与 SQLite FTS 索引改为单事务写入，遇到历史遗留的 FTS rowid 时自动替换，不再出现记忆实际落库但 `memory_remember` 返回 `constraint failed`；迁移 18 会从权威关系表重建已有错配索引。
 - **跨对话记忆读取**：Simple 模式注册受角色可见组约束的 `memory_search` 工具，通过 SQLite FTS 按需读取既有记忆；模型不再因新对话缺少历史上下文而声称没有已存记忆。
 - **重复记忆写入**：Engine 对同组、同种类且仅大小写、空白或标点不同的记忆执行幂等写入，重复 `memory_remember` 调用返回已有记录而不新增副本。

@@ -137,13 +137,27 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libxdo-dev \
+            libcurl4-openssl-dev \
             patchelf
+      - name: Install shared libcurl for Engine Runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "VCPKG_EXE=$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install shared libcurl for Engine Runtime
+        if: runner.os == 'macOS'
+        run: |
+          brew install curl pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix curl)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "PATH=$(brew --prefix curl)/bin:$PATH" >> "$GITHUB_ENV"
       - name: Validate Unix build script
         if: runner.os == 'Linux'
         run: bash -n scripts/build.sh
       - run: pnpm --dir frontend install --frozen-lockfile
       - name: Prepare current-target Gateway sidecar
         run: node scripts/prepare-gateway-sidecar.mjs
+      - name: Prepare current-target Engine Runtime
+        run: node scripts/prepare-engine-runtime.mjs
       - name: Check desktop integration
         run: cargo check --manifest-path frontend/src-tauri/Cargo.toml
       - name: Lint desktop integration

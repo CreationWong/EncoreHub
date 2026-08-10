@@ -2,297 +2,151 @@ package search
 
 import (
 	"context"
-	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
-	return f(request)
+type fetchRequest struct {
+	URL      string
+	Headers  map[string]string
+	MaxBytes int
+	Policy   FetchPolicy
 }
 
-func TestCustomProviderMapsConfiguredJSONResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Query().Get("query") != "release notes" {
-			t.Fatalf("query = %q", request.URL.Query().Get("query"))
-		}
-		if request.URL.Query().Get("limit") != "2" {
-			t.Fatalf("limit = %q", request.URL.Query().Get("limit"))
-		}
-		if request.Header.Get("X-Search-Key") != "Bearer stored-secret" {
-			t.Fatalf("authorization header was not applied")
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, `{"data":{"items":[{"headline":"First","link":"https://example.com/1","summary":"One"},{"headline":"Second","link":"https://example.com/2","summary":"Two"}]}}`)
-	}))
-	defer server.Close()
+type fetchFunc func(context.Context, string, map[string]string, int, FetchPolicy) (int, string, string, []byte, error)
 
-	provider, err := NewProvider("custom", "stored-secret", WithCustomConfig(CustomConfig{
-		Name:           "Team Search",
-		Endpoint:       server.URL + "/search",
-		QueryParameter: "query",
-		LimitParameter: "limit",
-		APIKeyHeader:   "X-Search-Key",
-		APIKeyPrefix:   "Bearer ",
-		ResultsPath:    "data.items",
-		TitlePath:      "headline",
-		URLPath:        "link",
-		SnippetPath:    "summary",
-	}))
-	if err != nil {
-		t.Fatalf("new custom provider: %v", err)
+func (f fetchFunc) FetchSearchURL(ctx context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
+	return f(ctx, rawURL, headers, maxBytes, policy)
+}
+
+func fixtureFetcher(t *testing.T, body string, captured *fetchRequest) fetchFunc {
+	t.Helper()
+	return func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
+		*captured = fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy}
+		return 200, "application/json", rawURL, []byte(body), nil
 	}
+}
 
+func TestDuckDuckGoInstantAnswerParsesNestedTopicsInProviderOrder(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("duckduckgo", WithFetcher(fixtureFetcher(t, `{
+		"Heading":"EncoreHub","AbstractText":"Primary answer","AbstractURL":"https://example.com/answer",
+		"RelatedTopics":[{"Name":"group","Topics":[
+			{"Text":"First topic - detail","FirstURL":"https://example.com/first"},
+			{"Text":"Duplicate","FirstURL":"https://example.com/first"},
+			{"Text":"Second topic - detail","FirstURL":"https://example.org/second"}
+		]}]
+	}`, &request)))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	response, err := provider.Search(context.Background(), "EncoreHub release notes", 3)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if request.Policy != FetchPolicyPublicAPI || request.MaxBytes != MaxProviderResponseBytes {
+		t.Fatalf("unexpected fetch policy: %+v", request)
+	}
+	parsed, _ := url.Parse(request.URL)
+	if parsed.Host != "api.duckduckgo.com" || parsed.Query().Get("q") != "EncoreHub release notes" {
+		t.Fatalf("unexpected request URL: %s", request.URL)
+	}
+	if len(response.Results) != 3 || response.Results[0].URL != "https://example.com/answer" || response.Results[1].URL != "https://example.com/first" || response.Results[2].URL != "https://example.org/second" {
+		t.Fatalf("provider order or deduplication changed: %+v", response.Results)
+	}
+}
+
+func TestDuckDuckGoEmptyInstantAnswerIsValid(t *testing.T) {
+	var request fetchRequest
+	provider, _ := NewProvider("duckduckgo", WithFetcher(fixtureFetcher(t, `{}`, &request)))
+	response, err := provider.Search(context.Background(), "new topic", 5)
+	if err != nil {
+		t.Fatalf("empty response should be valid: %v", err)
+	}
+	if len(response.Results) != 0 {
+		t.Fatalf("expected no results: %+v", response.Results)
+	}
+}
+
+func TestSearXNGBuildsJSONRequestAndMapsResults(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("searxng",
+		WithFetcher(fixtureFetcher(t, `{"results":[{"title":"First","url":"https://example.com/1","content":"One"},{"title":"Second","url":"https://example.com/2","content":"Two"}]}`, &request)),
+		WithSearXNGConfig(SearXNGConfig{Endpoint: "http://127.0.0.1:8888/base"}),
+	)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
 	response, err := provider.Search(context.Background(), "release notes", 2)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if response.Provider != "Team Search" || len(response.Results) != 2 {
-		t.Fatalf("unexpected response: %#v", response)
+	parsed, _ := url.Parse(request.URL)
+	if parsed.Path != "/base/search" || parsed.Query().Get("q") != "release notes" || parsed.Query().Get("format") != "json" || request.Policy != FetchPolicyConfiguredAPI {
+		t.Fatalf("unexpected SearXNG request: %+v", request)
 	}
-	if response.Results[0].Title != "First" || response.Results[0].URL != "https://example.com/1" {
-		t.Fatalf("unexpected first result: %#v", response.Results[0])
-	}
-}
-
-func TestCustomProviderRejectsUnsafeConfiguration(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		key    string
-		config CustomConfig
-	}{
-		{name: "relative endpoint", config: CustomConfig{Endpoint: "/search"}},
-		{name: "embedded credentials", config: CustomConfig{Endpoint: "https://user:pass@example.com/search"}},
-		{name: "invalid header", key: "secret", config: CustomConfig{Endpoint: "https://example.com/search", APIKeyHeader: "Bad Header"}},
-		{name: "missing key", config: CustomConfig{Endpoint: "https://example.com/search", APIKeyHeader: "X-Key"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewProvider("custom", test.key, WithCustomConfig(test.config)); err == nil {
-				t.Fatal("expected invalid custom provider configuration")
-			}
-		})
+	if len(response.Results) != 2 || response.Results[0].Title != "First" || response.Results[1].Title != "Second" {
+		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
-type panicReader struct{}
-
-func (panicReader) Read([]byte) (int, error) {
-	panic("provider body was read before status validation")
-}
-
-const sampleDDGHTML = `<!DOCTYPE html>
-<html>
-<body>
-<div class="links_main links_deep result__body">
-    <h2 class="result__title">
-        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage1&amp;rut=abc123">First Result Title</a>
-    </h2>
-    <div class="result__extras">
-        <div class="result__extras__url">
-            <span class="result__icon">
-                <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/example.com.ico" />
-            </span>
-            <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage1&amp;rut=abc123">example.com/page1</a>
-            <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage1&amp;rut=abc123">This is the <b>first</b> result snippet with some text.</a>
-        </div>
-    </div>
-</div>
-<div class="links_main links_deep result__body">
-    <h2 class="result__title">
-        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fsecond&amp;rut=def456">Second <b>Result</b> Title</a>
-    </h2>
-    <div class="result__extras">
-        <div class="result__extras__url">
-            <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fsecond&amp;rut=def456">Another snippet for the second result.</a>
-        </div>
-    </div>
-</div>
-<div class="links_main links_deep result__body">
-    <h2 class="result__title">
-        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fno-snippet.example%2Fthird&amp;rut=ghi789">Third Title Only</a>
-    </h2>
-</div>
-</body>
-</html>`
-
-func TestParseDDGHTML(t *testing.T) {
-	results := parseDDGHTML(sampleDDGHTML, 10)
-	if len(results) != 3 {
-		t.Fatalf("expected 3 results, got %d", len(results))
-	}
-
-	// Result 1
-	if results[0].Title != "First Result Title" {
-		t.Errorf("result[0].Title = %q, want %q", results[0].Title, "First Result Title")
-	}
-	if results[0].URL != "https://example.com/page1" {
-		t.Errorf("result[0].URL = %q, want %q", results[0].URL, "https://example.com/page1")
-	}
-	if !strings.Contains(results[0].Snippet, "first result snippet") {
-		t.Errorf("result[0].Snippet = %q, want to contain %q", results[0].Snippet, "first result snippet")
-	}
-
-	// Result 2 — title has <b> tags that should be stripped.
-	if results[1].Title != "Second Result Title" {
-		t.Errorf("result[1].Title = %q, want %q", results[1].Title, "Second Result Title")
-	}
-	if results[1].URL != "https://example.org/second" {
-		t.Errorf("result[1].URL = %q, want %q", results[1].URL, "https://example.org/second")
-	}
-
-	// Result 3 — no snippet present.
-	if results[2].Title != "Third Title Only" {
-		t.Errorf("result[2].Title = %q, want %q", results[2].Title, "Third Title Only")
-	}
-	if results[2].URL != "https://no-snippet.example/third" {
-		t.Errorf("result[2].URL = %q, want %q", results[2].URL, "https://no-snippet.example/third")
-	}
-	if results[2].Snippet != "" {
-		t.Errorf("result[2].Snippet = %q, want empty", results[2].Snippet)
-	}
-}
-
-func TestParseDDGHTML_MaxResults(t *testing.T) {
-	results := parseDDGHTML(sampleDDGHTML, 2)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results (maxResults=2), got %d", len(results))
-	}
-}
-
-func TestParseDDGHTML_InvalidMaxResultsDoesNotPanic(t *testing.T) {
-	if results := parseDDGHTML(sampleDDGHTML, -1); len(results) != 0 {
-		t.Fatalf("expected no results, got %d", len(results))
-	}
-}
-
-func TestProvidersRejectOversizedResponses(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode:    http.StatusOK,
-			Body:          io.NopCloser(strings.NewReader(strings.Repeat("x", MaxProviderResponseBytes+1))),
-			ContentLength: -1,
-			Header:        make(http.Header),
-		}, nil
-	})}
-	providers := []Provider{
-		&DuckDuckGo{client: client},
-		&Bing{client: client, apiKey: "key"},
-		&Google{client: client, apiKey: "key", cseCX: "cx"},
-	}
-	for _, provider := range providers {
-		t.Run(provider.Name(), func(t *testing.T) {
-			_, err := provider.Search(context.Background(), "go", 5)
-			if !errors.Is(err, ErrProviderResponseTooLarge) {
-				t.Fatalf("error = %v, want ErrProviderResponseTooLarge", err)
-			}
-		})
-	}
-}
-
-func TestProvidersCheckStatusBeforeReadingBody(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusBadGateway,
-			Body:       io.NopCloser(panicReader{}),
-			Header:     make(http.Header),
-		}, nil
-	})}
-	providers := []Provider{
-		&DuckDuckGo{client: client},
-		&Bing{client: client, apiKey: "key"},
-		&Google{client: client, apiKey: "key", cseCX: "cx"},
-	}
-	for _, provider := range providers {
-		t.Run(provider.Name(), func(t *testing.T) {
-			if _, err := provider.Search(context.Background(), "go", 5); err == nil {
-				t.Fatal("expected upstream status error")
-			}
-		})
-	}
-}
-
-func TestExtractURL(t *testing.T) {
-	tests := []struct {
-		raw  string
-		want string
-	}{
-		{
-			"//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&rut=abc",
-			"https://example.com",
-		},
-		{
-			"//duckduckgo.com/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGo&rut=xyz",
-			"https://en.wikipedia.org/wiki/Go",
-		},
-		{
-			"https://example.com/direct",
-			"https://example.com/direct",
-		},
-		{
-			"",
-			"",
-		},
-	}
-
-	for _, tt := range tests {
-		got := extractURL(tt.raw)
-		if got != tt.want {
-			t.Errorf("extractURL(%q) = %q, want %q", tt.raw, got, tt.want)
-		}
-	}
-}
-
-func TestStripTags(t *testing.T) {
-	tests := []struct {
-		raw  string
-		want string
-	}{
-		{"plain text", "plain text"},
-		{"<b>bold</b> text", "bold text"},
-		{"no tags here", "no tags here"},
-		{"<a href='x'>link text</a>", "link text"},
-		{"text with &amp; entity", "text with & entity"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		got := stripTags(tt.raw)
-		if got != tt.want {
-			t.Errorf("stripTags(%q) = %q, want %q", tt.raw, got, tt.want)
-		}
-	}
-}
-
-func TestNewProvider(t *testing.T) {
-	// duckduckgo should work without an API key
-	p, err := NewProvider("duckduckgo", "", WithGoogleCSEcx(""))
+func TestOpenSERPMegaBuildsBalancedRequestAndKeepsOrganicResults(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("openserp",
+		WithFetcher(fixtureFetcher(t, `{"results":[{"type":"answer","title":"Skip","url":"https://example.com/skip"},{"type":"organic","title":"First","url":"https://example.com/1","snippet":"One"},{"title":"Second","url":"https://example.com/2","snippet":"Two"}]}`, &request)),
+		WithOpenSERPConfig(OpenSERPConfig{Endpoint: "http://localhost:7000", Engine: "mega", Engines: "google,bing,google,invalid"}),
+	)
 	if err != nil {
-		t.Fatalf("unexpected error for duckduckgo: %v", err)
+		t.Fatalf("new provider: %v", err)
 	}
-	if p.Name() != "duckduckgo" {
-		t.Errorf("expected name duckduckgo, got %s", p.Name())
+	response, err := provider.Search(context.Background(), "ETS2 1.61", 4)
+	if err != nil {
+		t.Fatalf("search: %v", err)
 	}
+	parsed, _ := url.Parse(request.URL)
+	query := parsed.Query()
+	if parsed.Path != "/mega/search" || query.Get("text") != "ETS2 1.61" || query.Get("limit") != "4" || query.Get("mode") != "balanced" || query.Get("engines") != "google,bing" || request.Policy != FetchPolicyConfiguredAPI {
+		t.Fatalf("unexpected OpenSERP request: %+v", request)
+	}
+	if len(response.Results) != 2 || response.Results[0].Title != "First" || response.Results[1].Title != "Second" {
+		t.Fatalf("unexpected organic results: %+v", response.Results)
+	}
+}
 
-	// bing requires an API key
-	_, err = NewProvider("bing", "", WithGoogleCSEcx(""))
-	if err == nil {
-		t.Error("expected error for bing without API key")
+func TestOpenSERPSingleEngineUsesDedicatedRoute(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("openserp",
+		WithFetcher(fixtureFetcher(t, `{"results":[]}`, &request)),
+		WithOpenSERPConfig(OpenSERPConfig{Endpoint: "https://search.example/api", Engine: "duckduckgo"}),
+	)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
 	}
-
-	// google requires an API key and CSE CX
-	_, err = NewProvider("google", "", WithGoogleCSEcx(""))
-	if err == nil {
-		t.Error("expected error for google without API key")
+	if _, err := provider.Search(context.Background(), "query", 1); err != nil {
+		t.Fatalf("search: %v", err)
 	}
+	if !strings.Contains(request.URL, "/api/duckduckgo/search?") || strings.Contains(request.URL, "mode=") {
+		t.Fatalf("unexpected single-engine route: %s", request.URL)
+	}
+}
 
-	// unknown provider
-	_, err = NewProvider("yahoo", "", WithGoogleCSEcx(""))
-	if err == nil {
-		t.Error("expected error for unknown provider")
+func TestConfiguredProvidersRejectUnsafeEndpointShapes(t *testing.T) {
+	for _, endpoint := range []string{"/search", "file:///tmp/search", "https://user:pass@example.com/search"} {
+		if _, err := NewProvider("searxng", WithFetcher(fetchFunc(nil)), WithSearXNGConfig(SearXNGConfig{Endpoint: endpoint})); err == nil {
+			t.Fatalf("expected endpoint %q to be rejected", endpoint)
+		}
+	}
+}
+
+func TestValidateRequestBoundsQueryAndCount(t *testing.T) {
+	if err := ValidateRequest("", 5); err == nil {
+		t.Fatal("expected empty query error")
+	}
+	if err := ValidateRequest(strings.Repeat("界", MaxQueryRunes+1), 5); err == nil {
+		t.Fatal("expected long query error")
+	}
+	if err := ValidateRequest("valid", MaxResults+1); err == nil {
+		t.Fatal("expected max-results error")
 	}
 }

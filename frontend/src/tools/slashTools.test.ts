@@ -7,13 +7,18 @@ describe("Slash tool registry", () => {
 		expect(matchSlashTools("/").map((tool) => tool.name)).toContain(
 			"/web_search",
 		);
+		expect(matchSlashTools("/").map((tool) => tool.name)).toContain(
+			"/web_fetch",
+		);
 	});
 
 	it("filters tools by command prefix and closes after arguments begin", () => {
 		expect(matchSlashTools("/web").map((tool) => tool.name)).toEqual([
 			"/web_search",
+			"/web_fetch",
 		]);
 		expect(matchSlashTools("/web_search query")).toEqual([]);
+		expect(matchSlashTools("/web_fetch https://example.com")).toEqual([]);
 	});
 
 	it("contains metadata only, without local application command handlers", () => {

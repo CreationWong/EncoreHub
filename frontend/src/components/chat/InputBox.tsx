@@ -1,5 +1,6 @@
 import {
 	Brain,
+	Check,
 	ChevronDown,
 	Globe,
 	Loader2,
@@ -20,7 +21,10 @@ import {
 	useConversationStore,
 } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	type SearchProvider,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 import { type SlashTool, matchSlashTools } from "../../tools/slashTools";
 import { modelHasCapability } from "../../utils/modelCapabilities";
@@ -33,6 +37,14 @@ const SEARCH_MENU_ID = "chat-search-menu";
 const SLASH_TOOL_MENU_ID = "chat-slash-tool-menu";
 const NATIVE_WEB_SEARCH_MESSAGE =
 	"This model has built-in web search, so web search cannot be turned off.";
+const SEARCH_PROVIDERS: ReadonlyArray<{
+	value: SearchProvider;
+	label: string;
+}> = [
+	{ value: "duckduckgo", label: "DuckDuckGo" },
+	{ value: "searxng", label: "SearXNG" },
+	{ value: "openserp", label: "OpenSERP" },
+];
 
 function draftKey(id: string | null): string {
 	return id ?? NEW_CONVERSATION_DRAFT_KEY;
@@ -102,13 +114,13 @@ export default function InputBox() {
 	);
 	const searchEnabled = useSettingsStore((state) => state.searchEnabled);
 	const searchProvider = useSettingsStore((state) => state.searchProvider);
-	const customSearchName = useSettingsStore(
-		(state) => state.customSearchSettings.name,
-	);
 	const defaultProvider = useSettingsStore((state) => state.provider);
 	const defaultModel = useSettingsStore((state) => state.model);
 	const deepThinking = useSettingsStore((state) => state.deepThinking);
 	const setSearchEnabled = useSettingsStore((state) => state.setSearchEnabled);
+	const setSearchProvider = useSettingsStore(
+		(state) => state.setSearchProvider,
+	);
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const setDeepThinking = useSettingsStore((state) => state.setDeepThinking);
 	const providerProfiles = useProviderStore((state) => state.profiles);
@@ -296,11 +308,9 @@ export default function InputBox() {
 		}
 
 		setShowSearchMenu(false);
-		if (activeId) {
-			setInput("");
-			clearConversationDraft(activeId);
-			resetTextarea(textareaRef.current);
-		}
+		setInput("");
+		clearConversationDraft(activeId);
+		resetTextarea(textareaRef.current);
 		const [visionProvider, visionModel] = visionSelection.split("::");
 		await sendMessage(raw, {
 			attachmentIds: attachments.map((item) => item.id),
@@ -417,11 +427,10 @@ export default function InputBox() {
 	const selectedSearchProvider =
 		searchProvider === "duckduckgo"
 			? "DuckDuckGo"
-			: searchProvider === "bing"
-				? "Bing"
-				: searchProvider === "google"
-					? "Google"
-					: customSearchName || "Custom search";
+			: searchProvider === "searxng"
+				? "SearXNG"
+				: "OpenSERP";
+	const searchProviders = SEARCH_PROVIDERS;
 	return (
 		<div className="chat-composer-shell border-t border-border bg-surface px-3 py-3 sm:px-4">
 			<fieldset
@@ -618,12 +627,38 @@ export default function InputBox() {
 										</span>
 									</button>
 									<hr className="my-1 border-0 border-t border-border" />
-									<div className="flex items-center justify-between gap-3 px-2.5 py-2 text-xs text-text-muted">
-										<span>Provider</span>
-										<span className="truncate text-text-secondary">
-											{selectedSearchProvider}
-										</span>
+									<div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-text-muted">
+										Provider
 									</div>
+									{searchProviders.map((provider) => {
+										const selected = provider.value === searchProvider;
+										return (
+											<button
+												key={provider.value}
+												type="button"
+												role="menuitemradio"
+												aria-checked={selected}
+												onClick={() => {
+													setSearchProvider(provider.value);
+													closeSearchMenu(true);
+												}}
+												className={`flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text-primary ${
+													selected
+														? "bg-accent/10 text-text-primary"
+														: "text-text-secondary"
+												}`}
+											>
+												<span className="truncate">{provider.label}</span>
+												<Check
+													aria-hidden="true"
+													className={`h-3.5 w-3.5 shrink-0 text-accent ${
+														selected ? "opacity-100" : "opacity-0"
+													}`}
+												/>
+											</button>
+										);
+									})}
+									<hr className="my-1 border-0 border-t border-border" />
 									<button
 										type="button"
 										role="menuitem"

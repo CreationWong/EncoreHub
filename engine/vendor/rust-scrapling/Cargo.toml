@@ -1,0 +1,57 @@
+[package]
+name = "rust_scrapling"
+version = "0.2.2"
+edition = "2021"
+description = "A Rust port of Scrapling - modern web scraping framework with CSS selectors, async HTTP, and spider-based crawling"
+authors = ["Liohtml"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Liohtml/RUSTScrapling"
+documentation = "https://docs.rs/rust_scrapling"
+homepage = "https://github.com/Liohtml/RUSTScrapling"
+keywords = ["scraping", "web-scraping", "html-parser", "css-selectors", "crawler"]
+categories = ["web-programming", "parser-implementations", "command-line-utilities"]
+readme = "README.md"
+# Real MSRV: the dependency tree (cookie_store, time, icu_*) requires 1.88,
+# and the committed Cargo.lock is v4 (needs Cargo >= 1.78). Verified by the
+# `msrv` CI job; the previously declared 1.75 did not actually build.
+rust-version = "1.88"
+# Keep the published package lean: docs (multi-MB GIF/PNG assets, planning
+# notes), benchmark scripts, and CI config are repo-only.
+exclude = ["docs/", "scripts/", ".github/", ".claude/"]
+
+[dependencies]
+scraper = "0.27"
+# ego-tree must stay in lockstep with the version scraper uses, since
+# Selector stores ego_tree::NodeId directly.
+ego-tree = "0.11"
+cssparser = "0.37"
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "brotli", "deflate", "rustls-tls"] }
+# Only the tokio pieces the library and CLI actually use — "full" would
+# force signal/process/IO-driver machinery onto every consumer.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs"] }
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps item keys in insertion order (backed by indexmap,
+# already a dependency), matching Python dict semantics in the upstream
+# project — item fields export in the order spiders build them.
+serde_json = { version = "1", features = ["preserve_order"] }
+# "bundled" statically links a vendored SQLite for portability. SQLite CVEs
+# therefore require a crate bump rather than an OS update — Dependabot (see
+# .github/dependabot.yml) surfaces those bumps as PRs, and `cargo audit` in CI
+# flags any known advisory in the meantime.
+rusqlite = { version = "0.32", features = ["bundled"] }
+regex = "1"
+encoding_rs = "0.8"
+sha2 = "0.10"
+url = "2"
+percent-encoding = "2"
+thiserror = "2"
+indexmap = { version = "2", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+async-trait = "0.1"
+tempfile = "3"
+
+[dev-dependencies]
+# Tests run local TCP servers; the library itself needs no socket API.
+tokio = { version = "1", features = ["net", "io-util"] }

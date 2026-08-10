@@ -45,8 +45,8 @@ beforeEach(() => {
 		searchEnabled: false,
 		searchProvider: "duckduckgo",
 		searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
-		googleSearchEngineId: "",
-		customSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.custom },
+		searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
+		openSERPSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
 		searchSettingsLoaded: false,
 	});
 	useWorkspaceStore.setState({
@@ -59,10 +59,9 @@ describe("settingsStore web search configuration", () => {
 	it("loads Engine-backed search settings as the source of truth", async () => {
 		webSearchMocks.getSettings.mockResolvedValue({
 			enabled: true,
-			provider: "custom",
+			provider: "searxng",
 			max_results: 8,
-			custom: {
-				name: "Internal index",
+			searxng: {
 				endpoint: "https://search.example.com/api",
 			},
 		});
@@ -71,27 +70,29 @@ describe("settingsStore web search configuration", () => {
 
 		expect(useSettingsStore.getState()).toMatchObject({
 			searchEnabled: true,
-			searchProvider: "custom",
+			searchProvider: "searxng",
 			searchMaxResults: 8,
-			customSearchSettings: {
-				name: "Internal index",
+			searXNGSearchSettings: {
 				endpoint: "https://search.example.com/api",
 			},
 			searchSettingsLoaded: true,
 		});
-		expect(localStorage.getItem("encorehub-search-provider")).toBe("custom");
+		expect(localStorage.getItem("encorehub-search-provider")).toBe("searxng");
 	});
 
 	it("migrates the previous local selection when Engine has no configuration", async () => {
 		localStorage.setItem("encorehub-search-enabled", "1");
-		localStorage.setItem("encorehub-search-provider", "bing");
-		useSettingsStore.setState({ searchEnabled: true, searchProvider: "bing" });
+		localStorage.setItem("encorehub-search-provider", "searxng");
+		useSettingsStore.setState({
+			searchEnabled: true,
+			searchProvider: "searxng",
+		});
 		webSearchMocks.getSettings.mockResolvedValue(null);
 
 		await useSettingsStore.getState().loadWebSearchSettings();
 
 		expect(webSearchMocks.saveSettings).toHaveBeenCalledWith(
-			expect.objectContaining({ enabled: true, provider: "bing" }),
+			expect.objectContaining({ enabled: true, provider: "searxng" }),
 		);
 		expect(useSettingsStore.getState().searchSettingsLoaded).toBe(true);
 	});
