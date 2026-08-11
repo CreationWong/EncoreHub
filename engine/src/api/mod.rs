@@ -16,7 +16,7 @@ use crate::crypto::MasterKey;
 use crate::logging::LogControl;
 use axum::{
     body::Body,
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::{header, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -129,7 +129,11 @@ pub fn build_router_with(
         .route("/api/skills/:id/toggle", post(skills::toggle_skill))
         .route(
             "/api/conversations/:id/attachments",
-            get(attachments::list).post(attachments::upload),
+            get(attachments::list)
+                .post(attachments::upload)
+                .layer(DefaultBodyLimit::max(
+                    attachments::MAX_ATTACHMENT_REQUEST_BYTES,
+                )),
         )
         .route(
             "/api/conversations/:id/attachments/:attachment_id",

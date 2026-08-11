@@ -62,6 +62,27 @@ fn json_post(method: &str, path: &str, body: Value) -> Request<Body> {
         .unwrap()
 }
 
+/// Build a browser-shaped multipart request with one in-memory file field.
+fn multipart_upload(path: &str, file_name: &str, mime_type: &str, bytes: &[u8]) -> Request<Body> {
+    const BOUNDARY: &str = "encorehub-test-boundary";
+    let mut body = Vec::with_capacity(bytes.len() + 512);
+    body.extend_from_slice(format!(
+        "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: {mime_type}\r\n\r\n"
+    ).as_bytes());
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+
+    Request::builder()
+        .method("POST")
+        .uri(path)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={BOUNDARY}"),
+        )
+        .body(Body::from(body))
+        .unwrap()
+}
+
 #[tokio::test]
 async fn health_returns_json_with_db_ok() {
     let (_dir, app) = make_app();
@@ -318,6 +339,39 @@ async fn create_then_list_then_get_then_rename_then_delete() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn attachment_upload_accepts_files_above_axums_default_body_limit() {
+    let (_dir, app) = make_app();
+    let response = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"large attachment","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Axum defaults to 2 MiB, while the attachment contract permits 20 MiB.
+    let image = vec![0x5a; 3 * 1024 * 1024];
+    let response = app
+        .oneshot(multipart_upload(
+            &format!("/api/conversations/{conversation_id}/attachments"),
+            "large.png",
+            "image/png",
+            &image,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(body_json(response).await["size_bytes"], image.len());
 }
 
 #[tokio::test]

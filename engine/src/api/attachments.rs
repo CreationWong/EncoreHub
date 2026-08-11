@@ -17,6 +17,8 @@ use std::{path::Path as FilePath, process::Command};
 use uuid::Uuid;
 
 const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
+/// Allow multipart framing in addition to the documented attachment payload.
+pub(super) const MAX_ATTACHMENT_REQUEST_BYTES: usize = MAX_ATTACHMENT_BYTES + 64 * 1024;
 type ApiError = (StatusCode, Json<ErrorResponse>);
 
 /// Return every attachment associated with a conversation.
