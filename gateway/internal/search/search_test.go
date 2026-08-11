@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -28,54 +29,105 @@ func fixtureFetcher(t *testing.T, body string, captured *fetchRequest) fetchFunc
 	}
 }
 
-func TestDuckDuckGoInstantAnswerParsesNestedTopicsInProviderOrder(t *testing.T) {
-	var request fetchRequest
-	provider, err := NewProvider("duckduckgo", WithFetcher(fixtureFetcher(t, `{
-		"Heading":"EncoreHub","AbstractText":"Primary answer","AbstractURL":"https://example.com/answer",
-		"RelatedTopics":[{"Name":"group","Topics":[
-			{"Text":"First topic - detail","FirstURL":"https://example.com/first"},
-			{"Text":"Duplicate","FirstURL":"https://example.com/first"},
-			{"Text":"Second topic - detail","FirstURL":"https://example.org/second"}
-		]}]
-	}`, &request)))
+func TestDuckDuckGoCombinesFeaturedAnswersWithHTMLResults(t *testing.T) {
+	requests := make([]fetchRequest, 0, 2)
+	var requestsMu sync.Mutex
+	provider, err := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+		func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
+			requestsMu.Lock()
+			requests = append(requests, fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy})
+			requestsMu.Unlock()
+			parsed, _ := url.Parse(rawURL)
+			if parsed.Host == "api.duckduckgo.com" {
+				return 200, "application/json", rawURL, []byte(`{
+					"Heading":"EncoreHub","AbstractText":"Primary answer","AbstractURL":"https://example.com/answer",
+					"RelatedTopics":[{"Text":"Related detail","FirstURL":"https://example.com/related"}]
+				}`), nil
+			}
+			return 200, "text/html", rawURL, []byte(`<!doctype html><html><body>
+				<div class="result"><a class="result__a" href="https://example.org/first">First web result</a><div class="result__snippet">First snippet</div></div>
+				<div class="result"><a class="result__a" href="https://example.net/second">Second web result</a><div class="result__snippet">Second snippet</div></div>
+			</body></html>`), nil
+		},
+	)))
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
 	}
-	response, err := provider.Search(context.Background(), "EncoreHub release notes", 3)
+	response, err := provider.Search(context.Background(), "EncoreHub release notes", 2)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if request.Policy != FetchPolicyPublicAPI || request.MaxBytes != MaxProviderResponseBytes {
-		t.Fatalf("unexpected fetch policy: %+v", request)
+	if len(requests) != 2 {
+		t.Fatalf("DuckDuckGo requests = %d, want HTML and Instant Answer", len(requests))
 	}
-	parsed, _ := url.Parse(request.URL)
-	if parsed.Host != "api.duckduckgo.com" || parsed.Query().Get("q") != "EncoreHub release notes" {
-		t.Fatalf("unexpected request URL: %s", request.URL)
+	if response.Provider != "duckduckgo" || len(response.Results) != 4 {
+		t.Fatalf("unexpected combined response: %+v", response)
 	}
-	if len(response.Results) != 3 || response.Results[0].URL != "https://example.com/answer" || response.Results[1].URL != "https://example.com/first" || response.Results[2].URL != "https://example.org/second" {
-		t.Fatalf("provider order or deduplication changed: %+v", response.Results)
+	featured, web := resultsByKind(response.Results)
+	if len(featured) != 2 || featured[0].URL != "https://example.com/answer" ||
+		len(web) != 2 || web[0].URL != "https://example.org/first" || web[1].URL != "https://example.net/second" {
+		t.Fatalf("featured or web result order changed: %+v", response.Results)
 	}
 }
 
-func TestDuckDuckGoEmptyInstantAnswerIsValid(t *testing.T) {
-	var request fetchRequest
-	provider, _ := NewProvider("duckduckgo", WithFetcher(fixtureFetcher(t, `{}`, &request)))
+func TestDuckDuckGoUsesHTMLWhenInstantAnswerIsEmpty(t *testing.T) {
+	provider, _ := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
+			parsed, _ := url.Parse(rawURL)
+			if parsed.Host == "api.duckduckgo.com" {
+				return 200, "application/json", rawURL, []byte(`{}`), nil
+			}
+			return 200, "text/html", rawURL, []byte(`<div class="result"><a class="result__a" href="https://example.com/web">Web result</a></div>`), nil
+		},
+	)))
 	response, err := provider.Search(context.Background(), "new topic", 5)
 	if err != nil {
-		t.Fatalf("empty response should be valid: %v", err)
+		t.Fatalf("HTML results should remain available: %v", err)
 	}
-	if len(response.Results) != 0 {
-		t.Fatalf("expected no results: %+v", response.Results)
+	featured, web := resultsByKind(response.Results)
+	if len(featured) != 0 || len(web) != 1 || web[0].URL != "https://example.com/web" {
+		t.Fatalf("unexpected composite results: %+v", response.Results)
 	}
-	parsed, _ := url.Parse(request.URL)
-	if parsed.Host != "api.duckduckgo.com" || request.Headers["Accept"] != "application/json" {
-		t.Fatalf("empty Instant Answer used a non-structured fallback: %+v", request)
+	if len(response.Warnings) != 0 {
+		t.Fatalf("empty Instant Answer should not be a warning: %+v", response.Warnings)
 	}
+}
+
+func TestDuckDuckGoKeepsFeaturedAnswerWhenHTMLNeedsVerification(t *testing.T) {
+	provider, _ := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
+			parsed, _ := url.Parse(rawURL)
+			if parsed.Host == "api.duckduckgo.com" {
+				return 200, "application/json", rawURL, []byte(`{"Heading":"Topic","AbstractText":"Featured summary","AbstractURL":"https://example.com/answer"}`), nil
+			}
+			return 202, "text/html", rawURL, []byte(`<form id="challenge-form">verify</form>`), nil
+		},
+	)))
+	response, err := provider.Search(context.Background(), "topic", 5)
+	if err != nil {
+		t.Fatalf("featured answer should survive HTML verification: %v", err)
+	}
+	featured, web := resultsByKind(response.Results)
+	if len(featured) != 1 || len(web) != 0 || len(response.Warnings) != 1 ||
+		!strings.Contains(response.Warnings[0], "human verification") {
+		t.Fatalf("unexpected partial response: %+v", response)
+	}
+}
+
+func resultsByKind(results []Result) (featured, web []Result) {
+	for _, result := range results {
+		if result.Kind == ResultKindFeaturedAnswer {
+			featured = append(featured, result)
+		} else {
+			web = append(web, result)
+		}
+	}
+	return featured, web
 }
 
 func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
 	var request fetchRequest
-	provider, err := NewProvider("duckduckgo_html", WithFetcher(fetchFunc(
+	provider := &DuckDuckGoHTML{fetcher: fetchFunc(
 		func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
 			request = fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy}
 			return 200, "text/html", rawURL, []byte(`<!doctype html><html><body>
@@ -91,10 +143,7 @@ func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
 				</div>
 			</body></html>`), nil
 		},
-	)))
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
+	)}
 	response, err := provider.Search(context.Background(), "2026年7月新番", 2)
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -116,15 +165,12 @@ func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
 }
 
 func TestDuckDuckGoHTMLRejectsHumanVerificationResponse(t *testing.T) {
-	provider, err := NewProvider("duckduckgo_html", WithFetcher(fetchFunc(
+	provider := &DuckDuckGoHTML{fetcher: fetchFunc(
 		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
 			return 202, "text/html", rawURL, []byte(`<html><body><form id="challenge-form">CAPTCHA</form></body></html>`), nil
 		},
-	)))
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-	_, err = provider.Search(context.Background(), "EncoreHub", 5)
+	)}
+	_, err := provider.Search(context.Background(), "EncoreHub", 5)
 	if err == nil || !strings.Contains(err.Error(), "human verification") {
 		t.Fatalf("verification response was accepted: %v", err)
 	}
@@ -209,5 +255,28 @@ func TestValidateRequestBoundsQueryAndCount(t *testing.T) {
 	}
 	if err := ValidateRequest("valid", MaxResults+1); err == nil {
 		t.Fatal("expected max-results error")
+	}
+}
+
+func TestFormatForContextSeparatesFeaturedAnswersAndWebResults(t *testing.T) {
+	formatted := FormatForContext(&SearchResponse{
+		Provider: "duckduckgo",
+		Query:    "topic",
+		Warnings: []string{"DuckDuckGo HTML failed: human verification required"},
+		Results: []Result{
+			{Kind: ResultKindFeaturedAnswer, Title: "Featured", URL: "https://example.com/answer", Snippet: "Summary"},
+			{Kind: ResultKindWeb, Title: "Web", URL: "https://example.org/page", Snippet: "Snippet"},
+		},
+	})
+	for _, expected := range []string{
+		"FEATURED ANSWERS OR SUMMARIES",
+		"WEB SEARCH RESULTS",
+		"Provider warning: DuckDuckGo HTML failed: human verification required",
+		"https://example.com/answer",
+		"https://example.org/page",
+	} {
+		if !strings.Contains(formatted, expected) {
+			t.Fatalf("formatted context missing %q: %s", expected, formatted)
+		}
 	}
 }

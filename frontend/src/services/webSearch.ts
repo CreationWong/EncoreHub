@@ -1,10 +1,6 @@
 import { apiFetch } from "./api";
 
-export type SearchProvider =
-	| "duckduckgo"
-	| "duckduckgo_html"
-	| "searxng"
-	| "openserp";
+export type SearchProvider = "duckduckgo" | "searxng" | "openserp";
 export type OpenSERPEngine =
 	| "mega"
 	| "google"
@@ -36,12 +32,14 @@ export interface WebSearchResult {
 	title: string;
 	url: string;
 	snippet: string;
+	kind?: "web" | "featured_answer";
 }
 
 export interface WebSearchResponse {
 	results: WebSearchResult[];
 	provider: string;
 	query: string;
+	warnings?: string[];
 }
 
 export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
@@ -54,7 +52,6 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 
 const SEARCH_PROVIDERS: readonly SearchProvider[] = [
 	"duckduckgo",
-	"duckduckgo_html",
 	"searxng",
 	"openserp",
 ];
@@ -84,9 +81,13 @@ export function normalizeWebSearchSettings(
 		};
 	}
 	const stored = value as Partial<WebSearchSettings>;
-	const provider = SEARCH_PROVIDERS.includes(stored.provider as SearchProvider)
-		? (stored.provider as SearchProvider)
-		: fallback.provider;
+	const storedProvider = stored.provider as string;
+	const provider =
+		storedProvider === "duckduckgo_html"
+			? "duckduckgo"
+			: SEARCH_PROVIDERS.includes(storedProvider as SearchProvider)
+				? (storedProvider as SearchProvider)
+				: fallback.provider;
 	const storedMaxResults = Number(stored.max_results);
 	const maxResults =
 		Number.isInteger(storedMaxResults) && storedMaxResults >= 1

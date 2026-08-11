@@ -407,7 +407,7 @@ func TestValidateChatRequest_RejectsInvalidContextControls(t *testing.T) {
 }
 
 func TestValidateChatRequest_AcceptsConfiguredSearchProvider(t *testing.T) {
-	for _, provider := range []string{"duckduckgo_html", "searxng", "openserp"} {
+	for _, provider := range []string{"duckduckgo", "searxng", "openserp"} {
 		err := validateChatRequest(SendMessageRequest{
 			Content:        "hello",
 			Search:         true,

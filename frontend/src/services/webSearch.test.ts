@@ -44,13 +44,13 @@ describe("web search settings", () => {
 		expect(settings.openserp).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.openserp);
 	});
 
-	it("preserves the explicit DuckDuckGo HTML provider", () => {
+	it("migrates the legacy DuckDuckGo HTML provider to combined DuckDuckGo", () => {
 		const settings = normalizeWebSearchSettings({
 			enabled: true,
 			provider: "duckduckgo_html",
 			max_results: 7,
 		});
-		expect(settings.provider).toBe("duckduckgo_html");
+		expect(settings.provider).toBe("duckduckgo");
 		expect(settings.max_results).toBe(7);
 	});
 });

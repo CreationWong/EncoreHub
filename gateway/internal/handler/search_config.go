@@ -42,7 +42,10 @@ func loadWebSearchSettings(ctx context.Context, client *engine.Client) webSearch
 	if err := client.GetConfig(ctx, searchSettingsConfigKey, &stored); err != nil {
 		return settings
 	}
-	if provider := strings.ToLower(strings.TrimSpace(stored.Provider)); provider == "duckduckgo" || provider == "duckduckgo_html" || provider == "searxng" || provider == "openserp" {
+	switch provider := strings.ToLower(strings.TrimSpace(stored.Provider)); provider {
+	case "duckduckgo_html":
+		settings.Provider = "duckduckgo"
+	case "duckduckgo", "searxng", "openserp":
 		settings.Provider = provider
 	}
 	settings.Enabled = stored.Enabled
@@ -68,7 +71,6 @@ func resolveWebSearchProvider(ctx context.Context, client *engine.Client, reques
 	options := []search.ProviderOption{search.WithFetcher(client)}
 	switch providerName {
 	case "duckduckgo":
-	case "duckduckgo_html":
 	case "searxng":
 		if settings.SearXNG.Endpoint == "" {
 			return nil, settings, fmt.Errorf("SearXNG endpoint is not configured")

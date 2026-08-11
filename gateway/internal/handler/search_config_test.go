@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"com.0d000721.encorehub/gateway/internal/engine"
+	"com.0d000721.encorehub/gateway/internal/search"
 )
 
 func TestResolveWebSearchProviderUsesConfiguredSearXNGEndpoint(t *testing.T) {
@@ -68,7 +70,7 @@ func TestResolveWebSearchProviderUsesOpenSERPSettings(t *testing.T) {
 	}
 }
 
-func TestResolveWebSearchProviderUsesDuckDuckGoHTML(t *testing.T) {
+func TestResolveWebSearchProviderMigratesDuckDuckGoHTMLToCombinedProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/config/web_search_settings" {
@@ -87,8 +89,8 @@ func TestResolveWebSearchProviderUsesDuckDuckGoHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if provider.Name() != "duckduckgo_html" || settings.Provider != "duckduckgo_html" || settings.MaxResults != 4 {
-		t.Fatalf("DuckDuckGo HTML settings were not preserved: provider=%s settings=%+v", provider.Name(), settings)
+	if provider.Name() != "duckduckgo" || settings.Provider != "duckduckgo" || settings.MaxResults != 4 {
+		t.Fatalf("legacy DuckDuckGo HTML settings were not migrated: provider=%s settings=%+v", provider.Name(), settings)
 	}
 }
 
@@ -103,33 +105,52 @@ func TestResolveWebSearchProviderRejectsMissingConfiguredEndpoint(t *testing.T) 
 	}
 }
 
-func TestExecuteWebSearchRejectsEmptyDuckDuckGoInstantAnswer(t *testing.T) {
-	requests := 0
+func TestExecuteWebSearchUsesHTMLWhenDuckDuckGoInstantAnswerIsEmpty(t *testing.T) {
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/config/web_search_settings":
 			_, _ = io.WriteString(w, `{"enabled":true,"provider":"duckduckgo","max_results":5}`)
 		case "/api/network/fetch":
-			requests++
-			_, _ = io.WriteString(w, `{"status":200,"final_url":"https://api.duckduckgo.com/","content_type":"application/json","body":"{}","backend":"curl"}`)
+			requests.Add(1)
+			var request struct {
+				URL string `json:"url"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode network request: %v", err)
+			}
+			if strings.Contains(request.URL, "api.duckduckgo.com") {
+				writeTestJSON(w, http.StatusOK, map[string]any{
+					"status": 200, "final_url": request.URL, "content_type": "application/json", "body": `{}`, "backend": "curl",
+				})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"status": 200, "final_url": request.URL, "content_type": "text/html",
+				"body":    `<div class="result"><a class="result__a" href="https://example.com/anime">2026 anime</a><div class="result__snippet">Summer list</div></div>`,
+				"backend": "curl",
+			})
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := executeWebSearch(
+	response, err := executeWebSearch(
 		context.Background(),
 		engine.NewClient(server.URL, "token"),
 		"",
 		"2026下半年新番",
 	)
-	if err == nil || !strings.Contains(err.Error(), "not a general web index") ||
-		!strings.Contains(err.Error(), "SearXNG or OpenSERP") {
-		t.Fatalf("empty Instant Answer was not diagnosed: %v", err)
+	if err != nil {
+		t.Fatalf("combined DuckDuckGo search failed: %v", err)
 	}
-	if requests != 1 {
-		t.Fatalf("DuckDuckGo request count = %d, want one structured API request", requests)
+	if len(response.Results) != 1 || response.Results[0].Kind != search.ResultKindWeb ||
+		response.Results[0].URL != "https://example.com/anime" {
+		t.Fatalf("HTML result was not preserved: %+v", response)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("DuckDuckGo request count = %d, want HTML and Instant Answer", requests.Load())
 	}
 }

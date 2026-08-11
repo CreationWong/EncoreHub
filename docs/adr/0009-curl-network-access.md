@@ -21,14 +21,14 @@ to Gateway or folding another large dependency graph into the Engine Runtime.
 
 `web_search` uses only structured provider APIs:
 
-- DuckDuckGo Instant Answer API is the default and requires no configuration;
+- DuckDuckGo is the default and combines its HTML results with Instant Answer;
 - SearXNG uses an explicitly configured endpoint with `format=json`;
 - OpenSERP uses an explicitly configured endpoint and engine options.
 
 Provider order is authoritative. Gateway validates result URLs, removes exact
 duplicates, and applies the configured limit; it does not rescore results from
-query keywords. An empty DuckDuckGo Instant Answer response is a valid empty
-result because this endpoint is not a full general-purpose web index.
+query keywords. DuckDuckGo HTML supplies the primary web-result list while
+Instant Answer supplies separately typed featured answers or summaries.
 
 There is no Bing or Google HTML provider, generic JSON mapping, HTML fallback,
 CAPTCHA challenge, human-verification browser, visible-browser setting, or
@@ -89,8 +89,8 @@ chrome are excluded by the parser wrapper.
 
 - Search result quality and ordering come from the selected API, not a brittle
   HTML layout or client-side guess.
-- DuckDuckGo's no-key default has limited coverage by design; users needing a
-  full index configure SearXNG or OpenSERP.
+- DuckDuckGo's no-key default can be rate-limited or challenged; users needing
+  a controlled search service configure SearXNG or OpenSERP.
 - Curl policy remains shared by search and direct page reading.
 - RUSTScrapling can be rebuilt or upgraded independently from Desktop and the
   main Engine Runtime while ABI version 1 remains compatible.

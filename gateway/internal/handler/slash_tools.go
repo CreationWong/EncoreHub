@@ -102,7 +102,7 @@ func executeSlashWebSearch(ctx context.Context, handler *ChatHandler, query stri
 		return execution
 	}
 	logSearchCompleted(searchProvider.Name(), query, len(response.Results))
-	execution.result = formatSearchToolResult(response.Results)
+	execution.result = formatSearchToolResult(response)
 	execution.status = "success"
 	return execution
 }

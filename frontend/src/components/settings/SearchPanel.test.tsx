@@ -53,12 +53,7 @@ afterEach(cleanup);
 describe("SearchPanel", () => {
 	it("shows the explicit search providers", () => {
 		render(<SearchPanel />);
-		for (const provider of [
-			"DuckDuckGo",
-			"DuckDuckGo HTML",
-			"SearXNG",
-			"OpenSERP",
-		]) {
+		for (const provider of ["DuckDuckGo", "SearXNG", "OpenSERP"]) {
 			expect(
 				screen.getByRole("button", { name: `Configure ${provider}` }),
 			).toBeDefined();
@@ -67,15 +62,16 @@ describe("SearchPanel", () => {
 		expect(screen.queryByText("Browser mode")).toBeNull();
 	});
 
-	it("tests DuckDuckGo HTML without custom configuration", async () => {
+	it("tests combined DuckDuckGo without custom configuration", async () => {
 		render(<SearchPanel />);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Configure DuckDuckGo HTML" }),
-		);
-		expect(screen.getByText("https://html.duckduckgo.com/")).toBeDefined();
+		expect(
+			screen.getByText(
+				"HTML web results with featured Instant Answer summaries",
+			),
+		).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 		await waitFor(() =>
-			expect(mocks.testSearch).toHaveBeenCalledWith("duckduckgo_html", 5),
+			expect(mocks.testSearch).toHaveBeenCalledWith("duckduckgo", 5),
 		);
 	});
 

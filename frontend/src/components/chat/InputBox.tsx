@@ -42,7 +42,6 @@ const SEARCH_PROVIDERS: ReadonlyArray<{
 	label: string;
 }> = [
 	{ value: "duckduckgo", label: "DuckDuckGo" },
-	{ value: "duckduckgo_html", label: "DuckDuckGo HTML" },
 	{ value: "searxng", label: "SearXNG" },
 	{ value: "openserp", label: "OpenSERP" },
 ];
@@ -428,11 +427,9 @@ export default function InputBox() {
 	const selectedSearchProvider =
 		searchProvider === "duckduckgo"
 			? "DuckDuckGo"
-			: searchProvider === "duckduckgo_html"
-				? "DuckDuckGo HTML"
-				: searchProvider === "searxng"
-					? "SearXNG"
-					: "OpenSERP";
+			: searchProvider === "searxng"
+				? "SearXNG"
+				: "OpenSERP";
 	const searchProviders = SEARCH_PROVIDERS;
 	return (
 		<div className="chat-composer-shell border-t border-border bg-surface px-3 py-3 sm:px-4">

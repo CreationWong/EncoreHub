@@ -25,13 +25,20 @@ type Result struct {
 	Title   string `json:"title"`
 	URL     string `json:"url"`
 	Snippet string `json:"snippet"`
+	Kind    string `json:"kind,omitempty"`
 }
+
+const (
+	ResultKindWeb            = "web"
+	ResultKindFeaturedAnswer = "featured_answer"
+)
 
 // SearchResponse wraps normalized results and preserves the original query.
 type SearchResponse struct {
 	Results  []Result `json:"results"`
 	Provider string   `json:"provider"`
 	Query    string   `json:"query"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Provider executes one structured search API request.
@@ -109,14 +116,12 @@ func NewProvider(name string, options ...ProviderOption) (Provider, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "duckduckgo":
 		provider = &DuckDuckGo{}
-	case "duckduckgo_html":
-		provider = &DuckDuckGoHTML{}
 	case "searxng":
 		provider = &SearXNG{}
 	case "openserp":
 		provider = &OpenSERP{}
 	default:
-		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, duckduckgo_html, searxng, openserp)", name)
+		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, searxng, openserp)", name)
 	}
 	for _, option := range options {
 		option(provider)
@@ -183,6 +188,50 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 	if err := ValidateRequest(query, maxResults); err != nil {
 		return nil, err
 	}
+	type outcome struct {
+		response *SearchResponse
+		err      error
+	}
+	instantAnswer := make(chan outcome, 1)
+	htmlResults := make(chan outcome, 1)
+	go func() {
+		response, err := d.searchInstantAnswer(ctx, query, min(maxResults, 3))
+		instantAnswer <- outcome{response: response, err: err}
+	}()
+	go func() {
+		response, err := (&DuckDuckGoHTML{fetcher: d.fetcher}).Search(ctx, query, maxResults)
+		htmlResults <- outcome{response: response, err: err}
+	}()
+
+	instant := <-instantAnswer
+	html := <-htmlResults
+	response := &SearchResponse{Provider: d.Name(), Query: query}
+	if instant.response != nil {
+		response.Results = append(response.Results, instant.response.Results...)
+	}
+	if html.response != nil {
+		response.Results = append(response.Results, html.response.Results...)
+	}
+	if instant.err != nil {
+		response.Warnings = append(response.Warnings, fmt.Sprintf("DuckDuckGo Instant Answer failed: %v", instant.err))
+	}
+	if html.err != nil {
+		response.Warnings = append(response.Warnings, fmt.Sprintf("DuckDuckGo HTML failed: %v", html.err))
+	}
+	if len(response.Results) == 0 {
+		switch {
+		case html.err != nil && instant.err != nil:
+			return nil, fmt.Errorf("duckduckgo sources failed: HTML: %v; Instant Answer: %v", html.err, instant.err)
+		case html.err != nil:
+			return nil, html.err
+		case instant.err != nil:
+			return nil, instant.err
+		}
+	}
+	return response, nil
+}
+
+func (d *DuckDuckGo) searchInstantAnswer(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
 	requestURL := "https://api.duckduckgo.com/?" + url.Values{
 		"q":             {query},
 		"format":        {"json"},
@@ -213,6 +262,7 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 			Title:   firstNonEmpty(payload.Heading, payload.AbstractSource, query),
 			URL:     payload.AbstractURL,
 			Snippet: payload.AbstractText,
+			Kind:    ResultKindFeaturedAnswer,
 		})
 	}
 	if payload.DefinitionURL != "" && payload.Definition != "" {
@@ -220,6 +270,7 @@ func (d *DuckDuckGo) Search(ctx context.Context, query string, maxResults int) (
 			Title:   firstNonEmpty(payload.DefinitionSource, payload.Heading, query),
 			URL:     payload.DefinitionURL,
 			Snippet: payload.Definition,
+			Kind:    ResultKindFeaturedAnswer,
 		})
 	}
 	appendDuckDuckGoTopics(&candidates, payload.Results)
@@ -256,6 +307,7 @@ func appendDuckDuckGoTopics(results *[]Result, topics []duckDuckGoTopic) {
 				Title:   duckDuckGoTopicTitle(topic.Text, topic.FirstURL),
 				URL:     topic.FirstURL,
 				Snippet: topic.Text,
+				Kind:    ResultKindFeaturedAnswer,
 			})
 		}
 		appendDuckDuckGoTopics(results, topic.Topics)
@@ -272,8 +324,8 @@ func duckDuckGoTopicTitle(text, rawURL string) string {
 	return "DuckDuckGo result"
 }
 
-// DuckDuckGoHTML reads DuckDuckGo's explicit HTML search endpoint. It is a
-// separate, user-selected provider rather than a fallback from Instant Answer.
+// DuckDuckGoHTML is the internal adapter for DuckDuckGo's HTML result page.
+// The public DuckDuckGo provider runs it alongside Instant Answer.
 type DuckDuckGoHTML struct {
 	fetcher Fetcher
 }
@@ -338,6 +390,7 @@ func parseDuckDuckGoHTMLResults(document *html.Node) []Result {
 						Title:   htmlNodeText(link),
 						URL:     decodeDuckDuckGoResultURL(href),
 						Snippet: htmlNodeText(snippet),
+						Kind:    ResultKindWeb,
 					})
 				}
 			}
@@ -673,6 +726,7 @@ func normalizeResults(candidates []Result, maxResults int) []Result {
 			Title:   title,
 			URL:     normalizedURL,
 			Snippet: collapseWS(candidate.Snippet),
+			Kind:    candidate.Kind,
 		})
 	}
 	return results
@@ -698,9 +752,32 @@ func FormatForContext(response *SearchResponse) string {
 	}
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "UNTRUSTED WEB SEARCH DATA\nQuery: %s\nProvider: %s\n\n", response.Query, response.Provider)
-	for index, result := range response.Results {
-		fmt.Fprintf(&builder, "%d. %s\n%s\nURL: %s\n\n", index+1, result.Title, result.Snippet, result.URL)
+	for _, warning := range response.Warnings {
+		fmt.Fprintf(&builder, "Provider warning: %s\n", warning)
 	}
+	if len(response.Warnings) > 0 {
+		builder.WriteString("\n")
+	}
+	featured, web := make([]Result, 0), make([]Result, 0)
+	for _, result := range response.Results {
+		if result.Kind == ResultKindFeaturedAnswer {
+			featured = append(featured, result)
+		} else {
+			web = append(web, result)
+		}
+	}
+	appendResultSection(&builder, "FEATURED ANSWERS OR SUMMARIES", featured)
+	appendResultSection(&builder, "WEB SEARCH RESULTS", web)
 	builder.WriteString("END UNTRUSTED WEB SEARCH DATA")
 	return builder.String()
+}
+
+func appendResultSection(builder *strings.Builder, heading string, results []Result) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Fprintf(builder, "%s\n\n", heading)
+	for index, result := range results {
+		fmt.Fprintf(builder, "%d. %s\n%s\nURL: %s\n\n", index+1, result.Title, result.Snippet, result.URL)
+	}
 }

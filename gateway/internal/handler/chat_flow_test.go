@@ -1435,14 +1435,14 @@ func TestSendMessage_EmptyDuckDuckGoDoesNotEnableGuessedFetches(t *testing.T) {
 				}}), nil
 			case 2:
 				if hasToolNamed(request.Tools, "web_fetch") || hasToolNamed(request.Tools, "web_search") {
-					t.Fatalf("failed Instant Answer exposed another network tool: %+v", request.Tools)
+					t.Fatalf("failed DuckDuckGo search exposed another network tool: %+v", request.Tools)
 				}
 				if !strings.Contains(request.SystemPrompt, "Do not guess or fabricate URLs") ||
-					!strings.Contains(request.SystemPrompt, "SearXNG or OpenSERP") {
+					!strings.Contains(request.SystemPrompt, "No further network tool is available") {
 					t.Fatalf("search failure instruction missing: %s", request.SystemPrompt)
 				}
 				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
-					Content: "DuckDuckGo Instant Answer 没有返回结果；请配置 SearXNG 或 OpenSERP 后重试。",
+					Content:      "DuckDuckGo 的网页结果与精选摘要均未返回可靠内容。",
 					FinishReason: "stop",
 				}}), nil
 			default:
@@ -1466,7 +1466,7 @@ func TestSendMessage_EmptyDuckDuckGoDoesNotEnableGuessedFetches(t *testing.T) {
 	var done chatDonePayload
 	decodeSSEEvent(t, recorder.Body.String(), "done", &done)
 	if done.AssistantMessage == nil ||
-		done.AssistantMessage.Content != "DuckDuckGo Instant Answer 没有返回结果；请配置 SearXNG 或 OpenSERP 后重试。" ||
+		done.AssistantMessage.Content != "DuckDuckGo 的网页结果与精选摘要均未返回可靠内容。" ||
 		len(done.AssistantMessage.ToolCalls) != 1 {
 		t.Fatalf("unexpected failed-search finalization: %+v", done.AssistantMessage)
 	}
