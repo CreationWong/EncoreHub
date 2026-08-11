@@ -105,7 +105,7 @@ export default function App() {
 			// In non-Tauri mode, VITE_GATEWAY_URL is already the default.
 		}
 
-		resolvePorts();
+		void resolvePorts();
 		return () => {
 			cancelled = true;
 		};
@@ -149,20 +149,24 @@ export default function App() {
 			if (gatewayOk || attempts >= maxAttempts) {
 				setChecking(false);
 				if (gatewayOk) {
-					loadList();
-					loadCharacters();
-					loadProviders();
-					refreshSecrets();
-					loadKeys();
-					loadWebSearchSettings();
+					await Promise.allSettled([
+						loadList(),
+						loadCharacters(),
+						loadProviders(),
+						refreshSecrets(),
+						loadKeys(),
+						loadWebSearchSettings(),
+					]);
 				}
 			} else {
 				attempts++;
-				timer = setTimeout(check, 1000);
+				timer = setTimeout(() => {
+					void check();
+				}, 1000);
 			}
 		};
 
-		check();
+		void check();
 		return () => {
 			cancelled = true;
 			if (timer) clearTimeout(timer);
