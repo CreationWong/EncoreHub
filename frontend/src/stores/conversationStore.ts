@@ -29,7 +29,6 @@ export const NEW_CONVERSATION_DRAFT_KEY = "__new_conversation__";
 
 const conversationLoads = new Map<string, Promise<ConversationDetail>>();
 const transientPrefetchClaims = new Set<string>();
-
 function loadConversationDetail(id: string): Promise<ConversationDetail> {
 	const existing = conversationLoads.get(id);
 	if (existing) return existing;

@@ -709,3 +709,34 @@ impl Database {
         Ok(conversation)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deleted_character_name_can_be_reused_with_a_new_default_memory_group() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open_and_return(directory.path().join("encorehub.db")).unwrap();
+        let first = CharacterProfile::new("Same name");
+        let second = CharacterProfile::new("Same name");
+
+        database.create_character_profile(&first).unwrap();
+        database.delete_character_profile(&first.id).unwrap();
+        database.create_character_profile(&second).unwrap();
+
+        let groups = database.list_memory_groups(false).unwrap();
+        for character in [&first, &second] {
+            let expected_id = format!("character:{}", character.id);
+            let group = groups
+                .iter()
+                .find(|group| group.id == expected_id)
+                .expect("character default memory group");
+            assert_eq!(group.name, character.name);
+            assert_eq!(
+                group.owner_character_id.as_deref(),
+                Some(character.id.as_str())
+            );
+        }
+    }
+}

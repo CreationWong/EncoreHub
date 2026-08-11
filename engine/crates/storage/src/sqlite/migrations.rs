@@ -1,7 +1,7 @@
 //! Database migrations — idempotent schema initialization.
 
 use encorehub_core::EngineError;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 type Result<T> = std::result::Result<T, EngineError>;
 
@@ -474,6 +474,68 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO memories_fts(rowid, content)
     SELECT rowid, content FROM memories;
     ",
+    // 019: Allow different characters to share a display name.
+    //
+    // Character default groups are identified by owner_character_id. The old
+    // table-level profile/name constraint accidentally made character display
+    // names globally unique and caused character creation to roll back.
+    "
+    PRAGMA legacy_alter_table = ON;
+    ALTER TABLE memory_groups RENAME TO memory_groups_legacy;
+
+    CREATE TABLE memory_groups (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        group_type TEXT NOT NULL CHECK(group_type IN ('character', 'global', 'custom')),
+        owner_character_id TEXT REFERENCES character_profiles(id) ON DELETE CASCADE,
+        archived_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+
+    INSERT INTO memory_groups
+        (id, profile_id, name, group_type, owner_character_id, archived_at, created_at, updated_at)
+    SELECT id, profile_id, name, group_type, owner_character_id, archived_at, created_at, updated_at
+      FROM memory_groups_legacy;
+
+    DROP TABLE memory_groups_legacy;
+
+    CREATE UNIQUE INDEX idx_memory_groups_profile_global
+        ON memory_groups(profile_id) WHERE group_type = 'global';
+    CREATE UNIQUE INDEX idx_memory_groups_character_default
+        ON memory_groups(owner_character_id) WHERE group_type = 'character';
+    CREATE UNIQUE INDEX idx_memory_groups_custom_name
+        ON memory_groups(profile_id, name) WHERE group_type = 'custom';
+    CREATE INDEX idx_memory_groups_profile
+        ON memory_groups(profile_id, group_type, updated_at DESC);
+
+    CREATE TRIGGER trg_memory_groups_name_insert
+    BEFORE INSERT ON memory_groups
+    WHEN EXISTS (
+        SELECT 1 FROM memory_groups existing
+         WHERE existing.profile_id = NEW.profile_id
+           AND existing.name = NEW.name
+           AND (existing.group_type != 'character' OR NEW.group_type != 'character')
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'memory group name already exists');
+    END;
+
+    CREATE TRIGGER trg_memory_groups_name_update
+    BEFORE UPDATE OF profile_id, name, group_type ON memory_groups
+    WHEN EXISTS (
+        SELECT 1 FROM memory_groups existing
+         WHERE existing.id != NEW.id
+           AND existing.profile_id = NEW.profile_id
+           AND existing.name = NEW.name
+           AND (existing.group_type != 'character' OR NEW.group_type != 'character')
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'memory group name already exists');
+    END;
+    PRAGMA legacy_alter_table = OFF;
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -512,13 +574,51 @@ pub fn run(conn: &Connection) -> Result<()> {
 }
 
 fn apply_migration(conn: &Connection, version: i64, sql: &str) -> Result<()> {
-    conn.execute_batch("BEGIN IMMEDIATE;")
-        .map_err(|e| EngineError::Migration(format!("migration v{version} begin failed: {e}")))?;
+    let suspend_foreign_keys = version == 19
+        && conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+            .unwrap_or(0)
+            != 0;
+    if suspend_foreign_keys {
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")
+            .map_err(|e| {
+                EngineError::Migration(format!(
+                    "migration v{version} foreign-key suspension failed: {e}"
+                ))
+            })?;
+    }
+    conn.execute_batch("BEGIN IMMEDIATE;").map_err(|e| {
+        if suspend_foreign_keys {
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+        }
+        EngineError::Migration(format!("migration v{version} begin failed: {e}"))
+    })?;
     if let Err(error) = conn.execute_batch(sql) {
         let _ = conn.execute_batch("ROLLBACK;");
+        if version == 19 {
+            let _ = conn.execute_batch("PRAGMA legacy_alter_table = OFF;");
+        }
+        if suspend_foreign_keys {
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+        }
         return Err(EngineError::Migration(format!(
             "migration v{version} failed: {error}"
         )));
+    }
+    if version == 19 {
+        let violation = conn
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()?;
+        if violation.is_some() {
+            let _ = conn.execute_batch("ROLLBACK;");
+            let _ = conn.execute_batch("PRAGMA legacy_alter_table = OFF;");
+            if suspend_foreign_keys {
+                let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+            }
+            return Err(EngineError::Migration(
+                "migration v19 left invalid foreign-key references".into(),
+            ));
+        }
     }
 
     let now = chrono::Utc::now().timestamp_millis();
@@ -527,12 +627,35 @@ fn apply_migration(conn: &Connection, version: i64, sql: &str) -> Result<()> {
         rusqlite::params![version, now],
     ) {
         let _ = conn.execute_batch("ROLLBACK;");
+        if version == 19 {
+            let _ = conn.execute_batch("PRAGMA legacy_alter_table = OFF;");
+        }
+        if suspend_foreign_keys {
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+        }
         return Err(EngineError::Migration(format!(
             "failed to record migration v{version}: {error}"
         )));
     }
-    conn.execute_batch("COMMIT;")
-        .map_err(|e| EngineError::Migration(format!("migration v{version} commit failed: {e}")))?;
+    if let Err(error) = conn.execute_batch("COMMIT;") {
+        if version == 19 {
+            let _ = conn.execute_batch("PRAGMA legacy_alter_table = OFF;");
+        }
+        if suspend_foreign_keys {
+            let _ = conn.execute_batch("PRAGMA foreign_keys = ON;");
+        }
+        return Err(EngineError::Migration(format!(
+            "migration v{version} commit failed: {error}"
+        )));
+    }
+    if suspend_foreign_keys {
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| {
+                EngineError::Migration(format!(
+                    "migration v{version} foreign-key restore failed: {e}"
+                ))
+            })?;
+    }
     Ok(())
 }
 
@@ -633,7 +756,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // The legacy row must advance through conversation mode high-water marks.
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
     }
 
     #[test]
@@ -695,7 +818,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Legacy rows advance through conversation mode high-water marks.
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
     }
 
     #[test]
@@ -749,6 +872,60 @@ mod tests {
             )
             .unwrap();
         assert_eq!(memory_columns, 9);
+    }
+
+    #[test]
+    fn migration_19_scopes_name_uniqueness_to_custom_groups() {
+        let conn = open_test_connection();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+        for (index, sql) in MIGRATIONS.iter().take(18).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO _migrations (version, applied_at) VALUES (?1, 1)",
+                [index as i64 + 1],
+            )
+            .unwrap();
+        }
+
+        run(&conn).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO character_profiles
+                (id, name, created_at, updated_at, deleted_at)
+             VALUES
+                ('first', 'Same name', 1, 1, 1),
+                ('second', 'Same name', 1, 1, 1);
+             INSERT INTO memory_groups
+                (id, profile_id, name, group_type, owner_character_id, created_at, updated_at)
+             VALUES
+                ('character:first', 'local', 'Same name', 'character', 'first', 1, 1),
+                ('character:second', 'local', 'Same name', 'character', 'second', 1, 1);
+             INSERT INTO memory_groups
+                (id, profile_id, name, group_type, created_at, updated_at)
+             VALUES ('custom:first', 'local', 'Custom name', 'custom', 1, 1);",
+        )
+        .unwrap();
+        let duplicate_custom = conn.execute(
+            "INSERT INTO memory_groups
+                (id, profile_id, name, group_type, created_at, updated_at)
+             VALUES ('custom:second', 'local', 'Custom name', 'custom', 1, 1)",
+            [],
+        );
+        assert!(duplicate_custom.is_err());
+        let custom_matching_character = conn.execute(
+            "INSERT INTO memory_groups
+                (id, profile_id, name, group_type, created_at, updated_at)
+             VALUES ('custom:character-name', 'local', 'Same name', 'custom', 1, 1)",
+            [],
+        );
+        assert!(custom_matching_character.is_err());
     }
 
     #[test]

@@ -321,8 +321,10 @@ fn memory_fts_repair_migration_reindexes_authoritative_content() {
             [&memory.id],
         )
         .unwrap();
+    // Migration replay is forward-only from the highest recorded version.
+    // Remove the FTS repair and every later marker so they rerun in order.
     connection
-        .execute("DELETE FROM _migrations WHERE version = 18", [])
+        .execute("DELETE FROM _migrations WHERE version >= 18", [])
         .unwrap();
     drop(connection);
 
