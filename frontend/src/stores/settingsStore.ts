@@ -318,7 +318,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			typeof window !== "undefined"
 				? localStorage.getItem("encorehub-search-provider")
 				: null;
-		return value === "searxng" || value === "openserp" ? value : "duckduckgo";
+		return value === "duckduckgo_html" ||
+			value === "searxng" ||
+			value === "openserp"
+			? value
+			: "duckduckgo";
 	})(),
 	searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
 	searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },

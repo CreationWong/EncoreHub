@@ -16,6 +16,11 @@ const PROVIDERS: Array<{
 	detail: string;
 }> = [
 	{ value: "duckduckgo", label: "DuckDuckGo", detail: "Instant Answer API" },
+	{
+		value: "duckduckgo_html",
+		label: "DuckDuckGo HTML",
+		detail: "Public HTML results",
+	},
 	{ value: "searxng", label: "SearXNG", detail: "Custom endpoint" },
 	{ value: "openserp", label: "OpenSERP", detail: "Custom endpoint" },
 ];
@@ -148,6 +153,7 @@ export default function SearchPanel() {
 		PROVIDERS[0];
 	const ready = (provider: SearchProvider) =>
 		provider === "duckduckgo" ||
+		provider === "duckduckgo_html" ||
 		(provider === "searxng"
 			? Boolean(draft.searxng.endpoint.trim())
 			: Boolean(draft.openserp.endpoint.trim()));
@@ -336,6 +342,17 @@ export default function SearchPanel() {
 								</p>
 								<p className="mt-1 text-xs text-text-muted">
 									Instant answers and related topics
+								</p>
+							</div>
+						)}
+						{selectedProvider === "duckduckgo_html" && (
+							<div className="border-b border-border pb-5">
+								<p className="text-sm font-medium text-text-primary">
+									https://html.duckduckgo.com/
+								</p>
+								<p className="mt-1 text-xs text-text-muted">
+									Public result pages; requests may be rate-limited or require
+									verification
 								</p>
 							</div>
 						)}

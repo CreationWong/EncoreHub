@@ -81,6 +81,17 @@ func TestDecodeStreamLine_MessageDeltaUsage(t *testing.T) {
 	}
 }
 
+func TestDecodeStreamLine_MessageDeltaPreservesStopReason(t *testing.T) {
+	line := `data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":4096}}`
+	out := decodeStreamLine(line)
+	if len(out) != 2 || out[1].Delta == nil {
+		t.Fatalf("expected usage and finish events, got %#v", out)
+	}
+	if out[1].Delta.FinishReason != "max_tokens" {
+		t.Fatalf("finish reason = %q", out[1].Delta.FinishReason)
+	}
+}
+
 func TestDecodeStreamLine_MessageStartIncludesCachedPromptUsage(t *testing.T) {
 	line := `data: {"type":"message_start","message":{"usage":{"input_tokens":12,"output_tokens":0,"cache_creation_input_tokens":5,"cache_read_input_tokens":20}}}`
 	out := decodeStreamLine(line)

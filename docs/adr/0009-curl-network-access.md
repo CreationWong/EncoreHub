@@ -1,6 +1,6 @@
 # 0009 - Structured search and Curl/RUSTScrapling page retrieval
 
-* **Status**: Accepted
+* **Status**: Superseded in part by [ADR-0010](0010-duckduckgo-html-provider.md)
 * **Date**: 2026-08-07
 * **Decision makers**: Project lead
 

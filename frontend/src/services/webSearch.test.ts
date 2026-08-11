@@ -43,4 +43,14 @@ describe("web search settings", () => {
 		expect(settings.searxng).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.searxng);
 		expect(settings.openserp).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.openserp);
 	});
+
+	it("preserves the explicit DuckDuckGo HTML provider", () => {
+		const settings = normalizeWebSearchSettings({
+			enabled: true,
+			provider: "duckduckgo_html",
+			max_results: 7,
+		});
+		expect(settings.provider).toBe("duckduckgo_html");
+		expect(settings.max_results).toBe(7);
+	});
 });

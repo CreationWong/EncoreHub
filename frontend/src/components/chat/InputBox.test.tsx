@@ -314,9 +314,14 @@ describe("InputBox composer surface", () => {
 				.getByRole("menuitemradio", { name: "DuckDuckGo" })
 				.getAttribute("aria-checked"),
 		).toBe("true");
+		expect(
+			screen.getByRole("menuitemradio", { name: "DuckDuckGo HTML" }),
+		).toBeDefined();
 
-		fireEvent.click(screen.getByRole("menuitemradio", { name: "OpenSERP" }));
-		expect(setSearchProvider).toHaveBeenCalledWith("openserp");
+		fireEvent.click(
+			screen.getByRole("menuitemradio", { name: "DuckDuckGo HTML" }),
+		);
+		expect(setSearchProvider).toHaveBeenCalledWith("duckduckgo_html");
 		expect(
 			screen.queryByRole("menu", { name: "Web search settings" }),
 		).toBeNull();

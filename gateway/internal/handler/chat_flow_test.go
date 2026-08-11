@@ -1282,6 +1282,263 @@ func TestSendMessage_FailsRepeatedEmptyToolFollowup(t *testing.T) {
 	}
 }
 
+func TestSendMessage_FailsWhenToolFollowupOnlyContainsProtocolText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const protocolOnly = `<|DSML|><|tool_calls|><|DSML|><|invoke name="web_search"><|DSML|><|parameter name="query" string="true">ignored</|DSML|></|invoke></|tool_calls>`
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, _ *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			if call == 1 {
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"Protocol only"}`,
+				}}), nil
+			}
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+				Content: protocolOnly, FinishReason: "stop",
+			}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if adapter.streamCalls.Load() != 3 {
+		t.Fatalf("stream calls = %d, cleaned-empty retry was not bounded", adapter.streamCalls.Load())
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "event: error") ||
+		!strings.Contains(body, `"code":"empty_response"`) {
+		t.Fatalf("protocol-only response did not produce a terminal error: %s", body)
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || requests[0].Status != "failed" {
+		t.Fatalf("protocol-only response was not finalized as failed: %+v", requests)
+	}
+}
+
+func TestSendMessage_RetriesIncompleteToolFollowupAnnouncement(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "title-call", Name: "update_conversation_title", Arguments: `{"title":"BV numbers"}`,
+				}}), nil
+			case 2:
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "我来重新抓取页面获取 BV 号。", FinishReason: "stop",
+				}}), nil
+			case 3:
+				if !strings.Contains(request.SystemPrompt, "Do not announce another action") {
+					t.Fatalf("repair instruction missing: %s", request.SystemPrompt)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "排行榜第一名的 BV 号是 BV1Unub69EpX。", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool follow-up")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	recorder := performStreamRequest(t, router, context.Background())
+	if adapter.streamCalls.Load() != 3 {
+		t.Fatalf("stream calls = %d, want one repair retry", adapter.streamCalls.Load())
+	}
+	var done chatDonePayload
+	decodeSSEEvent(t, recorder.Body.String(), "done", &done)
+	if done.AssistantMessage == nil ||
+		done.AssistantMessage.Content != "排行榜第一名的 BV 号是 BV1Unub69EpX。" {
+		t.Fatalf("incomplete announcement was persisted: %+v", done.AssistantMessage)
+	}
+}
+
+func TestSendMessage_WebFetchCanContinueToSpecificAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	pageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ranking":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<html><body><main>Ranking shell</main></body></html>`)
+		case "/api/ranking":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"list":[{"bvid":"BV1Unub69EpX"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pageServer.Close()
+
+	stub := &chatEngineStub{searchConfig: `{"enabled":true,"provider":"duckduckgo","max_results":5}`}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "fetch-page", Name: "web_fetch",
+					Arguments: fmt.Sprintf(`{"url":%q}`, pageServer.URL+"/ranking"),
+				}}), nil
+			case 2:
+				if !hasToolNamed(request.Tools, "web_fetch") || hasToolNamed(request.Tools, "web_search") {
+					t.Fatalf("follow-up tools = %+v", request.Tools)
+				}
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "fetch-api", Name: "web_fetch",
+					Arguments: fmt.Sprintf(`{"url":%q}`, pageServer.URL+"/api/ranking"),
+				}}), nil
+			case 3:
+				if !strings.Contains(request.Messages[len(request.Messages)-1].Content, "BV1Unub69EpX") {
+					t.Fatalf("API result missing from final follow-up: %+v", request.Messages)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "第一名的 BV 号是 BV1Unub69EpX。", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra web tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"获取 BV 号","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"duckduckgo"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var done chatDonePayload
+	decodeSSEEvent(t, recorder.Body.String(), "done", &done)
+	if done.AssistantMessage == nil || done.AssistantMessage.Content != "第一名的 BV 号是 BV1Unub69EpX。" ||
+		len(done.AssistantMessage.ToolCalls) != 2 {
+		t.Fatalf("web fetch chain was not completed: %+v", done.AssistantMessage)
+	}
+}
+
+func TestSendMessage_EmptyDuckDuckGoDoesNotEnableGuessedFetches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{searchConfig: `{"enabled":true,"provider":"duckduckgo","max_results":5}`}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1:
+				return streamOf(provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+					Index: 0, ID: "search-anime", Name: "web_search",
+					Arguments: `{"query":"2026年7月新番 アニメ一覧"}`,
+				}}), nil
+			case 2:
+				if hasToolNamed(request.Tools, "web_fetch") || hasToolNamed(request.Tools, "web_search") {
+					t.Fatalf("failed Instant Answer exposed another network tool: %+v", request.Tools)
+				}
+				if !strings.Contains(request.SystemPrompt, "Do not guess or fabricate URLs") ||
+					!strings.Contains(request.SystemPrompt, "SearXNG or OpenSERP") {
+					t.Fatalf("search failure instruction missing: %s", request.SystemPrompt)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "DuckDuckGo Instant Answer 没有返回结果；请配置 SearXNG 或 OpenSERP 后重试。",
+					FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"2026下半年新番","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"duckduckgo"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var done chatDonePayload
+	decodeSSEEvent(t, recorder.Body.String(), "done", &done)
+	if done.AssistantMessage == nil ||
+		done.AssistantMessage.Content != "DuckDuckGo Instant Answer 没有返回结果；请配置 SearXNG 或 OpenSERP 后重试。" ||
+		len(done.AssistantMessage.ToolCalls) != 1 {
+		t.Fatalf("unexpected failed-search finalization: %+v", done.AssistantMessage)
+	}
+}
+
+func TestSendMessage_WebFetchAttemptsAreHardLimited(t *testing.T) {
+	requests := 0
+	pageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, "page")
+	}))
+	defer pageServer.Close()
+
+	stub := &chatEngineStub{searchConfig: `{"enabled":true,"provider":"duckduckgo","max_results":5}`}
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+			switch call {
+			case 1, 2:
+				if call == 2 && !hasToolNamed(request.Tools, "web_fetch") {
+					t.Fatalf("web_fetch unavailable before limit on call %d", call)
+				}
+				first := (call-1)*2 + 1
+				return streamOf(
+					provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+						Index: 0, ID: fmt.Sprintf("fetch-%d", first), Name: "web_fetch",
+						Arguments: fmt.Sprintf(`{"url":%q}`, fmt.Sprintf("%s/page-%d", pageServer.URL, first)),
+					}},
+					provider.StreamEvent{ToolCall: &provider.ToolCallEvent{
+						Index: 1, ID: fmt.Sprintf("fetch-%d", first+1), Name: "web_fetch",
+						Arguments: fmt.Sprintf(`{"url":%q}`, fmt.Sprintf("%s/page-%d", pageServer.URL, first+1)),
+					}},
+				), nil
+			case 3:
+				if hasToolNamed(request.Tools, "web_fetch") {
+					t.Fatalf("web_fetch remained available after three attempts: %+v", request.Tools)
+				}
+				return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{
+					Content: "抓取次数已达到上限。", FinishReason: "stop",
+				}}), nil
+			default:
+				return nil, errors.New("unexpected extra tool round")
+			}
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"抓取三个页面","provider":"test","model":"model-test","stream":true,"search":true,"search_provider":"duckduckgo"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	var done chatDonePayload
+	decodeSSEEvent(t, recorder.Body.String(), "done", &done)
+	if done.AssistantMessage == nil || len(done.AssistantMessage.ToolCalls) != 4 {
+		t.Fatalf("fetch attempts were not bounded at three: %+v", done.AssistantMessage)
+	}
+	if requests != 3 {
+		t.Fatalf("network fetch requests = %d, want hard limit of three", requests)
+	}
+	last := done.AssistantMessage.ToolCalls[3]
+	if last.Status != "error" || !strings.Contains(last.Result, "limit") {
+		t.Fatalf("fourth fetch was not rejected explicitly: %+v", last)
+	}
+}
+
 func TestSendMessage_ExecutesTextOnlyDSMLToolCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const dsmlCall = `<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="web_search"><｜｜DSML｜｜parameter name="query" string="true">nginx 1.26.1 vulnerabilities CVE</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>`

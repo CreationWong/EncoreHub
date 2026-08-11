@@ -6,6 +6,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Added
 
+- **DuckDuckGo HTML 搜索源**：新增显式可选的 `https://html.duckduckgo.com/` provider，通过 Engine Curl 获取结果页并用 HTML 语法树提取标题、链接和摘要；支持 DuckDuckGo 跳转链接解码、结果上限、去重以及 HTTP 202/CAPTCHA 标记识别，不会作为 Instant Answer 的静默回退。
 - **结构化联网搜索与网页读取**：`web_search` 默认使用 DuckDuckGo Instant Answer API，并支持自定义 SearXNG 与 OpenSERP JSON 接口；移除 Bing/Google HTML 抓取、通用 JSON 映射、关键词相关性猜测、CAPTCHA 和可见浏览器流程。`web_fetch` 继续通过 Curl 执行逐跳 SSRF、DNS 固定、重定向、超时和大小限制，再由独立打包的 RUSTScrapling 动态库提取 HTML 正文并以不可信数据边界交给模型。
 - **附件与本地检索**：聊天输入框支持按钮和拖拽上传图片、富文本及普通文本；附件元数据和内容寻址位置写入 SQLite，图片按模型视觉声明直传，非视觉模型由用户显式选择系统 OCR 或视觉模型。
 - **角色记忆与 Knowledge**：记忆模式绑定角色，记忆按角色默认组、全局组和自定义组隔离；模型只有在判断信息长期有用时才调用 `memory_remember`，普通消息不会自动写入。简单模式只写关系库，RAG 使用 SQLite-Vec，增强模式混合本地 LanceDB Knowledge；LanceDB 不可用时自动回退 SQLite-Vec。
@@ -27,6 +28,8 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Fixed
 
+- **工具后回复提前结束**：成功的 `web_search`/`web_fetch` 后允许模型继续使用受限的 `web_fetch` 从搜索结果或网页转向明确 API，并以执行层硬限制最多三次抓取、拒绝同一 URL 重复抓取；搜索失败且没有结果时不再开放 `web_fetch` 猜测地址。模型若只输出“我来抓取/搜索”等过渡句会自动纠正一次，不再保存为 Complete。Anthropic 流的 `max_tokens` 等真实结束原因也不会再被尾部通用 `stop` 覆盖。
+- **DuckDuckGo 零结果与空回复**：Instant Answer 没有答案时不再把零结果标成成功，也不会重试或回退解析搜索 HTML；工具会明确说明该接口不是通用网页索引并提示配置 SearXNG/OpenSERP。工具跟进的可见正文在协议清理后为空时不再以 Completed 保存。
 - **搜索 API 偶发连接超时**：搜索提供商请求预算提高到 15 秒，Curl 连接阶段不再被额外截断为 5 秒；网络失败现在以脱敏的超时、DNS、连接或 TLS 类别返回，不再统一显示无法诊断的 `Curl request failed`。
 - **动态网页读取**：RUSTScrapling 在 JavaScript 页面壳没有静态正文时回退提取 OpenGraph 标题和 HTML meta 描述，不再把可解析但正文为空的页面误报为解析器失败；脚本、样式和动态挂载节点仍不会作为正文返回。
 - **Rust Release 构建性能**：模块化 Engine Runtime 的常规 Release profile 不再启用全量 LTO 和单代码生成单元，保留三级优化与符号裁剪并恢复 16 个并行 codegen units；Engine 变更后的 Runtime 增量构建不再长时间停在最后一个 crate。

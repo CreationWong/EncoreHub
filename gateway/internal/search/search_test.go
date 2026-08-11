@@ -67,6 +67,67 @@ func TestDuckDuckGoEmptyInstantAnswerIsValid(t *testing.T) {
 	if len(response.Results) != 0 {
 		t.Fatalf("expected no results: %+v", response.Results)
 	}
+	parsed, _ := url.Parse(request.URL)
+	if parsed.Host != "api.duckduckgo.com" || request.Headers["Accept"] != "application/json" {
+		t.Fatalf("empty Instant Answer used a non-structured fallback: %+v", request)
+	}
+}
+
+func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("duckduckgo_html", WithFetcher(fetchFunc(
+		func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
+			request = fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy}
+			return 200, "text/html", rawURL, []byte(`<!doctype html><html><body>
+				<script>ignored()</script><style>.ignored{}</style>
+				<p>CAPTCHA documentation is a legitimate search topic.</p>
+				<div class="result results_links">
+					<h2><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Ffirst&amp;rut=abc"><b>First</b> result</a></h2>
+					<a class="result__snippet">First <strong>snippet</strong></a>
+				</div>
+				<div class="result results_links">
+					<a class="result__a" href="https://example.org/second">Second result</a>
+					<div class="result__snippet">Second snippet</div>
+				</div>
+			</body></html>`), nil
+		},
+	)))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	response, err := provider.Search(context.Background(), "2026年7月新番", 2)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	parsed, _ := url.Parse(request.URL)
+	if parsed.Scheme != "https" || parsed.Host != "html.duckduckgo.com" || parsed.Path != "/html/" ||
+		parsed.Query().Get("q") != "2026年7月新番" || request.Policy != FetchPolicyPublicAPI {
+		t.Fatalf("unexpected HTML request: %+v", request)
+	}
+	if request.Headers["Accept"] != "text/html,application/xhtml+xml" {
+		t.Fatalf("HTML accept header missing: %+v", request.Headers)
+	}
+	if response.Provider != "duckduckgo_html" || len(response.Results) != 2 ||
+		response.Results[0].URL != "https://example.com/first" ||
+		response.Results[0].Title != "First result" || response.Results[0].Snippet != "First snippet" ||
+		response.Results[1].URL != "https://example.org/second" {
+		t.Fatalf("unexpected HTML results: %+v", response)
+	}
+}
+
+func TestDuckDuckGoHTMLRejectsHumanVerificationResponse(t *testing.T) {
+	provider, err := NewProvider("duckduckgo_html", WithFetcher(fetchFunc(
+		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
+			return 202, "text/html", rawURL, []byte(`<html><body><form id="challenge-form">CAPTCHA</form></body></html>`), nil
+		},
+	)))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	_, err = provider.Search(context.Background(), "EncoreHub", 5)
+	if err == nil || !strings.Contains(err.Error(), "human verification") {
+		t.Fatalf("verification response was accepted: %v", err)
+	}
 }
 
 func TestSearXNGBuildsJSONRequestAndMapsResults(t *testing.T) {

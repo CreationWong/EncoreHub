@@ -68,6 +68,30 @@ func TestResolveWebSearchProviderUsesOpenSERPSettings(t *testing.T) {
 	}
 }
 
+func TestResolveWebSearchProviderUsesDuckDuckGoHTML(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/config/web_search_settings" {
+			_, _ = io.WriteString(w, `{"enabled":true,"provider":"duckduckgo_html","max_results":4}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	provider, settings, err := resolveWebSearchProvider(
+		context.Background(),
+		engine.NewClient(server.URL, "token"),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if provider.Name() != "duckduckgo_html" || settings.Provider != "duckduckgo_html" || settings.MaxResults != 4 {
+		t.Fatalf("DuckDuckGo HTML settings were not preserved: provider=%s settings=%+v", provider.Name(), settings)
+	}
+}
+
 func TestResolveWebSearchProviderRejectsMissingConfiguredEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -76,5 +100,36 @@ func TestResolveWebSearchProviderRejectsMissingConfiguredEndpoint(t *testing.T) 
 	t.Cleanup(server.Close)
 	if _, _, err := resolveWebSearchProvider(context.Background(), engine.NewClient(server.URL, "token"), ""); err == nil {
 		t.Fatal("missing SearXNG endpoint should fail")
+	}
+}
+
+func TestExecuteWebSearchRejectsEmptyDuckDuckGoInstantAnswer(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/config/web_search_settings":
+			_, _ = io.WriteString(w, `{"enabled":true,"provider":"duckduckgo","max_results":5}`)
+		case "/api/network/fetch":
+			requests++
+			_, _ = io.WriteString(w, `{"status":200,"final_url":"https://api.duckduckgo.com/","content_type":"application/json","body":"{}","backend":"curl"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := executeWebSearch(
+		context.Background(),
+		engine.NewClient(server.URL, "token"),
+		"",
+		"2026下半年新番",
+	)
+	if err == nil || !strings.Contains(err.Error(), "not a general web index") ||
+		!strings.Contains(err.Error(), "SearXNG or OpenSERP") {
+		t.Fatalf("empty Instant Answer was not diagnosed: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("DuckDuckGo request count = %d, want one structured API request", requests)
 	}
 }

@@ -152,10 +152,12 @@ type sseEvent struct {
 }
 
 type sseTextDelta struct {
-	Type        string `json:"type"`
-	Text        string `json:"text"`         // text_delta
-	Thinking    string `json:"thinking"`     // thinking_delta
-	PartialJSON string `json:"partial_json"` // input_json_delta (tool args)
+	Type         string `json:"type"`
+	Text         string `json:"text"`          // text_delta
+	Thinking     string `json:"thinking"`      // thinking_delta
+	PartialJSON  string `json:"partial_json"`  // input_json_delta (tool args)
+	StopReason   string `json:"stop_reason"`   // message_delta
+	StopSequence string `json:"stop_sequence"` // message_delta
 }
 
 type sseContentBlock struct {
@@ -300,25 +302,30 @@ func decodeStreamLine(line string) []provider.StreamEvent {
 			}}}
 		}
 	case "message_delta":
+		out := make([]provider.StreamEvent, 0, 2)
 		if ev.Usage != nil {
 			contextInputTokens := ev.Usage.InputTokens + ev.Usage.CacheCreationInputTokens + ev.Usage.CacheReadInputTokens
-			out := []provider.StreamEvent{{
+			out = append(out, provider.StreamEvent{
 				Usage: &provider.UsageEvent{
 					InputTokens:              contextInputTokens,
 					OutputTokens:             ev.Usage.OutputTokens,
 					CacheCreationInputTokens: ev.Usage.CacheCreationInputTokens,
 					CacheReadInputTokens:     ev.Usage.CacheReadInputTokens,
 				},
-			}}
-			if ev.Message != nil && ev.Message.StopReason != "" {
-				out = append(out, provider.StreamEvent{
-					Delta: &provider.DeltaEvent{
-						FinishReason: ev.Message.StopReason,
-					},
-				})
-			}
-			return out
+			})
 		}
+		stopReason := ""
+		if ev.Delta != nil {
+			stopReason = ev.Delta.StopReason
+		} else if ev.Message != nil {
+			stopReason = ev.Message.StopReason
+		}
+		if stopReason != "" {
+			out = append(out, provider.StreamEvent{
+				Delta: &provider.DeltaEvent{FinishReason: stopReason},
+			})
+		}
+		return out
 	case "message_stop":
 		return []provider.StreamEvent{{
 			Delta: &provider.DeltaEvent{FinishReason: "stop"},

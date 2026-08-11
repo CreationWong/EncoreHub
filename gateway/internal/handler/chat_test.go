@@ -407,13 +407,15 @@ func TestValidateChatRequest_RejectsInvalidContextControls(t *testing.T) {
 }
 
 func TestValidateChatRequest_AcceptsConfiguredSearchProvider(t *testing.T) {
-	err := validateChatRequest(SendMessageRequest{
-		Content:        "hello",
-		Search:         true,
-		SearchProvider: "searxng",
-	})
-	if err != nil {
-		t.Fatalf("configured search provider was rejected: %v", err)
+	for _, provider := range []string{"duckduckgo_html", "searxng", "openserp"} {
+		err := validateChatRequest(SendMessageRequest{
+			Content:        "hello",
+			Search:         true,
+			SearchProvider: provider,
+		})
+		if err != nil {
+			t.Fatalf("search provider %s was rejected: %v", provider, err)
+		}
 	}
 }
 

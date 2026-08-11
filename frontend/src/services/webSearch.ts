@@ -1,6 +1,10 @@
 import { apiFetch } from "./api";
 
-export type SearchProvider = "duckduckgo" | "searxng" | "openserp";
+export type SearchProvider =
+	| "duckduckgo"
+	| "duckduckgo_html"
+	| "searxng"
+	| "openserp";
 export type OpenSERPEngine =
 	| "mega"
 	| "google"
@@ -50,6 +54,7 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 
 const SEARCH_PROVIDERS: readonly SearchProvider[] = [
 	"duckduckgo",
+	"duckduckgo_html",
 	"searxng",
 	"openserp",
 ];

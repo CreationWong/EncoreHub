@@ -9,6 +9,8 @@ import (
 	"path"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/net/html"
 )
 
 const (
@@ -75,6 +77,8 @@ func WithFetcher(fetcher Fetcher) ProviderOption {
 		switch value := provider.(type) {
 		case *DuckDuckGo:
 			value.fetcher = fetcher
+		case *DuckDuckGoHTML:
+			value.fetcher = fetcher
 		case *SearXNG:
 			value.fetcher = fetcher
 		case *OpenSERP:
@@ -105,12 +109,14 @@ func NewProvider(name string, options ...ProviderOption) (Provider, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "duckduckgo":
 		provider = &DuckDuckGo{}
+	case "duckduckgo_html":
+		provider = &DuckDuckGoHTML{}
 	case "searxng":
 		provider = &SearXNG{}
 	case "openserp":
 		provider = &OpenSERP{}
 	default:
-		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, searxng, openserp)", name)
+		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, duckduckgo_html, searxng, openserp)", name)
 	}
 	for _, option := range options {
 		option(provider)
@@ -126,6 +132,10 @@ func validateProvider(provider Provider) error {
 	case *DuckDuckGo:
 		if value.fetcher == nil {
 			return fmt.Errorf("duckduckgo search: Curl fetcher is required")
+		}
+	case *DuckDuckGoHTML:
+		if value.fetcher == nil {
+			return fmt.Errorf("duckduckgo HTML search: Curl fetcher is required")
 		}
 	case *SearXNG:
 		if value.fetcher == nil {
@@ -260,6 +270,183 @@ func duckDuckGoTopicTitle(text, rawURL string) string {
 		return parsed.Hostname()
 	}
 	return "DuckDuckGo result"
+}
+
+// DuckDuckGoHTML reads DuckDuckGo's explicit HTML search endpoint. It is a
+// separate, user-selected provider rather than a fallback from Instant Answer.
+type DuckDuckGoHTML struct {
+	fetcher Fetcher
+}
+
+func (d *DuckDuckGoHTML) Name() string { return "duckduckgo_html" }
+
+func (d *DuckDuckGoHTML) Search(ctx context.Context, query string, maxResults int) (*SearchResponse, error) {
+	query = strings.TrimSpace(query)
+	if err := ValidateRequest(query, maxResults); err != nil {
+		return nil, err
+	}
+	requestURL := "https://html.duckduckgo.com/html/?" + url.Values{"q": {query}}.Encode()
+	status, contentType, _, body, err := d.fetcher.FetchSearchURL(
+		ctx,
+		requestURL,
+		map[string]string{
+			"Accept":          "text/html,application/xhtml+xml",
+			"Accept-Language": "en-US,en;q=0.8",
+			"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+		},
+		MaxProviderResponseBytes,
+		FetchPolicyPublicAPI,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("duckduckgo HTML request: %w", err)
+	}
+	if status == 202 || looksLikeDuckDuckGoVerification(body) {
+		return nil, fmt.Errorf("duckduckgo HTML requires human verification")
+	}
+	if err := requireSuccess("duckduckgo HTML", status); err != nil {
+		return nil, err
+	}
+	if !strings.Contains(strings.ToLower(contentType), "html") {
+		return nil, fmt.Errorf("duckduckgo HTML returned unexpected content type")
+	}
+	document, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("duckduckgo HTML decode: %w", err)
+	}
+	candidates := parseDuckDuckGoHTMLResults(document)
+	if len(candidates) == 0 && !htmlTreeHasClass(document, "no-results") {
+		return nil, fmt.Errorf("duckduckgo HTML returned no recognizable result markup")
+	}
+	return &SearchResponse{
+		Results:  normalizeResults(candidates, maxResults),
+		Provider: d.Name(),
+		Query:    query,
+	}, nil
+}
+
+func parseDuckDuckGoHTMLResults(document *html.Node) []Result {
+	results := make([]Result, 0)
+	var visit func(*html.Node)
+	visit = func(node *html.Node) {
+		if node.Type == html.ElementNode && htmlNodeHasClass(node, "result") {
+			link := htmlFindDescendantByClass(node, "result__a")
+			if link != nil {
+				href := htmlAttribute(link, "href")
+				if href != "" {
+					snippet := htmlFindDescendantByClass(node, "result__snippet")
+					results = append(results, Result{
+						Title:   htmlNodeText(link),
+						URL:     decodeDuckDuckGoResultURL(href),
+						Snippet: htmlNodeText(snippet),
+					})
+				}
+			}
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(document)
+	return results
+}
+
+func decodeDuckDuckGoResultURL(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "//") {
+		value = "https:" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return value
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if (host == "duckduckgo.com" || host == "www.duckduckgo.com") && parsed.Path == "/l/" {
+		if target := parsed.Query().Get("uddg"); target != "" {
+			return target
+		}
+	}
+	return value
+}
+
+func looksLikeDuckDuckGoVerification(body []byte) bool {
+	content := strings.ToLower(string(body))
+	return strings.Contains(content, "challenge-form") ||
+		strings.Contains(content, "anomaly-modal") ||
+		strings.Contains(content, "duckduckgo.com/verify.js") ||
+		strings.Contains(content, "bots use duckduckgo")
+}
+
+func htmlTreeHasClass(node *html.Node, className string) bool {
+	if node == nil {
+		return false
+	}
+	if htmlNodeHasClass(node, className) {
+		return true
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if htmlTreeHasClass(child, className) {
+			return true
+		}
+	}
+	return false
+}
+
+func htmlFindDescendantByClass(node *html.Node, className string) *html.Node {
+	if node == nil {
+		return nil
+	}
+	if htmlNodeHasClass(node, className) {
+		return node
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if found := htmlFindDescendantByClass(child, className); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func htmlNodeHasClass(node *html.Node, className string) bool {
+	if node == nil || node.Type != html.ElementNode {
+		return false
+	}
+	for _, class := range strings.Fields(htmlAttribute(node, "class")) {
+		if class == className {
+			return true
+		}
+	}
+	return false
+}
+
+func htmlAttribute(node *html.Node, name string) string {
+	if node == nil {
+		return ""
+	}
+	for _, attribute := range node.Attr {
+		if attribute.Key == name {
+			return attribute.Val
+		}
+	}
+	return ""
+}
+
+func htmlNodeText(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type == html.ElementNode && (node.Data == "script" || node.Data == "style") {
+		return ""
+	}
+	if node.Type == html.TextNode {
+		return node.Data
+	}
+	var builder strings.Builder
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		builder.WriteString(" ")
+		builder.WriteString(htmlNodeText(child))
+	}
+	return collapseWS(builder.String())
 }
 
 type SearXNG struct {

@@ -97,6 +97,10 @@ func executeSlashWebSearch(ctx context.Context, handler *ChatHandler, query stri
 		execution.result = "Web search failed."
 		return execution
 	}
+	if len(response.Results) == 0 {
+		execution.result = emptySearchResultsError(searchProvider.Name()).Error()
+		return execution
+	}
 	logSearchCompleted(searchProvider.Name(), query, len(response.Results))
 	execution.result = formatSearchToolResult(response.Results)
 	execution.status = "success"
