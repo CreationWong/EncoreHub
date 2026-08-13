@@ -6,6 +6,19 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+#[derive(Clone, Debug)]
+pub(crate) struct ComponentIdentity {
+    pub(crate) version: String,
+    pub(crate) build_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RuntimeVersions {
+    pub(crate) frontend: ComponentIdentity,
+    pub(crate) gateway: ComponentIdentity,
+    pub(crate) engine: ComponentIdentity,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct CompatibilityRange {
     min: String,
@@ -23,7 +36,7 @@ struct VersionRecord {
 }
 
 /// Validate the Frontend, Gateway, and Engine declarations before launching peers.
-pub(crate) fn verify_packaged_components(resource_dir: &Path) -> Result<(), String> {
+pub(crate) fn verify_packaged_components(resource_dir: &Path) -> Result<RuntimeVersions, String> {
     let mut frontend: VersionRecord = serde_json::from_str(include_str!("../../version.json"))
         .map_err(|error| format!("invalid embedded Frontend version declaration: {error}"))?;
     frontend.build_id = env!("ENCOREHUB_BUILD_ID").to_owned();
@@ -33,6 +46,10 @@ pub(crate) fn verify_packaged_components(resource_dir: &Path) -> Result<(), Stri
     let mut gateway = read_manifest(resource_dir, "gateway-runtime.json")?;
     gateway.component = "gateway".to_owned();
 
+    for record in [&frontend, &gateway, &engine] {
+        validate_identity(record)?;
+    }
+
     for (left, right) in [
         (&frontend, &gateway),
         (&frontend, &engine),
@@ -40,7 +57,36 @@ pub(crate) fn verify_packaged_components(resource_dir: &Path) -> Result<(), Stri
     ] {
         verify_mutual(left, right)?;
     }
+    Ok(RuntimeVersions {
+        frontend: component_identity(&frontend),
+        gateway: component_identity(&gateway),
+        engine: component_identity(&engine),
+    })
+}
+
+/// Reject incomplete identities before they can reach diagnostics or process views.
+fn validate_identity(record: &VersionRecord) -> Result<(), String> {
+    parse_version(&record.version).map_err(|_| {
+        format!(
+            "{} has invalid version {}",
+            record.component, record.version
+        )
+    })?;
+    if record.build_id.len() != 12 || !record.build_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(format!(
+            "{} {} has invalid Build ID {}",
+            record.component, record.version, record.build_id
+        ));
+    }
     Ok(())
+}
+
+/// Retain only the immutable identity fields needed by runtime status views.
+fn component_identity(record: &VersionRecord) -> ComponentIdentity {
+    ComponentIdentity {
+        version: record.version.clone(),
+        build_id: record.build_id.clone(),
+    }
 }
 
 /// Read a runtime manifest from packaged resources or the development binaries.
@@ -160,5 +206,14 @@ mod tests {
         let error = verify_mutual(&frontend, &gateway).unwrap_err();
         assert!(error.contains("frontend V0.1.1.0 (Build 260813600474)"));
         assert!(error.contains("gateway V0.2.0.0 (Build 260813600474)"));
+    }
+
+    #[test]
+    fn rejects_missing_build_ids() {
+        let mut frontend = record("frontend", "V0.1.2.0", "gateway", "V0.1.0.0", "V0.2.0.0");
+        frontend.build_id.clear();
+        assert!(validate_identity(&frontend)
+            .unwrap_err()
+            .contains("Build ID"));
     }
 }

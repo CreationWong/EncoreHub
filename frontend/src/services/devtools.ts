@@ -17,6 +17,9 @@ export interface LogEntry {
 
 export interface ServiceStatus {
 	name: string;
+	component: "frontend" | "engine" | "gateway";
+	version: string;
+	build_id: string;
 	pid: number | null;
 	running: boolean;
 	uptime_secs: number;

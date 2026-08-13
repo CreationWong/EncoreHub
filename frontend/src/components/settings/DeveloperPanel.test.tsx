@@ -61,9 +61,36 @@ import LogsPanel from "./LogsPanel";
 import ProcessesPanel from "./ProcessesPanel";
 
 const statusFixture = [
-	{ name: "desktop", pid: 100, running: true, uptime_secs: 0, port: 0 },
-	{ name: "engine", pid: 200, running: true, uptime_secs: 65, port: 3000 },
-	{ name: "gateway", pid: null, running: false, uptime_secs: 0, port: 8080 },
+	{
+		name: "desktop",
+		component: "frontend",
+		version: "V0.1.2.0",
+		build_id: "260813600474",
+		pid: 100,
+		running: true,
+		uptime_secs: 0,
+		port: 0,
+	},
+	{
+		name: "engine",
+		component: "engine",
+		version: "V0.1.1.1",
+		build_id: "260813600474",
+		pid: 200,
+		running: true,
+		uptime_secs: 65,
+		port: 3000,
+	},
+	{
+		name: "gateway",
+		component: "gateway",
+		version: "V0.1.1.1",
+		build_id: "260813600474",
+		pid: null,
+		running: false,
+		uptime_secs: 0,
+		port: 8080,
+	},
 ];
 
 const logFixture = [
@@ -142,6 +169,10 @@ describe("Developer feature workspace", () => {
 	it("shows process state and restarts a managed service", async () => {
 		render(<ProcessesPanel />);
 		await waitFor(() => expect(screen.getByText("1m 5s")).toBeDefined());
+		expect(screen.getByText("V0.1.2.0 (Build 260813600474)")).toBeDefined();
+		expect(screen.getAllByText("V0.1.1.1 (Build 260813600474)")).toHaveLength(
+			2,
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Restart gateway" }));
 		await waitFor(() => expect(restartService).toHaveBeenCalledWith("gateway"));

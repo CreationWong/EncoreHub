@@ -29,7 +29,7 @@ use runtime_paths::legacy_migration::migrate_legacy_runtime;
 use runtime_paths::RuntimePaths;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
-use version_compatibility::verify_packaged_components;
+use version_compatibility::{verify_packaged_components, ComponentIdentity, RuntimeVersions};
 
 /// Default starting port for auto-negotiation in Tauri / client mode.
 const CLIENT_PORT_START: u16 = 10000;
@@ -87,6 +87,7 @@ struct ServiceState {
     /// state is intentionally not serializable and no Tauri command returns it.
     internal_auth_token: Arc<str>,
     runtime_paths: RuntimePaths,
+    versions: RuntimeVersions,
     developer_mode: AtomicBool,
     full_communication_logs: AtomicBool,
 }
@@ -124,6 +125,9 @@ struct DatabasePage {
 #[derive(Serialize)]
 struct ServiceStatus {
     name: String,
+    component: String,
+    version: String,
+    build_id: String,
     pid: Option<u32>,
     /// Whether the child is still alive according to the sidecar event stream.
     /// The desktop process reports itself as always running.
@@ -169,21 +173,36 @@ fn get_service_status(state: State<ServiceState>) -> Vec<ServiceStatus> {
     vec![
         ServiceStatus {
             name: "desktop".into(),
+            component: "frontend".into(),
+            version: state.versions.frontend.version.clone(),
+            build_id: state.versions.frontend.build_id.clone(),
             pid: Some(std::process::id()),
             running: true,
             uptime_secs: 0,
             port: 0,
         },
-        engine_status(&state.engine, state.engine_port),
-        status_of(&state.gateway, "gateway", state.gateway_port),
+        engine_status(&state.engine, state.engine_port, &state.versions.engine),
+        status_of(
+            &state.gateway,
+            "gateway",
+            state.gateway_port,
+            &state.versions.gateway,
+        ),
     ]
 }
 
-fn engine_status(slot: &Mutex<Option<EngineRuntimeHandle>>, port: u16) -> ServiceStatus {
+fn engine_status(
+    slot: &Mutex<Option<EngineRuntimeHandle>>,
+    port: u16,
+    identity: &ComponentIdentity,
+) -> ServiceStatus {
     let guard = slot.lock().unwrap();
     match guard.as_ref() {
         Some(handle) => ServiceStatus {
             name: "engine".into(),
+            component: "engine".into(),
+            version: identity.version.clone(),
+            build_id: identity.build_id.clone(),
             pid: Some(std::process::id()),
             running: handle.is_running(),
             uptime_secs: handle.started.elapsed().as_secs(),
@@ -191,6 +210,9 @@ fn engine_status(slot: &Mutex<Option<EngineRuntimeHandle>>, port: u16) -> Servic
         },
         None => ServiceStatus {
             name: "engine".into(),
+            component: "engine".into(),
+            version: identity.version.clone(),
+            build_id: identity.build_id.clone(),
             pid: None,
             running: false,
             uptime_secs: 0,
@@ -199,11 +221,19 @@ fn engine_status(slot: &Mutex<Option<EngineRuntimeHandle>>, port: u16) -> Servic
     }
 }
 
-fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> ServiceStatus {
+fn status_of(
+    slot: &Mutex<Option<ServiceHandle>>,
+    name: &str,
+    port: u16,
+    identity: &ComponentIdentity,
+) -> ServiceStatus {
     let guard = slot.lock().unwrap();
     match guard.as_ref() {
         Some(h) => ServiceStatus {
             name: name.into(),
+            component: name.into(),
+            version: identity.version.clone(),
+            build_id: identity.build_id.clone(),
             pid: Some(h.pid),
             running: h.running.load(Ordering::Acquire),
             uptime_secs: h.started.elapsed().as_secs(),
@@ -211,6 +241,9 @@ fn status_of(slot: &Mutex<Option<ServiceHandle>>, name: &str, port: u16) -> Serv
         },
         None => ServiceStatus {
             name: name.into(),
+            component: name.into(),
+            version: identity.version.clone(),
+            build_id: identity.build_id.clone(),
             pid: None,
             running: false,
             uptime_secs: 0,
@@ -371,7 +404,12 @@ async fn restart_gateway(
 ) -> Result<ServiceStatus, String> {
     require_developer_mode(&state)?;
     restart_gateway_process(&app, &state).await?;
-    Ok(status_of(&state.gateway, "gateway", state.gateway_port))
+    Ok(status_of(
+        &state.gateway,
+        "gateway",
+        state.gateway_port,
+        &state.versions.gateway,
+    ))
 }
 
 #[tauri::command]
@@ -390,7 +428,11 @@ async fn restart_engine(state: State<'_, ServiceState>) -> Result<ServiceStatus,
     )?;
     state.engine.lock().unwrap().replace(handle);
     tracing::info!("Engine restart completed");
-    Ok(engine_status(&state.engine, state.engine_port))
+    Ok(engine_status(
+        &state.engine,
+        state.engine_port,
+        &state.versions.engine,
+    ))
 }
 
 #[tauri::command]
@@ -666,7 +708,8 @@ fn main() {
             let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
             install_logging(logs.clone());
-            verify_packaged_components(&resource_dir).map_err(std::io::Error::other)?;
+            let versions =
+                verify_packaged_components(&resource_dir).map_err(std::io::Error::other)?;
             let engine_library =
                 EngineRuntimeLibrary::load(&resource_dir).map_err(std::io::Error::other)?;
 
@@ -732,6 +775,7 @@ fn main() {
                 gateway_port,
                 internal_auth_token: internal_auth_token.clone(),
                 runtime_paths: runtime_paths.clone(),
+                versions,
                 developer_mode: AtomicBool::new(false),
                 full_communication_logs: AtomicBool::new(false),
             });

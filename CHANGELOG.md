@@ -24,6 +24,7 @@
 
 ### Changed
 
+- **版本元数据与进程诊断**：npm、Cargo 与 Tauri 的三段式包版本同步为组件公开版本；开发者 Processes 页面为 Desktop、Engine、Gateway 展示完整四段版本与始终可见的 Build ID。
 - **桌面运行时模块化**：Tauri 主程序不再静态链接完整 Engine，改为按平台加载带 ABI 版本校验的 Engine Runtime `.dll` / `.so` / `.dylib`；Engine、Gateway、Desktop、Frontend 和 standalone Engine 可按一个或多个组件独立构建与升级。
 - **网页解析模块边界**：RUSTScrapling 以独立 `.dll` / `.so` / `.dylib` companion 随 Engine Runtime 构建和校验，不并入 `encorehub_desktop_runtime`；Curl 仍是唯一网络传输层，RUSTScrapling 只接收已经过网络策略校验的 HTML。
 - **依赖收敛**：移除前端未使用的路由、查询、命令面板、样式合并及 Tauri 插件依赖，清理 Rust 工作区和子 crate 的未消费声明；Blob SHA-256 的十六进制编码改用 Rust 标准库实现，`tower` 限定为测试依赖。

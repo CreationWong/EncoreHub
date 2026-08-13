@@ -104,12 +104,26 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 });
 
 test("Independent component versions retain compatibility and mainline roll contracts", async () => {
-	const [frontend, gateway, engine, workflow, packageText] = await Promise.all([
+	const [
+		frontend,
+		gateway,
+		engine,
+		workflow,
+		packageText,
+		frontendPackageText,
+		tauriConfigText,
+		tauriCargo,
+		engineCargo,
+	] = await Promise.all([
 		read("frontend/version.json"),
 		read("gateway/internal/buildinfo/version.json"),
 		read("engine/version.json"),
 		read(".github/workflows/version-roll.yml"),
 		read("package.json"),
+		read("frontend/package.json"),
+		read("frontend/src-tauri/tauri.conf.json"),
+		read("frontend/src-tauri/Cargo.toml"),
+		read("engine/Cargo.toml"),
 	]);
 	const records = [frontend, gateway, engine].map(JSON.parse);
 	for (const record of records) {
@@ -133,6 +147,30 @@ test("Independent component versions retain compatibility and mainline roll cont
 	assert.match(scripts["version:show"], /versioning\.mjs show/);
 	assert.match(scripts["version:bump"], /versioning\.mjs bump/);
 	assert.match(scripts["version:auto"], /versioning\.mjs auto/);
+	const publicVersion = records[0].version
+		.split(".")
+		.slice(0, 3)
+		.join(".")
+		.slice(1);
+	assert.equal(JSON.parse(packageText).version, publicVersion);
+	assert.equal(JSON.parse(frontendPackageText).version, publicVersion);
+	assert.equal(JSON.parse(tauriConfigText).version, publicVersion);
+	assert.match(
+		tauriCargo,
+		new RegExp(`^version = "${publicVersion.replaceAll(".", "\\.")}"$`, "m"),
+	);
+	const enginePublicVersion = records[2].version
+		.split(".")
+		.slice(0, 3)
+		.join(".")
+		.slice(1);
+	assert.match(
+		engineCargo,
+		new RegExp(
+			`^version = "${enginePublicVersion.replaceAll(".", "\\.")}"$`,
+			"m",
+		),
+	);
 });
 
 test("Frontend keeps non-critical features outside the initial module graph", async () => {

@@ -78,6 +78,9 @@ if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 				return [
 					{
 						name: "desktop",
+						component: "frontend",
+						version: "V0.1.2.0",
+						build_id: "260813600474",
 						pid: 16420,
 						running: true,
 						uptime_secs: 0,
@@ -85,6 +88,9 @@ if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 					},
 					{
 						name: "engine",
+						component: "engine",
+						version: "V0.1.1.1",
+						build_id: "260813600474",
 						pid: 16420,
 						running: true,
 						uptime_secs: 428,
@@ -92,6 +98,9 @@ if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 					},
 					{
 						name: "gateway",
+						component: "gateway",
+						version: "V0.1.1.1",
+						build_id: "260813600474",
 						pid: 21804,
 						running: true,
 						uptime_secs: 425,

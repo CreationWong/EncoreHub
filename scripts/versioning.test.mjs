@@ -6,6 +6,7 @@ import {
 	componentsForPaths,
 	createBuildId,
 	formatDisplayVersion,
+	formatEcosystemVersion,
 	formatVersion,
 	parseVersion,
 } from "./versioning.mjs";
@@ -34,6 +35,10 @@ test("manual version tiers reset all less significant tiers", () => {
 	);
 	assert.equal(formatVersion(bumpVersion(current, "feature")), "V2.3.5.0");
 	assert.equal(formatVersion(bumpVersion(current, "patch")), "V2.3.4.6");
+});
+
+test("ecosystem manifests use the public three-part version", () => {
+	assert.equal(formatEcosystemVersion(parseVersion("V2.3.4.5")), "2.3.4");
 });
 
 test("build ids combine a UTC date with the final six epoch-second digits", () => {

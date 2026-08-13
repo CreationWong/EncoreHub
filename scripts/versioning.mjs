@@ -11,6 +11,11 @@ const COMPONENT_FILES = {
 	gateway: "gateway/internal/buildinfo/version.json",
 	engine: "engine/version.json",
 };
+const FRONTEND_PACKAGE_FILES = [
+	"package.json",
+	"frontend/package.json",
+	"frontend/src-tauri/tauri.conf.json",
+];
 const VERSION_PATTERN =
 	/^V(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const SHARED_RELEASE_PATHS = [
@@ -40,6 +45,11 @@ export function formatVersion(version) {
 /** Format the stable public version without the commit/patch tier. */
 export function formatPublicVersion(version) {
 	return `V${version.major}.${version.compatibility}.${version.feature}`;
+}
+
+/** Format a component's public tier for npm, Cargo, and Tauri manifests. */
+export function formatEcosystemVersion(version) {
+	return `${version.major}.${version.compatibility}.${version.feature}`;
 }
 
 /** Always expose the build id and reveal the patch tier only for diagnostics. */
@@ -158,12 +168,64 @@ export function versionInRange(version, range) {
 /** Persist one tier increment without altering compatibility declarations. */
 export function bumpComponent(component, tier, repoRoot = root) {
 	const record = readVersionRecord(component, repoRoot);
-	record.version = formatVersion(
-		bumpVersion(parseVersion(record.version), tier),
-	);
+	const previous = parseVersion(record.version);
+	const next = bumpVersion(previous, tier);
+	record.version = formatVersion(next);
 	const file = path.join(repoRoot, COMPONENT_FILES[component]);
 	writeFileSync(file, `${JSON.stringify(record, null, "\t")}\n`);
+	if (formatEcosystemVersion(previous) !== formatEcosystemVersion(next)) {
+		syncEcosystemVersion(component, next, repoRoot);
+	}
 	return record.version;
+}
+
+/** Synchronize three-part package metadata after a public version tier changes. */
+export function syncEcosystemVersion(component, version, repoRoot = root) {
+	const ecosystemVersion = formatEcosystemVersion(version);
+	if (component === "frontend") {
+		for (const relative of FRONTEND_PACKAGE_FILES) {
+			const file = path.join(repoRoot, relative);
+			const manifest = JSON.parse(readFileSync(file, "utf8"));
+			manifest.version = ecosystemVersion;
+			const indentation = relative === "package.json" ? "\t" : "  ";
+			writeFileSync(file, `${JSON.stringify(manifest, null, indentation)}\n`);
+		}
+		const cargo = path.join(repoRoot, "frontend/src-tauri/Cargo.toml");
+		writeCargoPackageVersion(cargo, ecosystemVersion);
+		refreshCargoLock(repoRoot, "frontend/src-tauri/Cargo.toml");
+	}
+	if (component === "engine") {
+		const cargo = path.join(repoRoot, "engine/Cargo.toml");
+		writeCargoPackageVersion(cargo, ecosystemVersion);
+		refreshCargoLock(repoRoot, "engine/Cargo.toml");
+	}
+}
+
+/** Update the first package/workspace version without touching dependency versions. */
+function writeCargoPackageVersion(file, version) {
+	const source = readFileSync(file, "utf8");
+	const updated = source.replace(
+		/^(\s*version\s*=\s*")[^"]+("\s*)$/m,
+		`$1${version}$2`,
+	);
+	if (updated === source) throw new Error(`${file} has no package version`);
+	writeFileSync(file, updated);
+}
+
+/** Ask Cargo to refresh only workspace package metadata in the existing lockfile. */
+function refreshCargoLock(repoRoot, manifest) {
+	execFileSync(
+		"cargo",
+		[
+			"metadata",
+			"--no-deps",
+			"--format-version",
+			"1",
+			"--manifest-path",
+			manifest,
+		],
+		{ cwd: repoRoot, stdio: "ignore" },
+	);
 }
 
 function changedPaths(base, head) {

@@ -95,8 +95,9 @@ export default function ProcessesPanel() {
 			</div>
 
 			<div className="min-h-0 overflow-auto border-y border-border">
-				<div className="grid min-w-[660px] grid-cols-[minmax(180px,1fr)_110px_100px_100px_64px] gap-4 border-b border-border bg-surface-alt/50 px-3 py-2 text-[10px] font-semibold text-text-muted">
+				<div className="grid min-w-[880px] grid-cols-[minmax(150px,1fr)_280px_90px_80px_90px_64px] gap-4 border-b border-border bg-surface-alt/50 px-3 py-2 text-[10px] font-semibold text-text-muted">
 					<span>PROCESS</span>
+					<span>VERSION</span>
 					<span>PID</span>
 					<span>PORT</span>
 					<span>UPTIME</span>
@@ -109,7 +110,7 @@ export default function ProcessesPanel() {
 					return (
 						<div
 							key={service.name}
-							className="grid min-w-[660px] grid-cols-[minmax(180px,1fr)_110px_100px_100px_64px] items-center gap-4 border-b border-border px-3 py-3 last:border-b-0"
+							className="grid min-w-[880px] grid-cols-[minmax(150px,1fr)_280px_90px_80px_90px_64px] items-center gap-4 border-b border-border px-3 py-3 last:border-b-0"
 						>
 							<div className="flex min-w-0 items-center gap-3">
 								<span
@@ -131,6 +132,12 @@ export default function ProcessesPanel() {
 									</p>
 								</div>
 							</div>
+							<span className="whitespace-nowrap font-mono text-xs text-text-secondary">
+								<span className="mr-2 font-sans text-[10px] uppercase text-text-muted">
+									{service.component}
+								</span>
+								{service.version} (Build {service.build_id})
+							</span>
 							<span className="font-mono text-xs text-text-secondary">
 								{service.pid ?? "—"}
 							</span>

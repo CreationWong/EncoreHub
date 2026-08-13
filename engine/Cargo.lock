@@ -2082,14 +2082,14 @@ dependencies = [
 
 [[package]]
 name = "encorehub-conversation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "encorehub-core",
 ]
 
 [[package]]
 name = "encorehub-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rusqlite",
@@ -2101,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "encorehub-desktop-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "encorehub-engine",
  "serde",
@@ -2113,7 +2113,7 @@ dependencies = [
 
 [[package]]
 name = "encorehub-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2148,14 +2148,14 @@ dependencies = [
 
 [[package]]
 name = "encorehub-protoc-resolver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "protoc-bin-vendored",
 ]
 
 [[package]]
 name = "encorehub-rust-scrapling"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rust_scrapling",
  "serde",
@@ -2164,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "encorehub-skill"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "encorehub-core",
  "serde",
@@ -2175,7 +2175,7 @@ dependencies = [
 
 [[package]]
 name = "encorehub-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
