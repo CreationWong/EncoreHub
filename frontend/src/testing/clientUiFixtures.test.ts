@@ -110,6 +110,9 @@ describe("client UI baseline fixtures", () => {
 		expect(parseClientUiBaselineOptions("?settings=search").settingsTab).toBe(
 			"search",
 		);
+		expect(parseClientUiBaselineOptions("?settings=data").settingsTab).toBe(
+			"data",
+		);
 		for (const tab of ["processes", "logs", "database"]) {
 			expect(parseClientUiBaselineOptions(`?settings=${tab}`).settingsTab).toBe(
 				tab,

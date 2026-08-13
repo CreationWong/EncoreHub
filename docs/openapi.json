@@ -586,6 +586,97 @@
         }
       }
     },
+    "/api/v1/data/overview": {
+      "get": {
+        "tags": ["Data"],
+        "operationId": "getDataOverview",
+        "responses": {
+          "200": { "description": "Counts for user-owned data and regenerable cache", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataOverview" } } } }
+        }
+      }
+    },
+    "/api/v1/data/export": {
+      "get": {
+        "tags": ["Data"],
+        "operationId": "exportUserData",
+        "description": "Atomically exports selected user-data domains and their required dependencies. Configuration, credentials, caches, and derived indexes are excluded.",
+        "parameters": [
+          {
+            "name": "domains",
+            "in": "query",
+            "description": "Comma-separated atomic data domains. Omit to export all domains.",
+            "schema": { "type": "string", "example": "conversations,memories" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Portable versioned JSON backup", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserDataBackup" } } } }
+        }
+      }
+    },
+    "/api/v1/data/import": {
+      "post": {
+        "tags": ["Data"],
+        "operationId": "importUserData",
+        "description": "Additively merges a versioned EncoreHub user-data backup and skips existing identifiers.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserDataBackup" } } } },
+        "responses": {
+          "200": { "description": "Import summary", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportSummary" } } } },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/data/conversations": {
+      "get": {
+        "tags": ["Data"],
+        "operationId": "listManagedConversations",
+        "description": "Lists every conversation with lightweight counts for granular data selection.",
+        "responses": {
+          "200": { "description": "Selectable conversations", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DataConversation" } } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Data"],
+        "operationId": "clearConversationHistory",
+        "description": "Permanently deletes every conversation, message, tool call, and conversation attachment while preserving other data and settings.",
+        "responses": {
+          "200": { "description": "Conversation cleanup summary", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HistoryCleanup" } } } }
+        }
+      }
+    },
+    "/api/v1/data/conversations/export": {
+      "post": {
+        "tags": ["Data"],
+        "operationId": "exportSelectedConversations",
+        "description": "Atomically exports selected conversations, messages, tools, attachments, and required character records.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationSelection" } } } },
+        "responses": {
+          "200": { "description": "Portable selected-conversation backup", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserDataBackup" } } } },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/data/conversations/delete": {
+      "post": {
+        "tags": ["Data"],
+        "operationId": "deleteSelectedConversations",
+        "description": "Validates and deletes selected conversations and their unshared attachments as one operation.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationSelection" } } } },
+        "responses": {
+          "200": { "description": "Selected-conversation cleanup summary", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HistoryCleanup" } } } },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/data/cache": {
+      "delete": {
+        "tags": ["Data"],
+        "operationId": "clearDataCache",
+        "description": "Deletes regenerable search cache and orphaned attachment blobs.",
+        "responses": {
+          "200": { "description": "Cache cleanup summary", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CacheCleanup" } } } }
+        }
+      }
+    },
     "/api/v1/usage": {
       "get": {
         "tags": ["Usage"],
@@ -1987,6 +2078,83 @@
         "properties": {
           "level": { "type": "string" },
           "engine_applied": { "type": "boolean" }
+        }
+      },
+      "DataOverview": {
+        "type": "object",
+        "required": ["conversations", "messages", "attachments", "attachment_bytes", "memories", "knowledge_documents", "cache_entries"],
+        "properties": {
+          "conversations": { "type": "integer", "minimum": 0 },
+          "messages": { "type": "integer", "minimum": 0 },
+          "attachments": { "type": "integer", "minimum": 0 },
+          "attachment_bytes": { "type": "integer", "minimum": 0 },
+          "memories": { "type": "integer", "minimum": 0 },
+          "knowledge_documents": { "type": "integer", "minimum": 0 },
+          "cache_entries": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "DataConversation": {
+        "type": "object",
+        "required": ["id", "title", "message_count", "attachment_count", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "message_count": { "type": "integer", "minimum": 0 },
+          "attachment_count": { "type": "integer", "minimum": 0 },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ConversationSelection": {
+        "type": "object",
+        "required": ["conversation_ids"],
+        "properties": {
+          "conversation_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "UserDataBackup": {
+        "type": "object",
+        "required": ["schema", "version", "exported_at", "tables", "blobs"],
+        "properties": {
+          "schema": { "const": "encorehub.user-data" },
+          "version": { "type": "integer", "minimum": 1 },
+          "exported_at": { "type": "string", "format": "date-time" },
+          "domains": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "enum": ["characters", "conversations", "memories", "knowledge"] }
+          },
+          "tables": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object", "additionalProperties": true } } },
+          "blobs": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      },
+      "ImportSummary": {
+        "type": "object",
+        "required": ["imported_rows", "skipped_rows", "imported_blobs"],
+        "properties": {
+          "imported_rows": { "type": "integer", "minimum": 0 },
+          "skipped_rows": { "type": "integer", "minimum": 0 },
+          "imported_blobs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "HistoryCleanup": {
+        "type": "object",
+        "required": ["conversations", "deleted_blobs"],
+        "properties": {
+          "conversations": { "type": "integer", "minimum": 0 },
+          "deleted_blobs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CacheCleanup": {
+        "type": "object",
+        "required": ["cache_entries", "orphaned_blobs"],
+        "properties": {
+          "cache_entries": { "type": "integer", "minimum": 0 },
+          "orphaned_blobs": { "type": "integer", "minimum": 0 }
         }
       },
       "ProviderProfile": {

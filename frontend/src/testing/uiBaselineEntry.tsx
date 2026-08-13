@@ -14,6 +14,54 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element #root not found");
 
 const options = parseClientUiBaselineOptions(window.location.search);
+if (options.settingsTab === "data") {
+	const originalFetch = window.fetch.bind(window);
+	window.fetch = async (input, init) => {
+		const url =
+			typeof input === "string"
+				? input
+				: input instanceof URL
+					? input.toString()
+					: input.url;
+		if (url.endsWith("/api/v1/data/overview")) {
+			return Response.json({
+				conversations: 3,
+				messages: 26,
+				attachments: 2,
+				attachment_bytes: 184320,
+				memories: 7,
+				knowledge_documents: 4,
+				cache_entries: 11,
+			});
+		}
+		if (url.endsWith("/api/v1/data/conversations")) {
+			return Response.json([
+				{
+					id: "conv-018",
+					title: "Tool execution",
+					message_count: 12,
+					attachment_count: 2,
+					updated_at: "2026-08-12T08:30:00Z",
+				},
+				{
+					id: "conv-017",
+					title: "Reasoning state",
+					message_count: 9,
+					attachment_count: 0,
+					updated_at: "2026-08-11T10:15:00Z",
+				},
+				{
+					id: "conv-016",
+					title: "Release checklist",
+					message_count: 5,
+					attachment_count: 0,
+					updated_at: "2026-08-10T14:45:00Z",
+				},
+			]);
+		}
+		return originalFetch(input, init);
+	};
+}
 const developerTabs = ["developer", "processes", "logs", "database"];
 if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 	mockIPC((command, args) => {

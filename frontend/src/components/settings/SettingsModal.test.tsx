@@ -19,6 +19,7 @@ vi.mock("./ContextMenuPanel", () => ({
 vi.mock("./SkillsPanel", () => ({ default: () => <p>Skills panel</p> }));
 vi.mock("./SearchPanel", () => ({ default: () => <p>Search panel</p> }));
 vi.mock("./KnowledgePanel", () => ({ default: () => <p>Knowledge panel</p> }));
+vi.mock("./DataPanel", () => ({ default: () => <p>Data panel</p> }));
 vi.mock("./MemoryPanel", () => ({ default: () => <p>Memories panel</p> }));
 vi.mock("./ModelMetadataPanel", () => ({
 	default: () => <p>Model metadata panel</p>,
@@ -67,6 +68,15 @@ describe("Settings workspace information architecture", () => {
 		expect(useSettingsStore.getState().settingsTab).toBe("context-menu");
 	});
 
+	it("opens non-configuration data management as a privacy setting", async () => {
+		render(<SettingsModal />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Data" }));
+
+		expect(await screen.findByText("Data panel")).toBeDefined();
+		expect(useSettingsStore.getState().settingsTab).toBe("data");
+	});
+
 	it("does not leave Providers when its unsaved-change guard cancels", async () => {
 		useSettingsStore.setState({ settingsTab: "providers" });
 		const unregister = registerSettingsLeaveGuard(async () => false);
@@ -110,6 +120,7 @@ describe("Settings workspace information architecture", () => {
 			"Usage",
 		]);
 		expect(titlesIn("Data & privacy")).toEqual([
+			"Data",
 			"Knowledge",
 			"Memories",
 			"Security",

@@ -4,6 +4,7 @@ import {
 	ChartNoAxesColumn,
 	Cpu,
 	Database,
+	FolderArchive,
 	Info,
 	Loader2,
 	MousePointer2,
@@ -23,6 +24,7 @@ import {
 } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
 import ContextMenuPanel from "./ContextMenuPanel";
+import DataPanel from "./DataPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ModelMetadataPanel from "./ModelMetadataPanel";
@@ -71,6 +73,7 @@ const TAB_GROUPS: TabGroup[] = [
 	{
 		label: "Data & privacy",
 		tabs: [
+			{ id: "data", label: "Data", icon: FolderArchive },
 			{ id: "knowledge", label: "Knowledge", icon: Database },
 			{ id: "memories", label: "Memories", icon: BookOpen },
 			{ id: "security", label: "Security", icon: ShieldCheck },
@@ -105,6 +108,7 @@ const FULL_BLEED_TABS: readonly SettingsTab[] = [
 	"usage",
 	"memories",
 	"search",
+	"data",
 ];
 
 function LoadingPanel({ label }: { label: string }) {
@@ -201,6 +205,7 @@ export default function SettingsModal() {
 						</Suspense>
 					)}
 					{tab === "knowledge" && <KnowledgePanel />}
+					{tab === "data" && <DataPanel />}
 					{tab === "memories" && <MemoryPanel />}
 					{tab === "security" && <SecurityPanel />}
 					{tab === "appearance" && <AppearancePanel />}

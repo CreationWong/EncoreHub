@@ -33,6 +33,7 @@ export type SettingsTab =
 	| "skills"
 	| "knowledge"
 	| "memories"
+	| "data"
 	| "search"
 	| "appearance"
 	| "context-menu"

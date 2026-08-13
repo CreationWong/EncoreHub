@@ -6,6 +6,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Added
 
+- **数据管理**：设置新增 Data 页面，统计对话、消息、附件、记忆与 Knowledge 数据；支持按角色、对话、记忆和 Knowledge 原子数据域选择导出，并可逐项多选对话后只导出或原子删除所选对话。合并导入的版本化 JSON 备份不含配置和凭据，也可清空全部对话历史、清理搜索缓存和孤立附件 blob。依赖记录自动补齐，导入保持现有同 ID 数据，附件内容按 SHA-256 校验后写入。
 - **DuckDuckGo 组合搜索源**：单一 DuckDuckGo provider 并行请求 `https://html.duckduckgo.com/` 与 Instant Answer API；HTML 语法树提供设定数量的主要网页结果，Instant Answer 额外提供最多三条带类型标记的精选答案或摘要。任一路失败时保留另一侧结果并附带警告，历史 `duckduckgo_html` 设置自动迁移。
 - **结构化联网搜索与网页读取**：`web_search` 默认使用组合 DuckDuckGo，并支持自定义 SearXNG 与 OpenSERP JSON 接口；移除 Bing/Google HTML 抓取、通用 JSON 映射、关键词相关性猜测、CAPTCHA 和可见浏览器流程。`web_fetch` 继续通过 Curl 执行逐跳 SSRF、DNS 固定、重定向、超时和大小限制，再由独立打包的 RUSTScrapling 动态库提取 HTML 正文并以不可信数据边界交给模型。
 - **附件与本地检索**：聊天输入框支持按钮和拖拽上传图片、富文本及普通文本；附件元数据和内容寻址位置写入 SQLite，图片按模型视觉声明直传，非视觉模型由用户显式选择系统 OCR 或视觉模型。

@@ -199,6 +199,8 @@ interface ConversationState {
 	prefetchedConversationIds: Record<string, true>;
 
 	loadList: () => Promise<void>;
+	/** Reset local conversation caches after an external import or bulk delete. */
+	reloadAfterDataChange: () => Promise<void>;
 	prefetchConversation: (id: string) => Promise<void>;
 	releaseConversationPrefetch: (id: string) => void;
 	selectConversation: (id: string) => Promise<void>;
@@ -265,6 +267,28 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			logStoreError("Failed to load conversations", err);
 			set({ listLoading: false, listError: "Failed to load conversations" });
 		}
+	},
+
+	reloadAfterDataChange: async () => {
+		transientPrefetchClaims.clear();
+		get().abortController?.abort();
+		set({
+			activeId: null,
+			messages: [],
+			loading: false,
+			streaming: false,
+			streamingContent: "",
+			streamingReasoning: "",
+			streamingDurationMs: 0,
+			streamingToolCalls: [],
+			error: null,
+			abortController: null,
+			pendingDraft: null,
+			editingMessageId: null,
+			convCache: {},
+			prefetchedConversationIds: {},
+		});
+		await get().loadList();
 	},
 
 	prefetchConversation: async (id: string) => {

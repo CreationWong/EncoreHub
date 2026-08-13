@@ -375,6 +375,233 @@ async fn attachment_upload_accepts_files_above_axums_default_body_limit() {
 }
 
 #[tokio::test]
+async fn data_management_exports_imports_and_clears_non_config_data() {
+    let (_source_dir, source) = make_app();
+    let response = source
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"portable","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = source
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/messages/append"),
+            json!({"content":"keep me","role":"user"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let attachment_bytes = b"portable attachment";
+    let response = source
+        .clone()
+        .oneshot(multipart_upload(
+            &format!("/api/conversations/{conversation_id}/attachments"),
+            "portable.txt",
+            "text/plain",
+            attachment_bytes,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let attachment_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = source
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"keep-local","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let retained_conversation_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let overview = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/data/overview")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let overview = body_json(overview).await;
+    assert_eq!(overview["conversations"], 2);
+    assert_eq!(overview["messages"], 1);
+
+    let exported = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/data/export")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), StatusCode::OK);
+    let backup = body_json(exported).await;
+    assert_eq!(backup["schema"], "encorehub.user-data");
+    assert!(backup["tables"].get("config").is_none());
+    assert!(backup["tables"].get("secrets").is_none());
+    assert_eq!(backup["blobs"].as_object().unwrap().len(), 1);
+
+    let scoped = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/data/export?domains=knowledge")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(scoped.status(), StatusCode::OK);
+    let scoped = body_json(scoped).await;
+    assert_eq!(scoped["domains"], json!(["knowledge"]));
+    assert!(scoped["tables"].get("documents").is_some());
+    assert!(scoped["tables"].get("conversations").is_none());
+    assert!(scoped["blobs"].as_object().unwrap().is_empty());
+
+    let invalid_scope = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/data/export?domains=config")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_scope.status(), StatusCode::BAD_REQUEST);
+
+    let managed_conversations = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/data/conversations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let managed_conversations = body_json(managed_conversations).await;
+    assert_eq!(managed_conversations.as_array().unwrap().len(), 2);
+
+    let selected_backup = source
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/data/conversations/export",
+            json!({"conversation_ids":[conversation_id.clone()]}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(selected_backup.status(), StatusCode::OK);
+    let selected_backup = body_json(selected_backup).await;
+    let selected_rows = selected_backup["tables"]["conversations"]
+        .as_array()
+        .unwrap();
+    assert_eq!(selected_rows.len(), 1);
+    assert_eq!(selected_rows[0]["id"], conversation_id);
+    assert_eq!(selected_backup["blobs"].as_object().unwrap().len(), 1);
+
+    let selected_delete = source
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/data/conversations/delete",
+            json!({"conversation_ids":[conversation_id.clone()]}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(selected_delete.status(), StatusCode::OK);
+    assert_eq!(body_json(selected_delete).await["conversations"], 1);
+    let retained = source
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{retained_conversation_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retained.status(), StatusCode::OK);
+
+    let cleared = source
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/data/conversations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_json(cleared).await["conversations"], 1);
+
+    let (_target_dir, target) = make_app();
+    let imported = target
+        .clone()
+        .oneshot(json_post("POST", "/api/data/import", backup))
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), StatusCode::OK);
+    assert!(body_json(imported).await["imported_rows"].as_u64().unwrap() >= 2);
+    let restored = target
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{conversation_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        body_json(restored).await["messages"][0]["content"],
+        "keep me"
+    );
+    let restored_attachment = target
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/conversations/{conversation_id}/attachments/{attachment_id}/content"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored_attachment.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(restored_attachment.into_body(), 1024)
+            .await
+            .unwrap()
+            .as_ref(),
+        attachment_bytes
+    );
+}
+
+#[tokio::test]
 async fn rename_rejects_empty_title() {
     let (_dir, app) = make_app();
 

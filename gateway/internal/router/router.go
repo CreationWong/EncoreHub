@@ -91,6 +91,9 @@ func Setup(cfg Config) *gin.Engine {
 		// Search
 		api.POST("/search", searchHandler.Search)
 
+		// User-owned data management excludes configuration and credentials.
+		api.Any("/data/*rest", engineProxy.Forward)
+
 		// Runtime log-level control (gateway + engine).
 		api.GET("/log-level", logLevelHandler.Get)
 		api.POST("/log-level", logLevelHandler.Set)

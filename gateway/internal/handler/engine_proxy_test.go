@@ -49,7 +49,7 @@ const testEngineToken = "test-engine-token"
 func newProxyRouter(target string) *gin.Engine {
 	r := gin.New()
 	proxy := handler.NewEngineProxy(engine.NewClient(target, testEngineToken))
-	for _, res := range []string{"skills", "memories", "memory-groups", "knowledge", "usage"} {
+	for _, res := range []string{"skills", "memories", "memory-groups", "knowledge", "usage", "data"} {
 		r.Any("/api/v1/"+res, proxy.Forward)
 		r.Any("/api/v1/"+res+"/*rest", proxy.Forward)
 	}

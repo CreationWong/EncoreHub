@@ -220,6 +220,45 @@ describe("loadList", () => {
 	});
 });
 
+describe("reloadAfterDataChange", () => {
+	it("drops active and prefetched state before reloading the authoritative list", async () => {
+		const staleMessage = serverMessage({ id: "stale" });
+		useConversationStore.setState({
+			activeId: "c1",
+			messages: [staleMessage],
+			streaming: true,
+			streamingContent: "partial",
+			convCache: {
+				c1: {
+					messages: [staleMessage],
+					streaming: true,
+					streamingContent: "partial",
+					streamingReasoning: "",
+					streamingDurationMs: 0,
+					streamingToolCalls: [],
+					abortController: null,
+				},
+			},
+			prefetchedConversationIds: { c1: true },
+		});
+		listConversationsApi.mockResolvedValue({
+			conversations: [{ id: "restored", title: "Restored" }],
+		});
+
+		await useConversationStore.getState().reloadAfterDataChange();
+
+		const state = useConversationStore.getState();
+		expect(state.activeId).toBeNull();
+		expect(state.messages).toEqual([]);
+		expect(state.streaming).toBe(false);
+		expect(state.convCache).toEqual({});
+		expect(state.prefetchedConversationIds).toEqual({});
+		expect(state.conversations).toEqual([
+			expect.objectContaining({ id: "restored" }),
+		]);
+	});
+});
+
 describe("conversation prefetch", () => {
 	it("loads an inactive conversation into a transient memory cache", async () => {
 		const message = serverMessage({ id: "prefetched-message" });

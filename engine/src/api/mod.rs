@@ -4,6 +4,7 @@ mod attachments;
 mod characters;
 mod config;
 mod conversations;
+mod data_management;
 mod knowledge;
 mod memories;
 mod network;
@@ -127,6 +128,25 @@ pub fn build_router_with(
         .route("/api/skills", get(skills::list_skills))
         .route("/api/skills/match", get(skills::match_skills))
         .route("/api/skills/:id/toggle", post(skills::toggle_skill))
+        .route("/api/data/overview", get(data_management::overview))
+        .route(
+            "/api/data/conversations",
+            get(data_management::conversations).delete(data_management::clear_history),
+        )
+        .route(
+            "/api/data/conversations/export",
+            post(data_management::export_conversations),
+        )
+        .route(
+            "/api/data/conversations/delete",
+            post(data_management::delete_conversations),
+        )
+        .route("/api/data/export", get(data_management::export))
+        .route(
+            "/api/data/import",
+            post(data_management::import).layer(DefaultBodyLimit::max(256 * 1024 * 1024)),
+        )
+        .route("/api/data/cache", delete(data_management::clear_cache))
         .route(
             "/api/conversations/:id/attachments",
             get(attachments::list)

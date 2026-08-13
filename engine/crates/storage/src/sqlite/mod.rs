@@ -6,11 +6,16 @@
 mod attachments;
 mod characters;
 mod chat_turns;
+mod data_management;
 mod migrations;
 mod secret_transactions;
 mod vectors;
 
 pub use attachments::AttachmentRecord;
+pub use data_management::{
+    decode_hex, encode_hex, CacheCleanup, ConversationCleanup, DataConversation, DataDomain,
+    DataOverview, ImportSummary, UserDataBackup,
+};
 pub(crate) use vectors::local_embedding;
 pub use vectors::{VectorBackend, VectorSearchHit, EMBEDDING_DIMENSIONS};
 
