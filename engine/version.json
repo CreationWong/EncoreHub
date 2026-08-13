@@ -1,6 +1,6 @@
 {
 	"component": "engine",
-	"version": "V0.1.1.1",
+	"version": "V0.1.1.2",
 	"compatibility": {
 		"frontend": {
 			"min": "V0.1.0.0",
