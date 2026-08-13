@@ -4,14 +4,15 @@ import {
 	copyFileSync,
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveProtoc } from "./resolve-protoc.mjs";
+import { createBuildId, readVersionRecord } from "./versioning.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engineDir = path.join(root, "engine");
@@ -144,7 +145,9 @@ function windowsCurlDependencies(runtimeLibrary, env) {
 		}
 	}
 	if (dependencies.length === 0) {
-		throw new Error("Engine Runtime does not import the vcpkg shared libcurl DLL");
+		throw new Error(
+			"Engine Runtime does not import the vcpkg shared libcurl DLL",
+		);
 	}
 	return dependencies;
 }
@@ -171,7 +174,8 @@ function unixCurlDependencies(runtimeLibrary, target) {
 		: [runtimeLibrary];
 	const result = spawnSync(command, args, { encoding: "utf8", shell: false });
 	if (result.error) throw result.error;
-	if (result.status !== 0) throw new Error(`${command} failed for ${runtimeLibrary}`);
+	if (result.status !== 0)
+		throw new Error(`${command} failed for ${runtimeLibrary}`);
 	const candidates = result.stdout
 		.split(/\r?\n/)
 		.map((line) => {
@@ -211,7 +215,12 @@ function makeMacDependenciesRelocatable(runtimeLibrary, dependencies, target) {
 	for (const dependency of dependencies) {
 		const result = spawnSync(
 			"install_name_tool",
-			["-change", dependency.source, `@loader_path/${dependency.name}`, runtimeLibrary],
+			[
+				"-change",
+				dependency.source,
+				`@loader_path/${dependency.name}`,
+				runtimeLibrary,
+			],
 			{ stdio: "inherit", shell: false },
 		);
 		if (result.error) throw result.error;
@@ -259,6 +268,8 @@ export function resolveCargoTargetDir(
 
 function main(argv) {
 	const options = parseArgs(argv);
+	const engineVersion = readVersionRecord("engine", root);
+	const buildId = process.env.ENCOREHUB_BUILD_ID ?? createBuildId();
 	const target = options.target ?? hostTarget();
 	const profile = options.release ? "release" : "debug";
 	const cargoTargetDir = resolveCargoTargetDir();
@@ -275,9 +286,11 @@ function main(argv) {
 	if (options.target) cargoArgs.push("--target", target);
 	const buildEnv = dynamicCurlBuildEnv(target);
 	buildEnv.RUSTFLAGS = dynamicCurlRustflags(target, buildEnv.RUSTFLAGS);
+	buildEnv.ENCOREHUB_BUILD_ID = buildId;
 	if (!target.includes("windows")) {
 		const origin = target.includes("apple-darwin") ? "@loader_path" : "$ORIGIN";
-		buildEnv.RUSTFLAGS = `${buildEnv.RUSTFLAGS ?? ""} -C link-arg=-Wl,-rpath,${origin}`.trim();
+		buildEnv.RUSTFLAGS =
+			`${buildEnv.RUSTFLAGS ?? ""} -C link-arg=-Wl,-rpath,${origin}`.trim();
 	}
 	const fileName = libraryName(target);
 	const rustScraplingFileName = rustScraplingLibraryName(target);
@@ -311,16 +324,12 @@ function main(argv) {
 
 	const bytes = readFileSync(destination);
 	const rustScraplingBytes = readFileSync(rustScraplingDestination);
-	const enginePackage = readFileSync(
-		path.join(engineDir, "Cargo.toml"),
-		"utf8",
-	);
-	const version =
-		enginePackage.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? "0.1.0";
 	const manifest = {
 		schemaVersion: 1,
 		module: "encorehub-engine-runtime",
-		version,
+		version: engineVersion.version,
+		build_id: buildId,
+		compatibility: engineVersion.compatibility,
 		abiVersion: 1,
 		target,
 		profile,
@@ -333,9 +342,7 @@ function main(argv) {
 			abiVersion: 1,
 			file: rustScraplingFileName,
 			size: rustScraplingBytes.length,
-			sha256: createHash("sha256")
-				.update(rustScraplingBytes)
-				.digest("hex"),
+			sha256: createHash("sha256").update(rustScraplingBytes).digest("hex"),
 		},
 	};
 	writeFileSync(

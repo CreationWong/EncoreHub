@@ -1,0 +1,38 @@
+name: Roll component patch versions
+
+on:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version-roll-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  roll:
+    if: ${{ !contains(github.event.head_commit.message, '[skip version-roll]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Increment affected component patch tiers
+        run: node scripts/versioning.mjs auto --base HEAD^ --head HEAD
+      - name: Commit independent component versions
+        shell: bash
+        run: |
+          if git diff --quiet -- frontend/version.json gateway/internal/buildinfo/version.json engine/version.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/version.json gateway/internal/buildinfo/version.json engine/version.json
+          git commit -m "chore(version): roll component patch versions [skip version-roll]"
+          git push

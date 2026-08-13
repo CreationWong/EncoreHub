@@ -72,6 +72,7 @@ strip = true
 [package]
 name = "encorehub-engine"
 version.workspace = true
+build = "build.rs"
 edition.workspace = true
 license.workspace = true
 

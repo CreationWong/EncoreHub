@@ -11,15 +11,22 @@ import { useSettingsStore } from "../../stores/settingsStore";
 const getAppBuildInfo = vi.fn();
 const confirmAsk = vi.fn();
 
-vi.mock("../../services/appInfo", () => ({
-	browserBuildInfo: () => ({
-		version: "0.1.0",
-		debug_build: true,
-		target_os: "web",
-		target_arch: "browser",
-	}),
-	getAppBuildInfo: (...args: unknown[]) => getAppBuildInfo(...args),
-}));
+vi.mock("../../services/appInfo", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../services/appInfo")>();
+	return {
+		...actual,
+		browserBuildInfo: () => ({
+			version: "V0.1.0.0",
+			build_id: "260813600474",
+			public_version: "V0.1.0",
+			debug_build: true,
+			target_os: "web",
+			target_arch: "browser",
+		}),
+		getAppBuildInfo: (...args: unknown[]) => getAppBuildInfo(...args),
+	};
+});
 
 vi.mock("../../stores/confirmStore", () => ({
 	confirm: {
@@ -33,7 +40,9 @@ describe("AboutPanel", () => {
 	beforeEach(() => {
 		confirmAsk.mockReset().mockResolvedValue(true);
 		getAppBuildInfo.mockReset().mockResolvedValue({
-			version: "1.2.3",
+			version: "V1.2.3.4",
+			build_id: "260813600474",
+			public_version: "V1.2.3",
 			debug_build: true,
 			target_os: "windows",
 			target_arch: "x86_64",
@@ -50,7 +59,9 @@ describe("AboutPanel", () => {
 		render(<AboutPanel />);
 
 		await waitFor(() =>
-			expect(screen.getAllByText("1.2.3").length).toBeGreaterThan(0),
+			expect(
+				screen.getAllByText("V1.2.3.4 (Build 260813600474)").length,
+			).toBeGreaterThan(0),
 		);
 		expect(screen.getByText("Windows / x86_64")).toBeDefined();
 		expect(screen.getByText("Debug")).toBeDefined();

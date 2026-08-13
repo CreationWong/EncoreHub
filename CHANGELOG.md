@@ -1,11 +1,15 @@
 # Changelog
 
-EncoreHub 项目变更记录。日期均为 UTC。
+本文件记录 EncoreHub 的所有重要变更。
 
-## Unreleased — 2026-08-03
+格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
+版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。发布日期使用 UTC。
+
+## [Unreleased]
 
 ### Added
 
+- **独立组件版本与兼容性认证**：Frontend、Gateway、Engine 分别维护四段式版本及对端兼容范围；构建始终生成并展示共享 Build ID，正式界面省略提交位，开发者模式、错误和日志保留完整版本。程序启动时执行双向版本范围认证，不兼容或缺失版本元数据会阻止就绪；代码进入主干后仅自动递增受影响组件的提交位。
 - **数据管理**：设置新增 Data 页面，统计对话、消息、附件、记忆与 Knowledge 数据；支持按角色、对话、记忆和 Knowledge 原子数据域选择导出，并可逐项多选对话后只导出或原子删除所选对话。合并导入的版本化 JSON 备份不含配置和凭据，也可清空全部对话历史、清理搜索缓存和孤立附件 blob。依赖记录自动补齐，导入保持现有同 ID 数据，附件内容按 SHA-256 校验后写入。
 - **DuckDuckGo 组合搜索源**：单一 DuckDuckGo provider 并行请求 `https://html.duckduckgo.com/` 与 Instant Answer API；HTML 语法树提供设定数量的主要网页结果，Instant Answer 额外提供最多三条带类型标记的精选答案或摘要。任一路失败时保留另一侧结果并附带警告，历史 `duckduckgo_html` 设置自动迁移。
 - **结构化联网搜索与网页读取**：`web_search` 默认使用组合 DuckDuckGo，并支持自定义 SearXNG 与 OpenSERP JSON 接口；移除 Bing/Google HTML 抓取、通用 JSON 映射、关键词相关性猜测、CAPTCHA 和可见浏览器流程。`web_fetch` 继续通过 Curl 执行逐跳 SSRF、DNS 固定、重定向、超时和大小限制，再由独立打包的 RUSTScrapling 动态库提取 HTML 正文并以不可信数据边界交给模型。
@@ -29,6 +33,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 
 ### Fixed
 
+- **供应商名称输入**：新增供应商名称支持完整 UTF-8 文本和输入法组合输入，不再从显示名称生成 ASCII ID；供应商 ID 改为创建时自动生成的 UUID，中文等非拉丁名称可直接保存。
 - **工具后回复提前结束**：成功的 `web_search`/`web_fetch` 后允许模型继续使用受限的 `web_fetch` 从搜索结果或网页转向明确 API，并以执行层硬限制最多三次抓取、拒绝同一 URL 重复抓取；搜索失败且没有结果时不再开放 `web_fetch` 猜测地址。模型若只输出“我来抓取/搜索”等过渡句会自动纠正一次，不再保存为 Complete。Anthropic 流的 `max_tokens` 等真实结束原因也不会再被尾部通用 `stop` 覆盖。
 - **DuckDuckGo 零结果与空回复**：Instant Answer 没有精选摘要时继续使用同次组合请求的 HTML 网页结果，不再把单路零结果误报为整体失败；工具跟进的可见正文在协议清理后为空时不再以 Completed 保存。
 - **搜索 API 偶发连接超时**：搜索提供商请求预算提高到 15 秒，Curl 连接阶段不再被额外截断为 5 秒；网络失败现在以脱敏的超时、DNS、连接或 TLS 类别返回，不再统一显示无法诊断的 `Curl request failed`。
@@ -41,11 +46,9 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **模型发现提示**：端点返回成功状态但响应为空或不是受支持的 JSON 模型列表时，显示专属错误并保留本地模型。
 - **设置交互**：离开确认支持保存、放弃和取消三种结果，避免切换项目时静默丢失供应商配置。
 
-## Unreleased — 2026-06-16 / 2026-06-17
+## [0.1.0] - 2026-06-17
 
-> 一次密集开发会话的产出。所有 P0 阻塞问题修复，前端从骨架变成可用产品，三端测试覆盖从 0 起步至 60+ 个用例。
-
-### Added (2026-06-17)
+### Added
 
 - **engine**：`/health` 返回 JSON——`{status, service, version (CARGO_PKG_VERSION), database: {ok, latency_ms, error?}}`，db round-trip 用 `get_config("engine.version")`
 - **engine**：新 `PATCH /api/conversations/:id { title }` 支持会话重命名（auto-titling 之外的用户覆盖）
@@ -64,8 +67,6 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **frontend**：ConversationList 双击会话标题 inline 编辑（Enter 保存 / Esc 取消 / Blur 保存），乐观更新 + 失败回滚
 - **frontend**：Sidebar 一键主题切换（Sun/Moon 图标在 dark↔light 间循环；展开/折叠两态都有；system 留给 Settings 配）
 - **frontend tests**：MessageBubble 5（用户对齐 / markdown / 流式光标 / system fenced JSON / clipboard 复制）、ConversationList 5（rename Enter/Esc/blur + delete confirm）、Sidebar 4（theme cycle + Settings 入口）、InputBox 7（slash 菜单出现 / Tab 补全 / Arrow 导航 / Esc 清空 / plain Enter 发送 / 空 Enter no-op / 流式 Stop）、services/{skills,memories,knowledge} 12（URL/body 形状契约 + 编码）、services/conversation 6（list/get/create/delete/rename）、KnowledgePanel 4（list/ingest/search/delete + 响应类型 regression）、MemoryPanel 4（list/search/quote/delete）、SkillsPanel 4（list/toggle/回滚/empty）
-
-### Added (2026-06-16)
 
 - **gateway**：Prometheus `/metrics` 端点（`requests_total`、`request_duration_seconds`、`in_flight_requests`），按 gin 匹配路由打标签
 - **gateway**：`/api/v1/health` 增加引擎反向 ping，返回 `{engine: {url, ok, latency_ms}}`
@@ -103,6 +104,7 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - **frontend SSE**：`event: usage` 后跟的 `{"input_tokens":…}` 之前被当成正文 delta 拼接到回复里，污染对话；按 SSE spec 修正
 - **frontend InputBox**：中文输入法回车不再误发送（`isComposing` 检测）
 - **frontend**：流式中断后丢失内容——现在保留已生成 + `(stopped)` 标记入消息列表
+- **frontend Knowledge**：修正知识列表响应类型与 Engine 实际返回值不一致的问题，上传后的文档现在会立即显示。
 
 ### Security
 
@@ -110,22 +112,3 @@ EncoreHub 项目变更记录。日期均为 UTC。
 - CORS 不再 `*`，限制到 Tauri / `localhost:1420` 等 allowlist
 - API key 不再默认进 localStorage（XSS 隐患），等待接 Tauri stronghold/keyring
 - `/metrics` 公开（无 auth）——同 kube-prom 惯例；如部署在公网应用反代加 IP 白名单
-
-### Tests
-
-### Fixed (2026-06-17)
-
-- **frontend bug found by axum smoke test**：`KnowledgeListResponse` 前端类型 `{documents, total}` 与引擎实际响应（flat `Vec<DocumentResponse>`）不符，导致 Knowledge tab 上传后看不到自己的文档。Service 改为返回 `KnowledgeDoc[]`，Panel `setDocs(r)` 同步。
-
-### Tests
-
-| 模块 | 用例数 |
-|------|--------|
-| frontend (vitest) | 80 |
-| gateway/router | 11 |
-| gateway/provider/anthropic | 10 |
-| gateway/handler | 15 |
-| engine/api smoke | 7 |
-| engine/storage | 6 |
-| engine 单元（skill/migrations） | 2 |
-| **合计** | **131** |

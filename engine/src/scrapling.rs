@@ -170,8 +170,7 @@ unsafe fn load_dynamic_library(path: &Path) -> Result<Library, libloading::Error
     #[cfg(target_os = "windows")]
     {
         use libloading::os::windows::{Library as WindowsLibrary, LOAD_WITH_ALTERED_SEARCH_PATH};
-        return WindowsLibrary::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH)
-            .map(Into::into);
+        WindowsLibrary::load_with_flags(path, LOAD_WITH_ALTERED_SEARCH_PATH).map(Into::into)
     }
     #[cfg(not(target_os = "windows"))]
     {

@@ -65,6 +65,27 @@ These requirements apply to every repository-owned code file, including source c
 - **Review comments whenever behavior changes.** Update or remove stale comments in the same change, and treat inaccurate documentation as a defect.
 - **Update `CHANGELOG.md` for every new version, broad code update, or foundational refactor.** Record the user-visible or architectural outcome under the appropriate release and category. Do not use source comments as a substitute for the changelog, and do not add changelog entries for trivial comment-only or formatting-only edits.
 
+#### Changelog Policy
+
+- Follow [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
+- Keep exactly one `## [Unreleased]` section at the top of the release history. Never add a date or version number to `Unreleased`.
+- Use release headings in the form `## [MAJOR.MINOR.PATCH] - YYYY-MM-DD`. Dates are UTC and use ISO 8601 calendar format.
+- Use only the applicable standard categories, ordered as `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and `Security`. Omit empty categories and never duplicate a category within one release.
+- Write entries for users and maintainers: describe the observable behavior, compatibility impact, security outcome, or architectural boundary. Do not use commit-message fragments, implementation diaries, development-session summaries, or issue-status narration.
+- Keep each change in exactly one best-fit category. Put bug fixes in `Fixed`, including fixes discovered by tests; do not create a `Tests` category for test counts or coverage snapshots.
+- Do not record routine formatting, comment-only edits, generated-file refreshes with no behavioral impact, or other internal churn unless they materially affect consumers or release operations.
+- When cutting a release, move the relevant entries from `[Unreleased]` into a new versioned section and leave a fresh `[Unreleased]` section in place. Never rewrite the contents of an already published release except to correct factual errors.
+
+#### Component Version Policy
+
+- Version `frontend`, `gateway`, and `engine` independently. Their authoritative declarations are `frontend/version.json`, `gateway/internal/buildinfo/version.json`, and `engine/version.json`; do not derive one component's application version from Cargo, npm, or Tauri package versions.
+- Use `VMAJOR.COMPATIBILITY.FEATURE.PATCH` for component versions. `MAJOR` is a formal release generation changed only by an explicit developer decision. Increment `COMPATIBILITY` for compatibility, security, or major-feature changes; increment `FEATURE` for ordinary features, removals, UI changes, and bug fixes; reset every less-significant tier after either manual increment.
+- Treat `PATCH` as the mainline commit counter. Pushes to `main` or `master` automatically increment it only for affected components; shared release/build infrastructure increments all components. Version-roll commits must not recursively trigger another roll.
+- Generate every build ID as UTC `yyMMdd` followed by the final six digits of Unix epoch seconds. All components produced by one build share one Build ID, and every UI, diagnostic, manifest, health response, and startup log that displays a version must also display its Build ID.
+- In formal user-facing UI, display `VMAJOR.COMPATIBILITY.FEATURE (Build BUILD_ID)`. Display the full four-part version only in debug/developer mode, errors, and logs: `VMAJOR.COMPATIBILITY.FEATURE.PATCH (Build BUILD_ID)`. The Build ID is never hidden.
+- Each component must declare half-open compatible ranges (`min <= peer < max_exclusive`) for both peers. Startup/readiness must verify compatibility bilaterally: each component must accept the other's exact four-part version. Missing, malformed, or mutually incompatible metadata is a startup failure, not a retryable readiness state.
+- Use `pnpm version:show`, `pnpm version:bump -- COMPONENT TIER`, and `pnpm version:auto -- --base REF --head REF` for version operations. Do not edit compatibility ranges as a side effect of a tier bump; compatibility policy changes require deliberate review.
+
 Before completing a code change, verify that every touched code file has a meaningful file header, uses standard documentation comments for functions and declarations, meets the 40% per-file comment coverage threshold, contains no line-by-line narration or process-history artifacts, and includes a `CHANGELOG.md` entry when the change qualifies.
 
 ## Component Map

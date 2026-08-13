@@ -779,7 +779,7 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 
 /// Decode the strict lowercase/uppercase hexadecimal backup representation.
 pub fn decode_hex(value: &str) -> Result<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(EngineError::InvalidArgument("invalid hex payload".into()));
     }
     value

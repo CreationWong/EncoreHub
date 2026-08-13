@@ -20,6 +20,7 @@ import (
 	"time"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/buildinfo"
 	"com.0d000721.encorehub/gateway/internal/engine"
 	"com.0d000721.encorehub/gateway/internal/handler"
 	"com.0d000721.encorehub/gateway/internal/provider"
@@ -35,7 +36,9 @@ func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	log.Info().Msg("EncoreHub Gateway starting...")
+	identity := buildinfo.Current()
+	log.Info().Str("version", identity.Version).Str("build_id", identity.BuildID).
+		Msg("EncoreHub Gateway starting...")
 
 	// Configuration from environment
 	engineURL := os.Getenv("ENGINE_URL")
@@ -68,11 +71,18 @@ func main() {
 	engineReady := false
 	for attempt := 0; attempt < 10; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		err := engineClient.Readiness(ctx)
+		engineInfo, err := engineClient.ReadinessWithCompatibility(ctx)
 		cancel()
 		if err == nil {
+			log.Info().Str("engine_version", engineInfo.Version).Str("gateway_version", buildinfo.Current().Version).Msg("component versions compatible")
 			engineReady = true
 			break
+		}
+		var compatibilityError *engine.CompatibilityError
+		if errors.As(err, &compatibilityError) {
+			log.Fatal().Err(err).Str("gateway_version", identity.Version).
+				Str("gateway_build_id", identity.BuildID).
+				Msg("component version compatibility rejected")
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

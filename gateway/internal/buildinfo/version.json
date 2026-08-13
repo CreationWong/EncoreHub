@@ -1,0 +1,14 @@
+{
+	"component": "gateway",
+	"version": "V0.1.1.0",
+	"compatibility": {
+		"frontend": {
+			"min": "V0.1.0.0",
+			"max_exclusive": "V0.2.0.0"
+		},
+		"engine": {
+			"min": "V0.1.0.0",
+			"max_exclusive": "V0.2.0.0"
+		}
+	}
+}

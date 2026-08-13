@@ -10,6 +10,30 @@ const loadWebSearchSettings = vi.fn();
 const openSettings = vi.fn();
 const setFullCommunicationLogs = vi.fn();
 
+const compatibleHealth = {
+	version_info: {
+		component: "gateway",
+		version: "V0.1.0.0",
+		build_id: "260813600474",
+		compatibility: {
+			frontend: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+			engine: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+		},
+	},
+	engine: {
+		ok: true,
+		version_info: {
+			component: "engine",
+			version: "V0.1.0.0",
+			build_id: "260813600474",
+			compatibility: {
+				frontend: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+				gateway: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+			},
+		},
+	},
+};
+
 vi.mock("@tauri-apps/api/core", () => ({
 	invoke: (...args: unknown[]) => invoke(...args),
 }));
@@ -91,7 +115,7 @@ describe("App startup", () => {
 			"fetch",
 			vi.fn().mockResolvedValue({
 				ok: true,
-				json: async () => ({ engine: { ok: true } }),
+				json: async () => compatibleHealth,
 			}),
 		);
 	});
@@ -144,6 +168,33 @@ describe("App startup", () => {
 
 		render(<App />);
 		await waitFor(() => expect(fetch).toHaveBeenCalled());
+		expect(loadList).not.toHaveBeenCalled();
+		expect(loadProviders).not.toHaveBeenCalled();
+		expect(loadWebSearchSettings).not.toHaveBeenCalled();
+	});
+
+	it("blocks startup when component versions are mutually incompatible", async () => {
+		invoke.mockResolvedValue({ gateway_port: 10001 });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					...compatibleHealth,
+					version_info: {
+						...compatibleHealth.version_info,
+						version: "V0.2.0.0",
+					},
+				}),
+			}),
+		);
+
+		render(<App />);
+
+		await screen.findByText("Incompatible components");
+		expect(
+			screen.getByText(/gateway V0\.2\.0\.0 \(Build 260813600474\)/),
+		).toBeDefined();
 		expect(loadList).not.toHaveBeenCalled();
 		expect(loadProviders).not.toHaveBeenCalled();
 		expect(loadWebSearchSettings).not.toHaveBeenCalled();

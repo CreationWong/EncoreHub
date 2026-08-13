@@ -43,6 +43,7 @@
     ],
     "resources": {
       "../../skills/": "skills/",
+      "binaries/engine-runtime.json": "lib/engine-runtime.json",
       "binaries/gateway-runtime.json": "lib/gateway-runtime.json"
     },
     "windows": {

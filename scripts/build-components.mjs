@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveCargoTargetDir } from "./prepare-engine-runtime.mjs";
 import { resolveProtoc } from "./resolve-protoc.mjs";
+import { createBuildId } from "./versioning.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -130,7 +131,9 @@ function requireDesktopModules(release) {
 		rustScrapling.abiVersion !== 1 ||
 		rustScrapling.file !== rustScraplingLibraryName(target)
 	) {
-		throw new Error("Engine Runtime manifest has an incompatible RUSTScrapling module");
+		throw new Error(
+			"Engine Runtime manifest has an incompatible RUSTScrapling module",
+		);
 	}
 	const rustScraplingBytes = readFileSync(
 		path.join(binaries, rustScrapling.file),
@@ -142,7 +145,9 @@ function requireDesktopModules(release) {
 		rustScrapling.size !== rustScraplingBytes.length ||
 		rustScrapling.sha256 !== rustScraplingHash
 	) {
-		throw new Error("RUSTScrapling module does not match the Engine Runtime manifest");
+		throw new Error(
+			"RUSTScrapling module does not match the Engine Runtime manifest",
+		);
 	}
 	if (
 		!Array.isArray(engineManifest.nativeDependencies) ||
@@ -153,7 +158,9 @@ function requireDesktopModules(release) {
 	for (const dependency of engineManifest.nativeDependencies) {
 		const dependencyPath = path.join(binaries, "engine-native", dependency);
 		if (!existsSync(dependencyPath)) {
-			throw new Error(`Engine Runtime native dependency is missing: ${dependencyPath}`);
+			throw new Error(
+				`Engine Runtime native dependency is missing: ${dependencyPath}`,
+			);
 		}
 		const developmentDependencyPath = path.join(binaries, dependency);
 		if (!existsSync(developmentDependencyPath)) {
@@ -165,6 +172,8 @@ function requireDesktopModules(release) {
 }
 
 export function buildComponents(options) {
+	process.env.ENCOREHUB_BUILD_ID ??= createBuildId();
+	process.env.VITE_BUILD_ID ??= process.env.ENCOREHUB_BUILD_ID;
 	process.env.CARGO_TARGET_DIR = resolveCargoTargetDir(root);
 	const selected = new Set(options.components);
 	const profileFlag = options.release ? "--release" : "--debug";
@@ -201,7 +210,10 @@ export function buildComponents(options) {
 		run("node", ["scripts/prepare-gateway-sidecar.mjs", profileFlag]);
 	}
 	if (selected.has("frontend") && !selected.has("desktop")) {
-		run(pnpm, ["--dir", "frontend", "build"]);
+		run(pnpm, ["--dir", "frontend", "build"], root, {
+			...process.env,
+			VITE_BUILD_ID: process.env.ENCOREHUB_BUILD_ID,
+		});
 	}
 	if (selected.has("desktop")) {
 		requireDesktopModules(options.release);

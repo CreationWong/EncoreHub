@@ -6,6 +6,10 @@ import AppContextMenu from "./components/ui/AppContextMenu";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
 import WorkspaceSurface from "./components/workspace/WorkspaceSurface";
+import {
+	FRONTEND_VERSION_RECORD,
+	verifyMutualCompatibility,
+} from "./services/appInfo";
 import { applyServicePorts, gatewayReadinessUrl } from "./services/config";
 import { devtools, inTauri } from "./services/devtools";
 import { useCharacterManagerStore } from "./stores/characterManagerStore";
@@ -18,6 +22,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 type ServiceStatus = {
 	engine: boolean;
 	gateway: boolean;
+	compatibilityError?: string;
 };
 
 const CharacterManager = lazy(
@@ -47,6 +52,9 @@ export default function App() {
 		gateway: false,
 	});
 	const [checking, setChecking] = useState(true);
+	const [compatibilityError, setCompatibilityError] = useState<string | null>(
+		null,
+	);
 	const [portsReady, setPortsReady] = useState(() => !inTauri());
 
 	useEffect(() => {
@@ -135,8 +143,23 @@ export default function App() {
 				const res = await fetch(gatewayReadinessUrl());
 				if (res.ok) {
 					const body = await res.json().catch(() => null);
-					engineOk = body?.engine?.ok === true;
+					const gatewayInfo = body?.version_info;
+					const engineInfo = body?.engine?.version_info;
+					const frontendInfo = FRONTEND_VERSION_RECORD;
+					const compatibilityError =
+						gatewayInfo && engineInfo
+							? (verifyMutualCompatibility(frontendInfo, gatewayInfo) ??
+								verifyMutualCompatibility(frontendInfo, engineInfo) ??
+								verifyMutualCompatibility(gatewayInfo, engineInfo))
+							: "Version metadata unavailable";
+					engineOk = body?.engine?.ok === true && !compatibilityError;
 					gatewayOk = engineOk;
+					if (compatibilityError) {
+						console.error("Version compatibility failed", compatibilityError);
+						setCompatibilityError(compatibilityError);
+						setChecking(false);
+						return;
+					}
 				}
 			} catch {
 				/* not ready */
@@ -180,6 +203,22 @@ export default function App() {
 		loadKeys,
 		loadWebSearchSettings,
 	]);
+
+	if (compatibilityError) {
+		return (
+			<div className="flex h-screen items-center justify-center bg-app-canvas p-6 text-text-primary">
+				<div className="max-w-lg text-center">
+					<WifiOff className="mx-auto h-9 w-9 text-danger" />
+					<h2 className="mt-4 text-lg font-semibold">
+						Incompatible components
+					</h2>
+					<p className="mt-2 text-sm text-text-secondary">
+						{compatibilityError}
+					</p>
+				</div>
+			</div>
+		);
+	}
 
 	// Splash screen while waiting for backend
 	if (checking) {

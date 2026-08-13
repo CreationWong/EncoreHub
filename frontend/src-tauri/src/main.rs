@@ -5,6 +5,7 @@ mod engine_runtime;
 mod log_layer;
 mod logs;
 mod runtime_paths;
+mod version_compatibility;
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -28,6 +29,7 @@ use runtime_paths::legacy_migration::migrate_legacy_runtime;
 use runtime_paths::RuntimePaths;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use version_compatibility::verify_packaged_components;
 
 /// Default starting port for auto-negotiation in Tauri / client mode.
 const CLIENT_PORT_START: u16 = 10000;
@@ -664,6 +666,7 @@ fn main() {
             let runtime_paths = RuntimePaths::prepare(&app_data_dir, &resource_dir)?;
             let logs = Arc::new(LogBuffer::with_log_dir(runtime_paths.logs.clone()));
             install_logging(logs.clone());
+            verify_packaged_components(&resource_dir).map_err(std::io::Error::other)?;
             let engine_library =
                 EngineRuntimeLibrary::load(&resource_dir).map_err(std::io::Error::other)?;
 
@@ -701,6 +704,11 @@ fn main() {
             tracing::info!("EncoreHub app data: {:?}", app_data_dir);
             tracing::info!("EncoreHub log directory: {:?}", runtime_paths.logs);
             tracing::info!("EncoreHub resources: {:?}", resource_dir);
+            tracing::info!(
+                version = env!("ENCOREHUB_VERSION"),
+                build_id = env!("ENCOREHUB_BUILD_ID"),
+                "EncoreHub Desktop starting"
+            );
             tracing::info!("Engine Runtime library: {:?}", engine_library.path());
             tracing::info!("Ports: engine={engine_port} gateway={gateway_port}");
 

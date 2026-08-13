@@ -62,9 +62,14 @@ async fn main() -> anyhow::Result<()> {
             .map_err(|e| e.to_string())
     });
 
-    tracing::info!("EncoreHub Engine starting...");
+    let identity = encorehub_engine::version::current();
+    tracing::info!(
+        version = identity.version,
+        build_id = identity.build_id.as_deref().unwrap_or("unknown"),
+        "EncoreHub Engine starting..."
+    );
 
-    db.set_config("engine.version", r#""0.2.0""#)?;
+    db.set_config("engine.version", &serde_json::to_string(&identity.version)?)?;
     tracing::info!("Database ready");
 
     // Skills

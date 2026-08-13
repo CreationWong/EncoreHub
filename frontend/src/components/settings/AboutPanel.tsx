@@ -5,6 +5,7 @@ import appIcon from "../../../src-tauri/icons/128x128.png";
 import {
 	type AppBuildInfo,
 	browserBuildInfo,
+	formatDisplayVersion,
 	getAppBuildInfo,
 } from "../../services/appInfo";
 import { confirm } from "../../stores/confirmStore";
@@ -69,7 +70,11 @@ export default function AboutPanel() {
 						Multi-provider AI desktop client
 					</p>
 					<p className="mt-1 font-mono text-xs text-text-muted">
-						Version {info.version}
+						{formatDisplayVersion(
+							info.version,
+							info.build_id,
+							info.debug_build || devMode,
+						)}
 					</p>
 				</div>
 			</section>
@@ -91,7 +96,11 @@ export default function AboutPanel() {
 					<div className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-1 py-3 sm:border-r sm:pr-5 max-[760px]:border-r-0">
 						<dt className="text-text-muted">Version</dt>
 						<dd className="font-mono text-xs text-text-primary">
-							{info.version}
+							{formatDisplayVersion(
+								info.version,
+								info.build_id,
+								info.debug_build || devMode,
+							)}
 						</dd>
 					</div>
 					<div className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-1 py-3 sm:pl-5 max-[760px]:pl-1">

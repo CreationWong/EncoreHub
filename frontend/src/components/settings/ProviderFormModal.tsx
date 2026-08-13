@@ -1,3 +1,4 @@
+// Owns the first step of custom provider creation and its immutable identity.
 import { Braces, MessageSquareText, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { API_FORMATS } from "../../constants/providers";
@@ -13,21 +14,22 @@ interface Props {
 	onClose: () => void;
 }
 
-// Slugify a display name into a stable id (lowercase, dashes). ids are immutable
-// once created so chat history keeps resolving.
-function slugify(name: string): string {
-	return name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
+/** Generate an opaque UUID v4 so display names retain their full Unicode text. */
+function createProviderId(): string {
+	if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+
+	const bytes = crypto.getRandomValues(new Uint8Array(16));
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+	return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
 /**
  * Minimal "Add provider" dialog: only the display name and the API format
  * (protocol). Endpoint, key, and models are configured afterwards in the
- * detail panel, so this stays focused on the one irreversible choice (id +
- * protocol).
+ * detail panel, so this stays focused on the display name and protocol. The
+ * immutable provider id is an opaque UUID generated at creation time.
  */
 export default function ProviderFormModal({ onCreated, onClose }: Props) {
 	const profiles = useProviderStore((s) => s.profiles);
@@ -42,14 +44,9 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 			setError("Name is required");
 			return;
 		}
-		const id = slugify(trimmedName);
-		if (!id) {
-			setError("Name must contain at least one letter or number");
-			return;
-		}
-		if (profiles.some((p) => p.id === id)) {
-			setError(`A provider with id "${id}" already exists`);
-			return;
+		let id = createProviderId();
+		while (profiles.some((profile) => profile.id === id)) {
+			id = createProviderId();
 		}
 
 		// A draft with empty base_url/models — the detail panel fills those in
@@ -111,18 +108,15 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							onKeyDown={(e) => {
-								if (e.key === "Enter") handleSubmit();
+								if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+									handleSubmit();
+								}
 							}}
 							placeholder="My Provider"
 							// biome-ignore lint/a11y/noAutofocus: single-field dialog, keyboard-first
 							autoFocus
 							className="mt-1.5 w-full rounded-md border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
 						/>
-						{name.trim() && (
-							<p className="mt-1 text-[11px] text-text-muted">
-								id: {slugify(name) || "—"}
-							</p>
-						)}
 					</div>
 
 					<fieldset className="m-0 border-0 p-0">

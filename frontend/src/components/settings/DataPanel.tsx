@@ -299,6 +299,7 @@ export default function DataPanel() {
 								>
 									<input
 										type="checkbox"
+										autoComplete="off"
 										checked={selectedDomains.includes(id)}
 										onChange={() => toggleDomain(id)}
 										className="mt-0.5 h-3.5 w-3.5 accent-accent"
@@ -337,6 +338,7 @@ export default function DataPanel() {
 						<input
 							ref={fileInput}
 							type="file"
+							autoComplete="off"
 							accept="application/json,.json"
 							className="sr-only"
 							onChange={(event) => {
@@ -457,6 +459,7 @@ export default function DataPanel() {
 								>
 									<input
 										type="checkbox"
+										autoComplete="off"
 										checked={selectedConversations.includes(conversation.id)}
 										onChange={() => toggleConversation(conversation.id)}
 										className="h-3.5 w-3.5 accent-accent"

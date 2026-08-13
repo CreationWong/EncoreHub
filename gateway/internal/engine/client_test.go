@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -104,7 +105,7 @@ func TestClientAddsInternalBearerToEveryRequestPath(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/health/ready" {
-			_, _ = io.WriteString(w, `{"status":"ok","database":{"ok":true}}`)
+			_, _ = io.WriteString(w, `{"status":"ok","database":{"ok":true},"version_info":{"component":"engine","version":"V0.1.0.0","build_id":"260813600474","compatibility":{"gateway":{"min":"V0.1.0.0","max_exclusive":"V0.2.0.0"},"frontend":{"min":"V0.1.0.0","max_exclusive":"V0.2.0.0"}}}}`)
 			return
 		}
 		if r.URL.Path == "/api/secrets/openai" {
@@ -170,5 +171,23 @@ func TestReadinessRejectsDatabaseFalseOnHTTP200(t *testing.T) {
 	err := client.Readiness(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "database") {
 		t.Fatalf("expected database readiness error, got %v", err)
+	}
+}
+
+func TestReadinessWithCompatibilityRejectsIncompatibleEngine(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/ready" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"ok","database":{"ok":true},"version_info":{"component":"engine","version":"V0.2.0.0","build_id":"260813600474","compatibility":{"gateway":{"min":"V0.2.0.0","max_exclusive":"V0.3.0.0"},"frontend":{"min":"V0.2.0.0","max_exclusive":"V0.3.0.0"}}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "internal-engine-token")
+	_, err := client.ReadinessWithCompatibility(context.Background())
+	var compatibilityError *CompatibilityError
+	if !errors.As(err, &compatibilityError) {
+		t.Fatalf("expected CompatibilityError, got %v", err)
 	}
 }

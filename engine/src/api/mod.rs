@@ -15,6 +15,7 @@ mod usage;
 
 use crate::crypto::MasterKey;
 use crate::logging::LogControl;
+use crate::version::VersionRecord;
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, State},
@@ -70,6 +71,7 @@ struct HealthResponse {
     service: &'static str,
     version: &'static str,
     database: DatabaseStatus,
+    version_info: VersionRecord,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +79,7 @@ struct LivenessResponse {
     status: &'static str,
     service: &'static str,
     version: &'static str,
+    version_info: VersionRecord,
 }
 
 pub fn build_router(
@@ -349,6 +352,7 @@ async fn liveness_check() -> Json<LivenessResponse> {
         status: "ok",
         service: "encorehub-engine",
         version: env!("CARGO_PKG_VERSION"),
+        version_info: crate::version::current(),
     })
 }
 
@@ -384,6 +388,7 @@ async fn readiness_check(State(state): State<SharedState>) -> (StatusCode, Json<
             service: "encorehub-engine",
             version: env!("CARGO_PKG_VERSION"),
             database: db,
+            version_info: crate::version::current(),
         }),
     )
 }

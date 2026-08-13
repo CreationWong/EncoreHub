@@ -15,6 +15,7 @@ import (
 	"time"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/buildinfo"
 	"com.0d000721.encorehub/gateway/internal/diagnostics"
 	"com.0d000721.encorehub/gateway/internal/search"
 )
@@ -76,6 +77,23 @@ type Client struct {
 	internalAuthToken string
 	httpClient        *http.Client
 	privateHTTPClient *http.Client
+}
+
+// EngineVersionInfo is the authenticated Engine identity returned by readiness.
+type EngineVersionInfo struct {
+	Component     string                     `json:"component"`
+	Version       string                     `json:"version"`
+	BuildID       string                     `json:"build_id"`
+	Compatibility map[string]buildinfo.Range `json:"compatibility"`
+}
+
+// CompatibilityError marks a version mismatch that retries cannot repair.
+type CompatibilityError struct {
+	Reason string
+}
+
+func (e *CompatibilityError) Error() string {
+	return "engine version compatibility failed: " + e.Reason
 }
 
 // HTTPError preserves the Engine status for Gateway policy without requiring
@@ -290,6 +308,39 @@ func (c *Client) Readiness(ctx context.Context) error {
 		return fmt.Errorf("engine database is not ready")
 	}
 	return nil
+}
+
+// ReadinessWithCompatibility checks Engine readiness and both peer declarations.
+func (c *Client) ReadinessWithCompatibility(ctx context.Context) (EngineVersionInfo, error) {
+	var response struct {
+		Status      string            `json:"status"`
+		Database    struct{ OK bool } `json:"database"`
+		VersionInfo EngineVersionInfo `json:"version_info"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, "/health/ready", nil, &response); err != nil {
+		return EngineVersionInfo{}, err
+	}
+	if response.Status != "ok" || !response.Database.OK {
+		return EngineVersionInfo{}, fmt.Errorf("engine database is not ready")
+	}
+	local := buildinfo.Current()
+	remote := buildinfo.Record{
+		Component:     response.VersionInfo.Component,
+		Version:       response.VersionInfo.Version,
+		BuildID:       response.VersionInfo.BuildID,
+		Compatibility: response.VersionInfo.Compatibility,
+	}
+	if err := buildinfo.VerifyMutual(local, remote); err != nil {
+		return response.VersionInfo, &CompatibilityError{Reason: fmt.Sprintf(
+			"%v; gateway %s (Build %s), engine %s (Build %s)",
+			err,
+			local.Version,
+			local.BuildID,
+			remote.Version,
+			remote.BuildID,
+		)}
+	}
+	return response.VersionInfo, nil
 }
 
 // Health is the compatibility name for readiness used by older internal code.

@@ -58,7 +58,7 @@ func TestGatewayReadinessPropagatesEngineDatabaseState(t *testing.T) {
 				if test.databaseOK {
 					status = "ok"
 				}
-				_, _ = io.WriteString(w, `{"status":"`+status+`","database":{"ok":`+boolString(test.databaseOK)+`}}`)
+				_, _ = io.WriteString(w, `{"status":"`+status+`","database":{"ok":`+boolString(test.databaseOK)+`},"version_info":{"component":"engine","version":"V0.1.0.0","build_id":"260813600474","compatibility":{"gateway":{"min":"V0.1.0.0","max_exclusive":"V0.2.0.0"},"frontend":{"min":"V0.1.0.0","max_exclusive":"V0.2.0.0"}}}}`)
 			}))
 			t.Cleanup(server.Close)
 			handler := NewHealthHandler(engine.NewClient(server.URL, "token"))

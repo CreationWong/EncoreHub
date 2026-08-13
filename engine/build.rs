@@ -1,3 +1,4 @@
+// Injects the Engine's independent version identity into every Cargo target.
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -27,19 +28,18 @@ fn build_id_now() -> String {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=../version.json");
+    println!("cargo:rerun-if-changed=version.json");
     println!("cargo:rerun-if-env-changed=ENCOREHUB_BUILD_ID");
-    let declaration = fs::read_to_string("../version.json")
-        .expect("frontend/version.json must be available during Tauri build");
+    let declaration = fs::read_to_string("version.json")
+        .expect("engine/version.json must be available during Cargo build");
     let version = declaration
         .split("\"version\": \"")
         .nth(1)
         .and_then(|value| value.split('"').next())
-        .expect("frontend version declaration must contain version");
-    println!("cargo:rustc-env=ENCOREHUB_VERSION={version}");
+        .expect("engine version declaration must contain version");
+    println!("cargo:rustc-env=ENCOREHUB_ENGINE_VERSION={version}");
     println!(
         "cargo:rustc-env=ENCOREHUB_BUILD_ID={}",
         std::env::var("ENCOREHUB_BUILD_ID").unwrap_or_else(|_| build_id_now())
     );
-    tauri_build::build()
 }

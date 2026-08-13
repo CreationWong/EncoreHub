@@ -21,6 +21,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
 	FALLBACK_APP_VERSION,
 	browserBuildInfo,
+	formatDisplayVersion,
 	getAppBuildInfo,
 } from "./appInfo";
 
@@ -34,6 +35,7 @@ describe("appInfo", () => {
 	it("provides package metadata in a plain browser", async () => {
 		expect(browserBuildInfo()).toMatchObject({
 			version: FALLBACK_APP_VERSION,
+			build_id: expect.stringMatching(/^\d{12}$/),
 			target_os: "web",
 			target_arch: "browser",
 		});
@@ -48,6 +50,8 @@ describe("appInfo", () => {
 		mocks.desktop = true;
 		mocks.invoke.mockResolvedValue({
 			version: "1.2.3",
+			build_id: "260813600474",
+			public_version: "V1.2.3",
 			debug_build: false,
 			target_os: "windows",
 			target_arch: "x86_64",
@@ -55,11 +59,22 @@ describe("appInfo", () => {
 
 		await expect(getAppBuildInfo()).resolves.toEqual({
 			version: "1.2.3",
+			build_id: "260813600474",
+			public_version: "V1.2.3",
 			debug_build: false,
 			target_os: "windows",
 			target_arch: "x86_64",
 		});
 		expect(mocks.invoke).toHaveBeenCalledWith("get_app_info");
+	});
+
+	it("always shows Build ID while hiding patch tier outside diagnostics", () => {
+		expect(formatDisplayVersion("V0.1.25.142", "260813600474", false)).toBe(
+			"V0.1.25 (Build 260813600474)",
+		);
+		expect(formatDisplayVersion("V0.1.25.142", "260813600474", true)).toBe(
+			"V0.1.25.142 (Build 260813600474)",
+		);
 	});
 
 	it("falls back without failing when an older desktop lacks the command", async () => {

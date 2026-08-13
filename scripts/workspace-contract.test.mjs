@@ -103,6 +103,38 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	assert.doesNotMatch(readme, /\bmake (dev|build|check|test|lint|fmt)\b/);
 });
 
+test("Independent component versions retain compatibility and mainline roll contracts", async () => {
+	const [frontend, gateway, engine, workflow, packageText] = await Promise.all([
+		read("frontend/version.json"),
+		read("gateway/internal/buildinfo/version.json"),
+		read("engine/version.json"),
+		read(".github/workflows/version-roll.yml"),
+		read("package.json"),
+	]);
+	const records = [frontend, gateway, engine].map(JSON.parse);
+	for (const record of records) {
+		assert.match(record.version, /^V\d+\.\d+\.\d+\.\d+$/);
+		const peers = records.filter((peer) => peer.component !== record.component);
+		for (const peer of peers) {
+			assert.match(
+				record.compatibility[peer.component].min,
+				/^V\d+\.\d+\.\d+\.\d+$/,
+			);
+			assert.match(
+				record.compatibility[peer.component].max_exclusive,
+				/^V\d+\.\d+\.\d+\.\d+$/,
+			);
+		}
+	}
+	assert.match(workflow, /branches: \[master, main\]/);
+	assert.match(workflow, /versioning\.mjs auto --base HEAD\^ --head HEAD/);
+	assert.match(workflow, /\[skip version-roll\]/);
+	const scripts = JSON.parse(packageText).scripts;
+	assert.match(scripts["version:show"], /versioning\.mjs show/);
+	assert.match(scripts["version:bump"], /versioning\.mjs bump/);
+	assert.match(scripts["version:auto"], /versioning\.mjs auto/);
+});
+
 test("Frontend keeps non-critical features outside the initial module graph", async () => {
 	const [
 		app,
@@ -204,7 +236,10 @@ test("Desktop keeps mutable state in app data and bundles readonly skills", asyn
 	assert.doesNotMatch(runtimePaths, /allow\(dead_code\)/);
 	const config = JSON.parse(tauriConfig);
 	assert.equal(config.bundle.resources?.["../../skills/"], "skills/");
-	assert.equal(config.bundle.resources?.["resources/document-parser/"], undefined);
+	assert.equal(
+		config.bundle.resources?.["resources/document-parser/"],
+		undefined,
+	);
 });
 
 test("Document processing stays native to Rust without a Python runtime", async () => {
@@ -344,7 +379,10 @@ test("Local build workflows keep Tauri development outside timed release steps",
 		powershell,
 		/if \(\$Debug\) \{\s*Write-BuildSummary "Preparation complete"\s*Start-TauriDevelopment/,
 	);
-	assert.doesNotMatch(powershell, /Prepare-DocumentParser|pyoxidizer|prepare:parser/);
+	assert.doesNotMatch(
+		powershell,
+		/Prepare-DocumentParser|pyoxidizer|prepare:parser/,
+	);
 	assert.match(
 		powershell,
 		/if \(\$Tauri -and -not \$Debug\) \{[\s\S]*?MSI:[\s\S]*?NSIS:/,
@@ -353,7 +391,10 @@ test("Local build workflows keep Tauri development outside timed release steps",
 	assert.doesNotMatch(powershell, /\$\{function:Build-(?:Engine|Gateway)\}/);
 
 	assert.doesNotMatch(shell, /time_step[^\n]*run_tauri_development/);
-	assert.doesNotMatch(shell, /prepare_document_parser|pyoxidizer|prepare:parser/);
+	assert.doesNotMatch(
+		shell,
+		/prepare_document_parser|pyoxidizer|prepare:parser/,
+	);
 	assert.match(
 		shell,
 		/if \[ "\$DEBUG_BUILD" = true \]; then\s*print_summary "Preparation complete"\s*run_tauri_development/,
@@ -381,20 +422,19 @@ test("Desktop loads a versioned cross-platform Engine Runtime module", async () 
 		linux,
 		macos,
 		rootPackage,
-	] =
-		await Promise.all([
-			read("frontend/src-tauri/Cargo.toml"),
-			read("frontend/src-tauri/src/main.rs"),
-			read("frontend/src-tauri/src/engine_runtime.rs"),
-			read("engine/crates/desktop-runtime/Cargo.toml"),
-			read("engine/crates/desktop-runtime/src/lib.rs"),
-			read("engine/crates/rust-scrapling-runtime/Cargo.toml"),
-			read("engine/crates/rust-scrapling-runtime/src/lib.rs"),
-			read("frontend/src-tauri/tauri.windows.conf.json"),
-			read("frontend/src-tauri/tauri.linux.conf.json"),
-			read("frontend/src-tauri/tauri.macos.conf.json"),
-			read("package.json"),
-		]);
+	] = await Promise.all([
+		read("frontend/src-tauri/Cargo.toml"),
+		read("frontend/src-tauri/src/main.rs"),
+		read("frontend/src-tauri/src/engine_runtime.rs"),
+		read("engine/crates/desktop-runtime/Cargo.toml"),
+		read("engine/crates/desktop-runtime/src/lib.rs"),
+		read("engine/crates/rust-scrapling-runtime/Cargo.toml"),
+		read("engine/crates/rust-scrapling-runtime/src/lib.rs"),
+		read("frontend/src-tauri/tauri.windows.conf.json"),
+		read("frontend/src-tauri/tauri.linux.conf.json"),
+		read("frontend/src-tauri/tauri.macos.conf.json"),
+		read("package.json"),
+	]);
 	assert.doesNotMatch(cargo, /encorehub-engine\s*=/);
 	assert.match(cargo, /libloading/);
 	assert.match(main, /EngineRuntimeLibrary::load/);
@@ -493,18 +533,17 @@ test("Local builds resolve a vendored protoc without a global installation", asy
 		runtimeBuilder,
 		componentBuilder,
 		rootPackage,
-	] =
-		await Promise.all([
-			read("scripts/build.ps1"),
-			read("scripts/build.sh"),
-			read("engine/Cargo.toml"),
-			read("engine/crates/protoc-resolver/Cargo.toml"),
-			read("engine/crates/protoc-resolver/src/main.rs"),
-			read("scripts/resolve-protoc.mjs"),
-			read("scripts/prepare-engine-runtime.mjs"),
-			read("scripts/build-components.mjs"),
-			read("package.json"),
-		]);
+	] = await Promise.all([
+		read("scripts/build.ps1"),
+		read("scripts/build.sh"),
+		read("engine/Cargo.toml"),
+		read("engine/crates/protoc-resolver/Cargo.toml"),
+		read("engine/crates/protoc-resolver/src/main.rs"),
+		read("scripts/resolve-protoc.mjs"),
+		read("scripts/prepare-engine-runtime.mjs"),
+		read("scripts/build-components.mjs"),
+		read("package.json"),
+	]);
 
 	assert.match(cargo, /"crates\/protoc-resolver"/);
 	assert.match(resolverCargo, /protoc-bin-vendored/);
@@ -520,10 +559,7 @@ test("Local builds resolve a vendored protoc without a global installation", asy
 	assert.match(runtimeBuilder, /PROTOC: resolveProtoc\(root\)/);
 	assert.match(componentBuilder, /PROTOC: resolveProtoc\(root\)/);
 	for (const name of ["check:engine", "test:engine", "lint:engine"]) {
-		assert.match(
-			JSON.parse(rootPackage).scripts[name],
-			/run-with-protoc\.mjs/,
-		);
+		assert.match(JSON.parse(rootPackage).scripts[name], /run-with-protoc\.mjs/);
 	}
 });
 
@@ -586,6 +622,9 @@ test("Workspace has no Python data service or Chroma deployment contract", async
 	assert.equal(scripts["check:data"], undefined);
 	assert.equal(scripts["test:data"], undefined);
 	assert.equal(scripts["lint:data"], undefined);
-	assert.doesNotMatch(`${ci}\n${workflow}`, /setup-python|data-services|chroma/i);
+	assert.doesNotMatch(
+		`${ci}\n${workflow}`,
+		/setup-python|data-services|chroma/i,
+	);
 	assert.match(`${ci}\n${workflow}`, /arduino\/setup-protoc@v3/);
 });
