@@ -34,6 +34,7 @@ A cross-platform AI chat desktop app that aggregates multiple AI providers — w
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Engine-orange?logo=rust&logoColor=white" />
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-LanceDB-003B57?logo=sqlite&logoColor=white" />
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" />
+  <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" />
 </p>
 
 ---
@@ -210,4 +211,4 @@ CI configuration lives in `.github/workflows/ci.yml` and covers Docs, Frontend, 
 
 ## License
 
-Private repository. All rights reserved.
+[Apache License 2.0](LICENSE) · Copyright © 2026 [CreationWong](mailto:creationwong@outlook.com)
