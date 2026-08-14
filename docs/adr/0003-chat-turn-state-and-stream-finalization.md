@@ -23,8 +23,12 @@ provider failures, interrupted streams, user Stop, and Engine write failures.
 The persisted user message is the turn root and its message ID is the turn ID.
 Every message has a status:
 
-```text
-pending -> completed | failed | stopped
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> completed
+    pending --> failed
+    pending --> stopped
 ```
 
 Existing and non-chat messages migrate as `completed`. New user turn roots are

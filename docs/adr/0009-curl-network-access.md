@@ -36,16 +36,16 @@ silent provider downgrade.
 
 Page retrieval is composed from two modules:
 
-```text
-Gateway web_search / web_fetch
-              |
-              | authenticated loopback HTTP
-              v
-Engine Runtime (.dll / .so / .dylib)
-              |
-              +---- Curl: request, DNS, redirect, timeout, byte limit
-              |
-              +---- RUSTScrapling companion: bounded HTML extraction only
+```mermaid
+flowchart TB
+    GW["Gateway web_search / web_fetch"]
+    EN["Engine Runtime (.dll / .so / .dylib)"]
+    CURL["Curl: request, DNS, redirect, timeout, byte limit"]
+    SCRAP["RUSTScrapling companion: bounded HTML extraction only"]
+
+    GW -- "authenticated loopback HTTP" --> EN
+    EN --> CURL
+    EN --> SCRAP
 ```
 
 `POST /api/network/fetch` accepts bounded HTTP(S) GET requests from the

@@ -21,37 +21,21 @@
 
 ## 二、技术架构总览
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      前端 (TypeScript)                       │
-│          React 18 + Tauri 2.x + TailwindCSS                 │
-│              桌面端 (Win/Mac/Linux) + Web 端                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP/WS/gRPC
-┌──────────────────────────▼──────────────────────────────────┐
-│                   API 网关 (Go)                              │
-│   路由 · 认证 · 限流 · 协议转换 · 供应商适配                   │
-│   Gin/Echo + gRPC + WebSocket                               │
-└───────┬──────────────────┬──────────────────┬───────────────┘
-        │                  │                  │
-┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────────┐
-│  核心引擎     │  │   数据处理      │  │   外部 AI 供应商     │
-│  (Rust)      │  │ (Rust 进程内)    │  │   OpenAI            │
-│              │  │                 │  │   Anthropic         │
-│ · 对话管理    │  │ · 文档解析      │  │   Google Gemini     │
-│ · 记忆系统    │  │ · 嵌入生成      │  │   DeepSeek          │
-│ · 知识库      │  │ · RAG 管线      │  │   Ollama (本地)     │
-│ · 网络搜索    │  │ · 网络搜索抓取   │  │   通义千问           │
-│ · MCP 服务    │  │ · 数据分析      │  │   ...更多            │
-│ · Skill 引擎  │  │ · 内容摘要      │  │                     │
-│ · Plugin 系统 │  │                 │  │                     │
-│ · OS 交互层   │  │                 │  │                     │
-└──────────────┘  └────────────────┘  └─────────────────────┘
-        │                  │
-┌───────▼──────────────────▼──────────┐
-│            存储层                    │
-│   SQLite (结构化数据) + LanceDB (向量) │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    FE["前端 (TypeScript)<br/>React 18 + Tauri 2.x + TailwindCSS<br/>桌面端 (Win/Mac/Linux) + Web 端"]
+    GW["API 网关 (Go)<br/>路由 · 认证 · 限流 · 协议转换 · 供应商适配<br/>Gin/Echo + gRPC + WebSocket"]
+    EN["核心引擎 (Rust)<br/>对话管理 · 记忆系统 · 知识库 · 网络搜索<br/>MCP 服务 · Skill 引擎 · Plugin 系统 · OS 交互层"]
+    DP["数据处理 (Rust 进程内)<br/>文档解析 · 嵌入生成 · RAG 管线<br/>网络搜索抓取 · 数据分析 · 内容摘要"]
+    PROV["外部 AI 供应商<br/>OpenAI · Anthropic · Google Gemini<br/>DeepSeek · Ollama (本地) · 通义千问 · ...更多"]
+    STORE["存储层<br/>SQLite (结构化数据) + LanceDB (向量)"]
+
+    FE -- "HTTP/WS/gRPC" --> GW
+    GW --> EN
+    GW --> DP
+    GW --> PROV
+    EN --> STORE
+    DP --> STORE
 ```
 
 ### 2.1 技术选型理由
@@ -266,40 +250,18 @@ engine/
 
 记忆分为两大作用域：**对话记忆**（Conversation Memory，绑定到单次对话）和 **全局记忆**（Global Memory，跨对话共享）。
 
-```
-记忆体系全景：
-┌─────────────────────────────────────────────────────────────┐
-│                    全局记忆 (Global Memory)                   │
-│              跨对话 · 持久化 · 用户级别 · LanceDB              │
-├─────────────────────────────────────────────────────────────┤
-│  Semantic Memory (语义记忆)                                   │
-│  · 用户偏好、习惯、身份信息、长期知识                            │
-│  · 结构化存储（实体-关系-值），支持图谱查询                       │
-│  · 自动提取 + 用户手动添加，持久化到 SQLite + LanceDB           │
-├─────────────────────────────────────────────────────────────┤
-│  Episodic Memory (情景记忆)                                   │
-│  · 历史重要对话片段摘要，带时间戳和重要性评分                      │
-│  · 向量嵌入存入 LanceDB，元数据存入 SQLite                      │
-│  · 检索触发：当前对话关键词/语义相似度召回历史片段                  │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                   对话记忆 (Conversation Memory)              │
-│             单对话 · 临时 · 会话级别 · 内存 + SQLite            │
-├─────────────────────────────────────────────────────────────┤
-│  Working Memory (工作记忆)                                    │
-│  · 当前对话的完整消息列表，Token 窗口管理                        │
-│  · 最近 N 轮对话完整保留在内存中                                │
-│  · 超出窗口的消息压缩为摘要存入 SQLite                          │
-├─────────────────────────────────────────────────────────────┤
-│  Conversation Summary (对话摘要)                              │
-│  · 长对话自动生成滚动摘要，注入系统提示                          │
-│  · 存储于 SQLite conversations 表                             │
-├─────────────────────────────────────────────────────────────┤
-│  Pinned Messages (钉选消息)                                   │
-│  · 用户在对话中手动钉选的重要消息，始终注入上下文                   │
-│  · 存储于 SQLite pinned_messages 表                           │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph GLOBAL["全局记忆 (Global Memory) — 跨对话 · 持久化 · 用户级别 · LanceDB"]
+        SEM["Semantic Memory (语义记忆)<br/>· 用户偏好、习惯、身份信息、长期知识<br/>· 结构化存储（实体-关系-值），支持图谱查询<br/>· 自动提取 + 用户手动添加，持久化到 SQLite + LanceDB"]
+        EPI["Episodic Memory (情景记忆)<br/>· 历史重要对话片段摘要，带时间戳和重要性评分<br/>· 向量嵌入存入 LanceDB，元数据存入 SQLite<br/>· 检索触发：当前对话关键词/语义相似度召回历史片段"]
+    end
+    subgraph CONV["对话记忆 (Conversation Memory) — 单对话 · 临时 · 会话级别 · 内存 + SQLite"]
+        WORK["Working Memory (工作记忆)<br/>· 当前对话的完整消息列表，Token 窗口管理<br/>· 最近 N 轮对话完整保留在内存中<br/>· 超出窗口的消息压缩为摘要存入 SQLite"]
+        SUM["Conversation Summary (对话摘要)<br/>· 长对话自动生成滚动摘要，注入系统提示<br/>· 存储于 SQLite conversations 表"]
+        PIN["Pinned Messages (钉选消息)<br/>· 用户在对话中手动钉选的重要消息，始终注入上下文<br/>· 存储于 SQLite pinned_messages 表"]
+    end
+    GLOBAL -.-> CONV
 ```
 
 **存储映射**：
@@ -313,17 +275,29 @@ engine/
 | Semantic Memory | SQLite (meta+graph) | LanceDB | 永久 |
 
 **记忆检索流程**：
-```
-用户输入
-  ├── 1. 关键词 + 实体提取 (Rust)
-  ├── 2. 并行检索
-  │     ├── BM25 全文检索 (SQLite FTS5) → 关键词匹配的记忆
-  │     └── 向量语义检索 (SQLite-Vec) → 语义相似的记忆
-  ├── 3. 融合排序 (BM25 + 向量 → 加权融合)
-  ├── 4. 按作用域归类
-  │     ├── 对话记忆：直接注入上下文
-  │     └── 全局记忆：去重后注入，标注来源
-  └── 5. 注入上下文窗口
+```mermaid
+flowchart TD
+    IN["用户输入"]
+    STEP1["1. 关键词 + 实体提取 (Rust)"]
+    STEP2["2. 并行检索"]
+    BM25["BM25 全文检索 (SQLite FTS5) → 关键词匹配的记忆"]
+    VEC["向量语义检索 (SQLite-Vec) → 语义相似的记忆"]
+    STEP3["3. 融合排序 (BM25 + 向量 → 加权融合)"]
+    STEP4["4. 按作用域归类"]
+    CONVMEM["对话记忆：直接注入上下文"]
+    GLOBALMEM["全局记忆：去重后注入，标注来源"]
+    STEP5["5. 注入上下文窗口"]
+
+    IN --> STEP1 --> STEP2
+    STEP2 --> BM25
+    STEP2 --> VEC
+    BM25 --> STEP3
+    VEC --> STEP3
+    STEP3 --> STEP4
+    STEP4 --> CONVMEM
+    STEP4 --> GLOBALMEM
+    CONVMEM --> STEP5
+    GLOBALMEM --> STEP5
 ```
 
 **记忆巩固 (Memory Consolidation)**：
@@ -336,14 +310,23 @@ engine/
 
 #### 3.3.2 知识库设计
 
+```mermaid
+flowchart LR
+    DOC["原始文档"]
+    PARSE["Rust/Pandoc 格式解析"]
+    CHUNK["Unicode 分块"]
+    EMBED["本地 embedding"]
+    LANCE["LanceDB 主索引"]
+    FTS["SQLite FTS5<br/>元数据 & 全文索引"]
+
+    DOC --> PARSE --> CHUNK --> EMBED --> LANCE
+    CHUNK --> FTS
+    LANCE --> READY["可检索"]
+    FTS --> READY
 ```
-文档摄入管道：
-原始文档 → Rust/Pandoc 格式解析 → Unicode 分块 → 本地 embedding → LanceDB 主索引 → 可检索
-元数据 & 全文索引 → SQLite FTS5
 
 支持格式：PDF / Word / Markdown / 纯文本 / 代码文件 / 网页
 检索策略：SQLite FTS5 BM25 关键词 + LanceDB 向量语义 → 加权融合 → Reranker 精排
-```
 
 #### 3.3.3 MCP (Model Context Protocol) 设计
 
@@ -370,35 +353,31 @@ engine/
 
 AI 模型的知识有截止日期，网络搜索让 EncoreHub 能获取实时信息。Gateway 负责供应商调用与内容清洗，Rust Engine 负责配置、缓存和上下文数据。
 
-```
-搜索流程：
-用户输入
-  │
-  ├── 1. 搜索引擎判断 (Rust web-search engine)
-  │     └── 是否需要搜索？→ LLM 判断 / 用户手动触发 / @web 指令
-  │
-  ├── 2. 查询改写 (通过 LLM 优化搜索关键词)
-  │
-  ├── 3. 搜索供应商调用 (Rust web-search provider)
-  │     ├── Brave Search API (推荐，索引质量高)
-  │     ├── Tavily Search API (专为 AI 优化)
-  │     ├── SerpAPI (Google 搜索结果)
-  │     └── DuckDuckGo (免费，无需 API Key)
-  │
-  ├── 4. 结果抓取 (Go provider)
-  │     └── 对 Top-N 结果抓取网页全文内容
-  │
-  ├── 5. 内容清洗 (Go)
-  │     ├── HTML → Markdown 转换
-  │     ├── 去噪（广告、导航、页脚）
-  │     └── 截断（保留相关内容段落）
-  │
-  ├── 6. 结果注入上下文
-  │     ├── 搜索结果摘要注入系统消息
-  │     └── 网页全文可选注入（用户点击展开）
-  │
-  └── 7. 缓存 (Rust + SQLite)
-        └── 搜索结果缓存到 SQLite，相同查询 TTL 内直接复用
+```mermaid
+flowchart TD
+    IN["用户输入"]
+    STEP1["1. 搜索引擎判断 (Rust web-search engine)<br/>是否需要搜索？→ LLM 判断 / 用户手动触发 / @web 指令"]
+    STEP2["2. 查询改写 (通过 LLM 优化搜索关键词)"]
+    STEP3["3. 搜索供应商调用 (Rust web-search provider)"]
+    PROV1["Brave Search API (推荐，索引质量高)"]
+    PROV2["Tavily Search API (专为 AI 优化)"]
+    PROV3["SerpAPI (Google 搜索结果)"]
+    PROV4["DuckDuckGo (免费，无需 API Key)"]
+    STEP4["4. 结果抓取 (Go provider)<br/>对 Top-N 结果抓取网页全文内容"]
+    STEP5["5. 内容清洗 (Go)<br/>HTML → Markdown 转换 · 去噪（广告、导航、页脚）· 截断（保留相关内容段落）"]
+    STEP6["6. 结果注入上下文<br/>搜索结果摘要注入系统消息 · 网页全文可选注入（用户点击展开）"]
+    STEP7["7. 缓存 (Rust + SQLite)<br/>搜索结果缓存到 SQLite，相同查询 TTL 内直接复用"]
+
+    IN --> STEP1 --> STEP2 --> STEP3
+    STEP3 --> PROV1
+    STEP3 --> PROV2
+    STEP3 --> PROV3
+    STEP3 --> PROV4
+    PROV1 --> STEP4
+    PROV2 --> STEP4
+    PROV3 --> STEP4
+    PROV4 --> STEP4
+    STEP4 --> STEP5 --> STEP6 --> STEP7
 ```
 
 **搜索供应商配置（在 Go 网关层管理 API Key）**：
@@ -444,20 +423,19 @@ engine/
 
 ### 4.1 服务间通信
 
-```
-┌─────────┐   HTTP/WS    ┌─────────┐   gRPC     ┌─────────┐
-│ 前端     │◄────────────►│ Go 网关  │◄──────────►│ Rust 核心│
-│ (Tauri) │              │          │            │         │
-└─────────┘              │          │            └────┬────┘
-                         │          │                 │
-                         │          │   HTTP/SSE      │ gRPC
-                         │          │◄────────────────┤
-                         │          │                 │
-                         │          │   AI Providers  │
-                         │          │   (OpenAI etc)  │
-                         └──────────┘          ┌──────▼──────┐
-                                               │ Rust 数据管线  │
-                                               └─────────────┘
+```mermaid
+flowchart LR
+    FE["前端 (Tauri)"]
+    GW["Go 网关"]
+    EN["Rust 核心"]
+    DP["Rust 数据管线"]
+    PROV["AI Providers (OpenAI etc)"]
+
+    FE <-- "HTTP/WS" --> GW
+    GW <--> EN
+    EN -- "HTTP/SSE" --> GW
+    GW -- "AI Providers" --> PROV
+    EN --> DP
 ```
 
 ### 4.2 核心数据模型

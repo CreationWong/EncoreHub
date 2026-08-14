@@ -7,12 +7,18 @@ AI 聊天桌面客户端 — 在一个跨平台桌面工作区中聚合多家模
 
 ## 架构速览
 
-```
-frontend (React + Tauri 2) ──HTTP/SSE──> gateway (Go) ──HTTP──> engine (Rust, axum)
-      │                                         │                    │
-      │  Tauri 桌面壳 + Engine Runtime 动态库      │ 多 provider 适配    │ SQLite/SQLite-Vec + LanceDB
-      │  (.dll/.so/.dylib) + gateway sidecar       │ (OpenAI / Anthropic │ 密钥加密(AES-256-GCM)
-      │                                         │  / DeepSeek)        │ 对话/记忆/知识/Skill
+```mermaid
+flowchart LR
+    FE["frontend (React + Tauri 2)"]
+    GW["gateway (Go)"]
+    EN["engine (Rust, axum)"]
+    STORE["SQLite/SQLite-Vec + LanceDB<br/>密钥加密 (AES-256-GCM)<br/>对话/记忆/知识/Skill"]
+
+    FE -- "HTTP/SSE" --> GW
+    GW -- "HTTP" --> EN
+    FE -. "Tauri 桌面壳 + Engine Runtime 动态库<br/>(.dll/.so/.dylib) + gateway sidecar" .-> EN
+    GW -. "多 provider 适配<br/>(OpenAI / Anthropic / DeepSeek)" .-> EN
+    EN --> STORE
 ```
 
 | 模块 | 语言 | 角色 |

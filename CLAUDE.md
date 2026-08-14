@@ -6,13 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory vector retrieval, file upload, and auto-generated conversation titles are complete; hybrid ranking and the WASM sandbox remain on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
 
-```
-frontend (React + Tauri 2) --HTTP/SSE--> gateway (Go) --HTTP--> engine (Rust, axum)
-       |                                        |                   |
-       |  Tauri loads Engine Runtime             |  multi-provider   |  SQLite + SQLite-Vec
-       |                                        |                   |  local LanceDB (primary knowledge)
-       |  (.dll/.so/.dylib); Gateway             |  adapters         |  AES-256-GCM secret crypto
-       |  remains a sidecar                      |                   |  conversation crate (token)
+```mermaid
+flowchart LR
+    FE["frontend (React + Tauri 2)"]
+    GW["gateway (Go)"]
+    EN["engine (Rust, axum)"]
+    STORE["SQLite + SQLite-Vec<br/>local LanceDB (primary knowledge)<br/>AES-256-GCM secret crypto<br/>conversation crate (token)"]
+
+    FE -- "HTTP/SSE" --> GW
+    GW -- "HTTP" --> EN
+    FE -. "Tauri loads Engine Runtime<br/>(.dll/.so/.dylib); Gateway remains a sidecar" .-> EN
+    GW -. "multi-provider adapters" .-> EN
+    EN --> STORE
 ```
 
 In the **desktop app** the engine still runs in the desktop process, but the
