@@ -124,7 +124,9 @@ describe("DataPanel", () => {
 		render(<DataPanel />);
 
 		await screen.findByText("14");
-		fireEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Clear all conversation history" }),
+		);
 
 		await waitFor(() => expect(clearHistory).toHaveBeenCalledOnce());
 		expect(reloadAfterDataChange).toHaveBeenCalledOnce();
@@ -138,7 +140,9 @@ describe("DataPanel", () => {
 		render(<DataPanel />);
 		await screen.findByText("14");
 
-		fireEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Clear all conversation history" }),
+		);
 		await waitFor(() => expect(show).toHaveBeenCalledOnce());
 
 		expect(clearHistory).not.toHaveBeenCalled();
@@ -206,5 +210,31 @@ describe("DataPanel", () => {
 			}),
 		);
 		expect(reloadAfterDataChange).toHaveBeenCalledOnce();
+	});
+
+	it("filters conversations and selects only the visible result", async () => {
+		render(<DataPanel />);
+		await screen.findByText("First conversation");
+
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "Search conversations" }),
+			{
+				target: { value: "Second" },
+			},
+		);
+
+		expect(screen.queryByText("First conversation")).toBeNull();
+		expect(screen.getByText("Second conversation")).toBeDefined();
+		fireEvent.click(
+			screen.getByRole("checkbox", { name: "Toggle all conversations" }),
+		);
+		expect(screen.getByText("1 selected")).toBeDefined();
+		expect(
+			(
+				screen.getByRole("checkbox", {
+					name: /Second conversation/,
+				}) as HTMLInputElement
+			).checked,
+		).toBe(true);
 	});
 });

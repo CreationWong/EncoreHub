@@ -212,18 +212,11 @@ function writeCargoPackageVersion(file, version) {
 	writeFileSync(file, updated);
 }
 
-/** Ask Cargo to refresh only workspace package metadata in the existing lockfile. */
+/** Refresh workspace package versions without updating third-party dependencies. */
 function refreshCargoLock(repoRoot, manifest) {
 	execFileSync(
 		"cargo",
-		[
-			"metadata",
-			"--no-deps",
-			"--format-version",
-			"1",
-			"--manifest-path",
-			manifest,
-		],
+		["update", "--workspace", "--offline", "--manifest-path", manifest],
 		{ cwd: repoRoot, stdio: "ignore" },
 	);
 }

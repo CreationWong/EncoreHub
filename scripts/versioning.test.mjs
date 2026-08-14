@@ -1,7 +1,17 @@
 // Verifies EncoreHub's independent component version and build identity policy.
 import assert from "node:assert/strict";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
+	bumpComponent,
 	bumpVersion,
 	componentsForPaths,
 	createBuildId,
@@ -39,6 +49,59 @@ test("manual version tiers reset all less significant tiers", () => {
 
 test("ecosystem manifests use the public three-part version", () => {
 	assert.equal(formatEcosystemVersion(parseVersion("V2.3.4.5")), "2.3.4");
+});
+
+test("frontend public bumps refresh the Tauri workspace package in Cargo.lock", (t) => {
+	const repo = mkdtempSync(path.join(os.tmpdir(), "encorehub-version-"));
+	t.after(() => rmSync(repo, { recursive: true, force: true }));
+	for (const directory of [
+		"frontend/src-tauri/src",
+		"gateway/internal/buildinfo",
+		"engine",
+	]) {
+		mkdirSync(path.join(repo, directory), { recursive: true });
+	}
+	const versionRecord = {
+		component: "frontend",
+		version: "V0.1.3.0",
+		compatibility: {
+			gateway: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+			engine: { min: "V0.1.0.0", max_exclusive: "V0.2.0.0" },
+		},
+	};
+	writeFileSync(
+		path.join(repo, "frontend/version.json"),
+		JSON.stringify(versionRecord),
+	);
+	for (const manifest of ["package.json", "frontend/package.json"]) {
+		writeFileSync(
+			path.join(repo, manifest),
+			JSON.stringify({ name: "encorehub", version: "0.1.3" }),
+		);
+	}
+	writeFileSync(
+		path.join(repo, "frontend/src-tauri/tauri.conf.json"),
+		JSON.stringify({ version: "0.1.3" }),
+	);
+	writeFileSync(
+		path.join(repo, "frontend/src-tauri/Cargo.toml"),
+		'[package]\nname = "encorehub-desktop"\nversion = "0.1.3"\nedition = "2021"\n',
+	);
+	writeFileSync(
+		path.join(repo, "frontend/src-tauri/Cargo.lock"),
+		'version = 4\n\n[[package]]\nname = "encorehub-desktop"\nversion = "0.1.3"\n',
+	);
+	writeFileSync(
+		path.join(repo, "frontend/src-tauri/src/main.rs"),
+		"fn main() {}\n",
+	);
+
+	bumpComponent("frontend", "feature", repo);
+
+	assert.match(
+		readFileSync(path.join(repo, "frontend/src-tauri/Cargo.lock"), "utf8"),
+		/name = "encorehub-desktop"\r?\nversion = "0\.1\.4"/,
+	);
 });
 
 test("build ids combine a UTC date with the final six epoch-second digits", () => {

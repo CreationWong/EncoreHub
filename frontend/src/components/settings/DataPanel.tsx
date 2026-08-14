@@ -2,16 +2,19 @@
 
 import {
 	ArchiveRestore,
+	ArrowUpDown,
 	DatabaseZap,
 	Download,
 	FileArchive,
+	HardDrive,
 	Loader2,
 	MessagesSquare,
 	RefreshCw,
+	Search,
 	Trash2,
 	Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type DataConversation,
 	type DataDomain,
@@ -55,6 +58,20 @@ function formatBytes(value: number): string {
 	return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+/** Format conversation activity as a compact, locale-aware calendar date. */
+function formatUpdatedAt(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return "Unknown";
+	return new Intl.DateTimeFormat("en", {
+		month: "short",
+		day: "numeric",
+		year:
+			date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+	}).format(date);
+}
+
+type ConversationSort = "newest" | "oldest" | "title" | "messages";
+
 /** Download one JSON artifact and release its temporary object URL. */
 function downloadBackup(backup: UserDataBackup): void {
 	const blob = new Blob([JSON.stringify(backup, null, 2)], {
@@ -80,6 +97,9 @@ export default function DataPanel() {
 	const [selectedConversations, setSelectedConversations] = useState<string[]>(
 		[],
 	);
+	const [conversationQuery, setConversationQuery] = useState("");
+	const [conversationSort, setConversationSort] =
+		useState<ConversationSort>("newest");
 	const fileInput = useRef<HTMLInputElement>(null);
 	const reloadConversations = useConversationStore(
 		(state) => state.reloadAfterDataChange,
@@ -206,6 +226,27 @@ export default function DataPanel() {
 	};
 
 	const busy = operation !== "";
+	const visibleConversations = useMemo(() => {
+		const query = conversationQuery.trim().toLocaleLowerCase();
+		return conversations
+			.filter(({ title }) => title.toLocaleLowerCase().includes(query))
+			.sort((left, right) => {
+				switch (conversationSort) {
+					case "oldest":
+						return left.updated_at.localeCompare(right.updated_at);
+					case "title":
+						return left.title.localeCompare(right.title);
+					case "messages":
+						return right.message_count - left.message_count;
+					default:
+						return right.updated_at.localeCompare(left.updated_at);
+				}
+			});
+	}, [conversationQuery, conversationSort, conversations]);
+	const visibleConversationIds = visibleConversations.map(({ id }) => id);
+	const allVisibleSelected =
+		visibleConversationIds.length > 0 &&
+		visibleConversationIds.every((id) => selectedConversations.includes(id));
 	const toggleDomain = (domain: DataDomain) => {
 		setSelectedDomains((current) =>
 			current.includes(domain)
@@ -222,19 +263,18 @@ export default function DataPanel() {
 				: [...current, id],
 		);
 	};
-	const stats = [
-		["Conversations", overview.conversations],
-		["Messages", overview.messages],
-		["Attachments", overview.attachments],
-		["Attachment storage", formatBytes(overview.attachment_bytes)],
-		["Memories", overview.memories],
-		["Knowledge files", overview.knowledge_documents],
-	];
+	const toggleVisibleConversations = () => {
+		setSelectedConversations((current) =>
+			allVisibleSelected
+				? current.filter((id) => !visibleConversationIds.includes(id))
+				: Array.from(new Set([...current, ...visibleConversationIds])),
+		);
+	};
 
 	return (
 		<div className="h-full min-h-0 overflow-y-auto bg-workspace">
-			<div className="mx-auto max-w-5xl px-6 py-6">
-				<header className="flex items-start justify-between gap-4 border-b border-border pb-5">
+			<div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+				<header className="flex items-start justify-between gap-4 pb-5">
 					<div className="flex items-center gap-3">
 						<div className="flex h-10 w-10 items-center justify-center rounded-md bg-info-bg text-info">
 							<FileArchive className="h-5 w-5" />
@@ -262,247 +302,373 @@ export default function DataPanel() {
 
 				<section
 					aria-label="Data summary"
-					className="grid grid-cols-2 border-b border-border py-5 sm:grid-cols-3 lg:grid-cols-6"
+					className="grid overflow-hidden rounded-md border border-border bg-surface sm:grid-cols-3"
 				>
-					{stats.map(([label, value], index) => (
-						<div
-							key={label}
-							className={`min-w-0 px-3 py-2 ${index > 0 ? "border-l border-border" : ""}`}
-						>
-							<p className="truncate text-[10px] font-semibold text-text-muted">
-								{label}
-							</p>
-							<p className="mt-1 truncate text-base font-semibold tabular-nums text-text-primary">
-								{loading ? "-" : value.toLocaleString()}
-							</p>
-						</div>
-					))}
+					<SummaryGroup
+						icon={MessagesSquare}
+						label="Conversation activity"
+						primary={loading ? "-" : overview.conversations.toLocaleString()}
+						primaryLabel="conversations"
+						secondary={loading ? "-" : overview.messages.toLocaleString()}
+						secondaryLabel="messages"
+					/>
+					<SummaryGroup
+						icon={HardDrive}
+						label="Attachment storage"
+						primary={loading ? "-" : formatBytes(overview.attachment_bytes)}
+						primaryLabel="stored"
+						secondary={loading ? "-" : overview.attachments.toLocaleString()}
+						secondaryLabel="files"
+					/>
+					<SummaryGroup
+						icon={FileArchive}
+						label="Saved context"
+						primary={loading ? "-" : overview.memories.toLocaleString()}
+						primaryLabel="memories"
+						secondary={
+							loading ? "-" : overview.knowledge_documents.toLocaleString()
+						}
+						secondaryLabel="knowledge files"
+					/>
 				</section>
 
-				<div className="grid gap-6 py-6 lg:grid-cols-2">
-					<section aria-labelledby="backup-heading">
-						<div className="mb-3 flex items-center gap-2">
-							<ArchiveRestore className="h-4 w-4 text-accent" />
-							<h4
-								id="backup-heading"
-								className="text-sm font-semibold text-text-primary"
-							>
-								Backup and transfer
-							</h4>
-						</div>
-						<fieldset className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
-							<legend className="sr-only">Backup data domains</legend>
-							{DATA_DOMAINS.map(({ id, label, detail }) => (
-								<label
-									key={id}
-									className="flex min-w-0 cursor-pointer items-start gap-2 bg-surface px-3 py-2.5 hover:bg-surface-hover"
+				<div className="grid items-start gap-6 py-6 min-[1040px]:grid-cols-[minmax(0,1fr)_18.5rem]">
+					<section
+						aria-labelledby="conversation-data-heading"
+						className="min-w-0 overflow-hidden rounded-md border border-border bg-surface"
+					>
+						<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+							<div className="flex min-w-0 items-center gap-2.5">
+								<MessagesSquare className="h-4 w-4 text-accent" />
+								<h4
+									id="conversation-data-heading"
+									className="text-sm font-semibold text-text-primary"
 								>
-									<input
-										type="checkbox"
-										autoComplete="off"
-										checked={selectedDomains.includes(id)}
-										onChange={() => toggleDomain(id)}
-										className="mt-0.5 h-3.5 w-3.5 accent-accent"
-									/>
-									<span className="min-w-0">
-										<span className="block text-xs font-medium text-text-primary">
-											{label}
-										</span>
-										<span className="block text-[10px] leading-4 text-text-muted">
-											{detail}
-										</span>
-									</span>
-								</label>
-							))}
-						</fieldset>
-						<div className="divide-y divide-border rounded-md border border-border bg-surface">
-							<ActionRow
-								icon={Download}
-								title="Export data"
-								detail="Create one atomic backup from the selected domains. Required dependency records are included automatically."
-								label="Export"
-								busy={operation === "export"}
-								disabled={busy || selectedDomains.length === 0}
-								onClick={() => void exportData()}
-							/>
-							<ActionRow
-								icon={Upload}
-								title="Import data"
-								detail="Merge an EncoreHub JSON backup. Existing records with the same identifiers are kept."
-								label="Import"
-								busy={operation === "import"}
-								disabled={busy}
-								onClick={() => fileInput.current?.click()}
-							/>
+									Conversations
+								</h4>
+								<span className="rounded bg-surface-alt px-1.5 py-0.5 text-[10px] tabular-nums text-text-muted">
+									{conversations.length}
+								</span>
+							</div>
+							<span className="text-xs tabular-nums text-text-muted">
+								{selectedConversations.length} selected
+							</span>
 						</div>
-						<input
-							ref={fileInput}
-							type="file"
-							autoComplete="off"
-							accept="application/json,.json"
-							className="sr-only"
-							onChange={(event) => {
-								const file = event.target.files?.[0];
-								event.target.value = "";
-								if (file) void importData(file);
-							}}
-						/>
+
+						<div className="flex flex-wrap items-center gap-2 border-y border-border bg-surface-alt/40 px-3 py-2.5">
+							<label className="relative min-w-44 flex-1">
+								<span className="sr-only">Search conversations</span>
+								<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+								<input
+									type="search"
+									autoComplete="off"
+									value={conversationQuery}
+									onChange={(event) => setConversationQuery(event.target.value)}
+									placeholder="Search conversations"
+									className="h-8 w-full rounded-md border border-border bg-workspace pl-8 pr-3 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+								/>
+							</label>
+							<label className="relative shrink-0">
+								<span className="sr-only">Sort conversations</span>
+								<ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+								<select
+									value={conversationSort}
+									onChange={(event) =>
+										setConversationSort(event.target.value as ConversationSort)
+									}
+									className="h-8 rounded-md border border-border bg-workspace pl-8 pr-7 text-xs text-text-secondary outline-none focus:border-accent"
+								>
+									<option value="newest">Newest</option>
+									<option value="oldest">Oldest</option>
+									<option value="title">Title</option>
+									<option value="messages">Most messages</option>
+								</select>
+							</label>
+						</div>
+
+						<div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+							<label className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-1 text-xs text-text-secondary hover:text-text-primary">
+								<input
+									type="checkbox"
+									autoComplete="off"
+									aria-label="Toggle all conversations"
+									checked={allVisibleSelected}
+									onChange={toggleVisibleConversations}
+									disabled={busy || visibleConversations.length === 0}
+									className="h-3.5 w-3.5 accent-accent disabled:opacity-40"
+								/>
+								{conversationQuery ? "Select filtered" : "Select all"}
+							</label>
+							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									aria-label="Export selected conversations"
+									onClick={() => void exportSelectedConversations()}
+									disabled={busy || selectedConversations.length === 0}
+									className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+								>
+									{operation === "conversation-export" ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Download className="h-3.5 w-3.5" />
+									)}
+									Export
+								</button>
+								<button
+									type="button"
+									aria-label="Delete selected conversations"
+									onClick={() => void deleteSelectedConversations()}
+									disabled={busy || selectedConversations.length === 0}
+									className="flex h-8 items-center gap-1.5 rounded-md border border-danger-border px-2.5 text-xs font-medium text-danger hover:bg-danger-bg disabled:opacity-40"
+								>
+									{operation === "conversation-delete" ? (
+										<Loader2 className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Trash2 className="h-3.5 w-3.5" />
+									)}
+									Delete
+								</button>
+							</div>
+						</div>
+						<div className="max-h-[32rem] overflow-y-auto">
+							{conversations.length === 0 ? (
+								<p className="px-4 py-8 text-center text-xs text-text-muted">
+									No conversations stored
+								</p>
+							) : visibleConversations.length === 0 ? (
+								<p className="px-4 py-8 text-center text-xs text-text-muted">
+									No conversations match this search
+								</p>
+							) : (
+								visibleConversations.map((conversation) => (
+									<label
+										key={conversation.id}
+										className="grid min-h-14 cursor-pointer grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-surface-hover"
+									>
+										<input
+											type="checkbox"
+											autoComplete="off"
+											checked={selectedConversations.includes(conversation.id)}
+											onChange={() => toggleConversation(conversation.id)}
+											className="h-3.5 w-3.5 accent-accent"
+										/>
+										<span className="min-w-0">
+											<span className="block truncate text-sm text-text-primary">
+												{conversation.title}
+											</span>
+											<span className="mt-0.5 block text-[10px] tabular-nums text-text-muted">
+												{conversation.message_count} messages
+												{conversation.attachment_count > 0 &&
+													` · ${conversation.attachment_count} files`}
+											</span>
+										</span>
+										<span className="whitespace-nowrap text-[10px] tabular-nums text-text-muted">
+											{formatUpdatedAt(conversation.updated_at)}
+										</span>
+									</label>
+								))
+							)}
+						</div>
 					</section>
 
-					<section aria-labelledby="cleanup-heading">
-						<div className="mb-3 flex items-center gap-2">
-							<DatabaseZap className="h-4 w-4 text-warning" />
-							<h4
-								id="cleanup-heading"
-								className="text-sm font-semibold text-text-primary"
-							>
-								Cleanup
-							</h4>
-						</div>
-						<div className="divide-y divide-border rounded-md border border-border bg-surface">
-							<ActionRow
-								icon={Trash2}
-								title="Clear conversation history"
-								detail={`${overview.conversations.toLocaleString()} conversations and their messages, tool calls, and attachments.`}
-								label="Clear"
-								danger
-								busy={operation === "history"}
-								disabled={busy || overview.conversations === 0}
-								onClick={() => void clearHistory()}
+					<aside className="space-y-5" aria-label="Data maintenance">
+						<section
+							aria-labelledby="backup-heading"
+							className="overflow-hidden rounded-md border border-border bg-surface"
+						>
+							<div className="flex items-center gap-2 border-b border-border px-4 py-3">
+								<ArchiveRestore className="h-4 w-4 text-accent" />
+								<h4
+									id="backup-heading"
+									className="text-sm font-semibold text-text-primary"
+								>
+									Backup and transfer
+								</h4>
+							</div>
+							<fieldset className="divide-y divide-border">
+								<legend className="sr-only">Backup data domains</legend>
+								{DATA_DOMAINS.map(({ id, label, detail }) => (
+									<label
+										key={id}
+										className="flex cursor-pointer items-start gap-2.5 px-4 py-2.5 hover:bg-surface-hover"
+									>
+										<input
+											type="checkbox"
+											autoComplete="off"
+											checked={selectedDomains.includes(id)}
+											onChange={() => toggleDomain(id)}
+											className="mt-0.5 h-3.5 w-3.5 accent-accent"
+										/>
+										<span className="min-w-0">
+											<span className="block text-xs font-medium text-text-primary">
+												{label}
+											</span>
+											<span className="block text-[10px] leading-4 text-text-muted">
+												{detail}
+											</span>
+										</span>
+									</label>
+								))}
+							</fieldset>
+							<div className="grid grid-cols-2 gap-2 border-t border-border bg-surface-alt/40 p-3">
+								<CommandButton
+									icon={Download}
+									label="Export"
+									busy={operation === "export"}
+									disabled={busy || selectedDomains.length === 0}
+									onClick={() => void exportData()}
+								/>
+								<CommandButton
+									icon={Upload}
+									label="Import"
+									busy={operation === "import"}
+									disabled={busy}
+									onClick={() => fileInput.current?.click()}
+								/>
+							</div>
+							<input
+								ref={fileInput}
+								type="file"
+								autoComplete="off"
+								accept="application/json,.json"
+								className="sr-only"
+								onChange={(event) => {
+									const file = event.target.files?.[0];
+									event.target.value = "";
+									if (file) void importData(file);
+								}}
 							/>
-							<ActionRow
+						</section>
+
+						<section
+							aria-labelledby="cleanup-heading"
+							className="overflow-hidden rounded-md border border-border bg-surface"
+						>
+							<div className="flex items-center gap-2 border-b border-border px-4 py-3">
+								<DatabaseZap className="h-4 w-4 text-warning" />
+								<h4
+									id="cleanup-heading"
+									className="text-sm font-semibold text-text-primary"
+								>
+									Maintenance
+								</h4>
+							</div>
+							<MaintenanceRow
 								icon={DatabaseZap}
-								title="Clear cache"
-								detail={`${overview.cache_entries.toLocaleString()} regenerable search records, plus orphaned attachment files.`}
+								title="Regenerable cache"
+								detail={`${overview.cache_entries.toLocaleString()} cached records`}
 								label="Clear"
 								busy={operation === "cache"}
 								disabled={busy}
 								onClick={() => void clearCache()}
 							/>
-						</div>
-					</section>
-				</div>
-
-				<section aria-labelledby="conversation-data-heading" className="pb-6">
-					<div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-						<div className="flex items-center gap-2">
-							<MessagesSquare className="h-4 w-4 text-accent" />
-							<h4
-								id="conversation-data-heading"
-								className="text-sm font-semibold text-text-primary"
-							>
-								Conversation data
-							</h4>
-							<span className="text-xs text-text-muted">
-								{selectedConversations.length} selected
-							</span>
-						</div>
-						<div className="flex items-center gap-2">
-							<button
-								type="button"
-								aria-label="Toggle all conversations"
-								onClick={() =>
-									setSelectedConversations(
-										selectedConversations.length === conversations.length
-											? []
-											: conversations.map(({ id }) => id),
-									)
-								}
-								disabled={busy || conversations.length === 0}
-								className="h-8 rounded-md px-2 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
-							>
-								{selectedConversations.length === conversations.length &&
-								conversations.length > 0
-									? "Clear selection"
-									: "Select all"}
-							</button>
-							<button
-								type="button"
-								aria-label="Export selected conversations"
-								onClick={() => void exportSelectedConversations()}
-								disabled={busy || selectedConversations.length === 0}
-								className="flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-40"
-							>
-								{operation === "conversation-export" ? (
-									<Loader2 className="h-3.5 w-3.5 animate-spin" />
-								) : (
-									<Download className="h-3.5 w-3.5" />
-								)}
-								Export
-							</button>
-							<button
-								type="button"
-								aria-label="Delete selected conversations"
-								onClick={() => void deleteSelectedConversations()}
-								disabled={busy || selectedConversations.length === 0}
-								className="flex h-8 items-center gap-1.5 rounded-md border border-danger-border px-3 text-xs font-medium text-danger hover:bg-danger-bg disabled:opacity-40"
-							>
-								{operation === "conversation-delete" ? (
-									<Loader2 className="h-3.5 w-3.5 animate-spin" />
-								) : (
-									<Trash2 className="h-3.5 w-3.5" />
-								)}
-								Delete
-							</button>
-						</div>
-					</div>
-					<div className="max-h-72 overflow-y-auto rounded-md border border-border bg-surface">
-						{conversations.length === 0 ? (
-							<p className="px-4 py-8 text-center text-xs text-text-muted">
-								No conversations stored
-							</p>
-						) : (
-							conversations.map((conversation) => (
-								<label
-									key={conversation.id}
-									className="grid cursor-pointer grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-surface-hover"
-								>
-									<input
-										type="checkbox"
-										autoComplete="off"
-										checked={selectedConversations.includes(conversation.id)}
-										onChange={() => toggleConversation(conversation.id)}
-										className="h-3.5 w-3.5 accent-accent"
-									/>
-									<span className="min-w-0 truncate text-sm text-text-primary">
-										{conversation.title}
-									</span>
-									<span className="whitespace-nowrap text-[10px] tabular-nums text-text-muted">
-										{conversation.message_count} messages
-										{conversation.attachment_count > 0 &&
-											` · ${conversation.attachment_count} files`}
-									</span>
-								</label>
-							))
-						)}
-					</div>
-				</section>
-
-				<div className="flex items-start gap-3 border-t border-border pt-5 text-xs text-text-muted">
-					<MessagesSquare className="mt-0.5 h-4 w-4 shrink-0" />
-					<p>
-						Provider configuration, API keys, interface preferences, developer
-						settings, and runtime logs are outside this data manager.
-					</p>
+							<div className="border-t border-danger-border bg-danger-bg/40">
+								<MaintenanceRow
+									icon={Trash2}
+									title="All conversation history"
+									detail={`${overview.conversations.toLocaleString()} conversations`}
+									label="Clear"
+									danger
+									busy={operation === "history"}
+									disabled={busy || overview.conversations === 0}
+									onClick={() => void clearHistory()}
+								/>
+							</div>
+						</section>
+					</aside>
 				</div>
 			</div>
 		</div>
 	);
 }
 
-interface ActionRowProps {
+interface SummaryGroupProps {
 	icon: typeof Download;
-	title: string;
-	detail: string;
 	label: string;
-	danger?: boolean;
+	primary: string;
+	primaryLabel: string;
+	secondary: string;
+	secondaryLabel: string;
+}
+
+/** One grouped overview metric with a primary and supporting measure. */
+function SummaryGroup({
+	icon: Icon,
+	label,
+	primary,
+	primaryLabel,
+	secondary,
+	secondaryLabel,
+}: SummaryGroupProps) {
+	return (
+		<div className="min-w-0 border-b border-border px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+			<div className="flex items-center gap-2 text-[10px] font-semibold text-text-muted">
+				<Icon className="h-3.5 w-3.5" />
+				<span>{label}</span>
+			</div>
+			<div className="mt-2 grid grid-cols-2 gap-3">
+				<div className="min-w-0">
+					<span className="block whitespace-nowrap text-base font-semibold tabular-nums text-text-primary min-[900px]:text-lg">
+						{primary}
+					</span>
+					<span className="block text-[10px] text-text-muted">
+						{primaryLabel}
+					</span>
+				</div>
+				<div className="min-w-0">
+					<span className="block whitespace-nowrap text-sm font-medium tabular-nums text-text-secondary">
+						{secondary}
+					</span>
+					<span className="block text-[10px] text-text-muted">
+						{secondaryLabel}
+					</span>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+interface CommandButtonProps {
+	icon: typeof Download;
+	label: string;
 	busy: boolean;
 	disabled: boolean;
 	onClick: () => void;
 }
 
-/** Reusable command row with a fixed action column that never shifts. */
-function ActionRow({
+/** Compact transfer command used beneath the selected backup domains. */
+function CommandButton({
+	icon: Icon,
+	label,
+	busy,
+	disabled,
+	onClick,
+}: CommandButtonProps) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-workspace px-3 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+		>
+			{busy ? (
+				<Loader2 className="h-3.5 w-3.5 animate-spin" />
+			) : (
+				<Icon className="h-3.5 w-3.5" />
+			)}
+			{label}
+		</button>
+	);
+}
+
+interface MaintenanceRowProps extends CommandButtonProps {
+	title: string;
+	detail: string;
+	danger?: boolean;
+}
+
+/** Maintenance command with its impact visible before the action is invoked. */
+function MaintenanceRow({
 	icon: Icon,
 	title,
 	detail,
@@ -511,26 +677,32 @@ function ActionRow({
 	busy,
 	disabled,
 	onClick,
-}: ActionRowProps) {
+}: MaintenanceRowProps) {
 	return (
-		<div className="grid min-h-24 grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:grid-cols-[2.25rem_minmax(0,1fr)_5.5rem]">
+		<div className="grid grid-cols-[2rem_minmax(0,1fr)_3.75rem] items-center gap-2.5 px-3 py-3">
 			<div
-				className={`flex h-8 w-8 items-center justify-center rounded-md ${danger ? "bg-danger-bg text-danger" : "bg-surface-alt text-text-secondary"}`}
+				className={`flex h-8 w-8 items-center justify-center rounded-md ${danger ? "text-danger" : "bg-surface-alt text-text-secondary"}`}
 			>
 				<Icon className="h-4 w-4" />
 			</div>
 			<div className="min-w-0">
-				<p className="text-sm font-medium text-text-primary">{title}</p>
-				<p className="mt-1 text-xs leading-5 text-text-muted">{detail}</p>
+				<p
+					className={`truncate text-xs font-medium ${danger ? "text-danger" : "text-text-primary"}`}
+				>
+					{title}
+				</p>
+				<p className="mt-0.5 truncate text-[10px] tabular-nums text-text-muted">
+					{detail}
+				</p>
 			</div>
 			<button
 				type="button"
+				aria-label={`${label} ${title.toLocaleLowerCase()}`}
 				onClick={onClick}
 				disabled={disabled}
-				className={`col-start-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:col-auto sm:w-[5.5rem] ${danger ? "border-danger-border text-danger hover:bg-danger-bg" : "border-border text-text-secondary hover:bg-surface-hover hover:text-text-primary"}`}
+				className={`flex h-8 items-center justify-center rounded-md border px-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${danger ? "border-danger-border text-danger hover:bg-danger-bg" : "border-border text-text-secondary hover:bg-surface-hover"}`}
 			>
-				{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-				{label}
+				{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : label}
 			</button>
 		</div>
 	);
