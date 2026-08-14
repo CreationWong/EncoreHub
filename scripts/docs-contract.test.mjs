@@ -131,8 +131,9 @@ function pathParameterNames(spec, parameters = []) {
 test("maintained Markdown links resolve inside the repository", async () => {
 	const files = [
 		path.join(root, "README.md"),
+		path.join(root, "README.zh-CN.md"),
 		path.join(root, "CLAUDE.md"),
-		path.join(root, "DEVELOPMENT_PLAN.md"),
+		path.join(root, "docs", "DEVELOPMENT_PLAN.md"),
 		...(await walkMarkdown(
 			path.join(root, "docs"),
 			new Set(["vendor", "claude API"]),
@@ -296,13 +297,14 @@ test("EncoreHub OpenAPI is small, internally valid, and matches Gateway routes",
 });
 
 test("Slash completion exposes Gateway tools without local application handlers", async () => {
-	const [inputBox, registry, gatewayRegistry, claude, readme] =
+	const [inputBox, registry, gatewayRegistry, claude, readme, readmeZh] =
 		await Promise.all([
 			read("frontend/src/components/chat/InputBox.tsx"),
 			read("frontend/src/tools/slashTools.ts"),
 			read("gateway/internal/handler/slash_tools.go"),
 			read("CLAUDE.md"),
 			read("README.md"),
+			read("README.zh-CN.md"),
 		]);
 	await assert.rejects(
 		access(path.join(root, "frontend/src/commands/slash.ts")),
@@ -320,7 +322,8 @@ test("Slash completion exposes Gateway tools without local application handlers"
 		claude,
 		/`\/web_search <query>` is an explicit, pre-executed tool request/,
 	);
-	assert.match(readme, /\*\*Slash 工具请求\*\*/);
+	assert.match(readme, /\*\*Slash tool requests\*\*/);
+	assert.match(readmeZh, /\*\*Slash 工具请求\*\*/);
 });
 
 test("documentation decisions and CI command smoke stay connected", async () => {

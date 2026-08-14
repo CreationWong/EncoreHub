@@ -57,4 +57,4 @@ EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
 - [ADR-0004：Engine 进程内化与内部认证](0004-engine-in-process-and-internal-auth.md)
 - [ADR-0007：Rust 原生数据管线](0007-rust-native-data-pipeline.md)
 - [剩余工作](../REMAINING_WORK.md) — 当前实现与发布验收待办
-- [完整蓝图](../../DEVELOPMENT_PLAN.md)
+- [完整蓝图](../DEVELOPMENT_PLAN.md)
