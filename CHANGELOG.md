@@ -24,6 +24,7 @@
 
 ### Changed
 
+- **启动体验**：桌面服务启动期间显示与主工作区一致的工具栏、工作区边框、空状态图标和主题色，并以低干扰进度反馈当前启动阶段。
 - **版本元数据与进程诊断**：npm、Cargo 与 Tauri 的三段式包版本同步为组件公开版本；开发者 Processes 页面为 Desktop、Engine、Gateway 展示完整四段版本与始终可见的 Build ID。
 - **桌面运行时模块化**：Tauri 主程序不再静态链接完整 Engine，改为按平台加载带 ABI 版本校验的 Engine Runtime `.dll` / `.so` / `.dylib`；Engine、Gateway、Desktop、Frontend 和 standalone Engine 可按一个或多个组件独立构建与升级。
 - **网页解析模块边界**：RUSTScrapling 以独立 `.dll` / `.so` / `.dylib` companion 随 Engine Runtime 构建和校验，不并入 `encorehub_desktop_runtime`；Curl 仍是唯一网络传输层，RUSTScrapling 只接收已经过网络策略校验的 HTML。

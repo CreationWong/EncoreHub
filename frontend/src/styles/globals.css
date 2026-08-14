@@ -1,3 +1,4 @@
+/* Defines application theme tokens, global behavior, and shared component styles. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -140,6 +141,110 @@ pre {
 }
 
 @layer components {
+	/* Mirrors the steady-state application shell so startup does not visually jump. */
+	.startup-screen {
+		display: flex;
+		min-height: 100%;
+		flex-direction: column;
+		background: var(--color-app-canvas);
+		color: var(--color-text-primary);
+	}
+
+	.startup-titlebar {
+		display: flex;
+		height: 64px;
+		flex: none;
+		align-items: center;
+		padding: 0 8px;
+	}
+
+	.startup-app-identity {
+		display: flex;
+		height: 36px;
+		align-items: center;
+		gap: 8px;
+		padding: 0 12px;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background: var(--color-workspace);
+		box-shadow: 0 1px 2px
+			color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.startup-app-identity svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.startup-workspace {
+		display: grid;
+		min-height: 0;
+		flex: 1;
+		margin: 0 8px 8px;
+		place-items: center;
+		border: 1px solid var(--color-border);
+		border-radius: 8px;
+		background: var(--color-workspace);
+	}
+
+	.startup-content {
+		display: flex;
+		width: min(320px, calc(100vw - 64px));
+		align-items: center;
+		flex-direction: column;
+		text-align: center;
+		animation: startup-content-in 180ms ease-out both;
+	}
+
+	.startup-brand-mark {
+		display: grid;
+		width: 48px;
+		height: 48px;
+		place-items: center;
+		border-radius: 8px;
+		background: var(--color-control-surface);
+		color: var(--color-accent);
+	}
+
+	.startup-brand-mark svg {
+		width: 24px;
+		height: 24px;
+	}
+
+	.startup-content h1 {
+		margin-top: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		line-height: 1.5;
+	}
+
+	.startup-status {
+		min-height: 20px;
+		margin-top: 4px;
+		color: var(--color-text-muted);
+		font-size: 0.875rem;
+		line-height: 1.25rem;
+	}
+
+	.startup-progress {
+		width: 144px;
+		height: 2px;
+		margin-top: 18px;
+		overflow: hidden;
+		background: var(--color-border);
+		border-radius: 2px;
+	}
+
+	.startup-progress span {
+		display: block;
+		width: 48%;
+		height: 100%;
+		background: var(--color-accent);
+		animation: startup-progress 1.4s ease-in-out infinite;
+	}
+
 	.markdown-body {
 		overflow-wrap: anywhere;
 		line-height: 1.65;
@@ -310,6 +415,26 @@ pre {
 	.assistant-answer
 		:where(.markdown-table-wrap, .markdown-codeblock, .markdown-raw-pre) {
 		max-width: 100%;
+	}
+}
+
+@keyframes startup-content-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes startup-progress {
+	from {
+		transform: translateX(-110%);
+	}
+	to {
+		transform: translateX(220%);
 	}
 }
 

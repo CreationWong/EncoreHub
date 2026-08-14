@@ -1,7 +1,9 @@
-import { Loader2, Wifi, WifiOff } from "lucide-react";
+/** Owns desktop startup orchestration and top-level application composition. */
+import { WifiOff } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import GlobalNav from "./components/layout/GlobalNav";
 import UnlockGate from "./components/settings/UnlockGate";
+import StartupScreen from "./components/startup/StartupScreen";
 import AppContextMenu from "./components/ui/AppContextMenu";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import ToastHost from "./components/ui/ToastHost";
@@ -19,6 +21,7 @@ import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
 import { useSettingsStore } from "./stores/settingsStore";
 
+/** Readiness state reported by the local gateway and embedded engine. */
 type ServiceStatus = {
 	engine: boolean;
 	gateway: boolean;
@@ -29,6 +32,7 @@ const CharacterManager = lazy(
 	() => import("./components/character/CharacterManager"),
 );
 
+/** Coordinates desktop startup, global services, and the steady-state workspace. */
 export default function App() {
 	const loadList = useConversationStore((s) => s.loadList);
 	const loadCharacters = useCharacterStore((s) => s.load);
@@ -224,41 +228,11 @@ export default function App() {
 	if (checking) {
 		return (
 			<>
-				<div className="flex h-screen items-center justify-center bg-app-canvas">
-					<div className="text-center space-y-6">
-						<div className="flex justify-center">
-							<div className="flex h-16 w-16 items-center justify-center rounded-lg bg-accent/10">
-								<Loader2 className="h-8 w-8 text-accent animate-spin" />
-							</div>
-						</div>
-						<h2 className="text-xl font-semibold text-text-primary">
-							EncoreHub
-						</h2>
-						<p className="text-sm text-text-muted">Starting services...</p>
-						<div className="flex items-center justify-center gap-4 text-xs">
-							<span
-								className={`flex items-center gap-1.5 ${status.engine ? "text-success" : "text-text-muted"}`}
-							>
-								{status.engine ? (
-									<Wifi className="h-3 w-3" />
-								) : (
-									<WifiOff className="h-3 w-3" />
-								)}
-								Engine {status.engine ? "ready" : "waiting..."}
-							</span>
-							<span
-								className={`flex items-center gap-1.5 ${status.gateway ? "text-success" : "text-text-muted"}`}
-							>
-								{status.gateway ? (
-									<Wifi className="h-3 w-3" />
-								) : (
-									<WifiOff className="h-3 w-3" />
-								)}
-								Gateway {status.gateway ? "ready" : "waiting..."}
-							</span>
-						</div>
-					</div>
-				</div>
+				<StartupScreen
+					portsReady={portsReady}
+					engineReady={status.engine}
+					gatewayReady={status.gateway}
+				/>
 				<AppContextMenu />
 			</>
 		);
