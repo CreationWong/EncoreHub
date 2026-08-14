@@ -1,8 +1,53 @@
+# Rolls component patch tiers only when production code reaches master.
 name: Roll component patch versions
 
 on:
   push:
-    branches: [master, main]
+    branches: [master]
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.mdx"
+      - "**/*.rst"
+      - "**/*.txt"
+      - "**/LICENSE*"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+      - ".github/workflows/**"
+      - "**/.env.*.example"
+      - "**/.env.example"
+      - "**/.env.*.sample"
+      - "**/.env.sample"
+      - "**/.env.*.template"
+      - "**/.env.template"
+      - "**/*.example.*"
+      - "**/*.sample.*"
+      - "**/*.template.*"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/pnpm-lock.yaml"
+      - "**/pnpm-workspace.yaml"
+      - "**/yarn.lock"
+      - "**/bun.lock"
+      - "**/bun.lockb"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "**/vcpkg.json"
+      - "**/tauri.conf.json"
+      - "**/tauri.*.conf.json"
+      - "**/Makefile"
+      - "**/CMakeLists.txt"
+      - "**/build.rs"
+      - "scripts/**"
+      - "frontend/scripts/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "**/__tests__/**"
+      - "**/*.test.*"
+      - "**/*.spec.*"
+      - "**/*_test.go"
 
 permissions:
   contents: write
@@ -18,13 +63,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Validate the public release changelog
+        run: node scripts/release-metadata.mjs check
       - name: Increment affected component patch tiers
-        run: node scripts/versioning.mjs auto --base HEAD^ --head HEAD
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node scripts/versioning.mjs auto --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: Commit independent component versions
         shell: bash
         run: |

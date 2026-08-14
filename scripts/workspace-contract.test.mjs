@@ -1,3 +1,4 @@
+// Guards cross-module build, release, packaging, and runtime integration contracts.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -5,8 +6,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/** Read one UTF-8 repository file relative to the workspace root. */
 const read = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 
+/** Recursively list repository files with the requested suffix. */
 async function filesBelow(directory, suffix) {
 	const entries = await readdir(path.join(root, directory), {
 		withFileTypes: true,
@@ -140,8 +143,27 @@ test("Independent component versions retain compatibility and mainline roll cont
 			);
 		}
 	}
-	assert.match(workflow, /branches: \[master, main\]/);
-	assert.match(workflow, /versioning\.mjs auto --base HEAD\^ --head HEAD/);
+	assert.match(workflow, /branches: \[master\]/);
+	assert.doesNotMatch(workflow, /branches: \[[^\]]*main/);
+	assert.match(workflow, /paths-ignore:/);
+	for (const ignoredPath of [
+		'"docs/**"',
+		'".github/workflows/**"',
+		'"**/package.json"',
+		'"scripts/**"',
+		'"frontend/scripts/**"',
+		'"**/*.test.*"',
+		'"**/*_test.go"',
+	]) {
+		assert.ok(workflow.includes(ignoredPath), `missing ${ignoredPath}`);
+	}
+	assert.match(workflow, /release-metadata\.mjs check/);
+	assert.match(workflow, /fetch-depth: 0/);
+	assert.match(workflow, /BASE_SHA: \$\{\{ github\.event\.before \}\}/);
+	assert.match(
+		workflow,
+		/versioning\.mjs auto --base "\$BASE_SHA" --head "\$HEAD_SHA"/,
+	);
 	assert.match(workflow, /\[skip version-roll\]/);
 	const scripts = JSON.parse(packageText).scripts;
 	assert.match(scripts["version:show"], /versioning\.mjs show/);
@@ -229,13 +251,15 @@ test("Frontend build enforces and retains its initial gzip budget", async () => 
 		rootPackageText,
 		viteConfig,
 		budgetCheck,
-		workflow,
+		powershellBuild,
+		shellBuild,
 	] = await Promise.all([
 		read("frontend/package.json"),
 		read("package.json"),
 		read("frontend/vite.config.ts"),
 		read("frontend/scripts/check-bundle-budget.mjs"),
-		read(".github/workflows/build.yml"),
+		read("scripts/build.ps1"),
+		read("scripts/build.sh"),
 	]);
 	const frontendScripts = JSON.parse(frontendPackageText).scripts;
 	const rootScripts = JSON.parse(rootPackageText).scripts;
@@ -251,10 +275,8 @@ test("Frontend build enforces and retains its initial gzip budget", async () => 
 	assert.match(viteConfig, /bundle-analysis\.json/);
 	assert.match(budgetCheck, /DEFAULT_BUDGET_KIB = 300/);
 	assert.match(budgetCheck, /record\.imports/);
-	assert.match(workflow, /Upload frontend bundle statistics/);
-	assert.match(workflow, /BUNDLE_BUDGET_KIB: "300"/);
-	assert.match(workflow, /if: always\(\)/);
-	assert.match(workflow, /frontend\/dist\/bundle-budget\.json/);
+	assert.match(powershellBuild, /@\("tauri", "build"\)/);
+	assert.match(shellBuild, /TAURI_ARGS=\(tauri build\)/);
 });
 
 test("Desktop keeps mutable state in app data and bundles readonly skills", async () => {
@@ -516,9 +538,10 @@ test("Engine Runtime dynamically links and packages libcurl", async () => {
 	assert.match(preparer, /path\.join\(binariesDir, name\)/);
 	assert.match(builder, /engineManifest\.nativeDependencies/);
 	assert.match(builder, /engineManifest\.rustScrapling/);
-	assert.match(workflow, /Install shared libcurl for Engine Runtime/);
+	assert.match(workflow, /Configure Windows vcpkg/);
 	assert.match(workflow, /brew install curl pkg-config/);
-	assert.match(workflow, /Prepare current-target Engine Runtime/);
+	assert.match(workflow, /build\.ps1 -Tauri/);
+	assert.match(workflow, /build\.sh --tauri/);
 	const manifest = JSON.parse(await read("vcpkg.json"));
 	assert.ok(manifest.dependencies.includes("curl"));
 });
@@ -615,23 +638,37 @@ test("Expensive builds only run from the manual workflow", async () => {
 	assert.doesNotMatch(buildWorkflow, /^ {2}(?:push|pull_request):/m);
 
 	for (const command of [
-		/run: pnpm build/,
-		/run: go build -o bin\/encorehub-gateway/,
-		/run: cargo build --release/,
-		/run: pnpm --dir frontend tauri build --debug --no-bundle --ci/,
-		/run: docker compose build --no-cache/,
+		/run: \.\\scripts\\build\.ps1 -Tauri/,
+		/run: bash scripts\/build\.sh --tauri/,
 	]) {
 		assert.match(buildWorkflow, command);
 		assert.doesNotMatch(ciWorkflow, command);
 	}
+	assert.match(buildWorkflow, /contents: write/);
+	assert.match(buildWorkflow, /gh release (?:create|upload)/);
 });
 
-test("Manual desktop build compiles all declared platforms", async () => {
-	const workflow = await read(".github/workflows/build.yml");
-	for (const runner of ["ubuntu-latest", "macos-latest", "windows-latest"]) {
-		assert.match(workflow, new RegExp(`os: ${runner}`));
+test("Manual release build selects every installer platform and guards publication", async () => {
+	const [workflow, metadata] = await Promise.all([
+		read(".github/workflows/build.yml"),
+		read("scripts/release-metadata.mjs"),
+	]);
+	for (const platform of ["ALL", "Windows", "macOS", "Linux"]) {
+		assert.match(workflow, new RegExp(`          - ${platform}`));
 	}
-	assert.match(workflow, /tauri build --debug --no-bundle/);
+	for (const runner of ["ubuntu-latest", "macos-latest", "windows-latest"]) {
+		assert.match(metadata, new RegExp(`os: "${runner}"`));
+	}
+	assert.match(workflow, /fromJSON\(needs\.prepare\.outputs\.matrix\)/);
+	assert.match(workflow, /force_publish:/);
+	assert.match(workflow, /prerelease:/);
+	assert.match(workflow, /release-metadata\.mjs prepare/);
+	assert.match(workflow, /gh release view/);
+	assert.match(workflow, /git ls-remote --exit-code --tags/);
+	assert.match(workflow, /gh release edit/);
+	assert.match(workflow, /--clobber/);
+	assert.match(metadata, /`V\$\{packageVersion\}`/);
+	assert.match(metadata, /## Contributors/);
 });
 
 test("Windows uninstall hooks preserve app data outside the install directory", async () => {

@@ -18,6 +18,7 @@ import {
 	formatDisplayVersion,
 	formatEcosystemVersion,
 	formatVersion,
+	isVersionRollIgnoredPath,
 	parseVersion,
 } from "./versioning.mjs";
 
@@ -123,19 +124,60 @@ test("build ids are always public while patch tiers remain diagnostic", () => {
 	);
 });
 
-test("changed paths roll only affected components and shared release changes roll all", () => {
+test("changed paths roll only affected production components", () => {
 	assert.deepEqual(
 		componentsForPaths([
 			"frontend/src/App.tsx",
 			"engine/src/main.rs",
 			"docs/README.md",
+			"frontend/src/App.test.tsx",
+			"scripts/build-components.mjs",
 		]),
 		["frontend", "engine"],
 	);
-	assert.deepEqual(componentsForPaths(["scripts/build-components.mjs"]), [
+	assert.deepEqual(componentsForPaths(["proto/encorehub.proto"]), [
 		"frontend",
 		"gateway",
 		"engine",
 	]);
 	assert.deepEqual(componentsForPaths(["CHANGELOG.md"]), []);
+});
+
+test("version rolls ignore documentation, samples, workflows, packages, builds, and tests", () => {
+	for (const file of [
+		"README.md",
+		"LICENSE",
+		"docs/adr/0001-language-split.md",
+		"frontend/.env.example",
+		"frontend/.env.local.template",
+		"config.sample.json",
+		".github/workflows/build.yml",
+		"frontend/package.json",
+		"engine/Cargo.lock",
+		"gateway/go.mod",
+		"frontend/src-tauri/tauri.windows.conf.json",
+		"Makefile",
+		"engine/build.rs",
+		"scripts/build.ps1",
+		"scripts/build-components.mjs",
+		"scripts/prepare-engine-runtime.mjs",
+		"scripts/generate-oss-compliance.mjs",
+		"scripts/workspace-contract.test.mjs",
+		"frontend/scripts/check-bundle-budget.mjs",
+		"engine/tests/api_smoke.rs",
+		"gateway/internal/handler/chat_test.go",
+		"frontend/src/App.test.tsx",
+	]) {
+		assert.equal(isVersionRollIgnoredPath(file), true, file);
+	}
+	assert.equal(isVersionRollIgnoredPath("frontend/src/App.tsx"), false);
+	assert.deepEqual(
+		componentsForPaths([
+			"gateway/internal/handler/chat_test.go",
+			"scripts/build.sh",
+			"scripts/release-metadata.mjs",
+			"package.json",
+		]),
+		[],
+	);
 });

@@ -18,12 +18,22 @@ const FRONTEND_PACKAGE_FILES = [
 ];
 const VERSION_PATTERN =
 	/^V(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const SHARED_RELEASE_PATHS = [
+const SHARED_SOURCE_PATHS = ["proto/", "skills/"];
+const PACKAGE_FILE_NAMES = new Set([
+	"bun.lock",
+	"bun.lockb",
+	"cargo.lock",
+	"cargo.toml",
+	"go.mod",
+	"go.sum",
+	"package-lock.json",
 	"package.json",
-	"scripts/",
-	".github/workflows/",
-	"docker-compose.yml",
-];
+	"pnpm-lock.yaml",
+	"pnpm-workspace.yaml",
+	"tauri.conf.json",
+	"vcpkg.json",
+	"yarn.lock",
+]);
 
 /** Parse the repository's Vmajor.compatibility.feature.patch notation. */
 export function parseVersion(value) {
@@ -101,12 +111,68 @@ export function createBuildId(now = new Date()) {
 	return `${date}${epochSuffix}`;
 }
 
-/** Return components affected by repository-relative changed paths. */
+/** Normalize one Git path before applying release-roll policy. */
+function normalizeRepoPath(entry) {
+	return String(entry).trim().replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+/** Identify changes that must never roll component versions by themselves. */
+export function isVersionRollIgnoredPath(entry) {
+	const normalized = normalizeRepoPath(entry);
+	const lower = normalized.toLowerCase();
+	const basename = lower.split("/").at(-1) ?? "";
+	if (!normalized) return true;
+
+	// Documentation and GitHub-maintained prose do not alter shipped behavior.
+	if (
+		lower.startsWith("docs/") ||
+		lower.startsWith(".github/issue_template/") ||
+		lower === ".github/pull_request_template.md" ||
+		/\.(?:md|mdx|rst|txt)$/.test(lower) ||
+		/(?:^|\/)license(?:\.[^/]*)?$/.test(lower)
+	) {
+		return true;
+	}
+
+	// Workflow definitions and configuration samples are release infrastructure.
+	if (lower.startsWith(".github/workflows/")) return true;
+	if (
+		/(?:^|\/)(?:\.env)(?:\.[^/]*)?\.(?:example|sample|template)$/.test(lower) ||
+		/\.(?:example|sample|template)\.[^/]+$/.test(basename)
+	) {
+		return true;
+	}
+
+	// Package manifests and lockfiles can change without changing component code.
+	if (
+		PACKAGE_FILE_NAMES.has(basename) ||
+		/^tauri\.[^.]+\.conf\.json$/.test(basename)
+	) {
+		return true;
+	}
+
+	// Repository automation and tests are intentionally outside the patch counter.
+	if (
+		/(?:^|\/)(?:makefile|cmakelists\.txt|build\.rs)$/.test(lower) ||
+		lower.startsWith("scripts/") ||
+		lower.startsWith("frontend/scripts/") ||
+		/(?:^|\/)(?:tests?|__tests__)\//.test(lower) ||
+		/\.(?:test|spec)\.[^/]+$/.test(basename) ||
+		/_test\.go$/.test(basename)
+	) {
+		return true;
+	}
+	return false;
+}
+
+/** Return components affected by repository-relative production-code paths. */
 export function componentsForPaths(paths) {
-	const normalized = paths.map((entry) => entry.replaceAll("\\", "/"));
+	const normalized = paths
+		.map(normalizeRepoPath)
+		.filter((entry) => !isVersionRollIgnoredPath(entry));
 	if (
 		normalized.some((entry) =>
-			SHARED_RELEASE_PATHS.some(
+			SHARED_SOURCE_PATHS.some(
 				(shared) => entry === shared || entry.startsWith(shared),
 			),
 		)
