@@ -1,3 +1,4 @@
+/** Verifies About build metadata, developer access, and legal-dialog behavior. */
 import {
 	cleanup,
 	fireEvent,
@@ -32,6 +33,39 @@ vi.mock("../../stores/confirmStore", () => ({
 	confirm: {
 		ask: (...args: unknown[]) => confirmAsk(...args),
 	},
+}));
+
+// Manifest completeness has its own contract test; this fixture keeps dialog
+// interaction coverage independent of rendering hundreds of generated rows.
+vi.mock("./thirdPartyComponents", () => ({
+	OSS_RELEASE_TARGET: "x86_64-pc-windows-msvc",
+	COMPONENT_LAYERS: ["Interface", "Desktop", "Gateway", "Engine"],
+	THIRD_PARTY_COMPONENTS: [
+		{
+			ecosystem: "npm",
+			layer: "Interface",
+			name: "React",
+			packageName: "react",
+			version: "18.3.1",
+			license: "MIT",
+		},
+		{
+			ecosystem: "go",
+			layer: "Gateway",
+			name: "Gin",
+			packageName: "github.com/gin-gonic/gin",
+			version: "1.10.0",
+			license: "MIT",
+		},
+		{
+			ecosystem: "cargo",
+			layer: "Engine",
+			name: "Tokio",
+			packageName: "tokio",
+			version: "1.47.1",
+			license: "Apache-2.0",
+		},
+	],
 }));
 
 import AboutPanel from "./AboutPanel";

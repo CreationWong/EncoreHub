@@ -67,6 +67,7 @@ type chatEngineStub struct {
 	memoryResults         []engine.MemoryHit
 	memorySearchQueries   []string
 	conversationTitle     string
+	networkFetch          func(string) engine.NetworkFetchResponse
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -109,13 +110,17 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/secrets/"):
 		w.WriteHeader(http.StatusNotFound)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/network/fetch":
-		// The stub represents Engine Curl by forwarding to the test-only provider.
+		// Tests can fix provider responses locally or forward to their own server.
 		var request struct {
 			URL     string            `json:"url"`
 			Headers map[string]string `json:"headers"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, "invalid fetch request", http.StatusBadRequest)
+			return
+		}
+		if s.networkFetch != nil {
+			writeTestJSON(w, http.StatusOK, s.networkFetch(request.URL))
 			return
 		}
 		upstreamRequest, err := http.NewRequestWithContext(r.Context(), http.MethodGet, request.URL, nil)
@@ -1424,7 +1429,26 @@ func TestSendMessage_WebFetchCanContinueToSpecificAPI(t *testing.T) {
 
 func TestSendMessage_EmptyDuckDuckGoDoesNotEnableGuessedFetches(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	stub := &chatEngineStub{searchConfig: `{"enabled":true,"provider":"duckduckgo","max_results":5}`}
+	var instantAnswerRequests atomic.Int32
+	var htmlRequests atomic.Int32
+	stub := &chatEngineStub{
+		searchConfig: `{"enabled":true,"provider":"duckduckgo","max_results":5}`,
+		networkFetch: func(rawURL string) engine.NetworkFetchResponse {
+			response := engine.NetworkFetchResponse{
+				Status: 200, FinalURL: rawURL, Backend: "curl",
+			}
+			if strings.Contains(rawURL, "api.duckduckgo.com") {
+				instantAnswerRequests.Add(1)
+				response.ContentType = "application/json"
+				response.Body = `{}`
+				return response
+			}
+			htmlRequests.Add(1)
+			response.ContentType = "text/html"
+			response.Body = `<html><body><div class="no-results">No results</div></body></html>`
+			return response
+		},
+	}
 	adapter := &scriptedAdapter{
 		streamFn: func(_ context.Context, request *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
 			switch call {
@@ -1469,6 +1493,13 @@ func TestSendMessage_EmptyDuckDuckGoDoesNotEnableGuessedFetches(t *testing.T) {
 		done.AssistantMessage.Content != "DuckDuckGo 的网页结果与精选摘要均未返回可靠内容。" ||
 		len(done.AssistantMessage.ToolCalls) != 1 {
 		t.Fatalf("unexpected failed-search finalization: %+v", done.AssistantMessage)
+	}
+	if instantAnswerRequests.Load() != 1 || htmlRequests.Load() != 1 {
+		t.Fatalf(
+			"DuckDuckGo source requests = instant:%d HTML:%d, want one each",
+			instantAnswerRequests.Load(),
+			htmlRequests.Load(),
+		)
 	}
 }
 
