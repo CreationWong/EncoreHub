@@ -663,6 +663,11 @@ test("Manual release build selects every installer platform and guards publicati
 	assert.match(workflow, /force_publish:/);
 	assert.match(workflow, /prerelease:/);
 	assert.match(workflow, /release-metadata\.mjs prepare/);
+	assert.match(workflow, /if \[ -n "\$RELEASE_TITLE_SUFFIX" \]; then/);
+	assert.match(
+		workflow,
+		/metadata_args\+=\(--title-suffix "\$RELEASE_TITLE_SUFFIX"\)/,
+	);
 	assert.match(workflow, /gh release view/);
 	assert.match(workflow, /git ls-remote --exit-code --tags/);
 	assert.match(workflow, /gh release edit/);

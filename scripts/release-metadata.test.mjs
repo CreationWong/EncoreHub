@@ -47,22 +47,41 @@ test("rejects a missing or empty release section", () => {
 	);
 });
 
-test("builds release metadata with an exact Vx.y.z tag and title", () => {
-	const metadata = createReleaseMetadata({
-		packageVersion: "1.2.3",
-		frontendVersion: "V1.2.3.7",
-		changelog,
-		contributors: ["Alice", "Bob"],
-		platform: "macOS",
-		prerelease: true,
-		titleSuffix: "Apple Silicon",
-	});
-	assert.equal(metadata.tag, "V1.2.3");
-	assert.equal(metadata.title, "V1.2.3 - Pre-release - Apple Silicon");
-	assert.deepEqual(metadata.matrix, {
-		include: [{ os: "macos-latest", platform: "macOS" }],
-	});
-	assert.match(metadata.notes, /## Contributors\n\n- Alice\n- Bob/);
+test("builds titles from the tag and optional release markers", () => {
+	for (const { prerelease, titleSuffix, expected } of [
+		{ prerelease: false, titleSuffix: "", expected: "V1.2.3" },
+		{
+			prerelease: false,
+			titleSuffix: "Apple Silicon",
+			expected: "V1.2.3 - Apple Silicon",
+		},
+		{
+			prerelease: true,
+			titleSuffix: "",
+			expected: "V1.2.3 - Pre-release",
+		},
+		{
+			prerelease: true,
+			titleSuffix: "Apple Silicon",
+			expected: "V1.2.3 - Pre-release - Apple Silicon",
+		},
+	]) {
+		const metadata = createReleaseMetadata({
+			packageVersion: "1.2.3",
+			frontendVersion: "V1.2.3.7",
+			changelog,
+			contributors: ["Alice", "Bob"],
+			platform: "macOS",
+			prerelease,
+			titleSuffix,
+		});
+		assert.equal(metadata.tag, "V1.2.3");
+		assert.equal(metadata.title, expected);
+		assert.deepEqual(metadata.matrix, {
+			include: [{ os: "macos-latest", platform: "macOS" }],
+		});
+		assert.match(metadata.notes, /## Contributors\n\n- Alice\n- Bob/);
+	}
 });
 
 test("rejects mismatched package and component public versions", () => {

@@ -116,6 +116,9 @@ export function createReleaseMetadata({
 	}
 	const tag = `V${packageVersion}`;
 	const releaseType = prerelease ? "Pre-release" : "Release";
+	const titleParts = [tag];
+	if (prerelease) titleParts.push(releaseType);
+	if (suffix) titleParts.push(suffix);
 	const changes = extractReleaseSection(changelog, packageVersion);
 	const contributorList = contributors.length
 		? contributors.map((name) => `- ${name}`).join("\n")
@@ -123,7 +126,7 @@ export function createReleaseMetadata({
 	return {
 		version: packageVersion,
 		tag,
-		title: `${tag} - ${releaseType}${suffix ? ` - ${suffix}` : ""}`,
+		title: titleParts.join(" - "),
 		releaseType,
 		matrix: releaseMatrix(platform),
 		notes: `${changes}\n\n## Contributors\n\n${contributorList}\n`,

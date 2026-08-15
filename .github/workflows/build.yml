@@ -60,12 +60,16 @@ jobs:
           RELEASE_PRERELEASE: ${{ inputs.prerelease }}
           RELEASE_TITLE_SUFFIX: ${{ inputs.title_suffix }}
         run: |
-          node scripts/release-metadata.mjs prepare \
-            --platform "$RELEASE_PLATFORM" \
-            --prerelease "$RELEASE_PRERELEASE" \
-            --title-suffix "$RELEASE_TITLE_SUFFIX" \
-            --output release-notes.md \
+          metadata_args=(
+            --platform "$RELEASE_PLATFORM"
+            --prerelease "$RELEASE_PRERELEASE"
+            --output release-notes.md
             --github-output "$GITHUB_OUTPUT"
+          )
+          if [ -n "$RELEASE_TITLE_SUFFIX" ]; then
+            metadata_args+=(--title-suffix "$RELEASE_TITLE_SUFFIX")
+          fi
+          node scripts/release-metadata.mjs prepare "${metadata_args[@]}"
       - name: Reject conflicting Release or tag unless forced
         shell: bash
         env:
