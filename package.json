@@ -29,7 +29,7 @@
 		"version:bump": "node scripts/versioning.mjs bump",
 		"version:auto": "node scripts/versioning.mjs auto",
 		"test": "pnpm run test:contracts && pnpm run test:engine && pnpm run test:gateway && pnpm run test:frontend",
-		"test:contracts": "node --test scripts/workspace-contract.test.mjs scripts/docs-contract.test.mjs scripts/generate-oss-compliance.test.mjs scripts/build-components.test.mjs scripts/release-metadata.test.mjs scripts/versioning.test.mjs",
+		"test:contracts": "node --test scripts/workspace-contract.test.mjs scripts/docs-contract.test.mjs scripts/generate-oss-compliance.test.mjs scripts/build-components.test.mjs scripts/ci-jobs.test.mjs scripts/release-metadata.test.mjs scripts/versioning.test.mjs",
 		"generate:licenses": "node scripts/generate-oss-compliance.mjs",
 		"test:docs": "node --test scripts/docs-contract.test.mjs",
 		"test:engine": "node scripts/run-with-protoc.mjs cargo test --manifest-path engine/Cargo.toml --workspace && node scripts/run-with-protoc.mjs cargo test --manifest-path engine/Cargo.toml -p encorehub-engine --all-targets --features standalone",

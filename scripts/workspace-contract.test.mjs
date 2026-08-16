@@ -648,6 +648,28 @@ test("Expensive builds only run from the manual workflow", async () => {
 	assert.match(buildWorkflow, /gh release (?:create|upload)/);
 });
 
+test("CI runs only jobs affected by the event commit range", async () => {
+	const [workflow, selector] = await Promise.all([
+		read(".github/workflows/ci.yml"),
+		read("scripts/ci-jobs.mjs"),
+	]);
+	assert.match(workflow, /^  changes:\s*$/m);
+	assert.match(workflow, /fetch-depth: 0/);
+	assert.match(workflow, /ci-jobs\.mjs/);
+	assert.match(workflow, /BASE_SHA:/);
+	assert.match(workflow, /HEAD_SHA:/);
+	assert.match(selector, /--diff-filter=ACDMRTUXB/);
+	for (const job of ["docs", "frontend", "gateway", "engine"]) {
+		assert.match(
+			workflow,
+			new RegExp(
+				`^  ${job}:\\s*\\n    needs: changes\\s*\\n    if: needs\\.changes\\.outputs\\.${job} == 'true'$`,
+				"m",
+			),
+		);
+	}
+});
+
 test("Manual release build selects every installer platform and guards publication", async () => {
 	const [workflow, metadata] = await Promise.all([
 		read(".github/workflows/build.yml"),
