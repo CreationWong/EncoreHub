@@ -9,8 +9,9 @@ import (
 // providers are almost always OpenAI-compatible; Anthropic is the one common
 // exception (different auth header + request shape).
 const (
-	ProtocolOpenAI    = "openai"
-	ProtocolAnthropic = "anthropic"
+	ProtocolOpenAI          = "openai"
+	ProtocolOpenAIResponses = "openai-responses"
+	ProtocolAnthropic       = "anthropic"
 
 	RoutingFailover   = "failover"
 	RoutingRoundRobin = "round_robin"
@@ -33,10 +34,16 @@ func ResolveAPIBaseURL(protocol, baseURL string) string {
 			return base
 		}
 	}
-	if len(segments) > 0 && segments[len(segments)-1] == protocol {
+	// Responses uses the official OpenAI /v1 namespace but has a different
+	// request shape from Chat Completions. It must not become /openai-responses/v1.
+	pathProtocol := protocol
+	if protocol == ProtocolOpenAIResponses {
+		pathProtocol = ProtocolOpenAI
+	}
+	if len(segments) > 0 && segments[len(segments)-1] == pathProtocol {
 		return base + "/v1"
 	}
-	return base + "/" + protocol + "/v1"
+	return base + "/" + pathProtocol + "/v1"
 }
 
 // ProviderEndpoint is one ordered base URL for a provider. Every endpoint in
@@ -138,7 +145,7 @@ func (p ProviderProfile) ModelConfig(modelID string) (ProviderModelConfig, bool)
 type ProviderProfile struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
-	Protocol string   `json:"protocol"` // ProtocolOpenAI | ProtocolAnthropic
+	Protocol string   `json:"protocol"` // ProtocolOpenAI | ProtocolOpenAIResponses | ProtocolAnthropic
 	BaseURL  string   `json:"base_url"`
 	Models   []string `json:"models"`
 	// Endpoints supersedes BaseURL when present. Order is significant in

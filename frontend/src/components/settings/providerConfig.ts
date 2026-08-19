@@ -7,6 +7,7 @@ import type {
 
 const DEFAULT_BASE_URLS: Record<ProviderProtocol, string> = {
 	openai: "https://api.openai.com/v1",
+	"openai-responses": "https://api.openai.com/v1",
 	anthropic: "https://api.anthropic.com/v1",
 };
 
@@ -48,10 +49,11 @@ export function providerApiBaseUrl(
 		if (pathSegments.includes("v1")) {
 			return normalized;
 		}
-		if (pathSegments.at(-1) === protocol) {
+		const pathProtocol = protocol === "openai-responses" ? "openai" : protocol;
+		if (pathSegments.at(-1) === pathProtocol) {
 			return `${normalized}/v1`;
 		}
-		return `${normalized}/${protocol}/v1`;
+		return `${normalized}/${pathProtocol}/v1`;
 	} catch {
 		return normalized;
 	}
@@ -63,7 +65,11 @@ export function chatRequestPreview(
 ): string {
 	return appendPath(
 		providerApiBaseUrl(protocol, baseUrl),
-		protocol === "anthropic" ? "messages" : "chat/completions",
+		protocol === "anthropic"
+			? "messages"
+			: protocol === "openai-responses"
+				? "responses"
+				: "chat/completions",
 	);
 }
 

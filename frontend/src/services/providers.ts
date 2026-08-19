@@ -1,7 +1,7 @@
 import { apiFetch } from "./api";
 
 /** Wire protocol the gateway uses to talk to a provider. */
-export type ProviderProtocol = "openai" | "anthropic";
+export type ProviderProtocol = "openai" | "openai-responses" | "anthropic";
 export type ProviderRoutingStrategy = "round_robin" | "failover";
 export type ProviderModelType = "chat" | "embedding";
 export type ProviderModelCapability =

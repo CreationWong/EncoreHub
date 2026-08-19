@@ -29,6 +29,12 @@ export const API_FORMATS: {
 		description: "OpenAI, DeepSeek, compatible gateways, and local servers",
 	},
 	{
+		value: "openai-responses",
+		label: "OpenAI Responses API",
+		description:
+			"OpenAI Responses API with its independent input and event format",
+	},
+	{
 		value: "anthropic",
 		label: "Anthropic Messages",
 		description: "Anthropic and gateways implementing the Messages API",

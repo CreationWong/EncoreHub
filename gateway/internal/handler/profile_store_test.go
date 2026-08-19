@@ -25,6 +25,14 @@ func TestValidateProfiles_OK(t *testing.T) {
 	}
 }
 
+func TestValidateProfiles_AcceptsOpenAIResponsesProtocol(t *testing.T) {
+	p := validProfile()
+	p.Protocol = provider.ProtocolOpenAIResponses
+	if err := validateProfiles([]provider.ProviderProfile{p}); err != nil {
+		t.Fatalf("expected Responses API profile to be valid, got %v", err)
+	}
+}
+
 func TestValidateProfiles_RejectsEmptyID(t *testing.T) {
 	p := validProfile()
 	p.ID = "  "

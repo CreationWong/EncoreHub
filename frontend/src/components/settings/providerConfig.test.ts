@@ -54,6 +54,12 @@ describe("provider URL helpers", () => {
 			"https://gateway.example.com/openai/v1/chat/completions",
 		);
 		expect(
+			providerApiBaseUrl("openai-responses", "https://gateway.example.com"),
+		).toBe("https://gateway.example.com/openai/v1");
+		expect(
+			chatRequestPreview("openai-responses", "https://gateway.example.com"),
+		).toBe("https://gateway.example.com/openai/v1/responses");
+		expect(
 			modelDiscoveryPreview("anthropic", "https://gateway.example.com"),
 		).toBe("https://gateway.example.com/anthropic/v1/models");
 		expect(chatRequestPreview("anthropic", "https://gateway.example.com")).toBe(
@@ -95,6 +101,9 @@ describe("provider URL helpers", () => {
 		expect(
 			providerApiBaseUrl("openai", "https://gateway.example.com/api/v1"),
 		).toBe("https://gateway.example.com/api/v1");
+		expect(
+			chatRequestPreview("openai-responses", "https://api.openai.com/v1"),
+		).toBe("https://api.openai.com/v1/responses");
 	});
 });
 

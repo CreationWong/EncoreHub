@@ -311,7 +311,9 @@ export default function ProvidersPanel() {
 										<span className="block truncate text-[11px] text-text-muted">
 											{profile.protocol === "anthropic"
 												? "Anthropic Messages"
-												: "OpenAI compatible"}{" "}
+												: profile.protocol === "openai-responses"
+													? "OpenAI Responses API"
+													: "OpenAI compatible"}{" "}
 											/ {profile.models.length} models
 										</span>
 									</span>

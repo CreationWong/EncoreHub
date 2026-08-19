@@ -11,6 +11,7 @@ import (
 	"com.0d000721.encorehub/gateway/internal/provider"
 	"com.0d000721.encorehub/gateway/internal/provider/anthropic"
 	"com.0d000721.encorehub/gateway/internal/provider/openaicompat"
+	"com.0d000721.encorehub/gateway/internal/provider/openairesponses"
 )
 
 // Builtins returns the default provider set shipped with the app. These are
@@ -58,6 +59,8 @@ func singleAdapter(p provider.ProviderProfile) (provider.Adapter, error) {
 	switch p.Protocol {
 	case provider.ProtocolOpenAI:
 		return openaicompat.New(p), nil
+	case provider.ProtocolOpenAIResponses:
+		return openairesponses.New(p), nil
 	case provider.ProtocolAnthropic:
 		return anthropic.NewFromProfile(p), nil
 	default:

@@ -13,6 +13,11 @@ func TestResolveAPIBaseURLCompletesDomainOnlyEndpoints(t *testing.T) {
 			baseURL:  "https://gateway.example.com",
 			want:     "https://gateway.example.com/openai/v1",
 		},
+		"openai responses": {
+			protocol: ProtocolOpenAIResponses,
+			baseURL:  "https://gateway.example.com",
+			want:     "https://gateway.example.com/openai/v1",
+		},
 		"anthropic": {
 			protocol: ProtocolAnthropic,
 			baseURL:  "https://gateway.example.com/",

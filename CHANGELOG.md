@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **OpenAI Responses API**：供应商新增独立于 Chat Completions 的 Responses API 请求格式，支持文本、图片、工具调用、推理摘要、流式事件及响应生命周期接口。
 - **CI 按范围执行**：push 使用 `before..sha`、Pull Request 使用 merge-base 到 head 的完整变更路径选择检查任务；文档和自动化只执行 workspace job，各组件只执行自身 job，Proto 只检查 Gateway 与 Engine，内置技能和插件只检查 Engine。
 - **CI/CD 发布流程**：安装包改为通过手动工作流选择 Windows、macOS、Linux 或全部平台构建，并以对应版本变更记录和贡献者清单发布到 GitHub Releases；自动组件版本递增仅响应主分支生产代码变更，文档、配置样板、工作流、包文件、构建脚本及测试变更均被排除。
 

@@ -140,7 +140,7 @@ func validateProfiles(list []provider.ProviderProfile) error {
 			return fmt.Errorf("provider %q: name must not be empty", id)
 		}
 		switch p.Protocol {
-		case provider.ProtocolOpenAI, provider.ProtocolAnthropic:
+		case provider.ProtocolOpenAI, provider.ProtocolOpenAIResponses, provider.ProtocolAnthropic:
 		default:
 			return fmt.Errorf("provider %q: unknown protocol %q", id, p.Protocol)
 		}

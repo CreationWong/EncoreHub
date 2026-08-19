@@ -1,6 +1,6 @@
 {
 	"component": "gateway",
-	"version": "V0.1.1.3",
+	"version": "V0.1.2.0",
 	"compatibility": {
 		"frontend": {
 			"min": "V0.1.0.0",

@@ -65,7 +65,7 @@ func (h *ProviderHandler) ValidateKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid validation request"})
 		return
 	}
-	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolAnthropic {
+	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolOpenAIResponses && request.Protocol != provider.ProtocolAnthropic {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported API format"})
 		return
 	}
