@@ -2258,6 +2258,7 @@ func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string,
 	}
 
 	var lastErr error
+	reasoningFallbackAttempted := false
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -2272,7 +2273,15 @@ func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string,
 		}
 		if err != nil {
 			lastErr = err
-			logTitleProviderFailure(meta, err)
+			canRetryWithoutReasoning := titleReq.DisableReasoning &&
+				!reasoningFallbackAttempted && titleErrorRejectsReasoningControl(err)
+			if canRetryWithoutReasoning {
+				logTitleProviderFallback(meta, err)
+				titleReq.DisableReasoning = false
+				reasoningFallbackAttempted = true
+			} else {
+				logTitleProviderFailure(meta, err)
+			}
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
@@ -2295,6 +2304,30 @@ func (h *ChatHandler) generateTitleWithRetry(ctx context.Context, convID string,
 		return fallback, nil
 	}
 	return "", fmt.Errorf("title generation failed after 3 attempts")
+}
+
+// titleErrorRejectsReasoningControl identifies request rejections that can be
+// caused by a model requiring native reasoning. Provider response text is
+// intentionally sanitized, so an HTTP 400 is retried once without the optional
+// reasoning control. Authentication and transport failures remain unchanged.
+func titleErrorRejectsReasoningControl(err error) bool {
+	if err == nil {
+		return false
+	}
+	if provider.UpstreamHTTPStatus(err) == http.StatusBadRequest {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	hasReasoningTerm := strings.Contains(message, "thinking") ||
+		strings.Contains(message, "reasoning") ||
+		strings.Contains(message, "思考") ||
+		strings.Contains(message, "推理")
+	hasRejectionTerm := strings.Contains(message, "unsupported") ||
+		strings.Contains(message, "not support") ||
+		strings.Contains(message, "invalid") ||
+		strings.Contains(message, "不支持") ||
+		strings.Contains(message, "不允许")
+	return hasReasoningTerm && hasRejectionTerm
 }
 
 func titleFromProviderResponse(resp *provider.ChatResponse) (string, string) {

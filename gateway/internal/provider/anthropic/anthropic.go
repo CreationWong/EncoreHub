@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -494,9 +493,8 @@ func (a *Adapter) doRequest(ctx context.Context, method, path, apiKey string, bo
 	}
 
 	if resp.StatusCode >= 400 {
-		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, string(bodyBytes))
+		resp.Body.Close()
+		return nil, provider.NewUpstreamHTTPError(resp.StatusCode)
 	}
 
 	return resp, nil

@@ -1,3 +1,4 @@
+// Package provider composes protocol adapters with endpoint routing.
 package provider
 
 import (
@@ -43,32 +44,46 @@ func (a *RoutedAdapter) order() []int {
 	return order
 }
 
-func (a *RoutedAdapter) exhausted(operation string) error {
-	return fmt.Errorf("provider %q %s failed across %d endpoints", a.id, operation, len(a.adapters))
+// exhausted returns a redacted routing error while retaining a safe HTTP status.
+func (a *RoutedAdapter) exhausted(operation string, cause error) error {
+	message := fmt.Sprintf("provider %q %s failed across %d endpoints", a.id, operation, len(a.adapters))
+	if status := UpstreamHTTPStatus(cause); status > 0 {
+		return fmt.Errorf("%s: %w", message, NewUpstreamHTTPError(status))
+	}
+	return fmt.Errorf("%s", message)
 }
 
 func (a *RoutedAdapter) Chat(ctx context.Context, req *ChatRequest, apiKey string) (*ChatResponse, error) {
+	var upstreamErr error
 	for _, index := range a.order() {
 		response, err := a.adapters[index].Chat(ctx, req, apiKey)
 		if err == nil {
 			return response, nil
 		}
+		if UpstreamHTTPStatus(err) > 0 {
+			upstreamErr = err
+		}
 	}
-	return nil, a.exhausted("chat")
+	return nil, a.exhausted("chat", upstreamErr)
 }
 
 func (a *RoutedAdapter) ChatStream(ctx context.Context, req *ChatRequest, apiKey string) (<-chan StreamEvent, error) {
+	var upstreamErr error
 	for _, index := range a.order() {
 		events, err := a.adapters[index].ChatStream(ctx, req, apiKey)
 		if err == nil {
 			return events, nil
 		}
+		if UpstreamHTTPStatus(err) > 0 {
+			upstreamErr = err
+		}
 	}
-	return nil, a.exhausted("stream")
+	return nil, a.exhausted("stream", upstreamErr)
 }
 
 // Embed applies the same endpoint routing policy as other provider operations.
 func (a *RoutedAdapter) Embed(ctx context.Context, req *EmbeddingRequest, apiKey string) (*EmbeddingResponse, error) {
+	var upstreamErr error
 	for _, index := range a.order() {
 		embedder, supported := a.adapters[index].(EmbeddingAdapter)
 		if !supported {
@@ -78,28 +93,40 @@ func (a *RoutedAdapter) Embed(ctx context.Context, req *EmbeddingRequest, apiKey
 		if err == nil {
 			return response, nil
 		}
+		if UpstreamHTTPStatus(err) > 0 {
+			upstreamErr = err
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 	}
-	return nil, a.exhausted("embeddings")
+	return nil, a.exhausted("embeddings", upstreamErr)
 }
 
 func (a *RoutedAdapter) ListModels(ctx context.Context, apiKey string) ([]ModelInfo, error) {
+	var upstreamErr error
 	for _, index := range a.order() {
 		models, err := a.adapters[index].ListModels(ctx, apiKey)
 		if err == nil {
 			return models, nil
 		}
+		if UpstreamHTTPStatus(err) > 0 {
+			upstreamErr = err
+		}
 	}
-	return nil, a.exhausted("model listing")
+	return nil, a.exhausted("model listing", upstreamErr)
 }
 
 func (a *RoutedAdapter) ValidateKey(ctx context.Context, apiKey string) error {
+	var upstreamErr error
 	for _, index := range a.order() {
-		if err := a.adapters[index].ValidateKey(ctx, apiKey); err == nil {
+		err := a.adapters[index].ValidateKey(ctx, apiKey)
+		if err == nil {
 			return nil
 		}
+		if UpstreamHTTPStatus(err) > 0 {
+			upstreamErr = err
+		}
 	}
-	return a.exhausted("key validation")
+	return a.exhausted("key validation", upstreamErr)
 }

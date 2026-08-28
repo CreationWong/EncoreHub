@@ -1,7 +1,11 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -285,5 +289,31 @@ func TestBuildRequest_ExplicitlyDisablesThinking(t *testing.T) {
 	// An explicit off switch must take precedence over any stale positive budget.
 	if body.Thinking == nil || body.Thinking.Type != "disabled" || body.Thinking.BudgetTokens != 0 {
 		t.Fatalf("thinking config = %#v", body.Thinking)
+	}
+}
+
+// TestDoRequestPreservesHTTPStatusWithoutProviderBody verifies that upstream
+// validation failures remain classifiable after crossing the adapter boundary.
+func TestDoRequestPreservesHTTPStatusWithoutProviderBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"message":"thinking disabled is unsupported"}`)
+	}))
+	defer server.Close()
+
+	adapter := &Adapter{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		id:         "test",
+	}
+	_, err := adapter.doRequest(context.Background(), http.MethodPost, "/v1/messages", "key", map[string]string{"model": "test"})
+	if err == nil {
+		t.Fatal("expected upstream HTTP error")
+	}
+	if got := provider.UpstreamHTTPStatus(err); got != http.StatusBadRequest {
+		t.Fatalf("upstream status = %d, want %d", got, http.StatusBadRequest)
+	}
+	if strings.Contains(err.Error(), "thinking disabled") {
+		t.Fatalf("upstream response body leaked through error: %v", err)
 	}
 }

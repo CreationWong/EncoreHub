@@ -545,6 +545,45 @@ func TestSendMessage_FirstTurnStreamsTitleWhileAnswerIsGenerating(t *testing.T) 
 	}
 }
 
+func TestGenerateTitleRetriesWithoutDisableReasoningThroughProviderRouting(t *testing.T) {
+	var attempts atomic.Int32
+	inner := &scriptedAdapter{
+		chatFn: func(_ context.Context, request *provider.ChatRequest) (*provider.ChatResponse, error) {
+			attempts.Add(1)
+			if request.DisableReasoning {
+				return nil, provider.NewUpstreamHTTPError(http.StatusBadRequest)
+			}
+			return &provider.ChatResponse{Content: "Greeting"}, nil
+		},
+	}
+	endpointRouted, err := provider.NewRoutedAdapter("test", provider.RoutingFailover, []provider.Adapter{inner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := provider.NewAPIKeyRoutedAdapter("test", provider.RoutingFailover, endpointRouted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handler ChatHandler
+	title, err := handler.generateTitleWithRetry(
+		context.Background(),
+		"c1",
+		adapter,
+		"model-test",
+		"provider-key",
+		"你好",
+	)
+	if err != nil {
+		t.Fatalf("title generation returned error: %v", err)
+	}
+	if title != "Greeting" {
+		t.Fatalf("title = %q, want Greeting", title)
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("attempts = %d, want one disabled-reasoning attempt and one fallback", attempts.Load())
+	}
+}
+
 func TestSendMessage_DoesNotGenerateAutomaticTitleAfterFirstTurn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &chatEngineStub{

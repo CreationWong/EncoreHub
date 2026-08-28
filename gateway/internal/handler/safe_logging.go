@@ -161,6 +161,14 @@ func logTitleProviderFailure(meta titleLogMetadata, err error) {
 		Msg("title generation API call failed")
 }
 
+// logTitleProviderFallback records a recoverable provider rejection at info
+// level because the title request will immediately retry with native reasoning.
+func logTitleProviderFallback(meta titleLogMetadata, err error) {
+	safeExternalError(titleLogEvent(log.Info(), meta), err).
+		Str("retry_mode", "provider_default_reasoning").
+		Msg("title generation retrying after reasoning control rejection")
+}
+
 func logTitleRejected(meta titleLogMetadata, response *provider.ChatResponse, raw string) {
 	event := titleLogEvent(log.Error(), meta).
 		Int("raw_length", utf8.RuneCountInString(raw))

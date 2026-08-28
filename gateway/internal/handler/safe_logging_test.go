@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -125,6 +126,27 @@ func TestTitleLogsOmitRequestResponseAndRawContent(t *testing.T) {
 		if !strings.Contains(output, field) {
 			t.Fatalf("title metadata %s missing from log: %s", field, output)
 		}
+	}
+}
+
+func TestTitleFallbackLogsAsInfo(t *testing.T) {
+	meta := titleLogMetadata{
+		ConversationID: "conv-123",
+		Provider:       "zenmux-ai",
+		Model:          "test-model",
+		Attempt:        1,
+	}
+	output := captureHandlerLogs(t, func() {
+		logTitleProviderFallback(meta, provider.NewUpstreamHTTPError(http.StatusBadRequest))
+	})
+	if !strings.Contains(output, `"level":"info"`) {
+		t.Fatalf("fallback should be logged at info level: %s", output)
+	}
+	if !strings.Contains(output, `"upstream_status":400`) {
+		t.Fatalf("fallback status metadata missing: %s", output)
+	}
+	if !strings.Contains(output, `"retry_mode":"provider_default_reasoning"`) {
+		t.Fatalf("fallback retry metadata missing: %s", output)
 	}
 }
 
