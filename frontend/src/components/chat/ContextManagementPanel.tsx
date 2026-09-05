@@ -11,6 +11,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { useMemo } from "react";
+import { modelKeyFor } from "../../services/tokenModel";
 import {
 	MANUAL_COMPACT_BUFFER_TOKENS,
 	autoCompactReserve,
@@ -238,8 +239,20 @@ export default function ContextManagementPanel() {
 				modelConfig?.context_window,
 				compaction,
 				reservedTokens,
+				{
+					character: conversation?.character_snapshot,
+					modelKey: modelKeyFor(providerId, modelId),
+				},
 			),
-		[messages, modelConfig?.context_window, compaction, reservedTokens],
+		[
+			messages,
+			modelConfig?.context_window,
+			compaction,
+			reservedTokens,
+			conversation?.character_snapshot,
+			providerId,
+			modelId,
+		],
 	);
 	const lastPricedCall = activeId
 		? records.find(
@@ -358,7 +371,9 @@ export default function ContextManagementPanel() {
 							context.snapshotInputTokens != null &&
 							context.snapshotOutputTokens != null
 								? `${formatTokens(context.snapshotInputTokens)} input in latest request · ${formatTokens(context.snapshotOutputTokens)} output retained for the next request`
-								: "Estimated from active request content"}
+								: context.modelTrusted
+									? `Estimated with calibrated input model (${context.modelSamples} samples) · output model (${context.outputModelSamples} samples)`
+									: "Estimated from active request content"}
 						</p>
 					</section>
 

@@ -64,10 +64,14 @@ describe("context management calculations", () => {
 			createdAt: "2026-08-01T00:00:00.000Z",
 		});
 
-		expect(usage.categories.messages).toBe(20);
-		expect(usage.categories.system).toBe(2);
-		expect(usage.usedTokens).toBe(22);
-		expect(usage.percentage).toBe(22);
+		// Two retained messages: 40 ASCII bytes -> 10 tokens each, plus the
+		// 4-token per-message framing overhead.
+		expect(usage.categories.messages).toBe(28);
+		expect(usage.categories.system).toBeGreaterThanOrEqual(2);
+		expect(usage.source).toBe("estimated");
+		expect(usage.usedTokens).toBe(28 + usage.categories.system);
+		expect(usage.contextTokens).toBe(usage.usedTokens);
+		expect(usage.percentage).toBe(usage.usedTokens);
 	});
 
 	it("uses the final provider round instead of cumulative billing usage", () => {
@@ -84,6 +88,9 @@ describe("context management calculations", () => {
 		expect(usage.freeTokens).toBe(999_182);
 		expect(usage.snapshotInputTokens).toBe(793);
 		expect(usage.snapshotOutputTokens).toBe(25);
+		// Covered user content (8 ASCII bytes -> 2 tokens + 4 overhead) plus the
+		// visible output retained for the next request.
+		expect(usage.categories.messages).toBe(31);
 		expect(
 			Object.values(usage.categories).reduce((sum, value) => sum + value, 0),
 		).toBe(818);
@@ -108,8 +115,9 @@ describe("context management calculations", () => {
 			10_000,
 		);
 
-		expect(usage.categories.tools).toBeGreaterThan(0);
-		expect(usage.categories.other).toBeLessThan(998);
+		// Payload = name(10) + arguments(32) + result(280) = 322 ASCII bytes.
+		expect(usage.categories.tools).toBe(81);
+		expect(usage.categories.other).toBeGreaterThan(0);
 		expect(
 			Object.values(usage.categories).reduce((sum, value) => sum + value, 0),
 		).toBe(1100);
@@ -124,9 +132,39 @@ describe("context management calculations", () => {
 
 		const usage = estimateContextUsage(messages, 1_000_000);
 
-		expect(usage.usedTokens).toBe(795);
-		expect(usage.contextTokens).toBe(820);
+		expect(usage.usedTokens).toBe(799);
+		expect(usage.contextTokens).toBe(824);
 		expect(usage.categories.messages).toBeGreaterThan(0);
+	});
+
+	it("never counts model reasoning toward retained context", () => {
+		const assistant = message("assistant", "assistant", "ok");
+		assistant.reasoning = "x".repeat(100);
+
+		const usage = estimateContextUsage(
+			[message("user", "user", "hi"), assistant],
+			10_000,
+		);
+
+		// Content totals 4 ASCII bytes -> 1 token, plus 8 for two messages'
+		// framing overhead. The 100 reasoning bytes must be absent.
+		expect(usage.categories.messages).toBe(9);
+	});
+
+	it("subtracts reasoning from the retained provider output", () => {
+		const assistant = measuredAssistant("assistant", 2000, 600, 900, 80);
+		assistant.reasoning = "x".repeat(160);
+
+		const usage = estimateContextUsage(
+			[message("user", "user", "question"), assistant],
+			10_000,
+		);
+
+		// Default output coefficients weigh "answer" (6 bytes -> 1.5) against
+		// reasoning (160 bytes -> 40); 80 total splits roughly 3 visible / 77
+		// reasoning, so only ~3 visible tokens are retained next round.
+		expect(usage.contextTokens).toBe(903);
+		expect(usage.categories.messages).toBeLessThan(10);
 	});
 
 	it("uses fixed output and safety reserves for auto compaction", () => {

@@ -31,6 +31,9 @@ vi.mock("./DeveloperPanel", () => ({ default: () => <p>Developer panel</p> }));
 vi.mock("./ProcessesPanel", () => ({ default: () => <p>Processes panel</p> }));
 vi.mock("./LogsPanel", () => ({ default: () => <p>Logs panel</p> }));
 vi.mock("./DatabasePanel", () => ({ default: () => <p>Database panel</p> }));
+vi.mock("./TokenModelsPanel", () => ({
+	default: () => <p>Token models panel</p>,
+}));
 
 import SettingsModal from "./SettingsModal";
 
@@ -126,7 +129,13 @@ describe("Settings workspace information architecture", () => {
 			"Security",
 		]);
 		expect(await screen.findByText("About panel")).toBeDefined();
-		for (const label of ["Developer", "Processes", "Logs", "Database"]) {
+		for (const label of [
+			"Developer",
+			"Processes",
+			"Logs",
+			"Database",
+			"Token models",
+		]) {
 			expect(screen.queryByRole("button", { name: label })).toBeNull();
 		}
 	});
@@ -140,6 +149,7 @@ describe("Settings workspace information architecture", () => {
 			["Processes", "Processes panel", "processes"],
 			["Logs", "Logs panel", "logs"],
 			["Database", "Database panel", "database"],
+			["Token models", "Token models panel", "token-models"],
 		] as const;
 
 		for (const [label, panel, tab] of destinations) {
@@ -154,6 +164,7 @@ describe("Settings workspace information architecture", () => {
 		"processes",
 		"logs",
 		"database",
+		"token-models",
 	] satisfies SettingsTab[])(
 		"returns to About if developer mode is disabled on the %s tab",
 		async (settingsTab) => {

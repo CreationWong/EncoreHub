@@ -14,6 +14,7 @@ import type {
 	Message,
 } from "../services/conversation";
 import * as convApi from "../services/conversation";
+import { modelKeyFor } from "../services/tokenModel";
 import { modelHasCapability } from "../utils/modelCapabilities";
 import {
 	autoCompactThreshold,
@@ -646,6 +647,11 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			previousMessages,
 			contextLimit,
 			contextSummary,
+			0,
+			{
+				character: conversation?.character_snapshot,
+				modelKey: modelKeyFor(convProvider, convModel),
+			},
 		);
 		if (
 			contextManagement.autoCompact &&
@@ -955,6 +961,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					);
 					recordTurnUsage("completed");
 					applyDone(result);
+					useContextManagementStore
+						.getState()
+						.learnFromSnapshot(
+							modelKeyFor(convProvider, convModel),
+							get().convCache[convId]?.messages ?? [],
+							contextSummary,
+							conversation?.character_snapshot,
+						);
 				},
 				onError(error) {
 					recordTurnUsage(error.code === "stopped" ? "stopped" : "failed");

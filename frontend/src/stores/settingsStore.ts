@@ -43,6 +43,7 @@ export type SettingsTab =
 	| "processes"
 	| "logs"
 	| "database"
+	| "token-models"
 	| "usage";
 
 export const DEVELOPER_SETTINGS_TABS: readonly SettingsTab[] = [
@@ -50,6 +51,7 @@ export const DEVELOPER_SETTINGS_TABS: readonly SettingsTab[] = [
 	"processes",
 	"logs",
 	"database",
+	"token-models",
 ];
 
 export function isDeveloperSettingsTab(tab: SettingsTab): boolean {

@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **上下文 Token 预估模型**：前端按 provider/model 维护两个最小二乘线性 token 预估模型——输入模型特征为截距、ASCII 字节数、非 ASCII 码点数与消息条数，输出模型特征为生成文本的 ASCII 字节数与非 ASCII 码点数；每轮生成完成后用 API 返回的 `context_input_tokens`/`context_output_tokens` 快照校验并重拟合，样本不足时回退启发式估算，模型参数持久化到本地存储并在上下文面板显示校准状态。
+- **开发者面板 Token 模型检视**：Developer 设置新增 "Token estimation models" 区块，按 provider/model 展示输入与输出模型的拟合系数、样本数与是否已校准，并可一键清除全部模型。
+
+### Changed
+
+- **思考链不计入上下文**：上下文占用估算不再把模型思考链（reasoning）算进下一轮输入；Provider 快照的 output 按输出模型把可见内容与思考链按权重拆分，仅保留可见内容，与网关实际重发行为保持一致。
+- **上下文分类归因**：系统提示（角色快照、日期/时间、压缩摘要）、工具调用载荷与消息正文按拟合系数分别归类，消息正文额外计入逐条帧开销，分类行合计始终与仪表盘占用一致。
+
+### Fixed
+
+- **上下文分类错误**：此前 system 与 skills 类别恒为 0，工具定义与协议开销全部堆进 "Other request data"；现按模型系数正确归因，残留部分才归入 "Other request data"。
+
 ## [0.1.5] - 2026-08-19
 
 ### Changed

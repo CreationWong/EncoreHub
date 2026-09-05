@@ -62,7 +62,13 @@ if (options.settingsTab === "data") {
 		return originalFetch(input, init);
 	};
 }
-const developerTabs = ["developer", "processes", "logs", "database"];
+const developerTabs = [
+	"developer",
+	"processes",
+	"logs",
+	"database",
+	"token-models",
+];
 if (options.settingsTab && developerTabs.includes(options.settingsTab)) {
 	mockIPC((command, args) => {
 		switch (command) {

@@ -5,6 +5,7 @@ import {
 	Cpu,
 	Database,
 	FolderArchive,
+	Gauge,
 	Info,
 	Loader2,
 	MousePointer2,
@@ -40,6 +41,7 @@ const LogsPanel = lazy(() => import("./LogsPanel"));
 const DatabasePanel = lazy(() => import("./DatabasePanel"));
 const AboutPanel = lazy(() => import("./AboutPanel"));
 const SearchPanel = lazy(() => import("./SearchPanel"));
+const TokenModelsPanel = lazy(() => import("./TokenModelsPanel"));
 
 interface TabDefinition {
 	id: SettingsTab;
@@ -90,6 +92,7 @@ const DEV_TABS: TabDefinition[] = [
 	{ id: "processes", label: "Processes", icon: Cpu },
 	{ id: "logs", label: "Logs", icon: ScrollText },
 	{ id: "database", label: "Database", icon: Database },
+	{ id: "token-models", label: "Token models", icon: Gauge },
 ];
 
 const TAB_LABELS = Object.fromEntries(
@@ -239,6 +242,11 @@ export default function SettingsModal() {
 					{tab === "database" && (
 						<Suspense fallback={<LoadingPanel label="Loading database" />}>
 							<DatabasePanel />
+						</Suspense>
+					)}
+					{tab === "token-models" && (
+						<Suspense fallback={<LoadingPanel label="Loading token models" />}>
+							<TokenModelsPanel />
 						</Suspense>
 					)}
 				</div>

@@ -1,9 +1,31 @@
+// Context management store.
+//
+// Owns the user-visible context meter: per-message token estimation, provider
+// snapshot reconciliation, auto/manual compaction, advanced sampling
+// parameters, and usage/cost records. Token estimates are produced by the
+// small linear model in `services/tokenModel` and validated against the
+// provider-reported snapshot after each completed turn.
+
 import { create } from "zustand";
+import type { CharacterSnapshot } from "../services/characters";
 import type { Message } from "../services/conversation";
 import type {
 	ProviderModelConfig,
 	ProviderModelPrice,
 } from "../services/providers";
+import {
+	DEFAULT_COEFFICIENTS,
+	DEFAULT_OUTPUT_COEFFICIENTS,
+	type TokenCoefficients,
+	type TokenFeatures,
+	type TokenTextStats,
+	addTextStats,
+	countTextStats,
+	loadModel,
+	recordOutputSample,
+	recordSample,
+	splitOutputTokens,
+} from "../services/tokenModel";
 
 export interface UsageRecord {
 	id: string;
@@ -57,6 +79,11 @@ export interface ContextBreakdown {
 		messages: number;
 		other: number;
 	};
+	/** Calibration metadata of the token model backing this estimate. */
+	modelSamples: number;
+	modelTrusted: boolean;
+	outputModelSamples: number;
+	outputModelTrusted: boolean;
 }
 
 export const DEFAULT_ADVANCED_PARAMETERS: AdvancedParameters = {
@@ -130,37 +157,158 @@ export function estimateTokens(text: string): number {
 
 type ContextCategories = ContextBreakdown["categories"];
 
+/** Extra data the frontend can observe to mirror the gateway's system prompt. */
+export interface SystemContextEstimate {
+	character?: CharacterSnapshot;
+	modelKey?: string;
+	now?: Date;
+}
+
 function emptyCategories(): ContextCategories {
 	return { system: 0, tools: 0, skills: 0, messages: 0, other: 0 };
 }
 
-function addToolCallEstimates(
-	categories: ContextCategories,
-	toolCalls: Message["tool_calls"],
-): void {
-	for (const toolCall of toolCalls) {
-		const serialized = `${toolCall.name}${toolCall.arguments}${toolCall.result ?? ""}`;
-		categories.tools += Math.max(1, Math.ceil(serialized.length / 2));
-	}
-}
-
-function addMessageEstimate(
-	categories: ContextCategories,
-	message: Message,
-): void {
-	// Content, reasoning, and tool payloads enter provider requests through
-	// different protocol fields, so they must not be classified as one blob.
-	const contentTokens =
-		estimateTokens(message.content) + estimateTokens(message.reasoning ?? "");
-	if (message.role === "system") categories.system += contentTokens;
-	else if (message.role === "tool") categories.tools += contentTokens;
-	else categories.messages += contentTokens;
-
-	addToolCallEstimates(categories, message.tool_calls);
-}
-
 function categoryTotal(categories: ContextCategories): number {
 	return Object.values(categories).reduce((sum, value) => sum + value, 0);
+}
+
+/** Text features of one message's tool calls (name + arguments + result). */
+function toolPayloadStats(toolCalls: Message["tool_calls"]): TokenTextStats {
+	let stats: TokenTextStats = { asciiBytes: 0, nonAsciiChars: 0 };
+	for (const call of toolCalls) {
+		stats = addTextStats(
+			stats,
+			countTextStats(`${call.name}${call.arguments}${call.result ?? ""}`),
+		);
+	}
+	return stats;
+}
+
+function toolPayloadTokens(
+	toolCalls: Message["tool_calls"],
+	coeffs: TokenCoefficients,
+): number {
+	const stats = toolPayloadStats(toolCalls);
+	return Math.max(
+		0,
+		Math.round(
+			coeffs.asciiPerByte * stats.asciiBytes +
+				coeffs.nonAsciiPerChar * stats.nonAsciiChars,
+		),
+	);
+}
+
+/** Mirror the gateway's character prompt section (name/description/instructions). */
+function characterPromptText(snapshot: CharacterSnapshot | undefined): string {
+	if (!snapshot) return "";
+	const parts: string[] = [];
+	if (snapshot.name.trim()) parts.push(`Name: ${snapshot.name}`);
+	if (snapshot.description.trim())
+		parts.push(`Description:\n${snapshot.description}`);
+	if (snapshot.system_prompt.trim())
+		parts.push(`Character instructions:\n${snapshot.system_prompt}`);
+	return parts.join("\n\n");
+}
+
+/**
+ * Mirror the gateway's date/time/timezone context section. UTC is used as a
+ * fixed-width approximation: the real zone name differs by only a few bytes,
+ * and that constant bias is absorbed by the fitted model intercept.
+ */
+function timeContextText(now: Date): string {
+	const date = now.toISOString().slice(0, 10);
+	const time = now.toISOString().slice(11, 19);
+	return `Current date: ${date}\nCurrent time: ${time}\nTime zone: UTC`;
+}
+
+/**
+ * Assemble the observable system-prompt text. The base prompt, application
+ * constraints, and tool instructions are gateway constants the frontend never
+ * sees, so they are left for the model's intercept to absorb.
+ */
+function composeSystemPromptText(
+	character: CharacterSnapshot | undefined,
+	now: Date,
+	compactionSummary: string | undefined,
+): string {
+	const parts = [characterPromptText(character), timeContextText(now)];
+	if (compactionSummary) parts.push(compactionSummary);
+	return parts.filter(Boolean).join("\n\n");
+}
+
+interface UsageFeatureSet {
+	aggregate: TokenFeatures;
+	system: TokenTextStats;
+	messages: TokenTextStats;
+	tools: TokenTextStats;
+	messageCount: number;
+}
+
+function buildUsageFeatures(
+	messages: Message[],
+	systemText: string,
+): UsageFeatureSet {
+	const system = countTextStats(systemText);
+	let messagesStats: TokenTextStats = { asciiBytes: 0, nonAsciiChars: 0 };
+	let tools: TokenTextStats = { asciiBytes: 0, nonAsciiChars: 0 };
+	for (const message of messages) {
+		// Reasoning never re-enters provider input between rounds, so it must
+		// not count toward retained context occupancy.
+		messagesStats = addTextStats(
+			messagesStats,
+			countTextStats(message.content),
+		);
+		tools = addTextStats(tools, toolPayloadStats(message.tool_calls));
+	}
+	const aggregate: TokenFeatures = {
+		asciiBytes: system.asciiBytes + messagesStats.asciiBytes + tools.asciiBytes,
+		nonAsciiChars:
+			system.nonAsciiChars + messagesStats.nonAsciiChars + tools.nonAsciiChars,
+		messageCount: messages.length,
+	};
+	return {
+		aggregate,
+		system,
+		messages: messagesStats,
+		tools,
+		messageCount: messages.length,
+	};
+}
+
+/** Split a feature set into the four display categories using one coefficient set. */
+function categoriesFromFeatures(
+	features: UsageFeatureSet,
+	coeffs: TokenCoefficients,
+): ContextCategories {
+	return {
+		system: Math.max(
+			0,
+			Math.round(
+				coeffs.intercept +
+					coeffs.asciiPerByte * features.system.asciiBytes +
+					coeffs.nonAsciiPerChar * features.system.nonAsciiChars,
+			),
+		),
+		tools: Math.max(
+			0,
+			Math.round(
+				coeffs.asciiPerByte * features.tools.asciiBytes +
+					coeffs.nonAsciiPerChar * features.tools.nonAsciiChars,
+			),
+		),
+		// Skill instruction bodies are still an empty contract in the gateway,
+		// so no skill text exists to attribute.
+		skills: 0,
+		messages: Math.max(
+			0,
+			Math.round(
+				coeffs.asciiPerByte * features.messages.asciiBytes +
+					coeffs.nonAsciiPerChar * features.messages.nonAsciiChars +
+					coeffs.perMessage * features.messageCount,
+			),
+		),
+		other: 0,
+	};
 }
 
 function reconcileSnapshotCategories(
@@ -207,8 +355,21 @@ export function estimateContextUsage(
 	limit: number | undefined,
 	compaction?: CompactionState,
 	reservedTokens = 0,
+	systemContext?: SystemContextEstimate,
 ): ContextBreakdown {
-	let categories = emptyCategories();
+	const model = systemContext?.modelKey
+		? loadModel(systemContext.modelKey)
+		: {
+				coeffs: DEFAULT_COEFFICIENTS,
+				sampleCount: 0,
+				trusted: false,
+				outputCoeffs: DEFAULT_OUTPUT_COEFFICIENTS,
+				outputSampleCount: 0,
+				outputTrusted: false,
+			};
+	const coeffs = model.coeffs;
+	const outputCoeffs = model.outputCoeffs;
+
 	// A local compaction created after the latest response changes the next
 	// provider request, so the earlier provider snapshot is no longer applicable.
 	const latestSnapshotIndex = latestContextSnapshotIndex(messages);
@@ -226,43 +387,60 @@ export function estimateContextUsage(
 			: []
 		: messages;
 
+	const now = systemContext?.now ?? new Date();
+	const systemText = composeSystemPromptText(
+		systemContext?.character,
+		now,
+		compaction?.summary,
+	);
+
 	let source: ContextBreakdown["source"] = "estimated";
 	let snapshotInputTokens: number | null = null;
 	let snapshotOutputTokens: number | null = null;
 	let usedTokens: number;
 	let contextTokens: number;
+	let categories: ContextCategories;
 	if (snapshotMessage && !compactionAfterSnapshot) {
 		source = "provider";
 		snapshotInputTokens = Math.trunc(snapshotMessage.context_input_tokens ?? 0);
 		snapshotOutputTokens = Math.trunc(
 			snapshotMessage.context_output_tokens ?? 0,
 		);
-		const covered = emptyCategories();
 		// Provider input usage covers every message before the assistant reply,
 		// while that reply's output becomes input only on the following round.
-		for (const message of messages.slice(0, latestSnapshotIndex)) {
-			addMessageEstimate(covered, message);
-		}
+		const covered = categoriesFromFeatures(
+			buildUsageFeatures(messages.slice(0, latestSnapshotIndex), systemText),
+			coeffs,
+		);
 		// Gateway stores earlier tool rounds on the final assistant message even
 		// though their payloads are part of the final provider request input.
-		addToolCallEstimates(covered, snapshotMessage.tool_calls);
+		covered.tools += toolPayloadTokens(snapshotMessage.tool_calls, coeffs);
 		categories = reconcileSnapshotCategories(covered, snapshotInputTokens);
-		categories.messages += snapshotOutputTokens;
-		const afterSnapshot = emptyCategories();
-		for (const message of messages.slice(latestSnapshotIndex + 1)) {
-			addMessageEstimate(afterSnapshot, message);
-		}
-		for (const key of Object.keys(categories) as (keyof ContextCategories)[]) {
-			categories[key] += afterSnapshot[key];
-		}
-		const appendedTokens = categoryTotal(afterSnapshot);
+
+		// Only visible output is re-sent next round; reasoning stays discarded.
+		// The output model splits the provider-reported total proportionally to
+		// the fitted token weights of the visible text and the reasoning text.
+		const { visible: visibleOutput } = splitOutputTokens(
+			outputCoeffs,
+			snapshotMessage.content,
+			snapshotMessage.reasoning ?? "",
+			snapshotOutputTokens,
+		);
+		categories.messages += visibleOutput;
+
+		const after = categoriesFromFeatures(
+			buildUsageFeatures(messages.slice(latestSnapshotIndex + 1), ""),
+			coeffs,
+		);
+		categories.messages += after.messages;
+		categories.tools += after.tools;
+		const appendedTokens = after.messages + after.tools;
+
 		usedTokens = snapshotInputTokens + appendedTokens;
-		contextTokens = snapshotInputTokens + snapshotOutputTokens + appendedTokens;
+		contextTokens = snapshotInputTokens + visibleOutput + appendedTokens;
 	} else {
-		for (const message of activeMessages)
-			addMessageEstimate(categories, message);
-		if (compaction?.summary)
-			categories.system += estimateTokens(compaction.summary);
+		const features = buildUsageFeatures(activeMessages, systemText);
+		categories = categoriesFromFeatures(features, coeffs);
 		usedTokens = categoryTotal(categories);
 		contextTokens = usedTokens;
 	}
@@ -285,6 +463,10 @@ export function estimateContextUsage(
 		snapshotInputTokens,
 		snapshotOutputTokens,
 		categories,
+		modelSamples: model.sampleCount,
+		modelTrusted: model.trusted,
+		outputModelSamples: model.outputSampleCount,
+		outputModelTrusted: model.outputTrusted,
 	};
 }
 
@@ -406,6 +588,16 @@ interface ContextManagementState {
 	clearCompaction: (conversationId: string) => void;
 	setContextPanelOpen: (open: boolean) => void;
 	setContextPanelTab: (tab: ContextPanelTab) => void;
+	/**
+	 * Validate the estimator against the provider-reported snapshot on a
+	 * finished turn and refit the token model for the given provider/model.
+	 */
+	learnFromSnapshot: (
+		modelKey: string,
+		messages: Message[],
+		compaction: CompactionState | undefined,
+		character: CharacterSnapshot | undefined,
+	) => void;
 }
 
 export const useContextManagementStore = create<ContextManagementState>(
@@ -465,5 +657,54 @@ export const useContextManagementStore = create<ContextManagementState>(
 			}),
 		setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
 		setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
+		learnFromSnapshot: (modelKey, messages, compaction, character) => {
+			if (!modelKey) return;
+			const snapshotIndex = latestContextSnapshotIndex(messages);
+			if (snapshotIndex < 0) return;
+			const snapshot = messages[snapshotIndex];
+			const input = snapshot.context_input_tokens;
+			if (typeof input !== "number" || !Number.isFinite(input) || input < 0)
+				return;
+
+			// Features must describe exactly what the provider received: the
+			// system sections plus every message except the snapshot itself.
+			const systemText = composeSystemPromptText(
+				character,
+				new Date(),
+				compaction?.summary,
+			);
+			const before = messages.filter((message) => message.id !== snapshot.id);
+			const base = buildUsageFeatures(before, systemText);
+			const snapshotTools = toolPayloadStats(snapshot.tool_calls ?? []);
+			const features: TokenFeatures = {
+				asciiBytes: base.aggregate.asciiBytes + snapshotTools.asciiBytes,
+				nonAsciiChars:
+					base.aggregate.nonAsciiChars + snapshotTools.nonAsciiChars,
+				messageCount: base.aggregate.messageCount,
+			};
+			recordSample(modelKey, snapshot.id, features, Math.trunc(input));
+
+			// Output calibration: fit generated-token counts against the full
+			// generated text (visible content plus reasoning).
+			const output = snapshot.context_output_tokens;
+			if (
+				typeof output === "number" &&
+				Number.isFinite(output) &&
+				output >= 0
+			) {
+				const generated = addTextStats(
+					countTextStats(snapshot.content),
+					countTextStats(snapshot.reasoning ?? ""),
+				);
+				if (generated.asciiBytes > 0 || generated.nonAsciiChars > 0) {
+					recordOutputSample(
+						modelKey,
+						snapshot.id,
+						generated,
+						Math.trunc(output),
+					);
+				}
+			}
+		},
 	}),
 );
