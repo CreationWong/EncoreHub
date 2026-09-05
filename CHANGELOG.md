@@ -9,6 +9,7 @@
 
 ### Added
 
+- **LaTeX 数学渲染**：聊天回复支持 `$...$` 行内与 `$$...$$` 块级 LaTeX 公式渲染，提供 KaTeX 与 MathJax 两种渲染引擎；默认使用 KaTeX，可在设置 → 外观中切换引擎或关闭渲染，选择持久化保存。KaTeX 与 MathJax 各自按需分包加载，不进入初始 JavaScript 包，初始包体保持在预算内。
 - **上下文 Token 预估模型**：前端按 provider/model 维护两个最小二乘线性 token 预估模型——输入模型特征为截距、ASCII 字节数、非 ASCII 码点数与消息条数，输出模型特征为生成文本的 ASCII 字节数与非 ASCII 码点数；每轮生成完成后用 API 返回的 `context_input_tokens`/`context_output_tokens` 快照校验并重拟合，样本不足时回退启发式估算，模型参数持久化到本地存储并在上下文面板显示校准状态。
 - **开发者面板 Token 模型检视**：Developer 设置新增 "Token estimation models" 区块，按 provider/model 展示输入与输出模型的拟合系数、样本数与是否已校准，并可一键清除全部模型。
 

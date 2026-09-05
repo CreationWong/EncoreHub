@@ -16,6 +16,7 @@ export type { SearchProvider } from "../services/webSearch";
 export type Theme = "system" | "dark" | "light";
 export type SidebarMode = "characters" | "conversations";
 export type GlobalContextMenuItemId = "new-chat" | "settings";
+export type MathRenderer = "off" | "katex" | "mathjax";
 
 export interface GlobalContextMenuItemPreference {
 	id: GlobalContextMenuItemId;
@@ -79,6 +80,7 @@ interface SettingsState {
 	openSERPSearchSettings: OpenSERPSearchSettings;
 	searchSettingsLoaded: boolean;
 	deepThinking: boolean;
+	mathRenderer: MathRenderer;
 
 	setTheme: (theme: Theme) => void;
 	setProvider: (provider: string, model?: string) => void;
@@ -109,6 +111,7 @@ interface SettingsState {
 	loadWebSearchSettings: () => Promise<void>;
 	saveWebSearchSettings: (settings: WebSearchSettings) => Promise<void>;
 	setDeepThinking: (on: boolean) => void;
+	setMathRenderer: (renderer: MathRenderer) => void;
 }
 
 function getSystemTheme(): "dark" | "light" {
@@ -331,6 +334,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-deep-thinking") === "1"
 			: false,
+	mathRenderer: (() => {
+		const value =
+			typeof window !== "undefined"
+				? localStorage.getItem("encorehub-math-renderer")
+				: null;
+		return value === "off" || value === "mathjax" ? value : "katex";
+	})(),
 
 	setTheme: (theme: Theme) => {
 		set({ theme });
@@ -556,6 +566,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		set({ deepThinking: on });
 		try {
 			localStorage.setItem("encorehub-deep-thinking", on ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
+	},
+
+	setMathRenderer: (renderer: MathRenderer) => {
+		set({ mathRenderer: renderer });
+		try {
+			localStorage.setItem("encorehub-math-renderer", renderer);
 		} catch {
 			/* ignore */
 		}

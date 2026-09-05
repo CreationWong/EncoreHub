@@ -1,7 +1,7 @@
 {
   "name": "encorehub-frontend",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,31 +19,35 @@
     "generate:licenses": "node ../scripts/generate-oss-compliance.mjs"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.1.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.1.0",
+    "@tauri-apps/plugin-shell": "^2.1.0",
+    "katex": "^0.18.5",
+    "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^5.0.0",
-    "@tauri-apps/api": "^2.1.0",
-    "@tauri-apps/plugin-shell": "^2.1.0",
-    "@tauri-apps/plugin-clipboard-manager": "^2.1.0",
     "react-markdown": "^9.0.0",
-    "remark-gfm": "^4.0.1",
     "react-syntax-highlighter": "^15.6.0",
-    "lucide-react": "^0.468.0"
+    "rehype-katex": "^7.0.1",
+    "rehype-mathjax": "^7.1.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
     "@tauri-apps/cli": "^2.1.0",
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/react-syntax-highlighter": "^15.5.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
+    "jsdom": "^25.0.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
-    "vitest": "^2.1.0",
-    "@testing-library/react": "^16.1.0",
-    "jsdom": "^25.0.0"
+    "vitest": "^2.1.0"
   }
 }

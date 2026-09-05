@@ -1,10 +1,18 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSettingsStore } from "../../stores/settingsStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	useSettingsStore.setState({ mathRenderer: "katex" });
 });
 
 describe("MarkdownRenderer", () => {
@@ -63,5 +71,49 @@ describe("MarkdownRenderer", () => {
 		expect(container.querySelector(".markdown-codeblock")).not.toBeNull();
 		expect(container.textContent).toContain("text");
 		expect(container.textContent).toContain("plain text");
+	});
+
+	it("typesets inline and block math with KaTeX by default", async () => {
+		const { container } = render(
+			<MarkdownRenderer
+				content={[
+					"Energy is $E = mc^2$.",
+					"",
+					"$$",
+					"\\int_0^1 x\\,dx",
+					"$$",
+				].join("\n")}
+			/>,
+		);
+
+		await waitFor(() =>
+			expect(container.querySelector(".katex-display")).not.toBeNull(),
+		);
+		expect(container.querySelector(".katex")).not.toBeNull();
+	});
+
+	it("switches to MathJax and renders self-contained SVG", async () => {
+		useSettingsStore.setState({ mathRenderer: "mathjax" });
+
+		const { container } = render(
+			<MarkdownRenderer content={"Energy is $E = mc^2$."} />,
+		);
+
+		await waitFor(
+			() => expect(container.querySelector("mjx-container")).not.toBeNull(),
+			{ timeout: 10_000 },
+		);
+	});
+
+	it("leaves LaTeX delimiters as plain text when math is off", async () => {
+		useSettingsStore.setState({ mathRenderer: "off" });
+
+		const { container } = render(
+			<MarkdownRenderer content={"Energy is $E = mc^2$."} />,
+		);
+
+		expect(container.textContent).toContain("$E = mc^2$");
+		expect(container.querySelector(".katex")).toBeNull();
+		expect(container.querySelector("mjx-container")).toBeNull();
 	});
 });

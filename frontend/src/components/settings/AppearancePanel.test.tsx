@@ -17,6 +17,7 @@ describe("AppearancePanel", () => {
 		useSettingsStore.setState({
 			theme: "dark",
 			trafficLightWindowControls: false,
+			mathRenderer: "katex",
 		});
 	});
 
@@ -57,5 +58,16 @@ describe("AppearancePanel", () => {
 			}),
 		).toBeNull();
 		expect(screen.queryByText("Window controls")).toBeNull();
+	});
+
+	it("switches the math rendering engine and persists the choice", () => {
+		render(<AppearancePanel />);
+		fireEvent.click(screen.getByRole("button", { name: /MathJax/ }));
+
+		expect(useSettingsStore.getState().mathRenderer).toBe("mathjax");
+		expect(localStorage.getItem("encorehub-math-renderer")).toBe("mathjax");
+
+		fireEvent.click(screen.getByRole("button", { name: /Off/ }));
+		expect(useSettingsStore.getState().mathRenderer).toBe("off");
 	});
 });

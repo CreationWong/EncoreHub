@@ -128,6 +128,14 @@ describe("settingsStore sidebar preferences", () => {
 		expect(localStorage.getItem("encorehub-deep-thinking")).toBe("1");
 	});
 
+	it("persists the math rendering engine and defaults to KaTeX", () => {
+		expect(useSettingsStore.getState().mathRenderer).toBe("katex");
+
+		useSettingsStore.getState().setMathRenderer("mathjax");
+		expect(useSettingsStore.getState().mathRenderer).toBe("mathjax");
+		expect(localStorage.getItem("encorehub-math-renderer")).toBe("mathjax");
+	});
+
 	it("persists the optional traffic-light window style", () => {
 		useSettingsStore.getState().setTrafficLightWindowControls(true);
 

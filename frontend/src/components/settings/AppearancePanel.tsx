@@ -1,11 +1,33 @@
-import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Sigma, Sun } from "lucide-react";
 import { getRuntimePlatform } from "../../services/runtimePlatform";
-import { type Theme, useSettingsStore } from "../../stores/settingsStore";
+import {
+	type MathRenderer,
+	type Theme,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 
 const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
 	{ id: "light", label: "Light", icon: Sun },
 	{ id: "dark", label: "Dark", icon: Moon },
 	{ id: "system", label: "System", icon: Monitor },
+];
+
+const MATH_RENDERERS: { id: MathRenderer; label: string; detail: string }[] = [
+	{
+		id: "katex",
+		label: "KaTeX",
+		detail: "Fast server-style typesetting with bundled fonts.",
+	},
+	{
+		id: "mathjax",
+		label: "MathJax",
+		detail: "Self-contained SVG output with broader TeX coverage.",
+	},
+	{
+		id: "off",
+		label: "Off",
+		detail: "Leave LaTeX delimiters as plain text.",
+	},
 ];
 
 export default function AppearancePanel() {
@@ -17,6 +39,8 @@ export default function AppearancePanel() {
 	const setTrafficLights = useSettingsStore(
 		(state) => state.setTrafficLightWindowControls,
 	);
+	const mathRenderer = useSettingsStore((state) => state.mathRenderer);
+	const setMathRenderer = useSettingsStore((state) => state.setMathRenderer);
 	const platform = getRuntimePlatform();
 
 	return (
@@ -55,6 +79,61 @@ export default function AppearancePanel() {
 							>
 								<option.icon className="h-4 w-4 shrink-0" />
 								<span className="truncate">{option.label}</span>
+								<Check
+									aria-hidden="true"
+									className={`h-3.5 w-3.5 shrink-0 ${
+										selected ? "opacity-100" : "opacity-0"
+									}`}
+								/>
+							</button>
+						);
+					})}
+				</div>
+			</section>
+
+			<section aria-labelledby="math-renderer-heading">
+				<div className="mb-3">
+					<h3
+						id="math-renderer-heading"
+						className="text-sm font-semibold text-text-primary"
+					>
+						Math rendering
+					</h3>
+					<p className="mt-1 text-xs text-text-muted">
+						Choose the engine that typesets LaTeX math in chat responses.
+					</p>
+				</div>
+				<div
+					aria-label="Math rendering engine"
+					className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-alt/40"
+				>
+					{MATH_RENDERERS.map((option) => {
+						const selected = mathRenderer === option.id;
+						return (
+							<button
+								key={option.id}
+								type="button"
+								aria-pressed={selected}
+								onClick={() => setMathRenderer(option.id)}
+								className={`flex min-h-14 w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+									selected ? "bg-selected" : "hover:bg-control"
+								}`}
+							>
+								<Sigma className="h-4 w-4 shrink-0 text-text-muted" />
+								<span className="min-w-0 flex-1">
+									<span
+										className={`block text-sm ${
+											selected
+												? "font-medium text-text-primary"
+												: "text-text-secondary"
+										}`}
+									>
+										{option.label}
+									</span>
+									<span className="mt-0.5 block text-xs text-text-muted">
+										{option.detail}
+									</span>
+								</span>
 								<Check
 									aria-hidden="true"
 									className={`h-3.5 w-3.5 shrink-0 ${
