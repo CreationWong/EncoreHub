@@ -1,3 +1,8 @@
+// Typed Gateway client contracts for the local Knowledge base.
+//
+// The Engine owns chunking and indexing; this client only mirrors the
+// browse/search/inspect surface the settings panel renders.
+
 import { apiFetch } from "./api";
 
 export interface KnowledgeDoc {
@@ -17,9 +22,28 @@ export interface KnowledgeChunk {
 	score: number;
 }
 
+/** One stored chunk returned by the chunk browser (no search score). */
+export interface KnowledgeDocChunk {
+	id: string;
+	document_id: string;
+	content: string;
+	chunk_index: number;
+	token_count: number;
+}
+
+/** Vector backend that served a Knowledge search request. */
+export type KnowledgeBackend = "lance_db" | "sqlite_vec";
+
 interface KnowledgeSearchResponse {
 	results: KnowledgeChunk[];
 	query: string;
+	backend: KnowledgeBackend;
+}
+
+export interface KnowledgeListOptions {
+	q?: string;
+	limit?: number;
+	offset?: number;
 }
 
 export interface IngestPayload {
@@ -29,8 +53,22 @@ export interface IngestPayload {
 }
 
 export const knowledgeApi = {
-	list(): Promise<KnowledgeDoc[]> {
-		return apiFetch<KnowledgeDoc[]>("/knowledge");
+	list(options: KnowledgeListOptions = {}): Promise<KnowledgeDoc[]> {
+		const params = new URLSearchParams();
+		if (options.q?.trim()) params.set("q", options.q.trim());
+		if (options.limit != null) params.set("limit", String(options.limit));
+		if (options.offset != null) params.set("offset", String(options.offset));
+		const query = params.toString();
+		return apiFetch<KnowledgeDoc[]>(
+			query ? `/knowledge?${query}` : "/knowledge",
+		);
+	},
+
+	/** List every stored chunk of one document, ordered by chunk index. */
+	chunks(id: string): Promise<KnowledgeDocChunk[]> {
+		return apiFetch<KnowledgeDocChunk[]>(
+			`/knowledge/${encodeURIComponent(id)}/chunks`,
+		);
 	},
 
 	ingest(payload: IngestPayload): Promise<KnowledgeDoc> {
@@ -46,6 +84,8 @@ export const knowledgeApi = {
 	},
 
 	delete(id: string): Promise<void> {
-		return apiFetch<void>(`/knowledge/${id}`, { method: "DELETE" });
+		return apiFetch<void>(`/knowledge/${encodeURIComponent(id)}`, {
+			method: "DELETE",
+		});
 	},
 };

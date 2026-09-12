@@ -74,6 +74,18 @@ fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
     })
 }
 
+/// Optional relational filters applied to memory list queries.
+///
+/// Bundling the four optional predicates keeps the list signatures within
+/// clippy's argument budget and lets callers spell only the filters they use.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MemoryFilter<'a> {
+    pub scope: Option<&'a MemoryScope>,
+    pub memory_type: Option<&'a MemoryType>,
+    pub state: Option<&'a MemoryState>,
+    pub kind: Option<&'a MemoryKind>,
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
     #[allow(dead_code)]
@@ -665,6 +677,80 @@ impl Database {
         })
     }
 
+    /// Update the user-editable fields of a stored memory.
+    ///
+    /// Content edits must keep the FTS mirror in sync inside the same
+    /// transaction, otherwise search would silently return the stale text.
+    /// Returns the refreshed record so callers can echo authoritative state.
+    pub fn update_memory(&self, id: &str, content: &str, importance: f32) -> Result<Memory> {
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let rowid = transaction
+            .query_row(
+                "SELECT rowid FROM memories WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(rowid) = rowid else {
+            return Err(EngineError::NotFound {
+                resource: "memory".into(),
+                id: id.into(),
+            });
+        };
+        transaction.execute(
+            "UPDATE memories SET content = ?1, importance = ?2 WHERE id = ?3",
+            params![content, importance, id],
+        )?;
+        transaction.execute("DELETE FROM memories_fts WHERE rowid = ?1", [rowid])?;
+        transaction.execute(
+            "INSERT INTO memories_fts (rowid, content) VALUES (?1, ?2)",
+            params![rowid, content],
+        )?;
+        transaction.commit()?;
+        drop(conn);
+        self.get_memory(id)
+    }
+
+    /// Search document titles for the Knowledge list view.
+    ///
+    /// A blank query falls back to the newest-first listing so the API can
+    /// share one handler for both browse and search.
+    pub fn search_documents(
+        &self,
+        query: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Document>> {
+        let pattern = query.map(str::trim).filter(|value| !value.is_empty());
+        let Some(pattern) = pattern else {
+            return self.list_documents(limit, offset);
+        };
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, file_type, chunk_count, size_bytes, created_at
+             FROM documents
+             WHERE title LIKE ?1 ESCAPE '\\'
+             ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
+        )?;
+        let escaped = pattern
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let rows = stmt.query_map(params![format!("%{escaped}%"), limit, offset], |row| {
+            Ok(Document {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                file_type: row.get(2)?,
+                chunk_count: row.get(3)?,
+                size_bytes: row.get(4)?,
+                created_at: ts_to_dt(row.get::<_, i64>(5)?),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn search_memories_fts(
         &self,
         query: &str,
@@ -786,8 +872,7 @@ impl Database {
 
     pub fn list_memories(
         &self,
-        scope: Option<&MemoryScope>,
-        memory_type: Option<&MemoryType>,
+        filter: MemoryFilter<'_>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Memory>> {
@@ -802,13 +887,21 @@ impl Database {
         );
         let mut param_values: Vec<String> = Vec::new();
 
-        if let Some(s) = scope {
+        if let Some(s) = filter.scope {
             sql.push_str(&format!(" AND scope = ?{}", param_values.len() + 1));
             param_values.push(s.as_str().to_string());
         }
-        if let Some(t) = memory_type {
+        if let Some(t) = filter.memory_type {
             sql.push_str(&format!(" AND type = ?{}", param_values.len() + 1));
             param_values.push(t.as_str().to_string());
+        }
+        if let Some(s) = filter.state {
+            sql.push_str(&format!(" AND state = ?{}", param_values.len() + 1));
+            param_values.push(s.as_str().to_string());
+        }
+        if let Some(k) = filter.kind {
+            sql.push_str(&format!(" AND kind = ?{}", param_values.len() + 1));
+            param_values.push(k.as_str().to_string());
         }
 
         sql.push_str(&format!(
@@ -834,8 +927,7 @@ impl Database {
 
     pub fn list_memories_for_groups(
         &self,
-        scope: Option<&MemoryScope>,
-        memory_type: Option<&MemoryType>,
+        filter: MemoryFilter<'_>,
         group_ids: &[String],
         limit: i64,
         offset: i64,
@@ -851,13 +943,21 @@ impl Database {
                FROM memories WHERE 1=1",
         );
         let mut values: Vec<String> = Vec::new();
-        if let Some(s) = scope {
+        if let Some(s) = filter.scope {
             sql.push_str(&format!(" AND scope = ?{}", values.len() + 1));
             values.push(s.as_str().into());
         }
-        if let Some(t) = memory_type {
+        if let Some(t) = filter.memory_type {
             sql.push_str(&format!(" AND type = ?{}", values.len() + 1));
             values.push(t.as_str().into());
+        }
+        if let Some(s) = filter.state {
+            sql.push_str(&format!(" AND state = ?{}", values.len() + 1));
+            values.push(s.as_str().into());
+        }
+        if let Some(k) = filter.kind {
+            sql.push_str(&format!(" AND kind = ?{}", values.len() + 1));
+            values.push(k.as_str().into());
         }
         let placeholders = (0..group_ids.len())
             .map(|index| format!("?{}", values.len() + index + 1))

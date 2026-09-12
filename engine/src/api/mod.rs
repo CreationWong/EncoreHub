@@ -176,6 +176,7 @@ pub fn build_router_with(
             get(knowledge::list).post(knowledge::ingest),
         )
         .route("/api/knowledge/search", get(knowledge::search))
+        .route("/api/knowledge/:id/chunks", get(knowledge::chunks))
         .route("/api/knowledge/:id", delete(knowledge::delete))
         // Memory search
         .route(
@@ -183,7 +184,10 @@ pub fn build_router_with(
             get(memories::list).post(memories::remember),
         )
         .route("/api/memories/search", get(memories::search))
-        .route("/api/memories/:id", delete(memories::delete))
+        .route(
+            "/api/memories/:id",
+            patch(memories::update).delete(memories::delete),
+        )
         .route(
             "/api/memory-groups",
             get(memories::list_groups).post(memories::create_group),

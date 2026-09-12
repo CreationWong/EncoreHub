@@ -10,6 +10,7 @@ use encorehub_core::{
     CharacterMemorySettings, Memory, MemoryGroup, MemoryGroupInheritance, MemoryKind, MemoryMode,
     MemoryScope, MemoryState, MemoryType,
 };
+use encorehub_storage::MemoryFilter;
 use serde::{Deserialize, Serialize};
 
 /// Query parameters accepted by vector memory search.
@@ -96,6 +97,21 @@ pub struct UpdateMemoryGroupRequest {
 pub struct DeleteMemoryGroupQuery {
     pub strategy: String,
     pub target_group_id: Option<String>,
+}
+
+/// Group listing flag that reveals archived custom groups for management.
+#[derive(Debug, Deserialize, Default)]
+pub struct GroupListQuery {
+    #[serde(default)]
+    pub include_archived: bool,
+}
+
+/// User-editable memory fields. Omitted fields keep their stored value.
+#[derive(Debug, Deserialize)]
+pub struct UpdateMemoryRequest {
+    pub content: Option<String>,
+    #[serde(default)]
+    pub importance: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,7 +219,12 @@ pub async fn search(
                     // fallback remains explicit and role-scoped.
                     results = state
                         .db
-                        .list_memories_for_groups(None, None, groups, params.top_k.clamp(1, 10), 0)
+                        .list_memories_for_groups(
+                            MemoryFilter::default(),
+                            groups,
+                            params.top_k.clamp(1, 10),
+                            0,
+                        )
                         .map_err(internal_error)?;
                 }
             }
@@ -257,11 +278,18 @@ pub async fn list(
 ) -> Result<Json<ListResponse>, (StatusCode, Json<super::ErrorResponse>)> {
     let scope = params.scope.as_deref().and_then(MemoryScope::from_str);
     let mem_type = params.memory_type.as_deref().and_then(MemoryType::from_str);
+    let memory_state = params.state.as_deref().and_then(MemoryState::from_str);
+    let memory_kind = params.kind.as_deref().and_then(MemoryKind::from_str);
+    let filter = MemoryFilter {
+        scope: scope.as_ref(),
+        memory_type: mem_type.as_ref(),
+        state: memory_state.as_ref(),
+        kind: memory_kind.as_ref(),
+    };
 
     let memories = if let Some(group_id) = params.group_id.as_deref() {
         state.db.list_memories_for_groups(
-            scope.as_ref(),
-            mem_type.as_ref(),
+            filter,
             &[group_id.to_string()],
             params.limit,
             params.offset,
@@ -278,20 +306,11 @@ pub async fn list(
                     }),
                 )
             })?;
-        state.db.list_memories_for_groups(
-            scope.as_ref(),
-            mem_type.as_ref(),
-            &groups,
-            params.limit,
-            params.offset,
-        )
+        state
+            .db
+            .list_memories_for_groups(filter, &groups, params.limit, params.offset)
     } else {
-        state.db.list_memories(
-            scope.as_ref(),
-            mem_type.as_ref(),
-            params.limit,
-            params.offset,
-        )
+        state.db.list_memories(filter, params.limit, params.offset)
     }
     .map_err(|e| {
         (
@@ -481,15 +500,19 @@ pub async fn remember(
 /// List role, global, and custom memory groups for the local profile.
 pub async fn list_groups(
     State(state): State<SharedState>,
+    Query(params): Query<GroupListQuery>,
 ) -> Result<Json<MemoryGroupListResponse>, (StatusCode, Json<super::ErrorResponse>)> {
-    let groups = state.db.list_memory_groups(false).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    let groups = state
+        .db
+        .list_memory_groups(params.include_archived)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
     let total = groups.len();
     Ok(Json(MemoryGroupListResponse { groups, total }))
 }
@@ -701,7 +724,7 @@ pub async fn update_character_settings(
             .map_err(internal_error)?;
         let memories = state
             .db
-            .list_memories_for_groups(None, None, &group_ids, 100_000, 0)
+            .list_memories_for_groups(MemoryFilter::default(), &group_ids, 100_000, 0)
             .map_err(internal_error)?;
         for memory in memories {
             if let Err(error) = state.db.index_memory(&memory) {
@@ -776,6 +799,76 @@ pub async fn delete(State(state): State<SharedState>, Path(id): Path<String>) ->
     }
 }
 
+/// Update the user-editable fields of one memory.
+///
+/// Content is re-indexed for vector search after the relational write so the
+/// RAG path never recalls stale text; indexing failures stay non-fatal because
+/// SQLite-Vec fallback remains authoritative.
+pub async fn update(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateMemoryRequest>,
+) -> Result<Json<MemoryResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    let existing = state.db.get_memory(&id).map_err(|error| {
+        let status = match error {
+            encorehub_core::EngineError::NotFound { .. } => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (
+            status,
+            Json(super::ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let content = match request.content.as_deref() {
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed.chars().count() > 4_000 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(super::ErrorResponse {
+                        error: "memory content must contain 1 to 4000 characters".into(),
+                    }),
+                ));
+            }
+            trimmed.to_string()
+        }
+        None => existing.content.clone(),
+    };
+    let importance = match request.importance {
+        Some(value) if value.is_finite() => value.clamp(0.0, 1.0),
+        Some(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(super::ErrorResponse {
+                    error: "importance must be a finite number".into(),
+                }),
+            ))
+        }
+        None => existing.importance,
+    };
+
+    let updated = state
+        .db
+        .update_memory(&id, &content, importance)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    if updated.content != existing.content {
+        if let Err(error) = state.db.index_memory(&updated) {
+            tracing::warn!(memory_id = %updated.id, %error, "memory vector re-index failed");
+        }
+    }
+    Ok(Json(memory_response(updated)))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     #[serde(default = "default_limit")]
@@ -784,6 +877,8 @@ pub struct ListQuery {
     pub offset: i64,
     pub scope: Option<String>,
     pub memory_type: Option<String>,
+    pub state: Option<String>,
+    pub kind: Option<String>,
     pub character_id: Option<String>,
     pub group_id: Option<String>,
 }

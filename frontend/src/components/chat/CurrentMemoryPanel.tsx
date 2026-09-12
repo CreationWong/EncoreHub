@@ -40,7 +40,7 @@ function formatDate(value: string): string {
 export default function CurrentMemoryPanel() {
 	const activeId = useConversationStore((state) => state.activeId);
 	const conversations = useConversationStore((state) => state.conversations);
-	const setDraft = useConversationStore((state) => state.setDraft);
+	const appendDraft = useConversationStore((state) => state.appendDraft);
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const [memories, setMemories] = useState<Memory[]>([]);
 	const [groups, setGroups] = useState<MemoryGroup[]>([]);
@@ -232,7 +232,9 @@ export default function CurrentMemoryPanel() {
 									<div className="flex shrink-0 items-center gap-0.5">
 										<button
 											type="button"
-											onClick={() => setDraft(`> [memory] ${memory.content}`)}
+											onClick={() =>
+												appendDraft(`> [memory] ${memory.content}`)
+											}
 											aria-label="Quote memory"
 											title="Quote in message"
 											className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"

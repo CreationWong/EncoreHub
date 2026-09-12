@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const list = vi.fn();
 const search = vi.fn();
 const del = vi.fn();
+const update = vi.fn();
 const listGroups = vi.fn();
 const getCharacterSettings = vi.fn();
 const updateCharacterSettings = vi.fn();
@@ -23,7 +24,8 @@ vi.mock("../../services/memories", () => ({
 		list: (options?: unknown) => list(options),
 		search: (opts: unknown) => search(opts),
 		delete: (id: string) => del(id),
-		listGroups: () => listGroups(),
+		update: (id: string, input: unknown) => update(id, input),
+		listGroups: (options?: unknown) => listGroups(options),
 		getCharacterSettings: (id: string) => getCharacterSettings(id),
 		updateCharacterSettings: (id: string, input: unknown) =>
 			updateCharacterSettings(id, input),
@@ -31,6 +33,11 @@ vi.mock("../../services/memories", () => ({
 		updateGroup: (id: string, input: unknown) => updateGroup(id, input),
 		deleteGroup: (id: string, input: unknown) => deleteGroup(id, input),
 	},
+}));
+
+const confirmAsk = vi.fn();
+vi.mock("../../stores/confirmStore", () => ({
+	confirm: { ask: (...args: unknown[]) => confirmAsk(...args) },
 }));
 
 const characterFixture = {
@@ -55,10 +62,10 @@ vi.mock("../../services/characters", () => ({
 		Promise.resolve({ characters: [characterFixture], total: 1 }),
 }));
 
-const setDraft = vi.fn();
+const appendDraft = vi.fn();
 const closeSettings = vi.fn();
 vi.mock("../../stores/conversationStore", () => ({
-	useConversationStore: <T,>(sel: (s: unknown) => T): T => sel({ setDraft }),
+	useConversationStore: <T,>(sel: (s: unknown) => T): T => sel({ appendDraft }),
 }));
 vi.mock("../../stores/settingsStore", () => ({
 	useSettingsStore: <T,>(sel: (s: unknown) => T): T => sel({ closeSettings }),
@@ -75,10 +82,15 @@ const memFixture = {
 	source_character_id: "default",
 	state: "long_term",
 	kind: "fact",
+	canonical_key: null,
+	reason: "Durable project context.",
+	source_turn_id: null,
+	created_by_model: "test-model",
+	confidence: 0.9,
 	content: "EncoreHub uses Tauri for the desktop shell.",
 	importance: 0.8,
-	created_at: "",
-	last_accessed_at: "",
+	created_at: "2026-08-01T00:00:00.000Z",
+	last_accessed_at: "2026-08-02T00:00:00.000Z",
 };
 
 const characterGroup = {
@@ -117,6 +129,7 @@ beforeEach(() => {
 		.mockReset()
 		.mockResolvedValue({ results: [memFixture], query: "Tauri" });
 	del.mockReset().mockResolvedValue(undefined);
+	update.mockReset().mockResolvedValue(memFixture);
 	listGroups
 		.mockReset()
 		.mockResolvedValue({ groups: [characterGroup, customGroup], total: 2 });
@@ -129,9 +142,14 @@ beforeEach(() => {
 			name,
 		}),
 	);
-	updateGroup.mockReset();
+	updateGroup
+		.mockReset()
+		.mockImplementation((id: string, input: Record<string, unknown>) =>
+			Promise.resolve({ ...customGroup, id, ...input }),
+		);
 	deleteGroup.mockReset();
-	setDraft.mockReset();
+	confirmAsk.mockReset().mockResolvedValue(true);
+	appendDraft.mockReset();
 	closeSettings.mockReset();
 });
 
@@ -143,8 +161,8 @@ describe("MemoryPanel", () => {
 		await waitFor(() => expect(list).toHaveBeenCalled());
 		await waitFor(() => {
 			expect(screen.getByText(/EncoreHub uses Tauri/)).toBeDefined();
-			expect(screen.getByText("fact")).toBeDefined();
-			expect(screen.getByText("long_term")).toBeDefined();
+			expect(screen.getAllByText("fact").length).toBeGreaterThan(0);
+			expect(screen.getAllByText("long_term").length).toBeGreaterThan(0);
 		});
 		expect(container.firstElementChild?.className).toContain("h-full");
 		expect(container.firstElementChild?.className).toContain("bg-surface");
@@ -168,6 +186,37 @@ describe("MemoryPanel", () => {
 				q: "Tauri",
 				group_id: "character:default",
 				top_k: 30,
+			}),
+		);
+	});
+
+	it("passes state and kind filters to the list request", async () => {
+		render(<MemoryPanel />);
+		await waitFor(() => expect(list).toHaveBeenCalled());
+
+		fireEvent.change(screen.getByLabelText("Filter by state"), {
+			target: { value: "long_term" },
+		});
+		await waitFor(() =>
+			expect(list).toHaveBeenCalledWith(
+				expect.objectContaining({ state: "long_term" }),
+			),
+		);
+	});
+
+	it("edits a memory through memoriesApi.update", async () => {
+		render(<MemoryPanel />);
+		await waitFor(() => screen.getByText(/EncoreHub uses Tauri/));
+
+		fireEvent.click(screen.getByTitle("Edit"));
+		fireEvent.change(screen.getByLabelText("Memory content"), {
+			target: { value: "The user maintains EncoreHub." },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+
+		await waitFor(() =>
+			expect(update).toHaveBeenCalledWith("m1", {
+				content: "The user maintains EncoreHub.",
 			}),
 		);
 	});
@@ -200,6 +249,29 @@ describe("MemoryPanel", () => {
 		);
 	});
 
+	it("toggles the realistic flag required by Realistic mode", async () => {
+		render(<MemoryPanel />);
+		await waitFor(() =>
+			expect(getCharacterSettings).toHaveBeenCalledWith("default"),
+		);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Realistic memory" }));
+		fireEvent.change(screen.getByLabelText("Default mode"), {
+			target: { value: "realistic" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() =>
+			expect(updateCharacterSettings).toHaveBeenCalledWith(
+				"default",
+				expect.objectContaining({
+					default_mode: "realistic",
+					realistic_enabled: true,
+				}),
+			),
+		);
+	});
+
 	it("creates a custom group from the group navigation", async () => {
 		render(<MemoryPanel />);
 		await waitFor(() => expect(listGroups).toHaveBeenCalled());
@@ -218,23 +290,34 @@ describe("MemoryPanel", () => {
 		);
 	});
 
-	it("Quote button writes setDraft and closes Settings", async () => {
+	it("quotes a memory by appending to the draft without discarding it", async () => {
 		render(<MemoryPanel />);
 		await waitFor(() => screen.getByText(/EncoreHub uses Tauri/));
 		fireEvent.click(screen.getByTitle("Quote into chat input"));
-		expect(setDraft).toHaveBeenCalledWith(
+		expect(appendDraft).toHaveBeenCalledWith(
 			"> [memory] EncoreHub uses Tauri for the desktop shell.",
 		);
 		expect(closeSettings).toHaveBeenCalled();
 	});
 
-	it("Delete button removes the row optimistically", async () => {
+	it("confirms before deleting and removes the row on success", async () => {
 		render(<MemoryPanel />);
 		await waitFor(() => screen.getByText(/EncoreHub uses Tauri/));
 		fireEvent.click(screen.getByTitle("Delete"));
+		await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
 		await waitFor(() => expect(del).toHaveBeenCalledWith("m1"));
 		await waitFor(() =>
 			expect(screen.queryByText(/EncoreHub uses Tauri/)).toBeNull(),
 		);
+	});
+
+	it("keeps the row when deletion is cancelled", async () => {
+		confirmAsk.mockResolvedValueOnce(false);
+		render(<MemoryPanel />);
+		await waitFor(() => screen.getByText(/EncoreHub uses Tauri/));
+		fireEvent.click(screen.getByTitle("Delete"));
+		await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+		expect(del).not.toHaveBeenCalled();
+		expect(screen.getByText(/EncoreHub uses Tauri/)).toBeDefined();
 	});
 });

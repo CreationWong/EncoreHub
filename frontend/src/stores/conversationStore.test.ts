@@ -337,6 +337,21 @@ describe("draft mailbox", () => {
 		expect(useConversationStore.getState().pendingDraft).toBeNull();
 	});
 
+	it("appendDraft keeps the existing draft and separates the excerpt", () => {
+		const store = useConversationStore.getState();
+		store.setDraft("Existing message");
+		store.appendDraft("> [memory] recalled fact");
+		expect(useConversationStore.getState().pendingDraft).toBe(
+			"Existing message\n\n> [memory] recalled fact",
+		);
+
+		store.clearDraft();
+		store.appendDraft("> [knowledge] chunk");
+		expect(useConversationStore.getState().pendingDraft).toBe(
+			"> [knowledge] chunk",
+		);
+	});
+
 	it("keeps editing local until submit and then replaces the old branch", async () => {
 		const user = serverMessage({ id: "user-edit", content: "original" });
 		const assistant = serverMessage({

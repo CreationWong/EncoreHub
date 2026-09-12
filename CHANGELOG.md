@@ -13,8 +13,17 @@
 - **侧边栏渲染引擎切换**：对话窗口右侧上下文面板新增 "Rendering" 标签页，可在其中选择 KaTeX、MathJax 或关闭数学渲染，与设置 → 外观中的选择保持同步，便于后续在面板中扩展更多渲染相关功能。
 - **上下文 Token 预估模型**：前端按 provider/model 维护两个最小二乘线性 token 预估模型——输入模型特征为截距、ASCII 字节数、非 ASCII 码点数与消息条数，输出模型特征为生成文本的 ASCII 字节数与非 ASCII 码点数；每轮生成完成后用 API 返回的 `context_input_tokens`/`context_output_tokens` 快照校验并重拟合，样本不足时回退启发式估算，模型参数持久化到本地存储并在上下文面板显示校准状态。
 - **开发者面板 Token 模型检视**：Developer 设置新增 "Token estimation models" 区块，按 provider/model 展示输入与输出模型的拟合系数、样本数与是否已校准，并可一键清除全部模型。
+- **Knowledge 浏览与检索增强**：`GET /api/knowledge` 支持按标题子串过滤与分页，新增 `GET /api/knowledge/{id}/chunks` 端点列出文档全部分块；设置 → Knowledge 新增文档标题过滤、排序（最新/标题/大小）、按需展开的分块查看器，搜索结果标注所属文档与向量后端（LanceDB / SQLite-Vec）。
+- **Memory 编辑与管理增强**：新增 `PATCH /api/memories/{id}` 更新记忆内容与重要度（内容变更后重建向量索引），`GET /api/memories` 支持 `state`/`kind` 过滤，`GET /api/memory-groups` 支持 `include_archived`；设置 → Memories 新增状态/类型筛选、排序、记忆内联编辑、重要度与置信度等元数据展示、归档组查看与恢复，并补充 Realistic 模式选项及其 `realistic_enabled` 开关。
 
 ### Changed
+
+- **引用到输入框改为追加**：Memory 与 Knowledge 的引用按钮不再覆盖用户已输入的草稿，而是在其后追加引用块（新增 `appendDraft`）。
+- **不可逆删除统一确认**：删除 Knowledge 文档与 Memory 记忆前显示确认对话框，取消即保留数据。
+
+### Fixed
+
+- **Memories 组重命名编辑器**：修复此前组名编辑器渲染在列表外部且存在重复分支的问题，现就地显示在对应分组行下方。
 
 - **对话右侧上下文面板优化**：标签改为数据驱动并可横向滚动，窄面板下不再裁切；补齐 roving tabindex、方向键/Home/End 导航与 `aria-controls`/`tabpanel` 关联，Memory 标签也纳入标准 tabpanel；面板头部新增关闭按钮；压缩摘要超长时可展开/收起。
 - **思考链不计入上下文**：上下文占用估算不再把模型思考链（reasoning）算进下一轮输入；Provider 快照的 output 按输出模型把可见内容与思考链按权重拆分，仅保留可见内容，与网关实际重发行为保持一致。

@@ -744,6 +744,73 @@ async fn knowledge_ingest_list_search_delete() {
 }
 
 #[tokio::test]
+async fn knowledge_chunks_and_title_search() {
+    let (_dir, app) = make_app();
+
+    let first = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/knowledge",
+            json!({
+                "title": "Tauri architecture notes",
+                "content": "EncoreHub loads the Engine runtime as a dynamic library.".repeat(20),
+            }),
+        ))
+        .await
+        .unwrap();
+    let first_id = body_json(first).await["id"].as_str().unwrap().to_string();
+
+    let second = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/knowledge",
+            json!({
+                "title": "Unrelated memo",
+                "content": "A short unrelated document body.",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    // Chunk browser returns at least the first chunk with sequential indices.
+    let chunks = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/knowledge/{first_id}/chunks"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunks.status(), StatusCode::OK);
+    let chunks = body_json(chunks).await;
+    let chunks = chunks.as_array().expect("chunks is an array");
+    assert!(!chunks.is_empty());
+    assert_eq!(chunks[0]["document_id"], first_id);
+    assert_eq!(chunks[0]["chunk_index"], 0);
+
+    // Title search narrows the browse list to the matching document.
+    let searched = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge?q=tauri")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(searched.status(), StatusCode::OK);
+    let searched = body_json(searched).await;
+    let searched = searched.as_array().unwrap();
+    assert_eq!(searched.len(), 1);
+    assert_eq!(searched[0]["id"], first_id);
+}
+
+#[tokio::test]
 async fn memories_list_and_search_are_empty_initially() {
     // A fresh database has groups and role settings, but no memory is created
     // until a model explicitly invokes a memory tool.
@@ -1199,6 +1266,155 @@ async fn memory_remember_requires_explicit_call_and_role_group_permission() {
         .await
         .unwrap();
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn memories_can_be_updated_and_filtered_by_state_and_kind() {
+    let (_dir, app) = make_app();
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "edit memory", "character_id": "default"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let saved = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-1",
+                "created_by_model": "test-model",
+                "content": "The user works on the EncoreHub desktop client.",
+                "kind": "fact",
+                "reason": "Durable project context.",
+                "importance": 0.4,
+            }),
+        ))
+        .await
+        .unwrap();
+    let saved_id = body_json(saved).await["id"].as_str().unwrap().to_string();
+
+    let updated = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/memories/{saved_id}"),
+            json!({ "content": "The user maintains the EncoreHub repository.", "importance": 0.9 }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = body_json(updated).await;
+    assert_eq!(
+        updated["content"],
+        "The user maintains the EncoreHub repository."
+    );
+    assert_eq!(updated["importance"], 0.9);
+
+    let filtered = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories?state=long_term&kind=fact")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_json(filtered).await["total"], 1);
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories?state=forgotten")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_json(missing).await["total"], 0);
+
+    let invalid = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/memories/{saved_id}"),
+            json!({ "content": "   " }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let archived = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memory-groups",
+            json!({ "name": "Temporary research" }),
+        ))
+        .await
+        .unwrap();
+    let archived_id = body_json(archived).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let archive = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/memory-groups/{archived_id}"),
+            json!({ "archived": true }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archive.status(), StatusCode::OK);
+
+    let active_only = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memory-groups")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let active_ids: Vec<String> = body_json(active_only).await["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(!active_ids.contains(&archived_id));
+
+    let with_archived = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/memory-groups?include_archived=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let all_ids: Vec<String> = body_json(with_archived).await["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(all_ids.contains(&archived_id));
 }
 
 #[tokio::test]

@@ -201,6 +201,7 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		workspaceSurface,
 		settingsModal,
 		markdownRenderer,
+		markdownShared,
 		highlightedCodeBlock,
 		devtools,
 		confirmConsumers,
@@ -209,6 +210,7 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 		read("frontend/src/components/workspace/WorkspaceSurface.tsx"),
 		read("frontend/src/components/settings/SettingsModal.tsx"),
 		read("frontend/src/components/chat/MarkdownRenderer.tsx"),
+		read("frontend/src/components/chat/markdownShared.tsx"),
 		read("frontend/src/components/chat/HighlightedCodeBlock.tsx"),
 		read("frontend/src/services/devtools.ts"),
 		Promise.all([
@@ -235,8 +237,17 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 	assert.match(settingsModal, /lazy\(\(\) => import\("\.\/DeveloperPanel"\)\)/);
 	assert.doesNotMatch(settingsModal, /^import DeveloperPanel/m);
 	assert.match(
-		markdownRenderer,
+		markdownShared,
 		/lazy\(\(\) => import\("\.\/HighlightedCodeBlock"\)\)/,
+	);
+	assert.doesNotMatch(markdownShared, /from "react-syntax-highlighter/);
+	assert.match(
+		markdownRenderer,
+		/lazy\(\(\) => import\("\.\/KatexMarkdown"\)\)/,
+	);
+	assert.match(
+		markdownRenderer,
+		/lazy\(\(\) => import\("\.\/MathjaxMarkdown"\)\)/,
 	);
 	assert.doesNotMatch(markdownRenderer, /from "react-syntax-highlighter/);
 	assert.match(highlightedCodeBlock, /from "react-syntax-highlighter"/);

@@ -72,6 +72,11 @@ export interface MemoryListOptions {
 	scope?: string;
 	group_id?: string;
 	character_id?: string;
+	memory_type?: string;
+	state?: MemoryState;
+	kind?: MemoryKind;
+	limit?: number;
+	offset?: number;
 }
 
 interface MemoryListResponse {
@@ -101,6 +106,13 @@ export const memoriesApi = {
 		if (normalized.group_id) params.set("group_id", normalized.group_id);
 		if (normalized.character_id)
 			params.set("character_id", normalized.character_id);
+		if (normalized.memory_type)
+			params.set("memory_type", normalized.memory_type);
+		if (normalized.state) params.set("state", normalized.state);
+		if (normalized.kind) params.set("kind", normalized.kind);
+		if (normalized.limit != null) params.set("limit", String(normalized.limit));
+		if (normalized.offset != null)
+			params.set("offset", String(normalized.offset));
 		const query = params.toString();
 		return apiFetch<MemoryListResponse>(
 			query ? `/memories?${query}` : "/memories",
@@ -116,12 +128,30 @@ export const memoriesApi = {
 		return apiFetch<MemorySearchResponse>(`/memories/search?${params}`);
 	},
 
-	delete(id: string): Promise<void> {
-		return apiFetch<void>(`/memories/${id}`, { method: "DELETE" });
+	/** Update the user-editable fields of one memory. */
+	update(
+		id: string,
+		input: { content?: string; importance?: number },
+	): Promise<Memory> {
+		return apiFetch<Memory>(`/memories/${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			body: JSON.stringify(input),
+		});
 	},
 
-	listGroups(): Promise<{ groups: MemoryGroup[]; total: number }> {
-		return apiFetch<{ groups: MemoryGroup[]; total: number }>("/memory-groups");
+	delete(id: string): Promise<void> {
+		return apiFetch<void>(`/memories/${encodeURIComponent(id)}`, {
+			method: "DELETE",
+		});
+	},
+
+	listGroups(options?: {
+		includeArchived?: boolean;
+	}): Promise<{ groups: MemoryGroup[]; total: number }> {
+		const query = options?.includeArchived ? "?include_archived=true" : "";
+		return apiFetch<{ groups: MemoryGroup[]; total: number }>(
+			`/memory-groups${query}`,
+		);
 	},
 
 	createGroup(name: string): Promise<MemoryGroup> {

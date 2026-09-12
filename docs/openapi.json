@@ -1005,7 +1005,12 @@
         "parameters": [
           { "name": "scope", "in": "query", "schema": { "type": "string" } },
           { "name": "character_id", "in": "query", "schema": { "type": "string" } },
-          { "name": "group_id", "in": "query", "schema": { "type": "string" } }
+          { "name": "group_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "memory_type", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "enum": ["transient", "short_term", "long_term", "permanent_candidate", "permanent", "forgotten"] } },
+          { "name": "kind", "in": "query", "schema": { "enum": ["fact", "preference", "event", "instruction", "summary"] } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
         ],
         "responses": {
           "200": {
@@ -1069,6 +1074,23 @@
       "parameters": [
         { "$ref": "#/components/parameters/ResourceId" }
       ],
+      "patch": {
+        "tags": ["Memories"],
+        "operationId": "updateMemory",
+        "description": "Updates the user-editable fields of one memory. Content changes re-index the memory for vector search.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateMemoryRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated memory",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Memory" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
       "delete": {
         "tags": ["Memories"],
         "operationId": "deleteMemory",
@@ -1082,6 +1104,9 @@
       "get": {
         "tags": ["Memories"],
         "operationId": "listMemoryGroups",
+        "parameters": [
+          { "name": "include_archived", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
         "responses": {
           "200": {
             "description": "Active role, global, and custom groups",
@@ -1140,6 +1165,11 @@
       "get": {
         "tags": ["Knowledge"],
         "operationId": "listKnowledgeDocuments",
+        "parameters": [
+          { "name": "q", "in": "query", "description": "Title substring filter", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0, "default": 0 } }
+        ],
         "responses": {
           "200": {
             "description": "Knowledge documents",
@@ -1192,6 +1222,29 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/KnowledgeSearchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge/{id}/chunks": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ResourceId" }
+      ],
+      "get": {
+        "tags": ["Knowledge"],
+        "operationId": "listKnowledgeChunks",
+        "description": "Lists every stored chunk of one document in chunk-index order.",
+        "responses": {
+          "200": {
+            "description": "Stored document chunks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/KnowledgeStoredChunk" }
+                }
               }
             }
           }
@@ -2562,6 +2615,14 @@
           "archived": { "type": "boolean" }
         }
       },
+      "UpdateMemoryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "content": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "importance": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
       "MemoryGroupInheritance": {
         "type": "object",
         "required": ["character_id", "group_id", "access_mode", "priority"],
@@ -2631,6 +2692,17 @@
           "content": { "type": "string" },
           "chunk_index": { "type": "integer", "minimum": 0 },
           "score": { "type": "number" }
+        }
+      },
+      "KnowledgeStoredChunk": {
+        "type": "object",
+        "required": ["id", "document_id", "content", "chunk_index", "token_count"],
+        "properties": {
+          "id": { "type": "string" },
+          "document_id": { "type": "string" },
+          "content": { "type": "string" },
+          "chunk_index": { "type": "integer", "minimum": 0 },
+          "token_count": { "type": "integer", "minimum": 0 }
         }
       },
       "KnowledgeIngestRequest": {

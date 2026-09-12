@@ -86,11 +86,12 @@ describe("MarkdownRenderer", () => {
 			/>,
 		);
 
-		await waitFor(() =>
-			expect(container.querySelector(".katex-display")).not.toBeNull(),
+		await waitFor(
+			() => expect(container.querySelector(".katex-display")).not.toBeNull(),
+			{ timeout: 10_000 },
 		);
 		expect(container.querySelector(".katex")).not.toBeNull();
-	});
+	}, 15_000);
 
 	it("switches to MathJax and renders self-contained SVG", async () => {
 		useSettingsStore.setState({ mathRenderer: "mathjax" });

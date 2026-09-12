@@ -59,6 +59,29 @@ fn default_top_k() -> i64 {
     5
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub q: Option<String>,
+    #[serde(default = "default_list_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_list_limit() -> i64 {
+    100
+}
+
+/// One stored document chunk returned by the chunk browser.
+#[derive(Debug, Serialize)]
+pub struct ChunkResponse {
+    pub id: String,
+    pub document_id: String,
+    pub content: String,
+    pub chunk_index: i32,
+    pub token_count: i32,
+}
+
 /// Ingest a document (text content) — chunk and index it.
 pub async fn ingest(
     State(state): State<SharedState>,
@@ -135,18 +158,24 @@ pub async fn ingest(
     }))
 }
 
-/// List all documents.
+/// List documents, optionally filtered by a title substring.
 pub async fn list(
     State(state): State<SharedState>,
+    Query(params): Query<ListQuery>,
 ) -> Result<Json<Vec<DocumentResponse>>, (StatusCode, Json<super::ErrorResponse>)> {
-    let docs = state.db.list_documents(100, 0).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(super::ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    let limit = params.limit.clamp(1, 500);
+    let offset = params.offset.max(0);
+    let docs = state
+        .db
+        .search_documents(params.q.as_deref(), limit, offset)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
     let items: Vec<DocumentResponse> = docs
         .into_iter()
@@ -160,6 +189,32 @@ pub async fn list(
         })
         .collect();
 
+    Ok(Json(items))
+}
+
+/// List every stored chunk of one document for inspection.
+pub async fn chunks(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ChunkResponse>>, (StatusCode, Json<super::ErrorResponse>)> {
+    let chunks = state.db.list_chunks(&id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    let items = chunks
+        .into_iter()
+        .map(|chunk| ChunkResponse {
+            id: chunk.id,
+            document_id: chunk.document_id,
+            content: chunk.content,
+            chunk_index: chunk.chunk_index,
+            token_count: chunk.token_count,
+        })
+        .collect();
     Ok(Json(items))
 }
 

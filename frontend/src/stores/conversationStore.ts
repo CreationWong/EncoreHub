@@ -226,6 +226,8 @@ interface ConversationState {
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
 	setDraft: (content: string) => void;
+	/** Append a quoted excerpt without discarding the user's current draft. */
+	appendDraft: (content: string) => void;
 	clearDraft: () => void;
 	setConversationDraft: (id: string | null, content: string) => void;
 	clearConversationDraft: (id: string | null) => void;
@@ -1101,6 +1103,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 	},
 
 	setDraft: (content: string) => set({ pendingDraft: content }),
+	appendDraft: (content: string) =>
+		set((state) => ({
+			pendingDraft: state.pendingDraft
+				? `${state.pendingDraft.trimEnd()}\n\n${content}`
+				: content,
+		})),
 	clearDraft: () => set({ pendingDraft: null }),
 	setConversationDraft: (id, content) => {
 		const key = id ?? NEW_CONVERSATION_DRAFT_KEY;

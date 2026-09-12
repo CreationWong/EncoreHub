@@ -6,7 +6,7 @@ pub use blob::{BlobStore, StagedBlobDeletion};
 pub use lancedb::{ChunkEmbeddingResult, LanceDbConfig, LanceDbStore};
 pub use sqlite::{
     decode_hex, encode_hex, AttachmentRecord, CacheCleanup, ConversationCleanup, DataConversation,
-    DataDomain, DataOverview, Database, ImportSummary, UserDataBackup, VectorBackend,
+    DataDomain, DataOverview, Database, ImportSummary, MemoryFilter, UserDataBackup, VectorBackend,
     VectorSearchHit,
 };
 
