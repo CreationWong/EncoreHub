@@ -49,7 +49,11 @@ beforeEach(() => {
 		loading: false,
 		streaming: false,
 	});
-	useSettingsStore.setState({ provider: "openai", model: "gpt-test" });
+	useSettingsStore.setState({
+		provider: "openai",
+		model: "gpt-test",
+		mathRenderer: "katex",
+	});
 	useProviderStore.setState({
 		profiles: [
 			{
@@ -100,12 +104,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ContextManagementPanel", () => {
-	it("does not duplicate the context panel toggle inside the panel", () => {
+	it("closes the panel from its own header button without duplicating the toolbar toggle", () => {
 		render(<ContextManagementPanel />);
 
-		expect(
-			screen.queryByRole("button", { name: "Close context panel" }),
-		).toBeNull();
+		const close = screen.getByRole("button", { name: "Close context panel" });
+		fireEvent.click(close);
+
+		expect(useContextManagementStore.getState().contextPanelOpen).toBe(false);
+	});
+
+	it("navigates tabs with arrow keys and roving tabindex", () => {
+		render(<ContextManagementPanel />);
+		const contextTab = screen.getByRole("tab", { name: "Context" });
+
+		expect(contextTab.tabIndex).toBe(0);
+		fireEvent.keyDown(contextTab, { key: "ArrowRight" });
+
+		expect(useContextManagementStore.getState().contextPanelTab).toBe("memory");
+		expect(screen.getByRole("tab", { name: "Memory" }).tabIndex).toBe(0);
 	});
 
 	it("uses the complete retained context for the meter and preserves sub-percent precision", () => {
@@ -166,5 +182,18 @@ describe("ContextManagementPanel", () => {
 
 		expect(screen.getByText("Current memory panel")).toBeDefined();
 		expect(useContextManagementStore.getState().contextPanelTab).toBe("memory");
+	});
+
+	it("switches to the rendering tab and selects a math engine", () => {
+		render(<ContextManagementPanel />);
+		const button = screen.getByRole("tab", { name: "Rendering" });
+
+		fireEvent.click(button);
+		expect(useContextManagementStore.getState().contextPanelTab).toBe(
+			"rendering",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: /MathJax/ }));
+		expect(useSettingsStore.getState().mathRenderer).toBe("mathjax");
 	});
 });

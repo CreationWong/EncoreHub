@@ -1,18 +1,31 @@
+// Conversation context side panel.
+//
+// Shows how the next provider request is assembled (system sections, tools,
+// transcript), lets the user compact history, tune sampling parameters, and
+// choose the math rendering engine. Tabs are data-driven so new sections can
+// be added without restructuring the tab list.
+
 import {
 	BrainCircuit,
+	Check,
+	ChevronDown,
+	ChevronUp,
 	CircleDollarSign,
 	Gauge,
 	Layers3,
 	MessageSquareText,
 	Scissors,
+	Sigma,
 	SlidersHorizontal,
 	Sparkles,
 	Wrench,
+	X,
 	Zap,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { modelKeyFor } from "../../services/tokenModel";
 import {
+	type ContextPanelTab,
 	MANUAL_COMPACT_BUFFER_TOKENS,
 	autoCompactReserve,
 	estimateContextUsage,
@@ -20,8 +33,38 @@ import {
 } from "../../stores/contextManagementStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	type MathRenderer,
+	useSettingsStore,
+} from "../../stores/settingsStore";
 import CurrentMemoryPanel from "./CurrentMemoryPanel";
+
+/** Tab order and labels for the panel header. */
+const TABS: { id: ContextPanelTab; label: string; icon: typeof Gauge }[] = [
+	{ id: "context", label: "Context", icon: Gauge },
+	{ id: "memory", label: "Memory", icon: BrainCircuit },
+	{ id: "parameters", label: "Parameters", icon: SlidersHorizontal },
+	{ id: "rendering", label: "Rendering", icon: Sigma },
+];
+
+/** Math engines offered on the rendering tab, matching Settings → Appearance. */
+const MATH_RENDERERS: { id: MathRenderer; label: string; detail: string }[] = [
+	{
+		id: "katex",
+		label: "KaTeX",
+		detail: "Fast server-style typesetting with bundled fonts.",
+	},
+	{
+		id: "mathjax",
+		label: "MathJax",
+		detail: "Self-contained SVG output with broader TeX coverage.",
+	},
+	{
+		id: "off",
+		label: "Off",
+		detail: "Leave LaTeX delimiters as plain text.",
+	},
+];
 
 function formatTokens(value: number): string {
 	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
@@ -220,6 +263,13 @@ export default function ContextManagementPanel() {
 		(state) => state.clearCompaction,
 	);
 	const records = useContextManagementStore((state) => state.records);
+	const setContextPanelOpen = useContextManagementStore(
+		(state) => state.setContextPanelOpen,
+	);
+	const mathRenderer = useSettingsStore((state) => state.mathRenderer);
+	const setMathRenderer = useSettingsStore((state) => state.setMathRenderer);
+	const [summaryExpanded, setSummaryExpanded] = useState(false);
+	const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
 	const conversation = conversations.find((item) => item.id === activeId);
 	const providerId = conversation?.provider || defaultProvider;
@@ -305,51 +355,97 @@ export default function ContextManagementPanel() {
 			aria-label="Context management"
 			className="absolute inset-y-0 right-0 z-30 flex w-[min(22rem,calc(100%-1rem))] shrink-0 flex-col border-l border-border bg-workspace shadow-2xl min-[900px]:relative min-[900px]:z-auto min-[900px]:w-[22rem] min-[900px]:shadow-none"
 		>
-			<header className="flex h-12 shrink-0 items-center border-b border-border px-2">
+			<header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">
 				<div
 					role="tablist"
 					aria-label="Context panel sections"
-					className="flex min-w-0 items-center gap-1"
+					className="context-tab-strip flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
 				>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={tab === "context"}
-						onClick={() => setTab("context")}
-						className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${tab === "context" ? "bg-selected text-text-primary" : "text-text-muted hover:bg-control hover:text-text-primary"}`}
-					>
-						<Gauge className="h-3.5 w-3.5" />
-						Context
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={tab === "memory"}
-						onClick={() => setTab("memory")}
-						className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${tab === "memory" ? "bg-selected text-text-primary" : "text-text-muted hover:bg-control hover:text-text-primary"}`}
-					>
-						<BrainCircuit className="h-3.5 w-3.5" />
-						Memory
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={tab === "parameters"}
-						onClick={() => setTab("parameters")}
-						className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${tab === "parameters" ? "bg-selected text-text-primary" : "text-text-muted hover:bg-control hover:text-text-primary"}`}
-					>
-						<SlidersHorizontal className="h-3.5 w-3.5" />
-						Parameters
-					</button>
+					{TABS.map((item, index) => {
+						const active = tab === item.id;
+						const Icon = item.icon;
+						return (
+							<button
+								key={item.id}
+								ref={(element) => {
+									tabRefs.current[index] = element;
+								}}
+								type="button"
+								role="tab"
+								id={`context-tab-${item.id}`}
+								aria-selected={active}
+								aria-controls={`context-panel-${item.id}`}
+								tabIndex={active ? 0 : -1}
+								title={item.label}
+								onClick={() => {
+									setTab(item.id);
+									tabRefs.current[index]?.scrollIntoView?.({
+										block: "nearest",
+										inline: "nearest",
+									});
+								}}
+								onKeyDown={(event) => {
+									if (
+										event.key !== "ArrowLeft" &&
+										event.key !== "ArrowRight" &&
+										event.key !== "Home" &&
+										event.key !== "End"
+									)
+										return;
+									event.preventDefault();
+									const nextIndex =
+										event.key === "Home"
+											? 0
+											: event.key === "End"
+												? TABS.length - 1
+												: (index +
+														(event.key === "ArrowRight" ? 1 : -1) +
+														TABS.length) %
+													TABS.length;
+									setTab(TABS[nextIndex].id);
+									tabRefs.current[nextIndex]?.focus();
+									tabRefs.current[nextIndex]?.scrollIntoView?.({
+										block: "nearest",
+										inline: "nearest",
+									});
+								}}
+								className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+									active
+										? "bg-selected text-text-primary"
+										: "text-text-muted hover:bg-control hover:text-text-primary"
+								}`}
+							>
+								<Icon className="h-3.5 w-3.5 shrink-0" />
+								<span>{item.label}</span>
+							</button>
+						);
+					})}
 				</div>
+				<button
+					type="button"
+					onClick={() => setContextPanelOpen(false)}
+					aria-label="Close context panel"
+					title="Close context panel"
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
+				>
+					<X className="h-4 w-4" />
+				</button>
 			</header>
 
 			{tab === "memory" ? (
-				<CurrentMemoryPanel />
+				<div
+					role="tabpanel"
+					id="context-panel-memory"
+					aria-labelledby="context-tab-memory"
+					className="flex min-h-0 flex-1 flex-col"
+				>
+					<CurrentMemoryPanel />
+				</div>
 			) : tab === "context" ? (
 				<div
 					role="tabpanel"
-					aria-label="Context"
+					id="context-panel-context"
+					aria-labelledby="context-tab-context"
 					className="min-h-0 flex-1 overflow-y-auto"
 				>
 					<section className="border-b border-border px-4 py-4">
@@ -487,10 +583,33 @@ export default function ContextManagementPanel() {
 							)}
 						</div>
 						{compaction ? (
-							<div className="mt-3 border-l-2 border-accent pl-3">
-								<p className="max-h-32 overflow-hidden whitespace-pre-wrap text-[11px] leading-5 text-text-secondary">
+							<div
+								className="mt-3 border-l-2 border-accent pl-3"
+								key={compaction.createdAt}
+							>
+								<p
+									className={`whitespace-pre-wrap text-[11px] leading-5 text-text-secondary ${
+										summaryExpanded
+											? "max-h-96 overflow-y-auto"
+											: "max-h-32 overflow-hidden"
+									}`}
+								>
 									{compaction.summary}
 								</p>
+								{compaction.summary.length > 240 && (
+									<button
+										type="button"
+										onClick={() => setSummaryExpanded((value) => !value)}
+										className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-text-muted hover:text-text-primary"
+									>
+										{summaryExpanded ? (
+											<ChevronUp className="h-3 w-3" />
+										) : (
+											<ChevronDown className="h-3 w-3" />
+										)}
+										{summaryExpanded ? "Show less" : "Show more"}
+									</button>
+								)}
 								<p className="mt-2 text-[10px] tabular-nums text-text-muted">
 									{formatTokens(compaction.sourceTokens)} source tokens ·
 									keeping {compaction.keepRecent} recent messages
@@ -503,10 +622,67 @@ export default function ContextManagementPanel() {
 						)}
 					</section>
 				</div>
+			) : tab === "rendering" ? (
+				<div
+					role="tabpanel"
+					id="context-panel-rendering"
+					aria-labelledby="context-tab-rendering"
+					className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+				>
+					<div className="mb-3">
+						<h2 className="text-sm font-semibold text-text-primary">
+							Math rendering
+						</h2>
+						<p className="mt-1 text-xs leading-5 text-text-muted">
+							Choose the engine that typesets LaTeX math in chat responses.
+						</p>
+					</div>
+					<div
+						aria-label="Math rendering engine"
+						className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-alt/40"
+					>
+						{MATH_RENDERERS.map((option) => {
+							const selected = mathRenderer === option.id;
+							return (
+								<button
+									key={option.id}
+									type="button"
+									aria-pressed={selected}
+									onClick={() => setMathRenderer(option.id)}
+									className={`flex min-h-14 w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+										selected ? "bg-selected" : "hover:bg-control"
+									}`}
+								>
+									<span className="min-w-0 flex-1">
+										<span
+											className={`block text-sm ${
+												selected
+													? "font-medium text-text-primary"
+													: "text-text-secondary"
+											}`}
+										>
+											{option.label}
+										</span>
+										<span className="mt-0.5 block text-xs text-text-muted">
+											{option.detail}
+										</span>
+									</span>
+									<Check
+										aria-hidden="true"
+										className={`h-3.5 w-3.5 shrink-0 ${
+											selected ? "opacity-100" : "opacity-0"
+										}`}
+									/>
+								</button>
+							);
+						})}
+					</div>
+				</div>
 			) : (
 				<div
 					role="tabpanel"
-					aria-label="Parameters"
+					id="context-panel-parameters"
+					aria-labelledby="context-tab-parameters"
 					className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 				>
 					<NumberSlider

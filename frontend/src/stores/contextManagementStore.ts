@@ -568,7 +568,7 @@ export function buildCompactionSummary(
 	};
 }
 
-export type ContextPanelTab = "context" | "memory" | "parameters";
+export type ContextPanelTab = "context" | "memory" | "parameters" | "rendering";
 
 interface ContextManagementState {
 	records: UsageRecord[];

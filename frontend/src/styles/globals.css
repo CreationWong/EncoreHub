@@ -496,6 +496,15 @@ pre {
 	display: none;
 }
 
+/* Context panel tabs stay reachable on narrow panels without a visible track. */
+.context-tab-strip {
+	scrollbar-width: none;
+}
+
+.context-tab-strip::-webkit-scrollbar {
+	display: none;
+}
+
 .app-sidebar {
 	width: var(--sidebar-width);
 }
