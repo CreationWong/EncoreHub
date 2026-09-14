@@ -73,6 +73,7 @@ if [ -n "$COMPONENTS" ]; then
 fi
 
 CARGO_TARGET="debug"
+# Empty for debug builds; expansions must be guarded for bash 3.2 on macOS with set -u.
 CARGO_ARGS=()
 GO_BUILD_ARGS=(-trimpath -gcflags "all=-N -l")
 TAURI_ARGS=(tauri dev)
@@ -209,10 +210,10 @@ build_engine() {
     fi
 
     section "Engine standalone binary"
-    if ! (cd "$ENGINE_DIR" && cargo build --features standalone "${CARGO_ARGS[@]}"); then
+    if ! (cd "$ENGINE_DIR" && cargo build --features standalone ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}); then
         return 1
     fi
-    if ! (cd "$ENGINE_DIR" && cargo build -p encorehub-rust-scrapling "${CARGO_ARGS[@]}"); then
+    if ! (cd "$ENGINE_DIR" && cargo build -p encorehub-rust-scrapling ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}); then
         return 1
     fi
     if [ -f "$ENGINE_SOURCE" ]; then
