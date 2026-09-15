@@ -38,7 +38,7 @@ export interface ModelMetadataState {
 	setAutoUpdate: (enabled: boolean) => Promise<void>;
 	refreshProvider: (id: string) => Promise<NormalizedModelMetadata[]>;
 	refreshEnabled: () => Promise<void>;
-	/** Refresh enabled providers whose cache is missing or older than the TTL. */
+	/** Refresh enabled providers whose cache is empty or older than the TTL. */
 	refreshStale: () => Promise<void>;
 }
 
@@ -52,6 +52,13 @@ export function isModelMetadataStale(
 	return (
 		Number.isNaN(timestamp) || now - timestamp >= MODEL_METADATA_REFRESH_TTL_MS
 	);
+}
+
+/** Report whether a provider catalog has no usable records to look up. */
+export function isModelMetadataEmpty(
+	records: NormalizedModelMetadata[] | undefined,
+): boolean {
+	return !records || records.length === 0;
 }
 
 function cloneProvider(provider: ModelMetadataProvider): ModelMetadataProvider {
@@ -295,7 +302,9 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 		if (!get().loaded) await get().load();
 		const pending = get()
 			.providers.filter(
-				(provider) => provider.enabled && !get().recordsByProvider[provider.id],
+				(provider) =>
+					provider.enabled &&
+					isModelMetadataEmpty(get().recordsByProvider[provider.id]),
 			)
 			.map((provider) => get().refreshProvider(provider.id));
 		await Promise.allSettled(pending);
@@ -308,7 +317,7 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 			.providers.filter(
 				(provider) =>
 					provider.enabled &&
-					(!get().recordsByProvider[provider.id] ||
+					(isModelMetadataEmpty(get().recordsByProvider[provider.id]) ||
 						isModelMetadataStale(get().updatedAt[provider.id], now)),
 			)
 			.map((provider) => get().refreshProvider(provider.id));

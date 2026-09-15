@@ -331,7 +331,7 @@ export default function ModelMetadataPanel() {
 				<div className="space-y-2 border-t border-border p-2">
 					<label
 						className="flex cursor-pointer items-center gap-2 px-1 text-xs text-text-secondary"
-						title="Refresh enabled providers on startup when cached metadata is older than 24 hours"
+						title="Refresh enabled providers on startup when cached metadata is empty or older than 24 hours"
 					>
 						<input
 							autoComplete="off"

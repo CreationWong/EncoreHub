@@ -16,6 +16,10 @@
 
 - **依赖安全更新**：修复可达的文档与网页解析拒绝服务及 TLS/编码类已知问题——Engine `quick-xml` 0.42、`h2` 0.4.19、`rustls` 0.23.45、`anyhow` 1.0.104；Gateway `golang.org/x/net` v0.56.0、`golang.org/x/text` 0.39.0、`klauspost/compress` 1.20.0；前端通过 pnpm override 将 `@xmldom/xmldom`、`postcss`、`browserslist`、`nanoid` 提升至修复版本。
 
+### Fixed
+
+- **模型元数据空目录自动重取**：已启用元数据 provider 的缓存存在但记录为空时，启动自动更新与模型配置弹窗现在也会重新拉取，不再等待 24 小时刷新周期。
+
 ## [0.1.10] - 2026-09-15
 
 ### Added

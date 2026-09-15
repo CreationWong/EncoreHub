@@ -5,6 +5,7 @@ import {
 	modelMetadataApi,
 } from "../services/modelMetadata";
 import {
+	isModelMetadataEmpty,
 	isModelMetadataStale,
 	modelMetadataForId,
 	useModelMetadataStore,
@@ -149,6 +150,14 @@ describe("model metadata provider store", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 
 		useModelMetadataStore.setState({
+			recordsByProvider: { "models-dev": [] },
+			updatedAt: { "models-dev": new Date().toISOString() },
+		});
+		await useModelMetadataStore.getState().refreshStale();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		fetchMock.mockClear();
+		useModelMetadataStore.setState({
 			updatedAt: {
 				"models-dev": new Date(
 					Date.now() - MODEL_METADATA_REFRESH_TTL_MS - 1,
@@ -156,6 +165,21 @@ describe("model metadata provider store", () => {
 			},
 		});
 		await useModelMetadataStore.getState().refreshStale();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("re-fetches enabled providers whose stored catalog is empty", async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({ "demo/model": { id: "demo/model" } }),
+		});
+		useModelMetadataStore.setState({
+			recordsByProvider: { "models-dev": [] },
+			updatedAt: { "models-dev": new Date().toISOString() },
+		});
+
+		await useModelMetadataStore.getState().refreshEnabled();
+
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
@@ -179,5 +203,11 @@ describe("model metadata provider store", () => {
 				now,
 			),
 		).toBe(false);
+	});
+
+	it("treats missing or empty catalogs as empty", () => {
+		expect(isModelMetadataEmpty(undefined)).toBe(true);
+		expect(isModelMetadataEmpty([])).toBe(true);
+		expect(isModelMetadataEmpty([{ id: "cached" }])).toBe(false);
 	});
 });
