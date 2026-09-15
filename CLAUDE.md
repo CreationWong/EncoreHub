@@ -109,7 +109,7 @@ Why this language split: see [ADR-0001](docs/adr/0001-language-split.md).
 
 ### Prerequisites
 
-Node 22+ / pnpm 10 / Go 1.25 / Rust stable. The standard build scripts resolve a vendored Protocol Buffers compiler when `PROTOC` and PATH do not provide one; direct Cargo commands must set `PROTOC`. Pandoc is optional for high-fidelity rich-text conversion.
+Node 22+ / pnpm 10 / Go 1.25 / Rust stable; macOS desktop builds also require Homebrew `curl` (`brew install curl`) because the Engine Runtime bundles that shared libcurl. The standard build scripts resolve a vendored Protocol Buffers compiler when `PROTOC` and PATH do not provide one; direct Cargo commands must set `PROTOC`. Pandoc is optional for high-fidelity rich-text conversion.
 
 ### Development (all from repo root)
 

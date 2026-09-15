@@ -28,6 +28,7 @@
 
 ### Fixed
 
+- **macOS Engine Runtime 打包**：Runtime 改为链接 keg-only 的 Homebrew libcurl，递归收集全部非系统 dylib 闭包、统一重定位到 `@loader_path` 并 ad-hoc 重新签名；修复依赖重定位后重复解析导致调试构建在 `@loader_path/libcurl.4.dylib` 复制阶段失败的问题。macOS 构建机需安装 `brew install curl`。
 - **上下文分类错误**：此前 system 与 skills 类别恒为 0，工具定义与协议开销全部堆进 "Other request data"；现按模型系数正确归因，残留部分才归入 "Other request data"。
 - **Memories 组重命名编辑器**：修复此前组名编辑器渲染在列表外部且存在重复分支的问题，现就地显示在对应分组行下方。
 

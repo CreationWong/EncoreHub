@@ -1,6 +1,9 @@
+// Builds the versioned Engine Runtime and RUSTScrapling dynamic libraries and
+// repackages their copyable native dependencies (libcurl) plus the startup manifest.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	chmodSync,
 	copyFileSync,
 	existsSync,
 	mkdirSync,
@@ -167,28 +170,147 @@ function importedDllNames(file) {
 	return [...new Set(matches ?? [])];
 }
 
-function unixCurlDependencies(runtimeLibrary, target) {
-	const command = target.includes("apple-darwin") ? "otool" : "ldd";
-	const args = target.includes("apple-darwin")
-		? ["-L", runtimeLibrary]
-		: [runtimeLibrary];
-	const result = spawnSync(command, args, { encoding: "utf8", shell: false });
+/** List the LC_RPATH search directories one Mach-O file declares. */
+function macRpaths(file) {
+	const result = spawnSync("otool", ["-l", file], {
+		encoding: "utf8",
+		shell: false,
+	});
+	if (result.error || result.status !== 0) return [];
+	const lines = result.stdout.split(/\r?\n/);
+	const paths = [];
+	for (let index = 0; index < lines.length; index += 1) {
+		if (lines[index].trim() !== "cmd LC_RPATH") continue;
+		const match = lines[index + 2]?.trim().match(/^path (.+?) \(offset/);
+		if (!match) continue;
+		const entry = match[1].startsWith("@loader_path/")
+			? path.join(path.dirname(file), match[1].slice("@loader_path/".length))
+			: match[1];
+		if (entry.startsWith("/")) paths.push(entry);
+	}
+	return paths;
+}
+
+/** Resolve one Mach-O dependency reference to the file that dyld would load. */
+function resolveMacDependency(reference, file) {
+	if (reference.startsWith("/")) return reference;
+	if (reference.startsWith("@loader_path/")) {
+		const candidate = path.join(
+			path.dirname(file),
+			reference.slice("@loader_path/".length),
+		);
+		return existsSync(candidate) ? candidate : undefined;
+	}
+	if (reference.startsWith("@rpath/")) {
+		const name = reference.slice("@rpath/".length);
+		for (const dir of [path.dirname(file), ...macRpaths(file)]) {
+			const candidate = path.join(dir, name);
+			if (existsSync(candidate)) return candidate;
+		}
+	}
+	return undefined;
+}
+
+/** List the copyable dylibs one Mach-O file loads, excluding its own id. */
+function macDylibDependencies(file) {
+	const result = spawnSync("otool", ["-L", file], {
+		encoding: "utf8",
+		shell: false,
+	});
 	if (result.error) throw result.error;
-	if (result.status !== 0)
-		throw new Error(`${command} failed for ${runtimeLibrary}`);
+	if (result.status !== 0) throw new Error(`otool failed for ${file}`);
+	const ownName = path.basename(file);
+	const references = result.stdout
+		.split(/\r?\n/)
+		.slice(1)
+		.map((line) => line.trim().split(/\s+/)[0])
+		.filter((entry) => entry?.startsWith("@") || entry?.startsWith("/"))
+		.filter((entry) => path.basename(entry) !== ownName);
+	const dependencies = [];
+	for (const reference of references) {
+		const source = resolveMacDependency(reference, file);
+		if (!source) {
+			throw new Error(`cannot resolve ${reference} referenced by ${file}`);
+		}
+		if (isSystemLibrary(source)) continue;
+		dependencies.push({ reference, source, name: path.basename(reference) });
+	}
+	return dependencies;
+}
+
+/** Exclude Apple libraries, which dyld always resolves from the operating system. */
+function isSystemLibrary(pathname) {
+	return (
+		pathname.startsWith("/usr/lib/") ||
+		pathname.startsWith("/System/Library/") ||
+		pathname.startsWith("/System/iOSSupport/") ||
+		pathname.startsWith("/Library/Apple/")
+	);
+}
+
+/** Collect the transitive closure of copyable Mach-O dependencies for packaging. */
+function macNativeDependencies(runtimeLibrary) {
+	const dependencies = new Map();
+	const pending = macDylibDependencies(runtimeLibrary);
+	while (pending.length > 0) {
+		const dependency = pending.pop();
+		if (dependencies.has(dependency.name)) continue;
+		dependencies.set(dependency.name, dependency);
+		for (const nested of macDylibDependencies(dependency.source)) {
+			pending.push(nested);
+		}
+	}
+	const closure = [...dependencies.values()];
+	if (!closure.some(({ name }) => /^libcurl/i.test(name))) {
+		throw new Error(
+			"Engine Runtime is not dynamically linked to libcurl; install the shared libcurl development package",
+		);
+	}
+	return closure;
+}
+
+/** Locate the keg-only Homebrew libcurl that macOS packaging can actually copy. */
+function macCurlLibraryDir() {
+	const candidates = [];
+	const pkg = spawnSync("pkg-config", ["--variable=libdir", "libcurl"], {
+		encoding: "utf8",
+		shell: false,
+	});
+	if (pkg.status === 0 && pkg.stdout) candidates.push(pkg.stdout.trim());
+	const brew = spawnSync("brew", ["--prefix", "curl"], {
+		encoding: "utf8",
+		shell: false,
+	});
+	if (brew.status === 0 && brew.stdout) {
+		candidates.push(path.join(brew.stdout.trim(), "lib"));
+	}
+	const libdir = candidates.find(
+		(candidate) =>
+			candidate && existsSync(path.join(candidate, "libcurl.4.dylib")),
+	);
+	if (!libdir) {
+		throw new Error(
+			"macOS Engine Runtime packaging requires a shared libcurl; run 'brew install curl' or point PKG_CONFIG_PATH at a libcurl installation",
+		);
+	}
+	return libdir;
+}
+
+/** Resolve the shared libcurl a Linux runtime was linked against. */
+function unixCurlDependencies(runtimeLibrary) {
+	const result = spawnSync("ldd", [runtimeLibrary], {
+		encoding: "utf8",
+		shell: false,
+	});
+	if (result.error) throw result.error;
+	if (result.status !== 0) {
+		throw new Error(`ldd failed for ${runtimeLibrary}`);
+	}
 	const candidates = result.stdout
 		.split(/\r?\n/)
-		.map((line) => {
-			if (target.includes("apple-darwin")) {
-				const source = line.trim().split(/\s+/)[0];
-				return source?.includes("curl")
-					? { source, name: path.basename(source) }
-					: undefined;
-			}
-			const match = line.match(/(libcurl[^ ]*)\s+=>\s+(\/[^ ]+)/);
-			return match ? { name: match[1], source: match[2] } : undefined;
-		})
-		.filter(Boolean);
+		.map((line) => line.match(/(libcurl[^ ]*)\s+=>\s+(\/[^ ]+)/))
+		.filter(Boolean)
+		.map((match) => ({ name: match[1], source: match[2] }));
 	if (candidates.length === 0) {
 		throw new Error(
 			"Engine Runtime is not dynamically linked to libcurl; install the shared libcurl development package",
@@ -197,35 +319,49 @@ function unixCurlDependencies(runtimeLibrary, target) {
 	return [...new Map(candidates.map((item) => [item.name, item])).values()];
 }
 
-function copyNativeDependencies(runtimeLibrary, target, env) {
-	const sources = target.includes("windows-msvc")
-		? windowsCurlDependencies(runtimeLibrary, env)
-		: unixCurlDependencies(runtimeLibrary, target);
+/** Copy resolved dependencies into the packaged and development module layouts. */
+function copyNativeDependencies(sources, target) {
 	rmSync(nativeDependenciesDir, { recursive: true, force: true });
 	mkdirSync(nativeDependenciesDir, { recursive: true });
 	return sources.map(({ source, name }) => {
-		copyFileSync(source, path.join(nativeDependenciesDir, name));
+		const packaged = path.join(nativeDependenciesDir, name);
+		copyFileSync(source, packaged);
+		if (target.includes("apple-darwin")) {
+			// Homebrew ships read-only dylibs and points every dependency at an
+			// absolute Cellar path; make the copy writable, repoint it and its own
+			// dependencies at @loader_path, then sign it again for arm64 dyld.
+			chmodSync(packaged, 0o755);
+			for (const nested of macDylibDependencies(source)) {
+				run("install_name_tool", [
+					"-change",
+					nested.reference,
+					`@loader_path/${nested.name}`,
+					packaged,
+				]);
+			}
+			run("install_name_tool", ["-id", `@loader_path/${name}`, packaged]);
+			run("codesign", ["--force", "--sign", "-", packaged]);
+			rmSync(path.join(binariesDir, name), { force: true });
+			copyFileSync(packaged, path.join(binariesDir, name));
+			return name;
+		}
 		copyFileSync(source, path.join(binariesDir, name));
 		return name;
 	});
 }
 
+/** Repoint the Runtime module's dependencies and ad-hoc sign it for arm64 dyld. */
 function makeMacDependenciesRelocatable(runtimeLibrary, dependencies, target) {
 	if (!target.includes("apple-darwin")) return;
 	for (const dependency of dependencies) {
-		const result = spawnSync(
-			"install_name_tool",
-			[
-				"-change",
-				dependency.source,
-				`@loader_path/${dependency.name}`,
-				runtimeLibrary,
-			],
-			{ stdio: "inherit", shell: false },
-		);
-		if (result.error) throw result.error;
-		if (result.status !== 0) throw new Error("install_name_tool failed");
+		run("install_name_tool", [
+			"-change",
+			dependency.reference,
+			`@loader_path/${dependency.name}`,
+			runtimeLibrary,
+		]);
 	}
+	run("codesign", ["--force", "--sign", "-", runtimeLibrary]);
 }
 
 function assertRuntimeLinksCurl(runtimeLibrary, target) {
@@ -238,7 +374,11 @@ function assertRuntimeLinksCurl(runtimeLibrary, target) {
 		}
 		return;
 	}
-	unixCurlDependencies(runtimeLibrary, target);
+	if (target.includes("apple-darwin")) {
+		macNativeDependencies(runtimeLibrary);
+		return;
+	}
+	unixCurlDependencies(runtimeLibrary);
 }
 
 export function dynamicCurlRustflags(target, existing = "") {
@@ -292,6 +432,11 @@ function main(argv) {
 		buildEnv.RUSTFLAGS =
 			`${buildEnv.RUSTFLAGS ?? ""} -C link-arg=-Wl,-rpath,${origin}`.trim();
 	}
+	if (target.includes("apple-darwin")) {
+		// curl-sys prefers Apple's uncopyable system libcurl; a native search path
+		// makes the linker resolve the keg-only Homebrew dylib this script packages.
+		buildEnv.RUSTFLAGS = `${buildEnv.RUSTFLAGS} -L native=${macCurlLibraryDir()}`;
+	}
 	const fileName = libraryName(target);
 	const rustScraplingFileName = rustScraplingLibraryName(target);
 	const sourceDir = options.target
@@ -316,11 +461,16 @@ function main(argv) {
 	assertRuntimeLinksCurl(source, target);
 	const resolvedDependencies = target.includes("windows-msvc")
 		? windowsCurlDependencies(source, buildEnv)
-		: unixCurlDependencies(source, target);
+		: target.includes("apple-darwin")
+			? macNativeDependencies(source)
+			: unixCurlDependencies(source);
 	makeMacDependenciesRelocatable(source, resolvedDependencies, target);
 	copyFileSync(source, destination);
 	copyFileSync(rustScraplingSource, rustScraplingDestination);
-	const nativeDependencies = copyNativeDependencies(source, target, buildEnv);
+	const nativeDependencies = copyNativeDependencies(
+		resolvedDependencies,
+		target,
+	);
 
 	const bytes = readFileSync(destination);
 	const rustScraplingBytes = readFileSync(rustScraplingDestination);

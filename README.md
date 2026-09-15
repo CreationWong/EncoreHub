@@ -97,6 +97,7 @@ In the desktop app, the Tauri executable loads the Engine Runtime dynamic librar
 - Node 22+ / pnpm 10
 - Go 1.25
 - Rust stable
+- macOS desktop builds only: Homebrew `curl` (`brew install curl`), which provides the shared libcurl the Engine Runtime bundles
 - [Tauri 2 platform system dependencies](https://v2.tauri.app/start/prerequisites/)
 - Pandoc (optional): higher-fidelity rich-text conversion; the Engine falls back to native Rust parsers
 
