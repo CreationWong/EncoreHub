@@ -95,7 +95,7 @@ Engine directly and does not compose authoritative prompts.
 
 ## Related work
 
-- [Remaining work](../REMAINING_WORK.md) tracks character-card compatibility and
+- [Remaining work](../../.agents/REMAINING_WORK.md) tracks character-card compatibility and
   final UI validation.
 - [EncoreHub OpenAPI](../openapi.json) is the browser-facing CharacterProfile
   and upgrade contract.

@@ -13,3 +13,8 @@ performed on 2026-07-12.
 
 Use [the EncoreHub Gateway contract](../openapi.json) for project routes.
 Changes to the vendor snapshot do not define or modify EncoreHub behavior.
+
+## Claude
+
+`claude-api/` is an Anthropic Claude API reference snapshot kept for offline
+implementation research. It contains no EncoreHub contract.

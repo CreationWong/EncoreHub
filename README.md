@@ -5,7 +5,7 @@ A cross-platform AI chat desktop app that aggregates multiple AI providers — w
 **聚合多家 AI 供应商的跨平台 AI 聊天桌面客户端**，支持知识库、记忆、角色档案、Skill、Plugin 与 MCP。
 
 > Status: Active development. Core features are available, see [Features](#features) and [Roadmap](#roadmap).
-> Unified backlog: [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md).
+> Unified backlog: [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md).
 
 <p align="center">
   <a href="#features">Features</a> ·
@@ -193,13 +193,13 @@ CI configuration lives in `.github/workflows/ci.yml` and covers Docs, Frontend, 
 ## Documentation
 
 - [`docs/openapi.json`](docs/openapi.json) — Gateway API contract
-- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — runtime architecture, knowledge/memory and attachment routing
-- [`docs/MEMORY_SYSTEM_DESIGN.md`](docs/MEMORY_SYSTEM_DESIGN.md) — single source of truth for the memory system
-- [`docs/RUST_DATA_PIPELINE.md`](docs/RUST_DATA_PIPELINE.md) — Rust data pipeline and vector storage contract
-- [`docs/conversation-title.md`](docs/conversation-title.md) — conversation title generation rules
+- [`docs/dev/ARCHITECTURE_DIAGRAM.md`](docs/dev/ARCHITECTURE_DIAGRAM.md) — runtime architecture, knowledge/memory and attachment routing
+- [`docs/dev/MEMORY_SYSTEM_DESIGN.md`](docs/dev/MEMORY_SYSTEM_DESIGN.md) — single source of truth for the memory system
+- [`docs/dev/RUST_DATA_PIPELINE.md`](docs/dev/RUST_DATA_PIPELINE.md) — Rust data pipeline and vector storage contract
+- [`docs/dev/conversation-title.md`](docs/dev/conversation-title.md) — conversation title generation rules
 - [`docs/adr/`](docs/adr/) — architecture decision records
-- [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md) — unified backlog and release acceptance checklist
-- [`DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md) — overall blueprint
+- [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md) — unified backlog and release acceptance checklist
+- [`.agents/DEVELOPMENT_PLAN.md`](.agents/DEVELOPMENT_PLAN.md) — overall blueprint
 
 ## Roadmap
 

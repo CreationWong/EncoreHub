@@ -5,7 +5,7 @@
 **A cross-platform AI chat desktop app** that aggregates multiple AI providers — with local knowledge base, memory, character profiles, skills, plugins, and MCP support.
 
 > 状态 Status：早期开发 · Active development。核心功能可用，详见 [功能特性](#功能特性) 与 [路线图](#路线图)。
-> 统一待办清单见 [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md)。
+> 统一待办清单见 [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md)。
 
 <p align="center">
   <a href="#功能特性">功能特性</a> ·
@@ -192,13 +192,13 @@ CI 配置见 `.github/workflows/ci.yml`，覆盖 Docs、Frontend、Gateway、Eng
 ## 文档
 
 - [`docs/openapi.json`](docs/openapi.json) — Gateway API 契约
-- [`docs/ARCHITECTURE_DIAGRAM.md`](docs/ARCHITECTURE_DIAGRAM.md) — 运行时架构、知识/记忆与附件路由
-- [`docs/MEMORY_SYSTEM_DESIGN.md`](docs/MEMORY_SYSTEM_DESIGN.md) — 记忆系统唯一规范
-- [`docs/RUST_DATA_PIPELINE.md`](docs/RUST_DATA_PIPELINE.md) — Rust 数据管线与向量存储契约
-- [`docs/conversation-title.md`](docs/conversation-title.md) — 对话标题生成规则
+- [`docs/dev/ARCHITECTURE_DIAGRAM.md`](docs/dev/ARCHITECTURE_DIAGRAM.md) — 运行时架构、知识/记忆与附件路由
+- [`docs/dev/MEMORY_SYSTEM_DESIGN.md`](docs/dev/MEMORY_SYSTEM_DESIGN.md) — 记忆系统唯一规范
+- [`docs/dev/RUST_DATA_PIPELINE.md`](docs/dev/RUST_DATA_PIPELINE.md) — Rust 数据管线与向量存储契约
+- [`docs/dev/conversation-title.md`](docs/dev/conversation-title.md) — 对话标题生成规则
 - [`docs/adr/`](docs/adr/) — 架构决策记录
-- [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md) — 统一待办与发布验收清单
-- [`DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md) — 总体蓝图
+- [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md) — 统一待办与发布验收清单
+- [`.agents/DEVELOPMENT_PLAN.md`](.agents/DEVELOPMENT_PLAN.md) — 总体蓝图
 
 ## 路线图
 

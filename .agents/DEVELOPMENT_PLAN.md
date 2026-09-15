@@ -415,7 +415,7 @@ engine/
 - SQLite 是文档、chunk 与 Memory 元数据的权威存储
 - LanceDB 是 Knowledge 主向量库，SQLite-Vec 是 Knowledge 回退与单轮 Memory 库
 - 384 维 feature-hash embedding 保证完全离线；仅在召回基准证明必要时引入语义模型
-- 详细契约见 `docs/RUST_DATA_PIPELINE.md` 与 ADR-0007
+- 详细契约见 `docs/dev/RUST_DATA_PIPELINE.md` 与 ADR-0007
 
 ---
 

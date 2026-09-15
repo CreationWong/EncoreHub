@@ -47,5 +47,5 @@ container includes it in its builder.
 
 ## References
 
-- [Rust data pipeline contract](../RUST_DATA_PIPELINE.md)
-- [Remaining work](../REMAINING_WORK.md)
+- [Rust data pipeline contract](../dev/RUST_DATA_PIPELINE.md)
+- [Remaining work](../../.agents/REMAINING_WORK.md)

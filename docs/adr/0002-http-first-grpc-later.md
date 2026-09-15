@@ -6,7 +6,7 @@
 
 ## 背景
 
-`DEVELOPMENT_PLAN.md` 最初把 gateway → engine → data-services 画成 gRPC 链路，但当前运行链路只有 Gateway 与 Engine 之间的 HTTP/JSON；数据处理已根据 ADR-0007 内嵌到 Rust。
+`.agents/DEVELOPMENT_PLAN.md` 最初把 gateway → engine → data-services 画成 gRPC 链路，但当前运行链路只有 Gateway 与 Engine 之间的 HTTP/JSON；数据处理已根据 ADR-0007 内嵌到 Rust。
 
 - engine 用 axum 监听 `127.0.0.1:3000`；
 - gateway 用 `engine.Client` 通过 `net/http` 调 engine；
@@ -40,10 +40,10 @@
 
 - `gateway/go.mod`：已移除 `google.golang.org/grpc` 与 `protobuf`（前一次 `go mod tidy` 清掉了）。
 - `engine/Cargo.toml`：tonic/prost 仍在依赖里，但只编进 `encorehub-mcp` binary 用作 stdio MCP server——不是 gateway↔engine 通道。
-- 数据处理没有跨进程传输边界；原生管线契约见 [Rust 数据管线](../RUST_DATA_PIPELINE.md)。
+- 数据处理没有跨进程传输边界；原生管线契约见 [Rust 数据管线](../dev/RUST_DATA_PIPELINE.md)。
 - `docker-compose.yml`：`50051` / `9090` 端口已经从 ports 列表移除（前一次提交修过），只暴露 `3000`/`8080`。
 
 ## 参考
 
-- `docs/REMAINING_WORK.md` §6 — 跟踪 proto 与传输层的后续决策
+- `.agents/REMAINING_WORK.md` §6 — 跟踪 proto 与传输层的后续决策
 - `docs/adr/0001-language-split.md` — 多语言切分的代价里也提到了类型同步问题

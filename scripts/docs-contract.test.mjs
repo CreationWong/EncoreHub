@@ -133,11 +133,8 @@ test("maintained Markdown links resolve inside the repository", async () => {
 		path.join(root, "README.md"),
 		path.join(root, "README.zh-CN.md"),
 		path.join(root, "CLAUDE.md"),
-		path.join(root, "docs", "DEVELOPMENT_PLAN.md"),
-		...(await walkMarkdown(
-			path.join(root, "docs"),
-			new Set(["vendor", "claude API"]),
-		)),
+		...(await walkMarkdown(path.join(root, "docs"), new Set(["vendor"]))),
+		...(await walkMarkdown(path.join(root, ".agents"))),
 	];
 	const missing = [];
 

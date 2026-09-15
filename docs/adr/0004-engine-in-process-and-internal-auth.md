@@ -110,5 +110,5 @@ Standalone paths remain explicitly configurable through environment variables.
   Gateway-to-Engine transport.
 - [ADR-0008](0008-versioned-desktop-runtime-modules.md) defines module ABI,
   manifests, and selective builds.
-- [Remaining work](../REMAINING_WORK.md) tracks the outstanding platform,
+- [Remaining work](../../.agents/REMAINING_WORK.md) tracks the outstanding platform,
   authentication, and packaging validation.

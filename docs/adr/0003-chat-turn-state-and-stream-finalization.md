@@ -102,5 +102,5 @@ is terminal, then replaces streaming scratch state with Engine state.
 
 ## Related work
 
-- [Remaining work](../REMAINING_WORK.md) tracks long-chat context and release validation follow-ups
+- [Remaining work](../../.agents/REMAINING_WORK.md) tracks long-chat context and release validation follow-ups
 - [ADR-0002](0002-http-first-grpc-later.md), HTTP/JSON remains the inter-service transport

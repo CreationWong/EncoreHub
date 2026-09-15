@@ -33,7 +33,7 @@ EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
 **接受的代价**
 
 1. **CI 3 个语言组件**：用 GitHub Actions 并行跑，单语言失败不阻塞其他。
-2. **跨语言通信成本**：现阶段所有跨进程通信走 HTTP/JSON。蓝图是 gRPC，但 stub 生成与三端对齐属于另一笔投入，目前未启用（详见 `docs/REMAINING_WORK.md` §6）。
+2. **跨语言通信成本**：现阶段所有跨进程通信走 HTTP/JSON。蓝图是 gRPC，但 stub 生成与三端对齐属于另一笔投入，目前未启用（详见 `.agents/REMAINING_WORK.md` §6）。
 3. **类型重复**：`Conversation` / `Memory` / `Skill` 等结构在 TS/Go/Rust 各定义一份。当前手工同步可控；接 gRPC 后由 protoc 生成。
 4. **打包（历史决策）**：Tauri 最初把 engine 与 gateway 都作为 sidecar。当前 Engine 已进程内运行，数据管线也已内嵌；打包与认证边界见 ADR-0004 和 ADR-0007。
 
@@ -56,5 +56,5 @@ EncoreHub 是单仓项目，但被拆成 4 个语言子模块：
 
 - [ADR-0004：Engine 进程内化与内部认证](0004-engine-in-process-and-internal-auth.md)
 - [ADR-0007：Rust 原生数据管线](0007-rust-native-data-pipeline.md)
-- [剩余工作](../REMAINING_WORK.md) — 当前实现与发布验收待办
-- [完整蓝图](../DEVELOPMENT_PLAN.md)
+- [剩余工作](../../.agents/REMAINING_WORK.md) — 当前实现与发布验收待办
+- [完整蓝图](../../.agents/DEVELOPMENT_PLAN.md)

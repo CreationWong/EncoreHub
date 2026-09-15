@@ -2,7 +2,7 @@
 
 > Current runtime architecture as of 2026-08-05. Historical design choices are
 > recorded under `docs/adr/`; implementation follow-up lives in
-> [`REMAINING_WORK.md`](REMAINING_WORK.md).
+> [`REMAINING_WORK.md`](../../.agents/REMAINING_WORK.md).
 
 ## Runtime Topology
 

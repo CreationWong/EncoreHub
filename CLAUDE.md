@@ -47,6 +47,17 @@ only the actual Gateway port via the `get_service_ports` Tauri command.
 - Frontend errors/feedback: surface via the global toast store (`stores/toastStore.ts` — `toast.success/error/info`), not inline error bars
 - Frontend a11y: icon-only buttons must carry an `aria-label`; keyboard focus uses the global `:focus-visible` ring (no per-component focus styling needed)
 
+### Documentation Placement
+
+Classify every document before creating or moving it, and load the `docs-placement` skill when creating, editing, or committing documentation:
+
+- **AI-facing working docs** (verification reports, plans, remaining-work lists, investigation notes) → `.agents/` (agent skills live under `.agents/skills/`)
+- **Developer-facing docs** (architecture, contracts, design specs, feature behavior) → `docs/dev/`
+- **User-facing docs** (guides, usage help) → `docs/user/`
+- Each folder holds one audience only; never store another audience's documents in it.
+
+Mainstream locations stay in place: root `README.md` / `README.zh-CN.md` / `CHANGELOG.md` / `LICENSE`, agent instruction files (`CLAUDE.md`, `AGENTS.md`, and similar), `docs/adr/`, `docs/openapi.json`, `docs/vendor/` (third-party reference snapshots), product resources (`skills/**`), and vendored trees (`engine/vendor/**`). Move misplaced docs with `git mv` and update every inbound relative link.
+
 ### Dependency Policy
 
 - Use the language standard library, browser APIs, and platform-native APIs first. Do not add a dependency for basic formatting, parsing, collection operations, file or process handling, hashing wrappers, retries, small state helpers, or ordinary UI composition when the existing runtime can implement it clearly and safely.
