@@ -564,7 +564,7 @@ test("Open-source manifest includes the independent RUSTScrapling graph", async 
 	assert.match(generator, /pkg\.name === "rust_scrapling"/);
 });
 
-test("Routine release builds keep Engine Runtime linking iterative", async () => {
+test("Release builds use Thin LTO with parallel codegen units", async () => {
 	const cargo = await read("engine/Cargo.toml");
 	const releaseHeader = "[profile.release]";
 	const releaseStart = cargo.indexOf(releaseHeader);
@@ -573,10 +573,10 @@ test("Routine release builds keep Engine Runtime linking iterative", async () =>
 	const nextSection = releaseTail.search(/^\[/m);
 	const releaseProfile =
 		nextSection === -1 ? releaseTail : releaseTail.slice(0, nextSection);
-	assert.match(releaseProfile, /^lto\s*=\s*false\s*$/m);
+	assert.match(releaseProfile, /^lto\s*=\s*"thin"\s*$/m);
 	assert.match(releaseProfile, /^codegen-units\s*=\s*16\s*$/m);
 	assert.doesNotMatch(releaseProfile, /^lto\s*=\s*true\s*$/m);
-	assert.doesNotMatch(releaseProfile, /^lto\s*=\s*"thin"\s*$/m);
+	assert.doesNotMatch(releaseProfile, /^lto\s*=\s*"fat"\s*$/m);
 	assert.doesNotMatch(releaseProfile, /^codegen-units\s*=\s*1\s*$/m);
 });
 

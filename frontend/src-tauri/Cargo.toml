@@ -35,3 +35,8 @@ tempfile = "3"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+# Thin LTO optimizes across the desktop shell and its plugins without the
+# multi-minute fat-LTO link step that would dominate every packaged build.
+lto = "thin"

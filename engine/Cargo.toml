@@ -60,11 +60,10 @@ url = "2"
 
 [profile.release]
 opt-level = 3
-# LTO makes the modular desktop Runtime spend minutes in a single final rustc
-# step after every Engine change. The DLL is an independent optimization and
-# upgrade boundary, so routine release builds keep parallel code generation
-# without repeating whole-graph link-time optimization.
-lto = false
+# Thin LTO optimizes across crate boundaries in the shipped Runtime and
+# standalone binaries without fat LTO's single multi-minute link step, so
+# release builds stay parallel per crate while runtime work is faster.
+lto = "thin"
 codegen-units = 16
 strip = true
 

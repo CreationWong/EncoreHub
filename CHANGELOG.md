@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **发布构建启用 Thin LTO**：Engine Runtime 与桌面壳的 release profile 由 `lto = false` 改为 `lto = "thin"`，在保留逐 crate 并行代码生成、不引入 fat LTO 单步链接耗时的前提下获得跨 crate 优化；`codegen-units = 16` 保持不变。
 - **依赖精简**：移除未使用的 `http-body-util` 开发依赖；桌面壳 `ureq` 关闭仅用于回环 HTTP 探测的 TLS/gzip 默认特性，`tokio` 只保留 `time` 特性；Engine `quick-xml` 升至 0.42，Gateway `golang.org/x/net` 升至 v0.56。
 
 ### Security
