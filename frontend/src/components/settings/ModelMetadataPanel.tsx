@@ -58,6 +58,15 @@ function providerInitial(name: string): string {
 	return name.trim().charAt(0).toUpperCase() || "M";
 }
 
+function lastUpdatedLabel(
+	providerId: string,
+	updatedAt: Record<string, string>,
+): string {
+	const timestamp = Date.parse(updatedAt[providerId] ?? "");
+	if (Number.isNaN(timestamp)) return "never updated";
+	return `last updated ${new Date(timestamp).toLocaleString()}`;
+}
+
 function newProvider(): ModelMetadataProvider {
 	return {
 		id: `metadata-${Date.now()}`,
@@ -81,6 +90,12 @@ export default function ModelMetadataPanel() {
 	const upsert = useModelMetadataStore((state) => state.upsert);
 	const remove = useModelMetadataStore((state) => state.remove);
 	const setRecords = useModelMetadataStore((state) => state.setRecords);
+	const storeFetchedRecords = useModelMetadataStore(
+		(state) => state.storeFetchedRecords,
+	);
+	const updatedAt = useModelMetadataStore((state) => state.updatedAt);
+	const autoUpdate = useModelMetadataStore((state) => state.autoUpdate);
+	const setAutoUpdate = useModelMetadataStore((state) => state.setAutoUpdate);
 	const devMode = useSettingsStore((state) => state.devMode);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelectedId);
 	const [query, setQuery] = useState("");
@@ -154,7 +169,7 @@ export default function ModelMetadataPanel() {
 		setSaved(false);
 		try {
 			const result = await fetchModelMetadata(draft);
-			await setRecords(draft.id, result.records);
+			await storeFetchedRecords(draft.id, result.records);
 			setPreview(result);
 			toast.success(`${result.count.toLocaleString()} metadata records stored`);
 		} catch (reason) {
@@ -200,7 +215,7 @@ export default function ModelMetadataPanel() {
 				setLoading(true);
 				try {
 					const result = await fetchModelMetadata(normalized);
-					await setRecords(normalized.id, result.records);
+					await storeFetchedRecords(normalized.id, result.records);
 					setPreview(result);
 					toast.success(
 						`Metadata provider saved; ${result.count.toLocaleString()} records refreshed`,
@@ -313,7 +328,20 @@ export default function ModelMetadataPanel() {
 						))
 					)}
 				</div>
-				<div className="border-t border-border p-2">
+				<div className="space-y-2 border-t border-border p-2">
+					<label
+						className="flex cursor-pointer items-center gap-2 px-1 text-xs text-text-secondary"
+						title="Refresh enabled providers on startup when cached metadata is older than 24 hours"
+					>
+						<input
+							autoComplete="off"
+							type="checkbox"
+							checked={autoUpdate}
+							onChange={(event) => void setAutoUpdate(event.target.checked)}
+							className="h-3.5 w-3.5 accent-accent"
+						/>
+						Auto-update on startup
+					</label>
 					<button
 						type="button"
 						onClick={() => void handleAdd()}
@@ -332,8 +360,8 @@ export default function ModelMetadataPanel() {
 								{draft.name}
 							</h3>
 							<p className="text-xs text-text-muted">
-								{storedRecords.length.toLocaleString()} records stored in the
-								local database
+								{storedRecords.length.toLocaleString()} records stored ·{" "}
+								{lastUpdatedLabel(draft.id, updatedAt)}
 							</p>
 						</div>
 						<div className="flex items-center gap-2">

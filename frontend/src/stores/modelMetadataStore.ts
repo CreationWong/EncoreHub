@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
 	DEFAULT_MODEL_METADATA_PROVIDER,
+	MODEL_METADATA_REFRESH_TTL_MS,
 	type ModelMetadataDatabase,
 	type ModelMetadataMapping,
 	type ModelMetadataProvider,
@@ -14,6 +15,8 @@ const LEGACY_STORAGE_KEY = "encorehub-model-metadata-providers";
 export interface ModelMetadataState {
 	providers: ModelMetadataProvider[];
 	recordsByProvider: Record<string, NormalizedModelMetadata[]>;
+	updatedAt: Record<string, string>;
+	autoUpdate: boolean;
 	loadingProviderIds: string[];
 	loaded: boolean;
 	loading: boolean;
@@ -27,8 +30,28 @@ export interface ModelMetadataState {
 	setEnabled: (id: string, enabled: boolean) => Promise<void>;
 	setMapping: (id: string, mapping: ModelMetadataMapping) => Promise<void>;
 	setRecords: (id: string, records: NormalizedModelMetadata[]) => Promise<void>;
+	/** Store a provider fetch result and stamp its refresh time. */
+	storeFetchedRecords: (
+		id: string,
+		records: NormalizedModelMetadata[],
+	) => Promise<void>;
+	setAutoUpdate: (enabled: boolean) => Promise<void>;
 	refreshProvider: (id: string) => Promise<NormalizedModelMetadata[]>;
 	refreshEnabled: () => Promise<void>;
+	/** Refresh enabled providers whose cache is missing or older than the TTL. */
+	refreshStale: () => Promise<void>;
+}
+
+/** Report whether a catalog cached at `updatedAt` is due for a refresh. */
+export function isModelMetadataStale(
+	updatedAt: string | undefined,
+	now: number,
+): boolean {
+	if (!updatedAt) return true;
+	const timestamp = Date.parse(updatedAt);
+	return (
+		Number.isNaN(timestamp) || now - timestamp >= MODEL_METADATA_REFRESH_TTL_MS
+	);
 }
 
 function cloneProvider(provider: ModelMetadataProvider): ModelMetadataProvider {
@@ -91,20 +114,35 @@ function normalizeDatabase(value: unknown): ModelMetadataDatabase | null {
 		typeof candidate.records_by_provider === "object"
 			? candidate.records_by_provider
 			: {};
+	const updatedAt =
+		candidate.updated_at && typeof candidate.updated_at === "object"
+			? Object.fromEntries(
+					Object.entries(candidate.updated_at).filter(
+						([, value]) => typeof value === "string",
+					),
+				)
+			: {};
 	return {
 		version: 1,
 		providers: providers.length > 0 ? providers : defaultProviders(),
 		records_by_provider: recordsByProvider,
+		updated_at: updatedAt,
+		auto_update: candidate.auto_update !== false,
 	};
 }
 
 function snapshot(
-	state: Pick<ModelMetadataState, "providers" | "recordsByProvider">,
+	state: Pick<
+		ModelMetadataState,
+		"providers" | "recordsByProvider" | "updatedAt" | "autoUpdate"
+	>,
 ): ModelMetadataDatabase {
 	return {
 		version: 1,
 		providers: state.providers.map(cloneProvider),
 		records_by_provider: state.recordsByProvider,
+		updated_at: state.updatedAt,
+		auto_update: state.autoUpdate,
 	};
 }
 
@@ -115,6 +153,8 @@ async function persist(get: () => ModelMetadataState): Promise<void> {
 export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 	providers: defaultProviders(),
 	recordsByProvider: {},
+	updatedAt: {},
+	autoUpdate: true,
 	loadingProviderIds: [],
 	loaded: false,
 	loading: false,
@@ -128,13 +168,22 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 				set({
 					providers: stored.providers,
 					recordsByProvider: stored.records_by_provider,
+					updatedAt: stored.updated_at ?? {},
+					autoUpdate: stored.auto_update !== false,
 					loaded: true,
 					loading: false,
 				});
 				return;
 			}
 			const providers = legacyProviders();
-			set({ providers, recordsByProvider: {}, loaded: true, loading: false });
+			set({
+				providers,
+				recordsByProvider: {},
+				updatedAt: {},
+				autoUpdate: true,
+				loaded: true,
+				loading: false,
+			});
 			await persist(get);
 			try {
 				localStorage.removeItem(LEGACY_STORAGE_KEY);
@@ -161,18 +210,25 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 			cloneProvider(provider),
 		];
 		const recordsByProvider = { ...get().recordsByProvider };
+		const updatedAt = { ...get().updatedAt };
 		if (sourceId !== provider.id && recordsByProvider[sourceId]) {
 			recordsByProvider[provider.id] = recordsByProvider[sourceId];
 			delete recordsByProvider[sourceId];
+			if (updatedAt[sourceId]) {
+				updatedAt[provider.id] = updatedAt[sourceId];
+				delete updatedAt[sourceId];
+			}
 		}
-		set({ providers, recordsByProvider, error: null });
+		set({ providers, recordsByProvider, updatedAt, error: null });
 		await persist(get);
 	},
 	remove: async (id) => {
 		const providers = get().providers.filter((item) => item.id !== id);
 		const recordsByProvider = { ...get().recordsByProvider };
+		const updatedAt = { ...get().updatedAt };
 		delete recordsByProvider[id];
-		set({ providers, recordsByProvider, error: null });
+		delete updatedAt[id];
+		set({ providers, recordsByProvider, updatedAt, error: null });
 		await persist(get);
 	},
 	setEnabled: async (id, enabled) => {
@@ -199,6 +255,21 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 		}));
 		await persist(get);
 	},
+	storeFetchedRecords: async (id, records) => {
+		set((state) => ({
+			recordsByProvider: {
+				...state.recordsByProvider,
+				[id]: records.map((record) => ({ ...record })),
+			},
+			updatedAt: { ...state.updatedAt, [id]: new Date().toISOString() },
+			error: null,
+		}));
+		await persist(get);
+	},
+	setAutoUpdate: async (enabled) => {
+		set({ autoUpdate: enabled, error: null });
+		await persist(get);
+	},
 	refreshProvider: async (id) => {
 		if (!get().loaded) await get().load();
 		const provider = get().providers.find((item) => item.id === id);
@@ -210,7 +281,7 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 		}));
 		try {
 			const result = await fetchModelMetadata(provider);
-			await get().setRecords(id, result.records);
+			await get().storeFetchedRecords(id, result.records);
 			return result.records;
 		} finally {
 			set((state) => ({
@@ -225,6 +296,20 @@ export const useModelMetadataStore = create<ModelMetadataState>((set, get) => ({
 		const pending = get()
 			.providers.filter(
 				(provider) => provider.enabled && !get().recordsByProvider[provider.id],
+			)
+			.map((provider) => get().refreshProvider(provider.id));
+		await Promise.allSettled(pending);
+	},
+	refreshStale: async () => {
+		if (!get().loaded) await get().load();
+		if (!get().autoUpdate) return;
+		const now = Date.now();
+		const pending = get()
+			.providers.filter(
+				(provider) =>
+					provider.enabled &&
+					(!get().recordsByProvider[provider.id] ||
+						isModelMetadataStale(get().updatedAt[provider.id], now)),
 			)
 			.map((provider) => get().refreshProvider(provider.id));
 		await Promise.allSettled(pending);

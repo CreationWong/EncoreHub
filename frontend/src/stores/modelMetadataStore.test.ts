@@ -1,26 +1,38 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	DEFAULT_MODEL_METADATA_PROVIDER,
+	MODEL_METADATA_REFRESH_TTL_MS,
 	modelMetadataApi,
 } from "../services/modelMetadata";
 import {
+	isModelMetadataStale,
 	modelMetadataForId,
 	useModelMetadataStore,
 } from "./modelMetadataStore";
 
+const fetchMock = vi.fn();
+
 describe("model metadata provider store", () => {
 	beforeEach(() => {
 		localStorage.clear();
+		fetchMock.mockReset();
+		vi.stubGlobal("fetch", fetchMock);
 		vi.spyOn(modelMetadataApi, "save").mockResolvedValue(undefined);
 		vi.spyOn(modelMetadataApi, "load").mockResolvedValue(null);
 		useModelMetadataStore.setState({
 			providers: [{ ...DEFAULT_MODEL_METADATA_PROVIDER, mapping: {} }],
 			recordsByProvider: {},
+			updatedAt: {},
+			autoUpdate: true,
 			loadingProviderIds: [],
 			loaded: true,
 			loading: false,
 			error: null,
 		});
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
 	});
 
 	it("persists provider edits and mapping changes in the engine config", async () => {
@@ -102,5 +114,70 @@ describe("model metadata provider store", () => {
 		};
 
 		expect(modelMetadataForId(state, "shared-model")).toBeUndefined();
+	});
+
+	it("stamps the refresh time when provider records are fetched", async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({ "demo/model": { id: "demo/model" } }),
+		});
+
+		await useModelMetadataStore.getState().refreshProvider("models-dev");
+
+		const stamped = useModelMetadataStore.getState().updatedAt["models-dev"];
+		expect(Number.isNaN(Date.parse(stamped))).toBe(false);
+		expect(modelMetadataApi.save).toHaveBeenLastCalledWith(
+			expect.objectContaining({ updated_at: { "models-dev": stamped } }),
+		);
+	});
+
+	it("refreshes missing, stale, and invalidated catalogs on startup", async () => {
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({ "demo/model": { id: "demo/model" } }),
+		});
+
+		await useModelMetadataStore.getState().refreshStale();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		fetchMock.mockClear();
+		useModelMetadataStore.setState({
+			recordsByProvider: { "models-dev": [{ id: "cached" }] },
+			updatedAt: { "models-dev": new Date().toISOString() },
+		});
+		await useModelMetadataStore.getState().refreshStale();
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		useModelMetadataStore.setState({
+			updatedAt: {
+				"models-dev": new Date(
+					Date.now() - MODEL_METADATA_REFRESH_TTL_MS - 1,
+				).toISOString(),
+			},
+		});
+		await useModelMetadataStore.getState().refreshStale();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("skips the startup refresh when auto-update is disabled", async () => {
+		fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+		useModelMetadataStore.setState({ autoUpdate: false });
+
+		await useModelMetadataStore.getState().refreshStale();
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("treats missing or malformed refresh timestamps as stale", () => {
+		const now = Date.now();
+		expect(isModelMetadataStale(undefined, now)).toBe(true);
+		expect(isModelMetadataStale("not-a-date", now)).toBe(true);
+		expect(isModelMetadataStale(new Date(now).toISOString(), now)).toBe(false);
+		expect(
+			isModelMetadataStale(
+				new Date(now - MODEL_METADATA_REFRESH_TTL_MS + 1000).toISOString(),
+				now,
+			),
+		).toBe(false);
 	});
 });

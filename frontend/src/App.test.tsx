@@ -7,6 +7,7 @@ const loadProviders = vi.fn();
 const refreshSecrets = vi.fn();
 const loadKeys = vi.fn();
 const loadWebSearchSettings = vi.fn();
+const refreshModelMetadata = vi.fn();
 const openSettings = vi.fn();
 const setFullCommunicationLogs = vi.fn();
 
@@ -67,6 +68,14 @@ vi.mock("./stores/secretsStore", () => ({
 	) => selector({ refresh: refreshSecrets }),
 }));
 
+vi.mock("./stores/modelMetadataStore", () => ({
+	useModelMetadataStore: (
+		selector: (state: {
+			refreshStale: typeof refreshModelMetadata;
+		}) => unknown,
+	) => selector({ refreshStale: refreshModelMetadata }),
+}));
+
 vi.mock("./stores/settingsStore", () => ({
 	useSettingsStore: (
 		selector: (state: {
@@ -109,6 +118,7 @@ describe("App startup", () => {
 		refreshSecrets.mockReset();
 		loadKeys.mockReset();
 		loadWebSearchSettings.mockReset();
+		refreshModelMetadata.mockReset();
 		openSettings.mockReset();
 		setFullCommunicationLogs.mockReset();
 		vi.stubGlobal(
@@ -146,6 +156,7 @@ describe("App startup", () => {
 			),
 		);
 		await waitFor(() => expect(loadWebSearchSettings).toHaveBeenCalledOnce());
+		await waitFor(() => expect(refreshModelMetadata).toHaveBeenCalledOnce());
 	});
 
 	it("mounts the application context menu during startup", () => {

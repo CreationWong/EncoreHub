@@ -17,6 +17,7 @@ import { devtools, inTauri } from "./services/devtools";
 import { useCharacterManagerStore } from "./stores/characterManagerStore";
 import { useCharacterStore } from "./stores/characterStore";
 import { useConversationStore } from "./stores/conversationStore";
+import { useModelMetadataStore } from "./stores/modelMetadataStore";
 import { useProviderStore } from "./stores/providerStore";
 import { useSecretsStore } from "./stores/secretsStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -42,6 +43,7 @@ export default function App() {
 	const loadWebSearchSettings = useSettingsStore(
 		(s) => s.loadWebSearchSettings,
 	);
+	const refreshModelMetadata = useModelMetadataStore((s) => s.refreshStale);
 	const openSettings = useSettingsStore((s) => s.openSettings);
 	const characterManagerOpen = useCharacterManagerStore((s) => s.open);
 	const devMode = useSettingsStore((s) => s.devMode);
@@ -183,6 +185,7 @@ export default function App() {
 						refreshSecrets(),
 						loadKeys(),
 						loadWebSearchSettings(),
+						refreshModelMetadata(),
 					]);
 				}
 			} else {
@@ -206,6 +209,7 @@ export default function App() {
 		refreshSecrets,
 		loadKeys,
 		loadWebSearchSettings,
+		refreshModelMetadata,
 	]);
 
 	if (compatibilityError) {

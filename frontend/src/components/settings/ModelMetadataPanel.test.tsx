@@ -29,6 +29,8 @@ describe("ModelMetadataPanel", () => {
 				},
 			],
 			recordsByProvider: {},
+			updatedAt: {},
+			autoUpdate: true,
 			loaded: true,
 			loading: false,
 			error: null,
@@ -88,6 +90,26 @@ describe("ModelMetadataPanel", () => {
 					([url]) => url === DEFAULT_MODEL_METADATA_PROVIDER.url,
 				),
 			).toHaveLength(2),
+		);
+	});
+
+	it("shows the catalog refresh time and toggles startup auto-update", async () => {
+		fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+		const view = render(<ModelMetadataPanel />);
+		expect(screen.getByText(/never updated/)).toBeDefined();
+		view.unmount();
+
+		useModelMetadataStore.setState({
+			updatedAt: { "models-dev": "2026-09-01T00:00:00.000Z" },
+		});
+		render(<ModelMetadataPanel />);
+		expect(screen.getByText(/last updated/)).toBeDefined();
+
+		fireEvent.click(
+			screen.getByRole("checkbox", { name: /auto-update on startup/i }),
+		);
+		await waitFor(() =>
+			expect(useModelMetadataStore.getState().autoUpdate).toBe(false),
 		);
 	});
 

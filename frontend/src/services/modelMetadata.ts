@@ -10,6 +10,8 @@ import type {
 
 export const MODEL_METADATA_SOURCE_URL = "https://models.dev/models.json";
 export const MODEL_METADATA_CONFIG_KEY = "model_metadata_catalog";
+/** Automatic refresh interval; startup checks reuse the cache until it expires. */
+export const MODEL_METADATA_REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type ModelMetadataFormat = "object" | "array";
 export type ModelMetadataPreset =
@@ -93,6 +95,10 @@ export interface ModelMetadataDatabase {
 	version: 1;
 	providers: ModelMetadataProvider[];
 	records_by_provider: Record<string, NormalizedModelMetadata[]>;
+	/** ISO timestamps of the last successful fetch, keyed by provider id. */
+	updated_at?: Record<string, string>;
+	/** Whether startup refreshes enabled providers after the TTL expires. */
+	auto_update?: boolean;
 }
 
 export const DEFAULT_MODEL_METADATA_MAPPING: ModelMetadataMapping = {
