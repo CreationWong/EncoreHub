@@ -179,15 +179,13 @@ fn parse_paragraph_xml(markup: &[u8]) -> Result<String, DocumentError> {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(tag)) => {
                 let local = tag.local_name();
-                if matches!(local.as_ref(), b"p" | b"h") {
+                if matches!(local.as_ref(), "p" | "h") {
                     in_paragraph = true;
                     current.clear();
                 }
             }
             Ok(Event::Text(text)) if in_paragraph => {
-                let decoded = text
-                    .xml_content()
-                    .map_err(|error| DocumentError::InvalidMarkup(error.to_string()))?;
+                let decoded = text.xml11_content();
                 let unescaped = quick_xml::escape::unescape(&decoded)
                     .map_err(|error| DocumentError::InvalidMarkup(error.to_string()))?;
                 current.push_str(&unescaped);
@@ -195,7 +193,7 @@ fn parse_paragraph_xml(markup: &[u8]) -> Result<String, DocumentError> {
             Ok(Event::GeneralRef(reference)) if in_paragraph => {
                 append_xml_reference(&mut current, &reference)?;
             }
-            Ok(Event::End(tag)) if matches!(tag.local_name().as_ref(), b"p" | b"h") => {
+            Ok(Event::End(tag)) if matches!(tag.local_name().as_ref(), "p" | "h") => {
                 let value = current.trim();
                 if !value.is_empty() {
                     paragraphs.push(value.to_string());
@@ -224,10 +222,8 @@ fn append_xml_reference(
         output.push(character);
         return Ok(());
     }
-    let name = reference
-        .decode()
-        .map_err(|error| DocumentError::InvalidMarkup(error.to_string()))?;
-    let character = match name.as_ref() {
+    let name = reference.as_ref();
+    let character = match name {
         "amp" => '&',
         "lt" => '<',
         "gt" => '>',

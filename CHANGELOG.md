@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **依赖精简**：移除未使用的 `http-body-util` 开发依赖；桌面壳 `ureq` 关闭仅用于回环 HTTP 探测的 TLS/gzip 默认特性，`tokio` 只保留 `time` 特性；Engine `quick-xml` 升至 0.42，Gateway `golang.org/x/net` 升至 v0.56。
+
+### Security
+
+- **依赖安全更新**：修复可达的文档与网页解析拒绝服务及 TLS/编码类已知问题——Engine `quick-xml` 0.42、`h2` 0.4.19、`rustls` 0.23.45、`anyhow` 1.0.104；Gateway `golang.org/x/net` v0.56.0、`golang.org/x/text` 0.39.0、`klauspost/compress` 1.20.0；前端通过 pnpm override 将 `@xmldom/xmldom`、`postcss`、`browserslist`、`nanoid` 提升至修复版本。
+
 ## [0.1.10] - 2026-09-15
 
 ### Added

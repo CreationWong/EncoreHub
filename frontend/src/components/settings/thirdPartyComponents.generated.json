@@ -135,7 +135,7 @@
 			"layer": "Interface",
 			"name": "@xmldom/xmldom",
 			"packageName": "@xmldom/xmldom",
-			"version": "0.9.10",
+			"version": "0.9.12",
 			"license": "MIT"
 		},
 		{
@@ -1717,6 +1717,14 @@
 		{
 			"ecosystem": "cargo",
 			"layer": "Desktop",
+			"name": "quick-xml",
+			"packageName": "quick-xml",
+			"version": "0.39.4",
+			"license": "MIT"
+		},
+		{
+			"ecosystem": "cargo",
+			"layer": "Desktop",
 			"name": "raw-window-handle",
 			"packageName": "raw-window-handle",
 			"version": "0.6.2",
@@ -1753,22 +1761,6 @@
 			"packageName": "rustc-hash",
 			"version": "2.1.2",
 			"license": "Apache-2.0 OR MIT"
-		},
-		{
-			"ecosystem": "cargo",
-			"layer": "Desktop",
-			"name": "rustls",
-			"packageName": "rustls",
-			"version": "0.23.40",
-			"license": "Apache-2.0 OR ISC OR MIT"
-		},
-		{
-			"ecosystem": "cargo",
-			"layer": "Desktop",
-			"name": "rustls-pki-types",
-			"packageName": "rustls-pki-types",
-			"version": "1.14.1",
-			"license": "MIT OR Apache-2.0"
 		},
 		{
 			"ecosystem": "cargo",
@@ -2125,22 +2117,6 @@
 		{
 			"ecosystem": "cargo",
 			"layer": "Desktop",
-			"name": "webpki-roots",
-			"packageName": "webpki-roots",
-			"version": "0.26.11",
-			"license": "CDLA-Permissive-2.0"
-		},
-		{
-			"ecosystem": "cargo",
-			"layer": "Desktop",
-			"name": "webpki-roots",
-			"packageName": "webpki-roots",
-			"version": "1.0.7",
-			"license": "CDLA-Permissive-2.0"
-		},
-		{
-			"ecosystem": "cargo",
-			"layer": "Desktop",
 			"name": "webview2-com",
 			"packageName": "webview2-com",
 			"version": "0.38.2",
@@ -2471,7 +2447,7 @@
 			"layer": "Gateway",
 			"name": "github.com/klauspost/compress",
 			"packageName": "github.com/klauspost/compress",
-			"version": "1.17.9",
+			"version": "1.20.0",
 			"license": "Apache-2.0 OR MIT OR BSD-3-Clause"
 		},
 		{
@@ -2591,7 +2567,7 @@
 			"layer": "Gateway",
 			"name": "golang.org/x/crypto",
 			"packageName": "golang.org/x/crypto",
-			"version": "0.48.0",
+			"version": "0.53.0",
 			"license": "BSD-3-Clause"
 		},
 		{
@@ -2599,7 +2575,7 @@
 			"layer": "Gateway",
 			"name": "golang.org/x/net",
 			"packageName": "golang.org/x/net",
-			"version": "0.51.0",
+			"version": "0.56.0",
 			"license": "BSD-3-Clause"
 		},
 		{
@@ -2607,7 +2583,7 @@
 			"layer": "Gateway",
 			"name": "golang.org/x/sys",
 			"packageName": "golang.org/x/sys",
-			"version": "0.41.0",
+			"version": "0.46.0",
 			"license": "BSD-3-Clause"
 		},
 		{
@@ -2615,7 +2591,7 @@
 			"layer": "Gateway",
 			"name": "golang.org/x/text",
 			"packageName": "golang.org/x/text",
-			"version": "0.34.0",
+			"version": "0.39.0",
 			"license": "BSD-3-Clause"
 		},
 		{
@@ -2751,7 +2727,7 @@
 			"layer": "Engine",
 			"name": "anyhow",
 			"packageName": "anyhow",
-			"version": "1.0.102",
+			"version": "1.0.104",
 			"license": "MIT OR Apache-2.0"
 		},
 		{
@@ -4231,7 +4207,7 @@
 			"layer": "Engine",
 			"name": "h2",
 			"packageName": "h2",
-			"version": "0.4.15",
+			"version": "0.4.19",
 			"license": "MIT"
 		},
 		{
@@ -5527,7 +5503,7 @@
 			"layer": "Engine",
 			"name": "quick-xml",
 			"packageName": "quick-xml",
-			"version": "0.39.4",
+			"version": "0.42.0",
 			"license": "MIT"
 		},
 		{
@@ -5823,7 +5799,7 @@
 			"layer": "Engine",
 			"name": "rustls",
 			"packageName": "rustls",
-			"version": "0.23.43",
+			"version": "0.23.45",
 			"license": "Apache-2.0 OR ISC OR MIT"
 		},
 		{
@@ -5847,7 +5823,7 @@
 			"layer": "Engine",
 			"name": "rustls-webpki",
 			"packageName": "rustls-webpki",
-			"version": "0.103.13",
+			"version": "0.103.15",
 			"license": "ISC"
 		},
 		{

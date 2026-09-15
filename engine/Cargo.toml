@@ -48,7 +48,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Text processing
 regex = "1"
-quick-xml = "0.39"
+quick-xml = "0.42"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 # Shared HTTP transfer core for search, direct page reads, and the future
 # stateful browser boundary. It is linked into the Engine Runtime module.
@@ -130,6 +130,5 @@ url.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
-http-body-util = "0.1"
 rusqlite.workspace = true
 tower.workspace = true
