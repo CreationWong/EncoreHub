@@ -25,6 +25,7 @@ import {
 } from "../../stores/settingsStore";
 import AppearancePanel from "./AppearancePanel";
 import ContextMenuPanel from "./ContextMenuPanel";
+import ContextPanelSettings from "./ContextPanelSettings";
 import DataPanel from "./DataPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
@@ -59,6 +60,7 @@ const TAB_GROUPS: TabGroup[] = [
 		label: "Interface",
 		tabs: [
 			{ id: "appearance", label: "Appearance", icon: Palette },
+			{ id: "context-panel", label: "Context panel", icon: Gauge },
 			{ id: "context-menu", label: "Context menu", icon: MousePointer2 },
 		],
 	},
@@ -212,6 +214,7 @@ export default function SettingsModal() {
 					{tab === "memories" && <MemoryPanel />}
 					{tab === "security" && <SecurityPanel />}
 					{tab === "appearance" && <AppearancePanel />}
+					{tab === "context-panel" && <ContextPanelSettings />}
 					{tab === "context-menu" && <ContextMenuPanel />}
 					{tab === "about" && (
 						<Suspense

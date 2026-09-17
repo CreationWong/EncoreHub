@@ -16,6 +16,9 @@ vi.mock("./AppearancePanel", () => ({
 vi.mock("./ContextMenuPanel", () => ({
 	default: () => <p>Context menu panel</p>,
 }));
+vi.mock("./ContextPanelSettings", () => ({
+	default: () => <p>Context panel settings</p>,
+}));
 vi.mock("./SkillsPanel", () => ({ default: () => <p>Skills panel</p> }));
 vi.mock("./SearchPanel", () => ({ default: () => <p>Search panel</p> }));
 vi.mock("./KnowledgePanel", () => ({ default: () => <p>Knowledge panel</p> }));
@@ -60,6 +63,15 @@ describe("Settings workspace information architecture", () => {
 
 		expect(await screen.findByText("Model metadata panel")).toBeDefined();
 		expect(useSettingsStore.getState().settingsTab).toBe("model-metadata");
+	});
+
+	it("opens context panel display settings as an interface setting", async () => {
+		render(<SettingsModal />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Context panel" }));
+
+		expect(await screen.findByText("Context panel settings")).toBeDefined();
+		expect(useSettingsStore.getState().settingsTab).toBe("context-panel");
 	});
 
 	it("opens global context menu management as an interface setting", async () => {
@@ -114,7 +126,11 @@ describe("Settings workspace information architecture", () => {
 			within(screen.getByRole("group", { name: group }))
 				.getAllByRole("button")
 				.map((button) => button.getAttribute("title"));
-		expect(titlesIn("Interface")).toEqual(["Appearance", "Context menu"]);
+		expect(titlesIn("Interface")).toEqual([
+			"Appearance",
+			"Context panel",
+			"Context menu",
+		]);
 		expect(titlesIn("AI & tools")).toEqual([
 			"Providers",
 			"Model metadata",

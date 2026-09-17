@@ -20,6 +20,8 @@ vi.mock("../services/webSearch", async (importOriginal) => {
 
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "../services/webSearch";
 import {
+	DEFAULT_CONTEXT_METER_METRICS,
+	DEFAULT_CONTEXT_METER_PRIMARY,
 	DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS,
 	useSettingsStore,
 } from "./settingsStore";
@@ -37,6 +39,10 @@ beforeEach(() => {
 		trafficLightWindowControls: false,
 		globalContextMenuEnabled: true,
 		globalContextMenuItems: DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS.map((item) => ({
+			...item,
+		})),
+		contextMeterPrimary: DEFAULT_CONTEXT_METER_PRIMARY,
+		contextMeterMetrics: DEFAULT_CONTEXT_METER_METRICS.map((item) => ({
 			...item,
 		})),
 		settingsTab: "about",
@@ -225,5 +231,54 @@ describe("settingsStore global context menu preferences", () => {
 			{ id: "settings", visible: true },
 			{ id: "new-chat", visible: false },
 		]);
+	});
+});
+
+describe("settingsStore context meter display", () => {
+	it("persists the primary metric and keeps it visible", () => {
+		// Promoting a hidden row must unhide it; otherwise the headline would
+		// fall through to another metric while Settings still shows it as Main.
+		useSettingsStore.getState().setContextMeterMetricVisible("used", false);
+		useSettingsStore.getState().setContextMeterPrimary("used");
+
+		expect(useSettingsStore.getState()).toMatchObject({
+			contextMeterPrimary: "used",
+			contextMeterMetrics: expect.arrayContaining([
+				{ id: "used", visible: true },
+			]),
+		});
+		expect(localStorage.getItem("encorehub-context-meter-primary")).toBe(
+			"used",
+		);
+	});
+
+	it("promotes the next visible metric when the primary is hidden", () => {
+		useSettingsStore
+			.getState()
+			.setContextMeterMetricVisible("percentage", false);
+
+		expect(useSettingsStore.getState().contextMeterPrimary).toBe("remaining");
+		expect(
+			useSettingsStore
+				.getState()
+				.contextMeterMetrics.find((item) => item.id === "percentage")?.visible,
+		).toBe(false);
+	});
+
+	it("persists drag order and restores defaults", () => {
+		useSettingsStore
+			.getState()
+			.moveContextMeterMetric("remaining", "percentage");
+		expect(
+			useSettingsStore.getState().contextMeterMetrics.map((item) => item.id),
+		).toEqual(["remaining", "percentage", "usedOfLimit", "used"]);
+
+		useSettingsStore.getState().resetContextMeterDisplay();
+		expect(useSettingsStore.getState()).toMatchObject({
+			contextMeterPrimary: DEFAULT_CONTEXT_METER_PRIMARY,
+			contextMeterMetrics: DEFAULT_CONTEXT_METER_METRICS.map((item) => ({
+				...item,
+			})),
+		});
 	});
 });

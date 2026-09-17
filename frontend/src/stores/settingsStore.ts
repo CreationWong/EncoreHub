@@ -17,6 +17,16 @@ export type Theme = "system" | "dark" | "light";
 export type SidebarMode = "characters" | "conversations";
 export type GlobalContextMenuItemId = "new-chat" | "settings";
 export type MathRenderer = "off" | "katex" | "mathjax";
+export type ContextMeterMetricId =
+	| "percentage"
+	| "remaining"
+	| "usedOfLimit"
+	| "used";
+
+export interface ContextMeterMetricPreference {
+	id: ContextMeterMetricId;
+	visible: boolean;
+}
 
 export interface GlobalContextMenuItemPreference {
 	id: GlobalContextMenuItemId;
@@ -28,6 +38,22 @@ export const DEFAULT_GLOBAL_CONTEXT_MENU_ITEMS: readonly GlobalContextMenuItemPr
 		{ id: "new-chat", visible: true },
 		{ id: "settings", visible: true },
 	];
+
+/** Default primary figure: how full the next request is relative to the window. */
+export const DEFAULT_CONTEXT_METER_PRIMARY: ContextMeterMetricId = "percentage";
+
+/**
+ * Default meter order follows the usual glance path: fullness, remaining room,
+ * then absolute counts. Only the first two are visible so the panel stays quiet.
+ */
+export const DEFAULT_CONTEXT_METER_METRICS: readonly ContextMeterMetricPreference[] =
+	[
+		{ id: "percentage", visible: true },
+		{ id: "remaining", visible: true },
+		{ id: "usedOfLimit", visible: false },
+		{ id: "used", visible: false },
+	];
+
 export type SettingsTab =
 	| "providers"
 	| "model-metadata"
@@ -37,6 +63,7 @@ export type SettingsTab =
 	| "data"
 	| "search"
 	| "appearance"
+	| "context-panel"
 	| "context-menu"
 	| "security"
 	| "about"
@@ -73,6 +100,8 @@ interface SettingsState {
 	trafficLightWindowControls: boolean;
 	globalContextMenuEnabled: boolean;
 	globalContextMenuItems: GlobalContextMenuItemPreference[];
+	contextMeterPrimary: ContextMeterMetricId;
+	contextMeterMetrics: ContextMeterMetricPreference[];
 	searchEnabled: boolean;
 	searchProvider: SearchProvider;
 	searchMaxResults: number;
@@ -106,6 +135,16 @@ interface SettingsState {
 		id: GlobalContextMenuItemId,
 		targetId: GlobalContextMenuItemId,
 	) => void;
+	setContextMeterPrimary: (id: ContextMeterMetricId) => void;
+	setContextMeterMetricVisible: (
+		id: ContextMeterMetricId,
+		visible: boolean,
+	) => void;
+	moveContextMeterMetric: (
+		id: ContextMeterMetricId,
+		targetId: ContextMeterMetricId,
+	) => void;
+	resetContextMeterDisplay: () => void;
 	setSearchEnabled: (on: boolean) => void;
 	setSearchProvider: (p: SearchProvider) => void;
 	loadWebSearchSettings: () => Promise<void>;
@@ -218,6 +257,125 @@ function persistGlobalContextMenuItems(
 	}
 }
 
+const CONTEXT_METER_PRIMARY_KEY = "encorehub-context-meter-primary";
+const CONTEXT_METER_METRICS_KEY = "encorehub-context-meter-metrics";
+
+const CONTEXT_METER_METRIC_IDS: readonly ContextMeterMetricId[] =
+	DEFAULT_CONTEXT_METER_METRICS.map((item) => item.id);
+
+/** True when a persisted id still names a meter metric this build knows. */
+function isContextMeterMetricId(value: unknown): value is ContextMeterMetricId {
+	return (
+		typeof value === "string" &&
+		CONTEXT_METER_METRIC_IDS.includes(value as ContextMeterMetricId)
+	);
+}
+
+/** Clone the default order so callers can mutate a session copy. */
+function defaultContextMeterMetrics(): ContextMeterMetricPreference[] {
+	return DEFAULT_CONTEXT_METER_METRICS.map((item) => ({ ...item }));
+}
+
+/**
+ * Rebuild a saved meter list so unknown ids drop out and new metrics append.
+ */
+function normalizeContextMeterMetrics(
+	value: unknown,
+): ContextMeterMetricPreference[] {
+	if (!Array.isArray(value)) return defaultContextMeterMetrics();
+	const defaults = new Map(
+		DEFAULT_CONTEXT_METER_METRICS.map((item) => [item.id, item]),
+	);
+	const seen = new Set<ContextMeterMetricId>();
+	const normalized: ContextMeterMetricPreference[] = [];
+	for (const candidate of value) {
+		if (!candidate || typeof candidate !== "object") continue;
+		const id = (candidate as { id?: unknown }).id;
+		if (!isContextMeterMetricId(id) || seen.has(id)) continue;
+		seen.add(id);
+		normalized.push({
+			id,
+			visible:
+				typeof (candidate as { visible?: unknown }).visible === "boolean"
+					? (candidate as { visible: boolean }).visible
+					: (defaults.get(id)?.visible ?? true),
+		});
+	}
+	for (const item of DEFAULT_CONTEXT_METER_METRICS) {
+		if (!seen.has(item.id)) normalized.push({ ...item });
+	}
+	return normalized;
+}
+
+/** Read the saved headline metric, ignoring unknown or corrupt values. */
+function loadContextMeterPrimary(): ContextMeterMetricId {
+	if (typeof window === "undefined") return DEFAULT_CONTEXT_METER_PRIMARY;
+	try {
+		const raw = localStorage.getItem(CONTEXT_METER_PRIMARY_KEY);
+		return isContextMeterMetricId(raw) ? raw : DEFAULT_CONTEXT_METER_PRIMARY;
+	} catch {
+		return DEFAULT_CONTEXT_METER_PRIMARY;
+	}
+}
+
+/** Read the saved meter order and visibility, filling in newly added metrics. */
+function loadContextMeterMetrics(): ContextMeterMetricPreference[] {
+	if (typeof window === "undefined") return defaultContextMeterMetrics();
+	try {
+		const raw = localStorage.getItem(CONTEXT_METER_METRICS_KEY);
+		return raw
+			? normalizeContextMeterMetrics(JSON.parse(raw))
+			: defaultContextMeterMetrics();
+	} catch {
+		return defaultContextMeterMetrics();
+	}
+}
+
+/** Persist the headline metric; storage is optional in restricted webviews. */
+function persistContextMeterPrimary(id: ContextMeterMetricId): void {
+	try {
+		localStorage.setItem(CONTEXT_METER_PRIMARY_KEY, id);
+	} catch {
+		/* ignore */
+	}
+}
+
+/** Persist meter order and visibility; storage is optional in restricted webviews. */
+function persistContextMeterMetrics(
+	metrics: ContextMeterMetricPreference[],
+): void {
+	try {
+		localStorage.setItem(CONTEXT_METER_METRICS_KEY, JSON.stringify(metrics));
+	} catch {
+		/* ignore */
+	}
+}
+
+/**
+ * Keep the designated primary visible so hiding it cannot blank the headline.
+ */
+function ensureContextMeterPrimaryVisible(
+	primary: ContextMeterMetricId,
+	metrics: ContextMeterMetricPreference[],
+): ContextMeterMetricPreference[] {
+	return metrics.map((item) =>
+		item.id === primary ? { ...item, visible: true } : item,
+	);
+}
+
+/**
+ * When the current primary is hidden, promote the next remaining visible row.
+ */
+function nextContextMeterPrimary(
+	hiddenId: ContextMeterMetricId,
+	metrics: ContextMeterMetricPreference[],
+	current: ContextMeterMetricId,
+): ContextMeterMetricId {
+	if (hiddenId !== current) return current;
+	const fallback = metrics.find((item) => item.id !== hiddenId && item.visible);
+	return fallback?.id ?? DEFAULT_CONTEXT_METER_PRIMARY;
+}
+
 // API keys are always persisted to the engine DB (plaintext or encrypted
 // depending on the Security setting). On startup we pull them back via the
 // secrets API. The Zustand `apiKeys` field is a fast in-memory cache — the
@@ -315,6 +473,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			? localStorage.getItem(GLOBAL_CONTEXT_MENU_ENABLED_KEY) !== "0"
 			: true,
 	globalContextMenuItems: loadGlobalContextMenuItems(),
+	contextMeterPrimary: loadContextMeterPrimary(),
+	contextMeterMetrics: loadContextMeterMetrics(),
 	searchEnabled:
 		typeof window !== "undefined"
 			? localStorage.getItem("encorehub-search-enabled") === "1"
@@ -511,6 +671,57 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 		items.splice(targetIndex, 0, moving);
 		set({ globalContextMenuItems: items });
 		persistGlobalContextMenuItems(items);
+	},
+
+	setContextMeterPrimary: (id) => {
+		const metrics = ensureContextMeterPrimaryVisible(
+			id,
+			get().contextMeterMetrics,
+		);
+		set({ contextMeterPrimary: id, contextMeterMetrics: metrics });
+		persistContextMeterPrimary(id);
+		persistContextMeterMetrics(metrics);
+	},
+
+	setContextMeterMetricVisible: (id, visible) => {
+		const current = get();
+		const metrics = current.contextMeterMetrics.map((item) =>
+			item.id === id ? { ...item, visible } : item,
+		);
+		const primary = visible
+			? current.contextMeterPrimary
+			: nextContextMeterPrimary(id, metrics, current.contextMeterPrimary);
+		const nextMetrics =
+			primary === current.contextMeterPrimary
+				? metrics
+				: ensureContextMeterPrimaryVisible(primary, metrics);
+		set({ contextMeterPrimary: primary, contextMeterMetrics: nextMetrics });
+		persistContextMeterPrimary(primary);
+		persistContextMeterMetrics(nextMetrics);
+	},
+
+	moveContextMeterMetric: (id, targetId) => {
+		if (id === targetId) return;
+		const current = get().contextMeterMetrics;
+		const sourceIndex = current.findIndex((item) => item.id === id);
+		const targetIndex = current.findIndex((item) => item.id === targetId);
+		if (sourceIndex < 0 || targetIndex < 0) return;
+		const metrics = [...current];
+		const [moving] = metrics.splice(sourceIndex, 1);
+		if (!moving) return;
+		metrics.splice(targetIndex, 0, moving);
+		set({ contextMeterMetrics: metrics });
+		persistContextMeterMetrics(metrics);
+	},
+
+	resetContextMeterDisplay: () => {
+		const metrics = defaultContextMeterMetrics();
+		set({
+			contextMeterPrimary: DEFAULT_CONTEXT_METER_PRIMARY,
+			contextMeterMetrics: metrics,
+		});
+		persistContextMeterPrimary(DEFAULT_CONTEXT_METER_PRIMARY);
+		persistContextMeterMetrics(metrics);
 	},
 
 	setSearchEnabled: (on: boolean) => {

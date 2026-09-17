@@ -28,16 +28,23 @@ import {
 	type ContextPanelTab,
 	MANUAL_COMPACT_BUFFER_TOKENS,
 	autoCompactReserve,
+	autoCompactThreshold,
 	estimateContextUsage,
 	useContextManagementStore,
 } from "../../stores/contextManagementStore";
 import { useConversationStore } from "../../stores/conversationStore";
+import {
+	modelMetadataForId,
+	useModelMetadataStore,
+} from "../../stores/modelMetadataStore";
 import { useProviderStore } from "../../stores/providerStore";
 import {
 	type MathRenderer,
 	useSettingsStore,
 } from "../../stores/settingsStore";
+import ContextMeter from "./ContextMeter";
 import CurrentMemoryPanel from "./CurrentMemoryPanel";
+import { formatTokens } from "./contextMeterDisplay";
 
 /** Tab order and labels for the panel header. */
 const TABS: { id: ContextPanelTab; label: string; icon: typeof Gauge }[] = [
@@ -66,25 +73,7 @@ const MATH_RENDERERS: { id: MathRenderer; label: string; detail: string }[] = [
 	},
 ];
 
-function formatTokens(value: number): string {
-	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
-		value,
-	);
-}
-
-function formatContextPercentage(value: number): string {
-	// Preserve useful precision near zero without implying that a non-empty
-	// context occupies no space in the model window.
-	if (value === 0) return "0%";
-	if (value < 0.01) return "<0.01%";
-	if (value < 1) {
-		return `${new Intl.NumberFormat("en-US", {
-			maximumFractionDigits: 2,
-		}).format(value)}%`;
-	}
-	return `${Math.round(value)}%`;
-}
-
+/** Format a usage cost using the provider-reported currency. */
 function formatCost(value: number, currency: string): string {
 	return new Intl.NumberFormat("en-US", {
 		style: "currency",
@@ -94,6 +83,7 @@ function formatCost(value: number, currency: string): string {
 	}).format(value);
 }
 
+/** Labeled checkbox rendered as the panel's compact switch control. */
 function Toggle({
 	checked,
 	label,
@@ -131,6 +121,7 @@ function Toggle({
 	);
 }
 
+/** Numeric field plus range slider that stay clamped to the declared bounds. */
 function NumberSlider({
 	id,
 	label,
@@ -185,59 +176,6 @@ function NumberSlider({
 	);
 }
 
-function ContextMeter({
-	used,
-	limit,
-	percentage,
-}: {
-	used: number;
-	limit: number | null;
-	percentage: number | null;
-}) {
-	const safePercentage = percentage ?? 0;
-	const tone =
-		safePercentage >= 90
-			? "bg-danger"
-			: safePercentage >= 75
-				? "bg-warning"
-				: "bg-accent";
-
-	return (
-		<div className="space-y-2">
-			<div className="flex items-end justify-between gap-3">
-				<div>
-					<p className="text-2xl font-semibold tabular-nums text-text-primary">
-						{percentage == null
-							? formatTokens(used)
-							: formatContextPercentage(percentage)}
-					</p>
-					<p className="text-[11px] text-text-muted">
-						{formatTokens(used)}
-						{limit ? ` of ${formatTokens(limit)} tokens` : " estimated tokens"}
-					</p>
-				</div>
-				<Gauge className="h-5 w-5 text-text-muted" />
-			</div>
-			<div
-				role="progressbar"
-				tabIndex={0}
-				aria-label="Context usage"
-				aria-valuemin={0}
-				aria-valuemax={limit ?? undefined}
-				aria-valuenow={limit ? Math.min(used, limit) : undefined}
-				className="h-2 overflow-hidden rounded-full bg-control"
-			>
-				<div
-					className={`h-full rounded-full transition-[width] ${tone}`}
-					style={{
-						width: `${percentage == null ? 0 : Math.max(1, safePercentage)}%`,
-					}}
-				/>
-			</div>
-		</div>
-	);
-}
-
 /** Presents provider-input context separately from the transcript kept by Engine. */
 export default function ContextManagementPanel() {
 	const activeId = useConversationStore((state) => state.activeId);
@@ -268,6 +206,13 @@ export default function ContextManagementPanel() {
 	);
 	const mathRenderer = useSettingsStore((state) => state.mathRenderer);
 	const setMathRenderer = useSettingsStore((state) => state.setMathRenderer);
+	const contextMeterPrimary = useSettingsStore(
+		(state) => state.contextMeterPrimary,
+	);
+	const contextMeterMetrics = useSettingsStore(
+		(state) => state.contextMeterMetrics,
+	);
+	const openSettings = useSettingsStore((state) => state.openSettings);
 	const [summaryExpanded, setSummaryExpanded] = useState(false);
 	const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -279,6 +224,22 @@ export default function ContextManagementPanel() {
 		(item) => item.id === modelId,
 	);
 	const compaction = activeId ? compactions[activeId] : undefined;
+	const metadataProviders = useModelMetadataStore((state) => state.providers);
+	const metadataRecords = useModelMetadataStore(
+		(state) => state.recordsByProvider,
+	);
+	const metadataWindow = useMemo(
+		() =>
+			modelMetadataForId(
+				{ providers: metadataProviders, recordsByProvider: metadataRecords },
+				modelId,
+			)?.contextWindow,
+		[metadataProviders, metadataRecords, modelId],
+	);
+	// A provider model may omit its window, but the catalog usually knows it.
+	// Auto compaction resolves the same fallback, so the displayed percentage
+	// always matches the point where the conversation actually compresses.
+	const contextWindow = modelConfig?.context_window ?? metadataWindow;
 	const reservedTokens = autoCompact
 		? autoCompactReserve(advanced.maxCompletionTokens)
 		: MANUAL_COMPACT_BUFFER_TOKENS;
@@ -286,7 +247,7 @@ export default function ContextManagementPanel() {
 		() =>
 			estimateContextUsage(
 				messages,
-				modelConfig?.context_window,
+				contextWindow,
 				compaction,
 				reservedTokens,
 				{
@@ -296,7 +257,7 @@ export default function ContextManagementPanel() {
 			),
 		[
 			messages,
-			modelConfig?.context_window,
+			contextWindow,
 			compaction,
 			reservedTokens,
 			conversation?.character_snapshot,
@@ -313,6 +274,25 @@ export default function ContextManagementPanel() {
 		advanced.maxCompletionTokens,
 		modelConfig?.max_output_tokens ?? 32768,
 	);
+	const compactThresholdTokens =
+		autoCompact && context.limit
+			? autoCompactThreshold(context.limit, advanced.maxCompletionTokens)
+			: null;
+	const compactThresholdShare =
+		compactThresholdTokens != null && context.limit
+			? Math.round((compactThresholdTokens / context.limit) * 100)
+			: null;
+	// Provider requests carry either the transcript or the recent tail kept by
+	// the active compaction, so the count mirrors what the next call includes.
+	const retainedMessageCount = compaction?.summary
+		? Math.min(compaction.keepRecent, messages.length)
+		: messages.length;
+	const autoCompactDescription =
+		autoCompact && context.limit != null
+			? compactThresholdTokens != null && compactThresholdTokens > 0
+				? `Compresses automatically at about ${compactThresholdShare}% (${formatTokens(compactThresholdTokens)} tokens).`
+				: "Compresses as soon as this model window allows; the reply reserve exceeds the window."
+			: "Compact before the model runs out of safe working space.";
 
 	if (!open) return null;
 
@@ -322,24 +302,30 @@ export default function ContextManagementPanel() {
 			value: context.categories.system,
 			icon: Zap,
 			tone: "bg-accent",
+			detail:
+				"Character instructions, current date/time, and compaction summary.",
 		},
 		{
 			label: "Tools",
 			value: context.categories.tools,
 			icon: Wrench,
 			tone: "bg-success",
+			detail:
+				"Tool definitions and tool call payloads included in the request.",
 		},
 		{
 			label: "Skills",
 			value: context.categories.skills,
 			icon: Sparkles,
 			tone: "bg-info",
+			detail: "Skill instruction text injected by the gateway.",
 		},
 		{
 			label: "Messages",
 			value: context.categories.messages,
 			icon: MessageSquareText,
 			tone: "bg-warning",
+			detail: "Visible conversation history sent to the model.",
 		},
 		{
 			label: "Other request data",
@@ -347,6 +333,8 @@ export default function ContextManagementPanel() {
 			icon: Layers3,
 			// Protocol overhead must remain distinct from the neutral progress track.
 			tone: "bg-text-muted",
+			detail:
+				"Protocol and formatting overhead the estimator cannot attribute.",
 		},
 	] as const;
 
@@ -456,26 +444,92 @@ export default function ContextManagementPanel() {
 							{modelConfig?.name || modelId || "No model selected"}
 						</h2>
 						<div className="mt-4">
-							<ContextMeter
-								used={context.contextTokens}
-								limit={context.limit}
-								percentage={context.percentage}
-							/>
+							<h3 className="text-xs font-semibold text-text-primary">
+								Next request
+							</h3>
+							<p className="mt-0.5 text-[11px] leading-4 text-text-muted">
+								How full the model window will be when this conversation
+								continues.
+							</p>
+							<div className="mt-3">
+								<ContextMeter
+									used={context.contextTokens}
+									limit={context.limit}
+									percentage={context.percentage}
+									remaining={
+										context.limit == null
+											? null
+											: Math.max(0, context.limit - context.contextTokens)
+									}
+									primary={contextMeterPrimary}
+									metrics={contextMeterMetrics}
+								/>
+							</div>
+							<button
+								type="button"
+								onClick={() => openSettings("context-panel")}
+								className="mt-2 text-[10px] text-text-muted hover:text-text-primary"
+							>
+								Customize display
+							</button>
 						</div>
-						<p className="mt-2 text-[10px] tabular-nums text-text-muted">
+						{context.percentage != null && context.percentage >= 90 ? (
+							<p className="mt-2 text-[11px] font-medium text-danger">
+								Almost out of room — compress before sending the next message.
+							</p>
+						) : context.percentage != null && context.percentage >= 75 ? (
+							<p className="mt-2 text-[11px] font-medium text-warning">
+								Filling up — compress soon to keep replies accurate.
+							</p>
+						) : null}
+						{!activeId ? (
+							<p className="mt-2 text-[11px] leading-4 text-text-muted">
+								Select or start a conversation to inspect its context.
+							</p>
+						) : messages.length === 0 ? (
+							<p className="mt-2 text-[11px] leading-4 text-text-muted">
+								No messages yet — this meter fills as the conversation
+								continues.
+							</p>
+						) : context.limit == null ? (
+							<p className="mt-2 text-[11px] leading-4 text-text-muted">
+								Context window unknown — add it to this model or its metadata
+								source to see a percentage.
+							</p>
+						) : null}
+						<p
+							className="mt-2 text-[10px] tabular-nums text-text-muted"
+							title={
+								context.source === "provider" &&
+								context.snapshotInputTokens != null &&
+								context.snapshotOutputTokens != null
+									? `${formatTokens(context.snapshotInputTokens)} input · ${formatTokens(context.snapshotOutputTokens)} output retained`
+									: context.modelTrusted
+										? `Input model fitted from ${context.modelSamples} samples · output model from ${context.outputModelSamples} samples`
+										: undefined
+							}
+						>
 							{context.source === "provider" &&
 							context.snapshotInputTokens != null &&
 							context.snapshotOutputTokens != null
-								? `${formatTokens(context.snapshotInputTokens)} input in latest request · ${formatTokens(context.snapshotOutputTokens)} output retained for the next request`
+								? "Measured from the latest provider response"
 								: context.modelTrusted
-									? `Estimated with calibrated input model (${context.modelSamples} samples) · output model (${context.outputModelSamples} samples)`
+									? `Estimated from this conversation · calibrated from ${context.modelSamples} samples`
 									: "Estimated from active request content"}
 						</p>
 					</section>
 
 					<section className="border-b border-border px-4 py-3">
-						<div className="space-y-1">
-							{breakdown.map(({ label, value, icon: Icon, tone }) => {
+						<h3 className="text-[11px] font-semibold text-text-primary">
+							Request contents
+						</h3>
+						<p className="mt-0.5 text-[10px] text-text-muted">
+							{retainedMessageCount} message
+							{retainedMessageCount === 1 ? "" : "s"} included in the next
+							request
+						</p>
+						<div className="mt-2 space-y-1">
+							{breakdown.map(({ label, value, icon: Icon, tone, detail }) => {
 								const share =
 									context.contextTokens > 0
 										? Math.round((value / context.contextTokens) * 100)
@@ -488,7 +542,10 @@ export default function ContextManagementPanel() {
 										<Icon className="h-3.5 w-3.5 text-text-muted" />
 										<div className="min-w-0">
 											<div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
-												<span className="truncate text-text-secondary">
+												<span
+													className="truncate text-text-secondary"
+													title={detail}
+												>
 													{label}
 												</span>
 												<span className="shrink-0 tabular-nums text-text-muted">
@@ -511,7 +568,12 @@ export default function ContextManagementPanel() {
 						</div>
 						{context.freeTokens != null && (
 							<div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
-								<span className="text-text-muted">Free space</span>
+								<span
+									className="text-text-muted"
+									title="Space left in the model window after the compact reserve."
+								>
+									Free after reserve
+								</span>
 								<span className="tabular-nums text-text-primary">
 									{formatTokens(context.freeTokens)} tokens
 								</span>
@@ -519,7 +581,14 @@ export default function ContextManagementPanel() {
 						)}
 						{context.reservedTokens > 0 && (
 							<div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
-								<span className="text-text-muted">
+								<span
+									className="text-text-muted"
+									title={
+										autoCompact
+											? "Tokens held back so auto compact can fit a summary."
+											: "Tokens held back so a manual compression still fits."
+									}
+								>
 									{autoCompact
 										? "Auto compact reserve"
 										: "Manual compact reserve"}
@@ -547,7 +616,7 @@ export default function ContextManagementPanel() {
 							checked={autoCompact}
 							onChange={setAutoCompact}
 							label="Auto compact"
-							description="Compact before the model runs out of safe working space."
+							description={autoCompactDescription}
 						/>
 						<button
 							type="button"
@@ -555,11 +624,23 @@ export default function ContextManagementPanel() {
 								if (activeId) compactConversation(activeId, messages);
 							}}
 							disabled={!activeId || messages.length < 4}
+							title={
+								!activeId
+									? "No active conversation"
+									: messages.length < 4
+										? "Needs at least 4 messages"
+										: "Summarizes older messages and keeps the most recent ones"
+							}
 							className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Scissors className="h-3.5 w-3.5" />
-							Compress context
+							{compaction ? "Re-compress context" : "Compress context"}
 						</button>
+						{compaction && (
+							<p className="mt-1.5 text-[10px] leading-4 text-text-muted">
+								Compressing again replaces the saved summary.
+							</p>
+						)}
 					</section>
 
 					<section className="px-4 py-4">
@@ -685,6 +766,9 @@ export default function ContextManagementPanel() {
 					aria-labelledby="context-tab-parameters"
 					className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 				>
+					<p className="pb-1 text-[11px] leading-5 text-text-muted">
+						Sampling parameters apply to requests in every conversation.
+					</p>
 					<NumberSlider
 						id="context-temperature"
 						label="Temperature"

@@ -1,13 +1,19 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../../services/conversation";
+import { DEFAULT_MODEL_METADATA_PROVIDER } from "../../services/modelMetadata";
 import {
 	DEFAULT_ADVANCED_PARAMETERS,
 	useContextManagementStore,
 } from "../../stores/contextManagementStore";
 import { useConversationStore } from "../../stores/conversationStore";
+import { useModelMetadataStore } from "../../stores/modelMetadataStore";
 import { useProviderStore } from "../../stores/providerStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import {
+	DEFAULT_CONTEXT_METER_METRICS,
+	useSettingsStore,
+} from "../../stores/settingsStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import ContextManagementPanel from "./ContextManagementPanel";
 
 vi.mock("./CurrentMemoryPanel", () => ({
@@ -26,7 +32,35 @@ function message(id: string, role: Message["role"], content: string): Message {
 	};
 }
 
+/** Two messages with a provider snapshot so token totals stay deterministic. */
+function snapshotMessages(): Message[] {
+	return [
+		message("user", "user", "question"),
+		{
+			...message("assistant", "assistant", "answer"),
+			context_input_tokens: 3,
+			context_output_tokens: 1,
+		},
+	];
+}
+
+function setContextWindow(value: number | undefined): void {
+	useProviderStore.setState((state) => ({
+		profiles: state.profiles.map((profile) => ({
+			...profile,
+			model_configs: profile.model_configs?.map((model) => ({
+				...model,
+				context_window: value,
+			})),
+		})),
+	}));
+}
+
 beforeEach(() => {
+	useModelMetadataStore.setState({
+		providers: [{ ...DEFAULT_MODEL_METADATA_PROVIDER }],
+		recordsByProvider: {},
+	});
 	useConversationStore.setState({
 		activeId: "conversation-1",
 		conversations: [
@@ -53,6 +87,14 @@ beforeEach(() => {
 		provider: "openai",
 		model: "gpt-test",
 		mathRenderer: "katex",
+		contextMeterPrimary: "percentage",
+		contextMeterMetrics: DEFAULT_CONTEXT_METER_METRICS.map((item) => ({
+			...item,
+		})),
+	});
+	useWorkspaceStore.setState({
+		activeTab: "home",
+		openTabs: ["home"],
 	});
 	useProviderStore.setState({
 		profiles: [
@@ -127,23 +169,18 @@ describe("ContextManagementPanel", () => {
 	it("uses the complete retained context for the meter and preserves sub-percent precision", () => {
 		// The provider's latest output remains in the window, so it must be
 		// included alongside the latest input snapshot in every meter value.
-		useConversationStore.setState({
-			messages: [
-				message("user", "user", "question"),
-				{
-					...message("assistant", "assistant", "answer"),
-					context_input_tokens: 3,
-					context_output_tokens: 1,
-				},
-			],
-		});
+		useConversationStore.setState({ messages: snapshotMessages() });
 
 		render(<ContextManagementPanel />);
 
 		const meter = screen.getByRole("progressbar", { name: "Context usage" });
 		expect(meter.getAttribute("aria-valuenow")).toBe("4");
 		expect(screen.getByText("0.4%")).toBeDefined();
-		expect(screen.getByText("4 of 1,000 tokens")).toBeDefined();
+		expect(screen.getByText("996 tokens remaining")).toBeDefined();
+		expect(screen.getByText("Request contents")).toBeDefined();
+		expect(
+			screen.getByText("2 messages included in the next request"),
+		).toBeDefined();
 
 		// Unattributed request overhead needs a distinct foreground color so
 		// a non-zero share cannot disappear into the neutral progress track.
@@ -158,6 +195,7 @@ describe("ContextManagementPanel", () => {
 		render(<ContextManagementPanel />);
 
 		expect(screen.getByRole("heading", { name: "GPT Test" })).toBeDefined();
+		expect(screen.getByRole("heading", { name: "Next request" })).toBeDefined();
 		expect(
 			screen.getByRole("progressbar", { name: "Context usage" }),
 		).toBeDefined();
@@ -167,6 +205,11 @@ describe("ContextManagementPanel", () => {
 		expect(screen.getByText(/Earlier conversation context/)).toBeDefined();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Parameters" }));
+		expect(
+			screen.getByText(
+				"Sampling parameters apply to requests in every conversation.",
+			),
+		).toBeDefined();
 		fireEvent.change(screen.getByLabelText("Temperature"), {
 			target: { value: "1.2" },
 		});
@@ -195,5 +238,107 @@ describe("ContextManagementPanel", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: /MathJax/ }));
 		expect(useSettingsStore.getState().mathRenderer).toBe("mathjax");
+	});
+
+	it("warns when the model window is filling up or nearly full", () => {
+		useConversationStore.setState({ messages: snapshotMessages() });
+
+		setContextWindow(5);
+		const first = render(<ContextManagementPanel />);
+		expect(screen.getByText(/Filling up/)).toBeDefined();
+		first.unmount();
+
+		setContextWindow(4);
+		render(<ContextManagementPanel />);
+		expect(screen.getByText(/Almost out of room/)).toBeDefined();
+	});
+
+	it("explains when auto compact will run", () => {
+		setContextWindow(100_000);
+		useContextManagementStore.setState({
+			advanced: { ...DEFAULT_ADVANCED_PARAMETERS, maxCompletionTokens: 4000 },
+		});
+
+		render(<ContextManagementPanel />);
+
+		expect(
+			screen.getByText(/Compresses automatically at about 83%/),
+		).toBeDefined();
+	});
+
+	it("labels re-compression and explains disabled compression", () => {
+		const first = render(<ContextManagementPanel />);
+		fireEvent.click(screen.getByRole("button", { name: "Compress context" }));
+		expect(
+			screen.getByRole("button", { name: "Re-compress context" }),
+		).toBeDefined();
+		expect(screen.getByText(/replaces the saved summary/)).toBeDefined();
+		first.unmount();
+
+		useContextManagementStore.setState({ compactions: {} });
+		useConversationStore.setState({ messages: [message("1", "user", "hi")] });
+		render(<ContextManagementPanel />);
+
+		const disabled = screen.getByRole("button", {
+			name: "Compress context",
+		}) as HTMLButtonElement;
+		expect(disabled.disabled).toBe(true);
+		expect(disabled.getAttribute("title")).toBe("Needs at least 4 messages");
+	});
+
+	it("guides empty and unselected conversations", () => {
+		useConversationStore.setState({ messages: [] });
+		const first = render(<ContextManagementPanel />);
+		expect(screen.getByText(/No messages yet/)).toBeDefined();
+		first.unmount();
+
+		useConversationStore.setState({ activeId: null });
+		render(<ContextManagementPanel />);
+		expect(screen.getByText(/Select or start a conversation/)).toBeDefined();
+	});
+
+	it("opens display settings from the context meter", () => {
+		// The panel does not embed the reorder UI; it jumps to Settings so the
+		// preview and the live meter stay on one preference snapshot.
+		render(<ContextManagementPanel />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Customize display" }));
+
+		expect(useSettingsStore.getState().settingsTab).toBe("context-panel");
+		expect(useWorkspaceStore.getState().activeTab).toBe("settings");
+	});
+
+	it("promotes remaining tokens when that metric is the main figure", () => {
+		useConversationStore.setState({ messages: snapshotMessages() });
+		useSettingsStore.setState({ contextMeterPrimary: "remaining" });
+
+		render(<ContextManagementPanel />);
+
+		expect(screen.getByText("996 remaining")).toBeDefined();
+		expect(screen.getByText("0.4% of window")).toBeDefined();
+	});
+
+	it("uses catalog metadata for the window percentage", () => {
+		useConversationStore.setState({ messages: snapshotMessages() });
+		setContextWindow(undefined);
+		useModelMetadataStore.setState({
+			recordsByProvider: {
+				"models-dev": [{ id: "gpt-test", contextWindow: 2000 }],
+			},
+		});
+
+		render(<ContextManagementPanel />);
+
+		expect(screen.getByText("0.2%")).toBeDefined();
+		expect(screen.getByText("1,996 tokens remaining")).toBeDefined();
+	});
+
+	it("explains when the context window is unknown", () => {
+		useConversationStore.setState({ messages: snapshotMessages() });
+		setContextWindow(undefined);
+
+		render(<ContextManagementPanel />);
+
+		expect(screen.getByText(/Context window unknown/)).toBeDefined();
 	});
 });

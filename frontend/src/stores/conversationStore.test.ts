@@ -41,6 +41,7 @@ vi.mock("../services/characters", () => ({
 		upgradeConversationCharacterApi(...args),
 }));
 
+import { DEFAULT_MODEL_METADATA_PROVIDER } from "../services/modelMetadata";
 import {
 	DEFAULT_ADVANCED_PARAMETERS,
 	useContextManagementStore,
@@ -50,6 +51,7 @@ import {
 	NEW_CONVERSATION_DRAFT_KEY,
 	useConversationStore,
 } from "./conversationStore";
+import { useModelMetadataStore } from "./modelMetadataStore";
 import { useProviderStore } from "./providerStore";
 import { useSettingsStore } from "./settingsStore";
 
@@ -115,6 +117,10 @@ beforeEach(() => {
 		deepThinking: false,
 	});
 	useProviderStore.setState({ profiles: [], loaded: false, error: null });
+	useModelMetadataStore.setState({
+		providers: [{ ...DEFAULT_MODEL_METADATA_PROVIDER }],
+		recordsByProvider: {},
+	});
 	useContextManagementStore.setState({
 		records: [],
 		autoCompact: true,
@@ -712,6 +718,61 @@ describe("sendMessage", () => {
 			"server-assistant",
 		]);
 		expect(s.messages[1].token_count).toBe(7);
+	});
+
+	it("auto-compacts with the catalog window when the model config omits it", async () => {
+		useProviderStore.setState({
+			profiles: [
+				{
+					id: "openai",
+					name: "OpenAI",
+					protocol: "openai",
+					base_url: "",
+					models: ["gpt-4o"],
+					model_configs: [{ id: "gpt-4o", streaming: true }],
+					enabled: true,
+					builtin: true,
+				},
+			],
+		});
+		useModelMetadataStore.setState({
+			recordsByProvider: {
+				"models-dev": [{ id: "gpt-4o", contextWindow: 100 }],
+			},
+		});
+		// A one-token reply reserve leaves no free window, so any turn trips the
+		// threshold — but only because the catalog supplied the missing window.
+		useContextManagementStore.setState({
+			advanced: { ...DEFAULT_ADVANCED_PARAMETERS, maxCompletionTokens: 1 },
+		});
+		seedConversation("c1");
+		useConversationStore.setState({
+			activeId: "c1",
+			messages: [
+				serverMessage({ id: "m1", content: "first question" }),
+				serverMessage({ id: "m2", role: "assistant", content: "first answer" }),
+				serverMessage({ id: "m3", content: "second question" }),
+				serverMessage({
+					id: "m4",
+					role: "assistant",
+					content: "second answer",
+				}),
+			],
+		});
+		sendMessageStream.mockImplementation(
+			async (
+				_id: string,
+				_content: string,
+				_key: string | undefined,
+				cb: StreamCallbacks,
+			) => {
+				cb.onDone(donePayload("ok"));
+			},
+		);
+
+		await useConversationStore.getState().sendMessage("hi");
+
+		expect(useContextManagementStore.getState().compactions.c1).toBeDefined();
 	});
 
 	it("records one priced usage entry across multiple provider rounds", async () => {

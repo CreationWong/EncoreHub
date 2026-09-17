@@ -627,6 +627,7 @@ const CLIENT_UI_SETTINGS_TABS: readonly SettingsTab[] = [
 	"memories",
 	"data",
 	"appearance",
+	"context-panel",
 	"security",
 	"about",
 	"developer",

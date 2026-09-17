@@ -22,6 +22,10 @@ import {
 	estimateContextUsage,
 	useContextManagementStore,
 } from "./contextManagementStore";
+import {
+	modelMetadataForId,
+	useModelMetadataStore,
+} from "./modelMetadataStore";
 import { useProviderStore } from "./providerStore";
 import { useSettingsStore } from "./settingsStore";
 import { toast } from "./toastStore";
@@ -644,7 +648,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			.getState()
 			.profiles.find((profile) => profile.id === convProvider)
 			?.model_configs?.find((candidate) => candidate.id === convModel);
-		const contextLimit = modelConfig?.context_window;
+		// Provider config wins; catalog metadata fills in a missing window so
+		// auto compaction and the context panel agree on the effective limit.
+		const contextLimit =
+			modelConfig?.context_window ??
+			modelMetadataForId(useModelMetadataStore.getState(), convModel)
+				?.contextWindow;
 		const contextUsage = estimateContextUsage(
 			previousMessages,
 			contextLimit,
