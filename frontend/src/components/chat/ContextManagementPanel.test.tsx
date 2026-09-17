@@ -195,7 +195,6 @@ describe("ContextManagementPanel", () => {
 		render(<ContextManagementPanel />);
 
 		expect(screen.getByRole("heading", { name: "GPT Test" })).toBeDefined();
-		expect(screen.getByRole("heading", { name: "Next request" })).toBeDefined();
 		expect(
 			screen.getByRole("progressbar", { name: "Context usage" }),
 		).toBeDefined();

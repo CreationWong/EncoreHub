@@ -444,27 +444,18 @@ export default function ContextManagementPanel() {
 							{modelConfig?.name || modelId || "No model selected"}
 						</h2>
 						<div className="mt-4">
-							<h3 className="text-xs font-semibold text-text-primary">
-								Next request
-							</h3>
-							<p className="mt-0.5 text-[11px] leading-4 text-text-muted">
-								How full the model window will be when this conversation
-								continues.
-							</p>
-							<div className="mt-3">
-								<ContextMeter
-									used={context.contextTokens}
-									limit={context.limit}
-									percentage={context.percentage}
-									remaining={
-										context.limit == null
-											? null
-											: Math.max(0, context.limit - context.contextTokens)
-									}
-									primary={contextMeterPrimary}
-									metrics={contextMeterMetrics}
-								/>
-							</div>
+							<ContextMeter
+								used={context.contextTokens}
+								limit={context.limit}
+								percentage={context.percentage}
+								remaining={
+									context.limit == null
+										? null
+										: Math.max(0, context.limit - context.contextTokens)
+								}
+								primary={contextMeterPrimary}
+								metrics={contextMeterMetrics}
+							/>
 							<button
 								type="button"
 								onClick={() => openSettings("context-panel")}
