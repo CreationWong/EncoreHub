@@ -20,6 +20,8 @@ const MAX_ALLOWED_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const MAX_TIMEOUT_MS: u64 = 30_000;
 const MAX_REDIRECTS: usize = 5;
+/// Search POSTs (Exa REST/MCP) stay small; this is not a file upload path.
+const MAX_POST_BODY_BYTES: usize = 64 * 1024;
 type ApiError = (StatusCode, Json<ErrorResponse>);
 
 /// Distinguishes credentialed search-provider traffic from public page reads.
@@ -38,6 +40,12 @@ pub struct FetchRequest {
     url: String,
     #[serde(default)]
     headers: BTreeMap<String, String>,
+    /// HTTP method. Only GET (default) and POST are accepted.
+    #[serde(default)]
+    method: Option<String>,
+    /// UTF-8 request body. Allowed only on POST search-provider fetches.
+    #[serde(default)]
+    body: Option<String>,
     #[serde(default)]
     max_bytes: Option<usize>,
     #[serde(default)]
@@ -117,6 +125,12 @@ impl Handler for ResponseCollector {
 /// Fetch one public resource with Curl after applying the shared network policy.
 pub async fn fetch(Json(request): Json<FetchRequest>) -> Result<Json<FetchResponse>, ApiError> {
     validate_headers(request.purpose, &request.headers).map_err(policy_error)?;
+    validate_method_and_body(
+        request.purpose,
+        request.method.as_deref(),
+        request.body.as_deref(),
+    )
+    .map_err(policy_error)?;
     let max_bytes = request
         .max_bytes
         .unwrap_or(DEFAULT_MAX_BYTES)
@@ -142,6 +156,8 @@ fn fetch_blocking(
     let mut current = parse_public_url(&request.url)?;
     let purpose = request.purpose;
     let extract = request.extract;
+    let method = normalized_method(request.method.as_deref());
+    let body = request.body.unwrap_or_default().into_bytes();
     let mut headers = request.headers;
     let total_timeout = Duration::from_millis(timeout_ms);
     let started = Instant::now();
@@ -151,7 +167,9 @@ fn fetch_blocking(
             .checked_sub(started.elapsed())
             .filter(|duration| !duration.is_zero())
             .ok_or(FetchFailure::Upstream("network request timed out"))?;
-        let response = perform_curl_request(&current, &resolved, &headers, max_bytes, remaining)?;
+        let response = perform_curl_request(
+            &current, &resolved, &headers, &method, &body, max_bytes, remaining,
+        )?;
         if !is_redirect(response.status) {
             let (title, extracted_text) = if extract
                 && response
@@ -177,6 +195,10 @@ fn fetch_blocking(
                 title,
                 extracted_text,
             });
+        }
+        if method == "POST" {
+            // Search POSTs must not silently become GETs on 301/302/303.
+            return Err(FetchFailure::Upstream("unexpected redirect"));
         }
         if redirect_count == MAX_REDIRECTS {
             return Err(FetchFailure::Policy("redirect limit exceeded"));
@@ -205,17 +227,24 @@ struct CurlResponse {
     body: Vec<u8>,
 }
 
-/// Execute one GET while pinning Curl to the addresses approved by DNS policy.
+/// Execute one GET or POST while pinning Curl to the addresses approved by DNS policy.
 fn perform_curl_request(
     url: &Url,
     resolved: &[IpAddr],
     headers: &BTreeMap<String, String>,
+    method: &str,
+    body: &[u8],
     max_bytes: usize,
     timeout: Duration,
 ) -> Result<CurlResponse, FetchFailure> {
     let mut easy = Easy2::new(ResponseCollector::new(max_bytes));
     easy.url(url.as_str()).map_err(curl_failure)?;
-    easy.get(true).map_err(curl_failure)?;
+    if method == "POST" {
+        easy.post(true).map_err(curl_failure)?;
+        easy.post_fields_copy(body).map_err(curl_failure)?;
+    } else {
+        easy.get(true).map_err(curl_failure)?;
+    }
     easy.follow_location(false).map_err(curl_failure)?;
     easy.timeout(timeout).map_err(curl_failure)?;
     // Search APIs can take longer than five seconds to establish a connection
@@ -390,6 +419,41 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
     }
     let segments = address.segments();
     (segments[0] & 0xe000) == 0x2000 && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+}
+
+/// Normalize the optional method field. Missing values are GET.
+fn normalized_method(method: Option<&str>) -> String {
+    match method.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_ascii_uppercase(),
+        None => "GET".to_owned(),
+    }
+}
+
+/// Restrict methods and bodies so public page reads stay GET-only.
+fn validate_method_and_body(
+    purpose: FetchPurpose,
+    method: Option<&str>,
+    body: Option<&str>,
+) -> Result<(), &'static str> {
+    let method = normalized_method(method);
+    if method != "GET" && method != "POST" {
+        return Err("only GET and POST are allowed");
+    }
+    if method == "POST" && purpose == FetchPurpose::PublicPage {
+        return Err("public page requests cannot use POST");
+    }
+    if let Some(body) = body {
+        if method != "POST" {
+            return Err("request bodies are only allowed on POST");
+        }
+        if body.len() > MAX_POST_BODY_BYTES {
+            return Err("request body is too large");
+        }
+        if body.contains('\0') {
+            return Err("request body is invalid");
+        }
+    }
+    Ok(())
 }
 
 /// Validate header syntax and keep public reads credential-free.
@@ -572,6 +636,35 @@ mod tests {
         assert!(validate_headers(FetchPurpose::PublicPage, &headers).is_err());
         assert!(validate_headers(FetchPurpose::SearchProvider, &headers).is_ok());
         assert!(validate_headers(FetchPurpose::ConfiguredSearchProvider, &headers).is_ok());
+    }
+
+    /// Search providers may POST JSON; public page reads stay GET-only.
+    #[test]
+    fn search_posts_are_allowed_and_public_posts_are_rejected() {
+        assert!(
+            validate_method_and_body(FetchPurpose::SearchProvider, Some("POST"), Some("{}"))
+                .is_ok()
+        );
+        assert!(validate_method_and_body(
+            FetchPurpose::ConfiguredSearchProvider,
+            Some("post"),
+            Some("{\"query\":\"x\"}"),
+        )
+        .is_ok());
+        assert!(
+            validate_method_and_body(FetchPurpose::PublicPage, Some("POST"), Some("{}")).is_err()
+        );
+        assert!(
+            validate_method_and_body(FetchPurpose::SearchProvider, Some("GET"), Some("{}"))
+                .is_err()
+        );
+        assert!(validate_method_and_body(FetchPurpose::SearchProvider, Some("PUT"), None).is_err());
+        assert!(validate_method_and_body(
+            FetchPurpose::SearchProvider,
+            Some("POST"),
+            Some(&"x".repeat(MAX_POST_BODY_BYTES + 1)),
+        )
+        .is_err());
     }
 
     /// Unsupported protocols and embedded credentials are rejected before DNS.
