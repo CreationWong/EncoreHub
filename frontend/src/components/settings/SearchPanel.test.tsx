@@ -53,13 +53,22 @@ afterEach(cleanup);
 describe("SearchPanel", () => {
 	it("shows the explicit search providers", () => {
 		render(<SearchPanel />);
-		for (const provider of ["DuckDuckGo", "SearXNG", "OpenSERP"]) {
+		for (const provider of ["DuckDuckGo", "SearXNG", "OpenSERP", "Exa"]) {
 			expect(
 				screen.getByRole("button", { name: `Configure ${provider}` }),
 			).toBeDefined();
 		}
 		expect(screen.queryByText("Google Custom Search")).toBeNull();
 		expect(screen.queryByText("Browser mode")).toBeNull();
+	});
+
+	it("lets Exa start on the free API without a key", async () => {
+		render(<SearchPanel />);
+		fireEvent.click(screen.getByRole("button", { name: "Configure Exa" }));
+		expect(screen.getByRole("button", { name: /Free API/ })).toBeDefined();
+		expect(screen.queryByLabelText("Exa API key")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: /^API key/ }));
+		expect(screen.getByPlaceholderText("exa-...")).toBeDefined();
 	});
 
 	it("tests combined DuckDuckGo without custom configuration", async () => {

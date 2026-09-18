@@ -1,6 +1,14 @@
+// Engine-backed web search settings and the /search test helper.
+//
+// Provider-specific secrets (such as an Exa API key) are stored in the vault,
+// not in this JSON document.
+
 import { apiFetch } from "./api";
 
-export type SearchProvider = "duckduckgo" | "searxng" | "openserp";
+/** Structured search backends the Gateway can execute. */
+export type SearchProvider = "duckduckgo" | "searxng" | "openserp" | "exa";
+/** Exa access path: hosted free MCP, or REST with a vaulted key. */
+export type ExaSearchMode = "free" | "api_key";
 export type OpenSERPEngine =
 	| "mega"
 	| "google"
@@ -20,12 +28,18 @@ export interface OpenSERPSearchSettings {
 	engines: string;
 }
 
+/** Persisted Exa mode. The API key itself is never stored here. */
+export interface ExaSearchSettings {
+	mode: ExaSearchMode;
+}
+
 export interface WebSearchSettings {
 	enabled: boolean;
 	provider: SearchProvider;
 	max_results: number;
 	searxng: SearXNGSearchSettings;
 	openserp: OpenSERPSearchSettings;
+	exa: ExaSearchSettings;
 }
 
 export interface WebSearchResult {
@@ -48,13 +62,19 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
 	max_results: 5,
 	searxng: { endpoint: "" },
 	openserp: { endpoint: "", engine: "mega", engines: "" },
+	exa: { mode: "free" },
 };
+
+/** Engine secrets row for a user-supplied Exa REST key. */
+export const EXA_SECRET_ID = "web_search_exa";
 
 const SEARCH_PROVIDERS: readonly SearchProvider[] = [
 	"duckduckgo",
 	"searxng",
 	"openserp",
+	"exa",
 ];
+const EXA_MODES: readonly ExaSearchMode[] = ["free", "api_key"];
 const OPENSERP_ENGINES: readonly OpenSERPEngine[] = [
 	"mega",
 	"google",
@@ -78,6 +98,7 @@ export function normalizeWebSearchSettings(
 			...fallback,
 			searxng: { ...fallback.searxng },
 			openserp: { ...fallback.openserp },
+			exa: { ...fallback.exa },
 		};
 	}
 	const stored = value as Partial<WebSearchSettings>;
@@ -99,9 +120,14 @@ export function normalizeWebSearchSettings(
 		stored.openserp && typeof stored.openserp === "object"
 			? stored.openserp
 			: {};
+	const exa: Partial<ExaSearchSettings> =
+		stored.exa && typeof stored.exa === "object" ? stored.exa : {};
 	const engine = OPENSERP_ENGINES.includes(openserp.engine as OpenSERPEngine)
 		? (openserp.engine as OpenSERPEngine)
 		: fallback.openserp.engine;
+	const exaMode = EXA_MODES.includes(exa.mode as ExaSearchMode)
+		? (exa.mode as ExaSearchMode)
+		: fallback.exa.mode;
 
 	return {
 		enabled:
@@ -119,6 +145,7 @@ export function normalizeWebSearchSettings(
 			engine,
 			engines: stringValue(openserp.engines, fallback.openserp.engines).trim(),
 		},
+		exa: { mode: exaMode },
 	};
 }
 

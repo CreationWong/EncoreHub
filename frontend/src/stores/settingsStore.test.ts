@@ -53,6 +53,7 @@ beforeEach(() => {
 		searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
 		searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
 		openSERPSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
+		exaSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.exa },
 		searchSettingsLoaded: false,
 		locale: "en",
 	});

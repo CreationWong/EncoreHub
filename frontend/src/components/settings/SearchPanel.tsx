@@ -3,13 +3,17 @@
 import { ArrowLeft, Check, Globe2, Loader2, Save, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type MessageKey, t, useT } from "../../i18n";
+import { secretsApi } from "../../services/secrets";
 import {
 	DEFAULT_WEB_SEARCH_SETTINGS,
+	EXA_SECRET_ID,
+	type ExaSearchMode,
 	type OpenSERPEngine,
 	type SearchProvider,
 	type WebSearchSettings,
 	webSearchApi,
 } from "../../services/webSearch";
+import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
@@ -33,6 +37,11 @@ const PROVIDERS: Array<{
 		value: "openserp",
 		labelKey: "searchPanel.openserp",
 		detailKey: "searchPanel.openserpDetail",
+	},
+	{
+		value: "exa",
+		labelKey: "searchPanel.exa",
+		detailKey: "searchPanel.exaDetail",
 	},
 ];
 
@@ -129,6 +138,9 @@ export default function SearchPanel() {
 	const searchMaxResults = useSettingsStore((state) => state.searchMaxResults);
 	const searxng = useSettingsStore((state) => state.searXNGSearchSettings);
 	const openserp = useSettingsStore((state) => state.openSERPSearchSettings);
+	const exa = useSettingsStore((state) => state.exaSearchSettings);
+	const storedIds = useSecretsStore((state) => state.storedIds);
+	const refreshSecrets = useSecretsStore((state) => state.refresh);
 	const normalizedStoreSettings = useMemo<WebSearchSettings>(
 		() => ({
 			enabled: searchEnabled,
@@ -136,24 +148,32 @@ export default function SearchPanel() {
 			max_results: searchMaxResults,
 			searxng: { ...searxng },
 			openserp: { ...openserp },
+			exa: { ...exa },
 		}),
-		[openserp, searchEnabled, searchMaxResults, searchProvider, searxng],
+		[exa, openserp, searchEnabled, searchMaxResults, searchProvider, searxng],
 	);
 	const [draft, setDraft] = useState<WebSearchSettings>({
 		...DEFAULT_WEB_SEARCH_SETTINGS,
 		searxng: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
 		openserp: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
+		exa: { ...DEFAULT_WEB_SEARCH_SETTINGS.exa },
 	});
 	const [selectedProvider, setSelectedProvider] =
 		useState<SearchProvider>("duckduckgo");
 	const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [testing, setTesting] = useState(false);
+	const [exaKeyDraft, setExaKeyDraft] = useState("");
 	const selectionInitialized = useRef(false);
+	const storedExaKey = storedIds.includes(EXA_SECRET_ID);
 
 	useEffect(() => {
 		if (!loaded) void loadSettings();
 	}, [loadSettings, loaded]);
+
+	useEffect(() => {
+		void refreshSecrets();
+	}, [refreshSecrets]);
 
 	useEffect(() => {
 		if (!loaded) return;
@@ -169,11 +189,17 @@ export default function SearchPanel() {
 		PROVIDERS[0];
 	const selectedLabel = translate(selected.labelKey);
 	const selectedDetail = translate(selected.detailKey);
-	const ready = (provider: SearchProvider) =>
-		provider === "duckduckgo" ||
-		(provider === "searxng"
+	const ready = (provider: SearchProvider) => {
+		if (provider === "duckduckgo" || provider === "exa") {
+			if (provider === "exa" && draft.exa.mode === "api_key") {
+				return storedExaKey || Boolean(exaKeyDraft.trim());
+			}
+			return true;
+		}
+		return provider === "searxng"
 			? Boolean(draft.searxng.endpoint.trim())
-			: Boolean(draft.openserp.endpoint.trim()));
+			: Boolean(draft.openserp.endpoint.trim());
+	};
 
 	const validate = (provider: SearchProvider) => {
 		if (provider === "searxng")
@@ -190,6 +216,17 @@ export default function SearchPanel() {
 
 	const persist = async (provider: SearchProvider, showToast: boolean) => {
 		validate(provider);
+		if (provider === "exa" && draft.exa.mode === "api_key") {
+			const key = exaKeyDraft.trim();
+			if (!storedExaKey && !key) {
+				throw new Error(t("searchPanel.exaKeyRequired"));
+			}
+			if (key) {
+				await secretsApi.putKey(EXA_SECRET_ID, key);
+				setExaKeyDraft("");
+				await refreshSecrets();
+			}
+		}
 		await saveSettings(draft);
 		if (showToast) toast.success(t("toast.searchSettingsSaved"));
 	};
@@ -445,6 +482,77 @@ export default function SearchPanel() {
 									/>
 								)}
 							</>
+						)}
+						{selectedProvider === "exa" && (
+							<div className="space-y-4 border-b border-border pb-5">
+								<fieldset className="m-0 border-0 p-0">
+									<legend className="mb-2 text-xs font-medium text-text-secondary">
+										{translate("searchPanel.exaAccess")}
+									</legend>
+									<div className="grid gap-2 sm:grid-cols-2">
+										{(
+											[
+												[
+													"free",
+													"searchPanel.exaFree",
+													"searchPanel.exaFreeHelp",
+												],
+												[
+													"api_key",
+													"searchPanel.exaApiKey",
+													"searchPanel.exaApiKeyHelp",
+												],
+											] as const
+										).map(([mode, labelKey, helpKey]) => {
+											const selected = draft.exa.mode === mode;
+											return (
+												<button
+													key={mode}
+													type="button"
+													aria-pressed={selected}
+													onClick={() =>
+														setDraft((current) => ({
+															...current,
+															exa: { mode: mode as ExaSearchMode },
+														}))
+													}
+													className={`rounded-md border p-3 text-left transition-colors ${
+														selected
+															? "border-accent bg-surface-hover"
+															: "border-border hover:bg-surface-hover"
+													}`}
+												>
+													<span className="block text-sm font-medium text-text-primary">
+														{translate(labelKey)}
+													</span>
+													<span className="mt-1 block text-xs leading-4 text-text-muted">
+														{translate(helpKey)}
+													</span>
+												</button>
+											);
+										})}
+									</div>
+								</fieldset>
+								{draft.exa.mode === "api_key" && (
+									<label className="block min-w-0">
+										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
+											{translate("searchPanel.exaKey")}
+										</span>
+										<input
+											autoComplete="off"
+											type="password"
+											value={exaKeyDraft}
+											onChange={(event) => setExaKeyDraft(event.target.value)}
+											placeholder={
+												storedExaKey
+													? translate("searchPanel.exaKeyStored")
+													: translate("searchPanel.exaKeyPlaceholder")
+											}
+											className="w-full rounded-md border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+										/>
+									</label>
+								)}
+							</div>
 						)}
 						<button
 							type="button"

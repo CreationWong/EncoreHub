@@ -6,6 +6,7 @@ import { type LocalePreference, SYSTEM_LOCALE } from "../i18n/types";
 import { secretsApi } from "../services/secrets";
 import {
 	DEFAULT_WEB_SEARCH_SETTINGS,
+	type ExaSearchSettings,
 	type OpenSERPSearchSettings,
 	type SearXNGSearchSettings,
 	type SearchProvider,
@@ -111,6 +112,7 @@ interface SettingsState {
 	searchMaxResults: number;
 	searXNGSearchSettings: SearXNGSearchSettings;
 	openSERPSearchSettings: OpenSERPSearchSettings;
+	exaSearchSettings: ExaSearchSettings;
 	searchSettingsLoaded: boolean;
 	deepThinking: boolean;
 	mathRenderer: MathRenderer;
@@ -502,11 +504,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			typeof window !== "undefined"
 				? localStorage.getItem("encorehub-search-provider")
 				: null;
-		return value === "searxng" || value === "openserp" ? value : "duckduckgo";
+		return value === "searxng" || value === "openserp" || value === "exa"
+			? value
+			: "duckduckgo";
 	})(),
 	searchMaxResults: DEFAULT_WEB_SEARCH_SETTINGS.max_results,
 	searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
 	openSERPSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
+	exaSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.exa },
 	searchSettingsLoaded: false,
 	deepThinking:
 		typeof window !== "undefined"
@@ -828,6 +833,7 @@ function webSearchSettingsFromState(state: SettingsState): WebSearchSettings {
 		max_results: state.searchMaxResults,
 		searxng: { ...state.searXNGSearchSettings },
 		openserp: { ...state.openSERPSearchSettings },
+		exa: { ...state.exaSearchSettings },
 	};
 }
 
@@ -838,6 +844,7 @@ function webSearchState(settings: WebSearchSettings) {
 		searchMaxResults: settings.max_results,
 		searXNGSearchSettings: { ...settings.searxng },
 		openSERPSearchSettings: { ...settings.openserp },
+		exaSearchSettings: { ...settings.exa },
 		searchSettingsLoaded: true,
 	};
 }

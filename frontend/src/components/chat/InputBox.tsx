@@ -11,7 +11,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { t, useT } from "../../i18n";
+import { type MessageKey, t, useT } from "../../i18n";
 import {
 	type Attachment,
 	deleteAttachment,
@@ -39,11 +39,12 @@ const SLASH_TOOL_MENU_ID = "chat-slash-tool-menu";
 const NATIVE_WEB_SEARCH_MESSAGE = () => t("composer.builtinSearchToast");
 const SEARCH_PROVIDERS: ReadonlyArray<{
 	value: SearchProvider;
-	label: string;
+	labelKey: MessageKey;
 }> = [
-	{ value: "duckduckgo", label: "DuckDuckGo" },
-	{ value: "searxng", label: "SearXNG" },
-	{ value: "openserp", label: "OpenSERP" },
+	{ value: "duckduckgo", labelKey: "searchPanel.duckduckgo" },
+	{ value: "searxng", labelKey: "searchPanel.searxng" },
+	{ value: "openserp", labelKey: "searchPanel.openserp" },
+	{ value: "exa", labelKey: "searchPanel.exa" },
 ];
 
 function draftKey(id: string | null): string {
@@ -425,12 +426,10 @@ export default function InputBox() {
 	const charCount = input.length;
 	const showContextStatus =
 		contextWarningAt !== undefined && charCount >= contextWarningAt;
-	const selectedSearchProvider =
-		searchProvider === "duckduckgo"
-			? "DuckDuckGo"
-			: searchProvider === "searxng"
-				? "SearXNG"
-				: "OpenSERP";
+	const selectedSearchProvider = translate(
+		SEARCH_PROVIDERS.find((provider) => provider.value === searchProvider)
+			?.labelKey ?? "searchPanel.duckduckgo",
+	);
 	const searchProviders = SEARCH_PROVIDERS;
 	return (
 		<div className="chat-composer-shell border-t border-border bg-surface px-3 py-3 sm:px-4">
@@ -653,7 +652,9 @@ export default function InputBox() {
 														: "text-text-secondary"
 												}`}
 											>
-												<span className="truncate">{provider.label}</span>
+												<span className="truncate">
+													{translate(provider.labelKey)}
+												</span>
 												<Check
 													aria-hidden="true"
 													className={`h-3.5 w-3.5 shrink-0 text-accent ${

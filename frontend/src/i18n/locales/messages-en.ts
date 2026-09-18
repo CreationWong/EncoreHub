@@ -1071,6 +1071,18 @@ export const en = {
 		searxngDetail: "Custom endpoint",
 		openserp: "OpenSERP",
 		openserpDetail: "Mega search",
+		exa: "Exa",
+		exaDetail: "Neural web search",
+		exaAccess: "Access mode",
+		exaFree: "Free API",
+		exaFreeHelp: "Uses Exa's rate-limited hosted search. No API key required.",
+		exaApiKey: "API key",
+		exaApiKeyHelp:
+			"Use your Exa key for higher limits on the official REST API.",
+		exaKey: "Exa API key",
+		exaKeyPlaceholder: "exa-...",
+		exaKeyStored: "Key stored — enter a new key to replace it",
+		exaKeyRequired: "Add an Exa API key or switch to the free API.",
 		heading: "Web search",
 		defaultForNew: "Default for new conversations",
 		configure: "Configure {name}",
@@ -1140,8 +1152,7 @@ export const en = {
 		openaiResponses: "OpenAI Responses API",
 		openaiCompatible: "OpenAI compatible",
 		openaiChat: "OpenAI Chat Completions",
-		openaiChatHelp:
-			"OpenAI, DeepSeek, compatible gateways, and local servers",
+		openaiChatHelp: "OpenAI, DeepSeek, compatible gateways, and local servers",
 		openaiResponsesHelp:
 			"OpenAI Responses API with its independent input and event format",
 		anthropicHelp: "Anthropic and gateways implementing the Messages API",

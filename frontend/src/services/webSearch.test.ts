@@ -29,6 +29,7 @@ describe("web search settings", () => {
 				engine: "bing",
 				engines: "google,bing",
 			},
+			exa: { mode: "free" },
 		});
 		expect(settings).not.toHaveProperty("browser");
 		expect(settings).not.toHaveProperty("custom");
@@ -42,6 +43,17 @@ describe("web search settings", () => {
 		expect(settings).toEqual(DEFAULT_WEB_SEARCH_SETTINGS);
 		expect(settings.searxng).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.searxng);
 		expect(settings.openserp).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.openserp);
+		expect(settings.exa).not.toBe(DEFAULT_WEB_SEARCH_SETTINGS.exa);
+	});
+
+	it("keeps Exa API-key mode without storing the key in settings", () => {
+		const settings = normalizeWebSearchSettings({
+			provider: "exa",
+			exa: { mode: "api_key", api_key: "should-not-persist" },
+		});
+		expect(settings.provider).toBe("exa");
+		expect(settings.exa).toEqual({ mode: "api_key" });
+		expect(settings).not.toHaveProperty("api_key");
 	});
 
 	it("migrates the legacy DuckDuckGo HTML provider to combined DuckDuckGo", () => {
