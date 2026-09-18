@@ -63,7 +63,7 @@ type SendMessageRequest struct {
 	Model               string                 `json:"model"`
 	Stream              bool                   `json:"stream"`
 	Search              bool                   `json:"search"`
-	SearchProvider      string                 `json:"search_provider"` // "duckduckgo" | "searxng" | "openserp"
+	SearchProvider      string                 `json:"search_provider"` // "duckduckgo" | "searxng" | "openserp" | "exa"
 	Temperature         float32                `json:"temperature"`
 	TopP                float32                `json:"top_p"`
 	MaxTokens           int                    `json:"max_tokens"`
@@ -1716,8 +1716,7 @@ func validateChatRequest(req SendMessageRequest) error {
 		req.PresencePenalty < -2 || req.PresencePenalty > 2 {
 		return fmt.Errorf("penalties must be between -2 and 2")
 	}
-	if req.SearchProvider != "" && req.SearchProvider != "duckduckgo" &&
-		req.SearchProvider != "searxng" && req.SearchProvider != "openserp" {
+	if req.SearchProvider != "" && !search.KnownProvider(req.SearchProvider) {
 		return fmt.Errorf("unsupported search_provider")
 	}
 	if req.ReasoningEffort != "" && req.ReasoningEffort != "low" &&

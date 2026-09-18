@@ -17,6 +17,11 @@ type webSearchSettings struct {
 	MaxResults int                    `json:"max_results"`
 	SearXNG    searXNGSearchSettings  `json:"searxng"`
 	OpenSERP   openSERPSearchSettings `json:"openserp"`
+	Exa        exaSearchSettings      `json:"exa"`
+}
+
+type exaSearchSettings struct {
+	Mode string `json:"mode"`
 }
 
 type searXNGSearchSettings struct {
@@ -45,7 +50,7 @@ func loadWebSearchSettings(ctx context.Context, client *engine.Client) webSearch
 	switch provider := strings.ToLower(strings.TrimSpace(stored.Provider)); provider {
 	case "duckduckgo_html":
 		settings.Provider = "duckduckgo"
-	case "duckduckgo", "searxng", "openserp":
+	case "duckduckgo", "searxng", "openserp", "exa":
 		settings.Provider = provider
 	}
 	settings.Enabled = stored.Enabled
@@ -56,6 +61,11 @@ func loadWebSearchSettings(ctx context.Context, client *engine.Client) webSearch
 	settings.OpenSERP.Endpoint = strings.TrimSpace(stored.OpenSERP.Endpoint)
 	settings.OpenSERP.Engine = strings.ToLower(strings.TrimSpace(stored.OpenSERP.Engine))
 	settings.OpenSERP.Engines = strings.TrimSpace(stored.OpenSERP.Engines)
+	if strings.ToLower(strings.TrimSpace(stored.Exa.Mode)) == search.ExaModeAPIKey {
+		settings.Exa.Mode = search.ExaModeAPIKey
+	} else {
+		settings.Exa.Mode = search.ExaModeFree
+	}
 	return settings
 }
 
@@ -85,6 +95,19 @@ func resolveWebSearchProvider(ctx context.Context, client *engine.Client, reques
 			Engine:   settings.OpenSERP.Engine,
 			Engines:  settings.OpenSERP.Engines,
 		}))
+	case "exa":
+		config := search.ExaConfig{Mode: settings.Exa.Mode}
+		if config.Mode == search.ExaModeAPIKey {
+			key, found, err := client.GetSecret(ctx, search.ExaSecretID)
+			if err != nil {
+				return nil, settings, fmt.Errorf("exa search: load API key: %w", err)
+			}
+			if !found {
+				return nil, settings, fmt.Errorf("Exa API key is not configured")
+			}
+			config.APIKey = key
+		}
+		options = append(options, search.WithExaConfig(config))
 	default:
 		return nil, settings, fmt.Errorf("unsupported search provider %q", providerName)
 	}

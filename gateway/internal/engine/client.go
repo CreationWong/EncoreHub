@@ -61,7 +61,9 @@ type NetworkFetchResponse struct {
 // purpose-specific methods below instead of selecting their own trust mode.
 type networkFetchRequest struct {
 	URL       string            `json:"url"`
+	Method    string            `json:"method,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body,omitempty"`
 	MaxBytes  int               `json:"max_bytes,omitempty"`
 	TimeoutMS int               `json:"timeout_ms,omitempty"`
 	Purpose   string            `json:"purpose"`
@@ -637,9 +639,37 @@ func (c *Client) SearchKnowledge(ctx context.Context, q string, topK int) ([]Kno
 	return resp.Results, nil
 }
 
-// FetchSearchURL retrieves a search-provider response through Engine Curl.
-// It satisfies search.Fetcher without importing the search package and is the
-// only Gateway path allowed to attach provider authentication headers.
+// FetchSearch retrieves a search-provider response through Engine Curl.
+// It is the only Gateway path allowed to attach provider authentication
+// headers or POST a JSON body to a fixed public search API.
+func (c *Client) FetchSearch(
+	ctx context.Context,
+	call search.FetchCall,
+) (int, string, string, []byte, error) {
+	purpose := "search_provider"
+	if call.Policy == search.FetchPolicyConfiguredAPI {
+		purpose = "configured_search_provider"
+	}
+	method := strings.ToUpper(strings.TrimSpace(call.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	response, err := c.fetchNetworkURL(ctx, networkFetchRequest{
+		URL:       call.URL,
+		Method:    method,
+		Headers:   call.Headers,
+		Body:      string(call.Body),
+		MaxBytes:  call.MaxBytes,
+		TimeoutMS: 15_000,
+		Purpose:   purpose,
+	})
+	if err != nil {
+		return 0, "", "", nil, err
+	}
+	return response.Status, response.ContentType, response.FinalURL, []byte(response.Body), nil
+}
+
+// FetchSearchURL is the GET convenience wrapper used by existing tests.
 func (c *Client) FetchSearchURL(
 	ctx context.Context,
 	rawURL string,
@@ -647,17 +677,9 @@ func (c *Client) FetchSearchURL(
 	maxBytes int,
 	policy search.FetchPolicy,
 ) (int, string, string, []byte, error) {
-	purpose := "search_provider"
-	if policy == search.FetchPolicyConfiguredAPI {
-		purpose = "configured_search_provider"
-	}
-	response, err := c.fetchNetworkURL(ctx, networkFetchRequest{
-		URL: rawURL, Headers: headers, MaxBytes: maxBytes, TimeoutMS: 15_000, Purpose: purpose,
+	return c.FetchSearch(ctx, search.FetchCall{
+		URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy,
 	})
-	if err != nil {
-		return 0, "", "", nil, err
-	}
-	return response.Status, response.ContentType, response.FinalURL, []byte(response.Body), nil
 }
 
 // FetchPublicURL retrieves one credential-free page for the model's web_fetch

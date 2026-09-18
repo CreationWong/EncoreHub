@@ -10,29 +10,37 @@ import (
 
 type fetchRequest struct {
 	URL      string
+	Method   string
 	Headers  map[string]string
+	Body     []byte
 	MaxBytes int
 	Policy   FetchPolicy
 }
 
-type fetchFunc func(context.Context, string, map[string]string, int, FetchPolicy) (int, string, string, []byte, error)
+type fetchFunc func(context.Context, FetchCall) (int, string, string, []byte, error)
 
-func (f fetchFunc) FetchSearchURL(ctx context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
-	return f(ctx, rawURL, headers, maxBytes, policy)
+func (f fetchFunc) FetchSearch(ctx context.Context, call FetchCall) (int, string, string, []byte, error) {
+	return f(ctx, call)
+}
+
+type getFetchFunc func(context.Context, string, map[string]string, int, FetchPolicy) (int, string, string, []byte, error)
+
+func (f getFetchFunc) FetchSearch(ctx context.Context, call FetchCall) (int, string, string, []byte, error) {
+	return f(ctx, call.URL, call.Headers, call.MaxBytes, call.Policy)
 }
 
 func fixtureFetcher(t *testing.T, body string, captured *fetchRequest) fetchFunc {
 	t.Helper()
-	return func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
-		*captured = fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy}
-		return 200, "application/json", rawURL, []byte(body), nil
+	return func(_ context.Context, call FetchCall) (int, string, string, []byte, error) {
+		*captured = fetchRequest{URL: call.URL, Method: call.Method, Headers: call.Headers, Body: call.Body, MaxBytes: call.MaxBytes, Policy: call.Policy}
+		return 200, "application/json", call.URL, []byte(body), nil
 	}
 }
 
 func TestDuckDuckGoCombinesFeaturedAnswersWithHTMLResults(t *testing.T) {
 	requests := make([]fetchRequest, 0, 2)
 	var requestsMu sync.Mutex
-	provider, err := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+	provider, err := NewProvider("duckduckgo", WithFetcher(getFetchFunc(
 		func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
 			requestsMu.Lock()
 			requests = append(requests, fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy})
@@ -71,7 +79,7 @@ func TestDuckDuckGoCombinesFeaturedAnswersWithHTMLResults(t *testing.T) {
 }
 
 func TestDuckDuckGoUsesHTMLWhenInstantAnswerIsEmpty(t *testing.T) {
-	provider, _ := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+	provider, _ := NewProvider("duckduckgo", WithFetcher(getFetchFunc(
 		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
 			parsed, _ := url.Parse(rawURL)
 			if parsed.Host == "api.duckduckgo.com" {
@@ -94,7 +102,7 @@ func TestDuckDuckGoUsesHTMLWhenInstantAnswerIsEmpty(t *testing.T) {
 }
 
 func TestDuckDuckGoKeepsFeaturedAnswerWhenHTMLNeedsVerification(t *testing.T) {
-	provider, _ := NewProvider("duckduckgo", WithFetcher(fetchFunc(
+	provider, _ := NewProvider("duckduckgo", WithFetcher(getFetchFunc(
 		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
 			parsed, _ := url.Parse(rawURL)
 			if parsed.Host == "api.duckduckgo.com" {
@@ -127,7 +135,7 @@ func resultsByKind(results []Result) (featured, web []Result) {
 
 func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
 	var request fetchRequest
-	provider := &DuckDuckGoHTML{fetcher: fetchFunc(
+	provider := &DuckDuckGoHTML{fetcher: getFetchFunc(
 		func(_ context.Context, rawURL string, headers map[string]string, maxBytes int, policy FetchPolicy) (int, string, string, []byte, error) {
 			request = fetchRequest{URL: rawURL, Headers: headers, MaxBytes: maxBytes, Policy: policy}
 			return 200, "text/html", rawURL, []byte(`<!doctype html><html><body>
@@ -165,7 +173,7 @@ func TestDuckDuckGoHTMLParsesOrganicResultsAndRedirects(t *testing.T) {
 }
 
 func TestDuckDuckGoHTMLRejectsHumanVerificationResponse(t *testing.T) {
-	provider := &DuckDuckGoHTML{fetcher: fetchFunc(
+	provider := &DuckDuckGoHTML{fetcher: getFetchFunc(
 		func(_ context.Context, rawURL string, _ map[string]string, _ int, _ FetchPolicy) (int, string, string, []byte, error) {
 			return 202, "text/html", rawURL, []byte(`<html><body><form id="challenge-form">CAPTCHA</form></body></html>`), nil
 		},
@@ -240,7 +248,7 @@ func TestOpenSERPSingleEngineUsesDedicatedRoute(t *testing.T) {
 
 func TestConfiguredProvidersRejectUnsafeEndpointShapes(t *testing.T) {
 	for _, endpoint := range []string{"/search", "file:///tmp/search", "https://user:pass@example.com/search"} {
-		if _, err := NewProvider("searxng", WithFetcher(fetchFunc(nil)), WithSearXNGConfig(SearXNGConfig{Endpoint: endpoint})); err == nil {
+		if _, err := NewProvider("searxng", WithFetcher(getFetchFunc(nil)), WithSearXNGConfig(SearXNGConfig{Endpoint: endpoint})); err == nil {
 			t.Fatalf("expected endpoint %q to be rejected", endpoint)
 		}
 	}
@@ -278,5 +286,80 @@ func TestFormatForContextSeparatesFeaturedAnswersAndWebResults(t *testing.T) {
 		if !strings.Contains(formatted, expected) {
 			t.Fatalf("formatted context missing %q: %s", expected, formatted)
 		}
+	}
+}
+
+func TestExaFreeUsesHostedMCPWithoutCredentials(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("exa",
+		WithFetcher(fetchFunc(func(_ context.Context, call FetchCall) (int, string, string, []byte, error) {
+			request = fetchRequest{URL: call.URL, Method: call.Method, Headers: call.Headers, Body: call.Body, Policy: call.Policy}
+			return 200, "application/json", call.URL, []byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Title: First\nURL: https://example.com/a\nSnippet: One\n\nTitle: Second\nURL: https://example.com/b\nText: Two"}]}}`), nil
+		})),
+		WithExaConfig(ExaConfig{Mode: ExaModeFree}),
+	)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	response, err := provider.Search(context.Background(), "latest papers", 2)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if request.URL != exaMCPURL || request.Method != "POST" || request.Headers["x-api-key"] != "" || request.Policy != FetchPolicyPublicAPI {
+		t.Fatalf("unexpected MCP request: %+v", request)
+	}
+	if !strings.Contains(string(request.Body), "web_search_exa") || !strings.Contains(string(request.Body), "latest papers") {
+		t.Fatalf("MCP body missing tool call: %s", request.Body)
+	}
+	if len(response.Results) != 2 || response.Results[0].URL != "https://example.com/a" || response.Results[1].Title != "Second" {
+		t.Fatalf("unexpected MCP results: %+v", response.Results)
+	}
+}
+
+func TestExaAPIKeyUsesRESTSearch(t *testing.T) {
+	var request fetchRequest
+	provider, err := NewProvider("exa",
+		WithFetcher(fetchFunc(func(_ context.Context, call FetchCall) (int, string, string, []byte, error) {
+			request = fetchRequest{URL: call.URL, Method: call.Method, Headers: call.Headers, Body: call.Body}
+			return 200, "application/json", call.URL, []byte(`{"results":[{"title":"Paper","url":"https://example.com/paper","highlights":["Abstract line"]},{"title":"News","url":"https://example.com/news","text":"Full text"}]}`), nil
+		})),
+		WithExaConfig(ExaConfig{Mode: ExaModeAPIKey, APIKey: "exa-secret"}),
+	)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	response, err := provider.Search(context.Background(), "transformer latency", 2)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if request.URL != exaRESTURL || request.Method != "POST" || request.Headers["x-api-key"] != "exa-secret" {
+		t.Fatalf("unexpected REST request: %+v", request)
+	}
+	if len(response.Results) != 2 || response.Results[0].Snippet != "Abstract line" || response.Results[1].Snippet != "Full text" {
+		t.Fatalf("unexpected REST results: %+v", response.Results)
+	}
+}
+
+func TestExaAPIKeyModeRequiresStoredKey(t *testing.T) {
+	if _, err := NewProvider("exa", WithFetcher(fixtureFetcher(t, `{}`, &fetchRequest{})), WithExaConfig(ExaConfig{Mode: ExaModeAPIKey})); err == nil {
+		t.Fatal("api_key mode without a key should fail")
+	}
+}
+
+func TestExaMCPParsesSSEAndEmbeddedJSON(t *testing.T) {
+	provider, err := NewProvider("exa",
+		WithFetcher(fetchFunc(func(_ context.Context, call FetchCall) (int, string, string, []byte, error) {
+			return 200, "text/event-stream", call.URL, []byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"results\\\":[{\\\"title\\\":\\\"Embedded\\\",\\\"url\\\":\\\"https://example.com/json\\\",\\\"text\\\":\\\"From JSON\\\"}]}\"}]}}\n\n"), nil
+		})),
+	)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	response, err := provider.Search(context.Background(), "query", 3)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(response.Results) != 1 || response.Results[0].Title != "Embedded" || response.Results[0].URL != "https://example.com/json" {
+		t.Fatalf("unexpected SSE results: %+v", response.Results)
 	}
 }

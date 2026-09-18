@@ -56,15 +56,19 @@ const (
 	FetchPolicyConfiguredAPI FetchPolicy = "configured_api"
 )
 
+// FetchCall is one search-provider HTTP request sent through Engine Curl.
+type FetchCall struct {
+	URL      string
+	Method   string
+	Headers  map[string]string
+	Body     []byte
+	MaxBytes int
+	Policy   FetchPolicy
+}
+
 // Fetcher is implemented by Engine's bounded Curl network service.
 type Fetcher interface {
-	FetchSearchURL(
-		context.Context,
-		string,
-		map[string]string,
-		int,
-		FetchPolicy,
-	) (status int, contentType, finalURL string, body []byte, err error)
+	FetchSearch(context.Context, FetchCall) (int, string, string, []byte, error)
 }
 
 type SearXNGConfig struct {
@@ -90,6 +94,8 @@ func WithFetcher(fetcher Fetcher) ProviderOption {
 			value.fetcher = fetcher
 		case *OpenSERP:
 			value.fetcher = fetcher
+		case *Exa:
+			value.fetcher = fetcher
 		}
 	}
 }
@@ -110,6 +116,16 @@ func WithOpenSERPConfig(config OpenSERPConfig) ProviderOption {
 	}
 }
 
+// WithExaConfig attaches free-or-key mode. The API key must already be loaded
+// from Engine secrets by the caller; this option does not persist secrets.
+func WithExaConfig(config ExaConfig) ProviderOption {
+	return func(provider Provider) {
+		if value, ok := provider.(*Exa); ok {
+			value.config = config
+		}
+	}
+}
+
 // NewProvider constructs one of EncoreHub's supported structured APIs.
 func NewProvider(name string, options ...ProviderOption) (Provider, error) {
 	var provider Provider
@@ -120,8 +136,10 @@ func NewProvider(name string, options ...ProviderOption) (Provider, error) {
 		provider = &SearXNG{}
 	case "openserp":
 		provider = &OpenSERP{}
+	case "exa":
+		provider = &Exa{}
 	default:
-		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, searxng, openserp)", name)
+		return nil, fmt.Errorf("unknown search provider %q (supported: duckduckgo, searxng, openserp, exa)", name)
 	}
 	for _, option := range options {
 		option(provider)
@@ -159,8 +177,25 @@ func validateProvider(provider Provider) error {
 		if !validOpenSERPEngine(value.config.Engine) {
 			return fmt.Errorf("openserp search: unsupported engine %q", value.config.Engine)
 		}
+	case *Exa:
+		if value.fetcher == nil {
+			return fmt.Errorf("exa search: Curl fetcher is required")
+		}
+		if err := validateExaConfig(value.config); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// KnownProvider reports whether name is a structured search adapter.
+func KnownProvider(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "duckduckgo", "searxng", "openserp", "exa":
+		return true
+	default:
+		return false
+	}
 }
 
 func ValidateRequest(query string, maxResults int) error {
@@ -239,13 +274,12 @@ func (d *DuckDuckGo) searchInstantAnswer(ctx context.Context, query string, maxR
 		"no_redirect":   {"1"},
 		"skip_disambig": {"0"},
 	}.Encode()
-	status, _, _, body, err := d.fetcher.FetchSearchURL(
-		ctx,
-		requestURL,
-		map[string]string{"Accept": "application/json"},
-		MaxProviderResponseBytes,
-		FetchPolicyPublicAPI,
-	)
+	status, _, _, body, err := d.fetcher.FetchSearch(ctx, FetchCall{
+		URL:      requestURL,
+		Headers:  map[string]string{"Accept": "application/json"},
+		MaxBytes: MaxProviderResponseBytes,
+		Policy:   FetchPolicyPublicAPI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("duckduckgo Instant Answer request: %w", err)
 	}
@@ -338,17 +372,16 @@ func (d *DuckDuckGoHTML) Search(ctx context.Context, query string, maxResults in
 		return nil, err
 	}
 	requestURL := "https://html.duckduckgo.com/html/?" + url.Values{"q": {query}}.Encode()
-	status, contentType, _, body, err := d.fetcher.FetchSearchURL(
-		ctx,
-		requestURL,
-		map[string]string{
+	status, contentType, _, body, err := d.fetcher.FetchSearch(ctx, FetchCall{
+		URL: requestURL,
+		Headers: map[string]string{
 			"Accept":          "text/html,application/xhtml+xml",
 			"Accept-Language": "en-US,en;q=0.8",
 			"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
 		},
-		MaxProviderResponseBytes,
-		FetchPolicyPublicAPI,
-	)
+		MaxBytes: MaxProviderResponseBytes,
+		Policy:   FetchPolicyPublicAPI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("duckduckgo HTML request: %w", err)
 	}
@@ -524,13 +557,12 @@ func (s *SearXNG) Search(ctx context.Context, query string, maxResults int) (*Se
 	values.Set("language", "auto")
 	values.Set("pageno", "1")
 	requestURL.RawQuery = values.Encode()
-	status, _, _, body, err := s.fetcher.FetchSearchURL(
-		ctx,
-		requestURL.String(),
-		map[string]string{"Accept": "application/json"},
-		MaxProviderResponseBytes,
-		FetchPolicyConfiguredAPI,
-	)
+	status, _, _, body, err := s.fetcher.FetchSearch(ctx, FetchCall{
+		URL:      requestURL.String(),
+		Headers:  map[string]string{"Accept": "application/json"},
+		MaxBytes: MaxProviderResponseBytes,
+		Policy:   FetchPolicyConfiguredAPI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("searxng request: %w", err)
 	}
@@ -586,13 +618,12 @@ func (o *OpenSERP) Search(ctx context.Context, query string, maxResults int) (*S
 		}
 	}
 	requestURL.RawQuery = values.Encode()
-	status, _, _, body, err := o.fetcher.FetchSearchURL(
-		ctx,
-		requestURL.String(),
-		map[string]string{"Accept": "application/json"},
-		MaxProviderResponseBytes,
-		FetchPolicyConfiguredAPI,
-	)
+	status, _, _, body, err := o.fetcher.FetchSearch(ctx, FetchCall{
+		URL:      requestURL.String(),
+		Headers:  map[string]string{"Accept": "application/json"},
+		MaxBytes: MaxProviderResponseBytes,
+		Policy:   FetchPolicyConfiguredAPI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("openserp request: %w", err)
 	}
