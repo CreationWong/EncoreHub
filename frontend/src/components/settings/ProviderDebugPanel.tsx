@@ -1,5 +1,8 @@
+// Live communication log slice filtered to one provider's matchers.
+
 import { Bug, CirclePause, CirclePlay, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import { type LogEntry, devtools, inTauri } from "../../services/devtools";
 import { confirm } from "../../stores/confirmStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -19,6 +22,7 @@ interface ProviderDebugPanelProps {
 	onClose: () => void;
 }
 
+/** True when a log line is tagged as provider communication. */
 function isCommunicationEntry(entry: LogEntry): boolean {
 	const message = entry.message.toLowerCase();
 	return (
@@ -28,6 +32,7 @@ function isCommunicationEntry(entry: LogEntry): boolean {
 	);
 }
 
+/** Lowercased id/name/URL needles used to filter communication lines. */
 function normalizedMatchers(target: ProviderDebugTarget): string[] {
 	const candidates = [target.id, target.name, ...target.matchers];
 	const matchers = new Set<string>();
@@ -50,10 +55,12 @@ function normalizedMatchers(target: ProviderDebugTarget): string[] {
 	return [...matchers];
 }
 
+/** Side panel of communication logs matching one provider. */
 export default function ProviderDebugPanel({
 	target,
 	onClose,
 }: ProviderDebugPanelProps) {
+	const translate = useT();
 	const fullCommunicationLogs = useSettingsStore(
 		(state) => state.fullCommunicationLogs,
 	);
@@ -102,8 +109,8 @@ export default function ProviderDebugPanel({
 		if (
 			enabled &&
 			!(await confirm.ask(
-				"Enable full communication logging?",
-				"Request and response bodies will be retained in memory only and written to disk only when you explicitly export logs. Authentication headers remain redacted.",
+				t("logs.enableFullTitle"),
+				t("logs.enableFullMessage"),
 			))
 		) {
 			return;
@@ -114,9 +121,7 @@ export default function ProviderDebugPanel({
 			setFullCommunicationLogs(applied);
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to change communication logging",
+				error instanceof Error ? error.message : t("logs.changeFailed"),
 			);
 		} finally {
 			setChangingCapture(false);
@@ -125,7 +130,7 @@ export default function ProviderDebugPanel({
 
 	return (
 		<aside
-			aria-label={`Debug ${target.name}`}
+			aria-label={translate("providers.debug", { name: target.name })}
 			className="flex h-full w-[min(26rem,100%)] shrink-0 flex-col border-l border-border bg-surface shadow-lg max-[850px]:absolute max-[850px]:inset-y-0 max-[850px]:right-0 max-[850px]:z-20"
 		>
 			<header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -134,13 +139,15 @@ export default function ProviderDebugPanel({
 					<h3 className="truncate text-sm font-semibold text-text-primary">
 						{target.name}
 					</h3>
-					<p className="text-[11px] text-text-muted">Network communication</p>
+					<p className="text-[11px] text-text-muted">
+						{translate("providers.network")}
+					</p>
 				</div>
 				<button
 					type="button"
 					onClick={onClose}
-					aria-label="Close provider debug panel"
-					title="Close"
+					aria-label={translate("providers.closeDebug")}
+					title={translate("common.close")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 				>
 					<X className="h-4 w-4" />
@@ -152,7 +159,7 @@ export default function ProviderDebugPanel({
 					type="button"
 					role="switch"
 					aria-checked={fullCommunicationLogs}
-					aria-label="Full communication logging"
+					aria-label={translate("logs.fullTitle")}
 					disabled={changingCapture}
 					onClick={() => void toggleFullCapture()}
 					className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
@@ -165,15 +172,23 @@ export default function ProviderDebugPanel({
 						}`}
 					/>
 				</button>
-				<span className="text-[11px] text-text-secondary">Full capture</span>
+				<span className="text-[11px] text-text-secondary">
+					{translate("providers.fullCapture")}
+				</span>
 				<span className="ml-auto text-[11px] tabular-nums text-text-muted">
 					{entries.length}
 				</span>
 				<button
 					type="button"
 					onClick={() => setPaused((current) => !current)}
-					aria-label={paused ? "Resume provider logs" : "Pause provider logs"}
-					title={paused ? "Resume" : "Pause"}
+					aria-label={
+						paused
+							? translate("providers.resumeLogs")
+							: translate("providers.pauseLogs")
+					}
+					title={
+						paused ? translate("common.resume") : translate("common.pause")
+					}
 					className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 				>
 					{paused ? (
@@ -185,8 +200,8 @@ export default function ProviderDebugPanel({
 				<button
 					type="button"
 					onClick={() => setEntries([])}
-					aria-label="Clear provider logs"
-					title="Clear"
+					aria-label={translate("providers.clearLogs")}
+					title={translate("common.clear")}
 					className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-danger"
 				>
 					<Trash2 className="h-3.5 w-3.5" />
@@ -196,11 +211,11 @@ export default function ProviderDebugPanel({
 			<div className="min-h-0 flex-1 overflow-y-auto bg-surface-alt/40 p-3 font-mono text-[11px] leading-5">
 				{!tauri ? (
 					<p className="py-8 text-center font-sans text-xs text-text-muted">
-						Desktop logging unavailable
+						{translate("providers.desktopLoggingUnavailable")}
 					</p>
 				) : entries.length === 0 ? (
 					<p className="py-8 text-center font-sans text-xs text-text-muted">
-						No matching communication activity
+						{translate("providers.noMatchingActivity")}
 					</p>
 				) : (
 					entries.map((entry) => (

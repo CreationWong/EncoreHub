@@ -11,6 +11,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import {
 	type Attachment,
 	deleteAttachment,
@@ -35,8 +36,7 @@ const COMPACT_TEXTAREA_HEIGHT = 44;
 const LOW_HEIGHT_QUERY = "(max-height: 619px)";
 const SEARCH_MENU_ID = "chat-search-menu";
 const SLASH_TOOL_MENU_ID = "chat-slash-tool-menu";
-const NATIVE_WEB_SEARCH_MESSAGE =
-	"This model has built-in web search, so web search cannot be turned off.";
+const NATIVE_WEB_SEARCH_MESSAGE = () => t("composer.builtinSearchToast");
 const SEARCH_PROVIDERS: ReadonlyArray<{
 	value: SearchProvider;
 	label: string;
@@ -72,6 +72,7 @@ function resetTextarea(element: HTMLTextAreaElement | null) {
 }
 
 export default function InputBox() {
+	const translate = useT();
 	const [input, setInput] = useState(() => {
 		const state = useConversationStore.getState();
 		return state.drafts[draftKey(state.activeId)] ?? "";
@@ -208,7 +209,7 @@ export default function InputBox() {
 			try {
 				for (const file of candidates) {
 					if (file.size > 20 * 1024 * 1024) {
-						toast.error(`${file.name} exceeds the 20 MiB limit`);
+						toast.error(t("composer.sizeLimit", { name: file.name }));
 						continue;
 					}
 					const attachment = await uploadAttachment(conversationId, file);
@@ -216,7 +217,7 @@ export default function InputBox() {
 				}
 			} catch (error) {
 				toast.error(
-					error instanceof Error ? error.message : "Attachment upload failed",
+					error instanceof Error ? error.message : t("composer.uploadFailed"),
 				);
 			} finally {
 				setUploading(false);
@@ -234,7 +235,7 @@ export default function InputBox() {
 				current.filter((item) => item.id !== attachment.id),
 			);
 		} catch {
-			toast.error("Failed to remove attachment");
+			toast.error(t("composer.removeFailed"));
 		}
 	}, []);
 
@@ -299,11 +300,11 @@ export default function InputBox() {
 		const raw = input.trim();
 		if ((!raw && attachments.length === 0) || streaming || uploading) return;
 		if (hasImages && !visionAvailable && !imageStrategy) {
-			toast.info("Choose how to process image attachments");
+			toast.info(t("composer.chooseImageToast"));
 			return;
 		}
 		if (imageStrategy === "vision_model" && !visionSelection) {
-			toast.info("Choose a vision-capable model");
+			toast.info(t("composer.chooseVisionToast"));
 			return;
 		}
 
@@ -435,7 +436,7 @@ export default function InputBox() {
 		<div className="chat-composer-shell border-t border-border bg-surface px-3 py-3 sm:px-4">
 			<fieldset
 				ref={composerRef}
-				aria-label="Message composer"
+				aria-label={translate("composer.label")}
 				onDragEnter={(event) => {
 					event.preventDefault();
 					setDragging(true);
@@ -471,7 +472,7 @@ export default function InputBox() {
 								<button
 									type="button"
 									aria-label={`Remove ${attachment.file_name}`}
-									title="Remove attachment"
+									title={translate("composer.removeAttachment")}
 									onClick={() => void removeAttachment(attachment)}
 									className="shrink-0 text-text-muted hover:text-text-primary"
 								>
@@ -495,7 +496,7 @@ export default function InputBox() {
 						value={input}
 						onChange={handleInput}
 						onKeyDown={handleKeyDown}
-						placeholder="Type a message"
+						placeholder={translate("composer.placeholder")}
 						rows={2}
 						maxLength={maximumContextSize}
 						aria-autocomplete="list"
@@ -527,8 +528,8 @@ export default function InputBox() {
 							type="button"
 							onClick={() => fileInputRef.current?.click()}
 							disabled={uploading || attachments.length >= 10}
-							aria-label="Attach files"
-							title="Attach files"
+							aria-label={translate("composer.attach")}
+							title={translate("composer.attach")}
 							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 						>
 							{uploading ? (
@@ -545,13 +546,15 @@ export default function InputBox() {
 									: "text-text-secondary"
 							}`}
 						>
-							<legend className="sr-only">Web search controls</legend>
+							<legend className="sr-only">
+								{translate("composer.webSearch")}
+							</legend>
 							<button
 								type="button"
 								onClick={() => {
 									setShowSearchMenu(false);
 									if (nativeWebSearch) {
-										toast.info(NATIVE_WEB_SEARCH_MESSAGE, 5000);
+										toast.info(NATIVE_WEB_SEARCH_MESSAGE(), 5000);
 										focusTextarea();
 										return;
 									}
@@ -559,18 +562,20 @@ export default function InputBox() {
 								}}
 								aria-label={
 									nativeWebSearch
-										? "Built-in web search enabled"
+										? translate("composer.builtinSearch")
 										: searchEnabled
-											? "Disable web search"
-											: "Enable web search"
+											? translate("composer.disableWebSearch")
+											: translate("composer.enableWebSearch")
 								}
 								aria-pressed={effectiveSearchEnabled}
 								title={
 									nativeWebSearch
-										? "Built-in web search is always enabled for this model"
+										? translate("composer.builtinSearchLocked")
 										: searchEnabled
-											? `Disable web search (${selectedSearchProvider})`
-											: "Enable web search"
+											? translate("composer.disableWebSearchNamed", {
+													provider: selectedSearchProvider,
+												})
+											: translate("composer.enableWebSearch")
 								}
 								className={`flex h-9 w-8 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text-primary ${
 									nativeWebSearch ? "rounded-md" : "rounded-l-md"
@@ -585,11 +590,11 @@ export default function InputBox() {
 									onClick={() => {
 										setShowSearchMenu((open) => !open);
 									}}
-									aria-label="Open web search settings"
+									aria-label={translate("composer.openWebSearchSettings")}
 									aria-haspopup="menu"
 									aria-expanded={showSearchMenu}
 									aria-controls={SEARCH_MENU_ID}
-									title="Web search settings"
+									title={translate("composer.webSearchSettings")}
 									className="flex h-9 w-5 items-center justify-center rounded-r-md transition-colors hover:bg-surface-hover hover:text-text-primary"
 								>
 									<ChevronDown className="h-3 w-3" />
@@ -600,7 +605,7 @@ export default function InputBox() {
 								<div
 									id={SEARCH_MENU_ID}
 									role="menu"
-									aria-label="Web search settings"
+									aria-label={translate("composer.webSearchSettings")}
 									onKeyDown={(event) => {
 										if (event.key === "Escape") {
 											event.preventDefault();
@@ -616,7 +621,7 @@ export default function InputBox() {
 										onClick={() => setSearchEnabled(!searchEnabled)}
 										className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs text-text-primary hover:bg-surface-hover"
 									>
-										<span>Enable web search</span>
+										<span>{translate("composer.enableWebSearch")}</span>
 										<span
 											aria-hidden="true"
 											className={`flex h-4 w-7 items-center rounded-full px-0.5 transition-colors ${
@@ -628,7 +633,7 @@ export default function InputBox() {
 									</button>
 									<hr className="my-1 border-0 border-t border-border" />
 									<div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-text-muted">
-										Provider
+										{translate("common.provider")}
 									</div>
 									{searchProviders.map((provider) => {
 										const selected = provider.value === searchProvider;
@@ -669,7 +674,7 @@ export default function InputBox() {
 										className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 									>
 										<Settings2 className="h-3.5 w-3.5" />
-										Configure web search
+										{translate("composer.configureSearch")}
 									</button>
 								</div>
 							)}
@@ -684,14 +689,14 @@ export default function InputBox() {
 								}}
 								aria-label={
 									deepThinking
-										? "Disable deep thinking"
-										: "Enable deep thinking"
+										? translate("composer.disableThinking")
+										: translate("composer.enableThinking")
 								}
 								aria-pressed={deepThinking}
 								title={
 									deepThinking
-										? "Deep thinking enabled"
-										: "Enable deep thinking"
+										? translate("composer.thinkingEnabled")
+										: translate("composer.enableThinking")
 								}
 								className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-surface-hover hover:text-text-primary ${
 									deepThinking
@@ -704,7 +709,7 @@ export default function InputBox() {
 						)}
 						{hasImages && !visionAvailable && (
 							<select
-								aria-label="Image processing method"
+								aria-label={translate("composer.imageMethod")}
 								value={
 									imageStrategy === "vision_model"
 										? visionSelection || "vision_model"
@@ -722,9 +727,13 @@ export default function InputBox() {
 								}}
 								className="h-9 max-w-48 rounded-md border border-border bg-surface px-2 text-xs text-text-secondary"
 							>
-								<option value="">Process image...</option>
-								<option value="system_ocr">System OCR</option>
-								<option value="vision_model">Choose vision model...</option>
+								<option value="">{translate("composer.processImage")}</option>
+								<option value="system_ocr">
+									{translate("composer.systemOcr")}
+								</option>
+								<option value="vision_model">
+									{translate("composer.chooseVision")}
+								</option>
 								{visionModels.map((model) => (
 									<option key={model.value} value={model.value}>
 										{model.label}
@@ -735,7 +744,9 @@ export default function InputBox() {
 						{streaming && (
 							<output className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
 								<Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-								<span className="truncate">Generating</span>
+								<span className="truncate">
+									{translate("composer.generating")}
+								</span>
 							</output>
 						)}
 					</div>
@@ -743,7 +754,7 @@ export default function InputBox() {
 					<div className="flex shrink-0 items-center gap-2">
 						{showContextStatus && (
 							<output
-								aria-label="Context size"
+								aria-label={translate("composer.contextSize")}
 								className="text-[11px] tabular-nums text-warning"
 							>
 								{charCount} / {maximumContextSize}
@@ -756,8 +767,16 @@ export default function InputBox() {
 								!streaming &&
 								((!input.trim() && attachments.length === 0) || uploading)
 							}
-							aria-label={streaming ? "Stop generating" : "Send message"}
-							title={streaming ? "Stop generating" : "Send message"}
+							aria-label={
+								streaming
+									? translate("composer.stop")
+									: translate("composer.send")
+							}
+							title={
+								streaming
+									? translate("composer.stop")
+									: translate("composer.send")
+							}
 							className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors ${
 								streaming
 									? "border border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary"

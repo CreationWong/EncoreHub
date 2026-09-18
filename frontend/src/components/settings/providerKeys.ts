@@ -1,3 +1,7 @@
+// Encrypted API-key pool payload for a provider profile.
+
+import { t } from "../../i18n";
+
 export interface ProviderAPIKey {
 	id: string;
 	name: string;
@@ -12,10 +16,18 @@ interface ProviderAPIKeyEnvelope {
 
 export const MAX_PROVIDER_API_KEYS = 16;
 
+/** Default display name for a pool slot; `index` is zero-based. */
+function defaultKeyName(index: number): string {
+	return index === 0
+		? t("providers.primary")
+		: t("providers.backup", { index });
+}
+
+/** Create an empty enabled key. `index` is one-based (first key is Primary). */
 export function createProviderAPIKey(index: number): ProviderAPIKey {
 	return {
 		id: `key-${Date.now().toString(36)}-${index}`,
-		name: index === 1 ? "Primary" : `Backup ${index - 1}`,
+		name: defaultKeyName(index - 1),
 		value: "",
 		enabled: true,
 	};
@@ -41,9 +53,7 @@ export function parseProviderAPIKeys(raw: string): ProviderAPIKey[] {
 					name:
 						typeof key.name === "string" && key.name.trim()
 							? key.name
-							: index === 0
-								? "Primary"
-								: `Backup ${index}`,
+							: defaultKeyName(index),
 					value: key.value,
 					enabled: key.enabled,
 				}));
@@ -51,20 +61,24 @@ export function parseProviderAPIKeys(raw: string): ProviderAPIKey[] {
 	} catch {
 		// A normal provider key is not JSON; it falls through to legacy mode.
 	}
-	return [{ id: "primary", name: "Primary", value: trimmed, enabled: true }];
+	return [
+		{ id: "primary", name: defaultKeyName(0), value: trimmed, enabled: true },
+	];
 }
 
+/** Trim values and fill empty names with the current-locale defaults. */
 export function normalizeProviderAPIKeys(
 	keys: ProviderAPIKey[],
 ): ProviderAPIKey[] {
 	return keys.map((key, index) => ({
 		...key,
 		id: key.id.trim(),
-		name: key.name.trim() || (index === 0 ? "Primary" : `Backup ${index}`),
+		name: key.name.trim() || defaultKeyName(index),
 		value: key.value.trim(),
 	}));
 }
 
+/** Encode the versioned key-pool envelope for the secrets vault. */
 export function serializeProviderAPIKeys(keys: ProviderAPIKey[]): string {
 	const envelope: ProviderAPIKeyEnvelope = {
 		version: 1,
@@ -73,6 +87,7 @@ export function serializeProviderAPIKeys(keys: ProviderAPIKey[]): string {
 	return JSON.stringify(envelope);
 }
 
+/** Stable comparison key for draft-vs-persisted pool equality. */
 export function providerAPIKeySignature(keys: ProviderAPIKey[]): string {
 	return JSON.stringify(normalizeProviderAPIKeys(keys));
 }

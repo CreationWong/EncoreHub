@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { t } from "../../i18n";
 import { useConfirmStore } from "../../stores/confirmStore";
 
 export default function ConfirmDialog() {
@@ -33,8 +34,8 @@ export default function ConfirmDialog() {
 			title: "",
 			message: "",
 			danger: false,
-			confirmLabel: "Confirm",
-			cancelLabel: "Cancel",
+			confirmLabel: t("common.confirm"),
+			cancelLabel: t("common.cancel"),
 			discardLabel: null,
 			resolve: null,
 		});

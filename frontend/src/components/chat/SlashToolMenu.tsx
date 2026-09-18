@@ -1,5 +1,6 @@
 import { Wrench } from "lucide-react";
 import { useEffect } from "react";
+import { useT } from "../../i18n";
 import type { SlashTool } from "../../tools/slashTools";
 
 interface Props {
@@ -21,6 +22,7 @@ export default function SlashToolMenu({
 	onSelect,
 	onHover,
 }: Props) {
+	const t = useT();
 	useEffect(() => {
 		const activeTool = items[activeIndex];
 		if (!activeTool) return;
@@ -38,11 +40,11 @@ export default function SlashToolMenu({
 				id={id}
 				// biome-ignore lint/a11y/useSemanticElements: textarea focus owns this autocomplete listbox.
 				role="listbox"
-				aria-label="Slash tools"
+				aria-label={t("composer.slashTools")}
 				tabIndex={-1}
 			>
 				<div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase text-text-muted">
-					Tools
+					{t("context.tools")}
 				</div>
 				{items.map((tool, index) => {
 					const active = index === activeIndex;
@@ -71,7 +73,7 @@ export default function SlashToolMenu({
 							<span className="min-w-0 flex-1">
 								<span className="block font-mono text-xs">{tool.name}</span>
 								<span className="block text-[11px] text-text-muted">
-									{tool.description}
+									{t(tool.descriptionKey)}
 								</span>
 							</span>
 						</button>

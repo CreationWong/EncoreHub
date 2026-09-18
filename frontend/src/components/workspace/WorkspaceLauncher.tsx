@@ -1,4 +1,5 @@
 import { type LucideIcon, MessageSquarePlus, Settings } from "lucide-react";
+import { useT } from "../../i18n";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -50,6 +51,7 @@ function LauncherGrid({
 }
 
 export default function WorkspaceLauncher() {
+	const t = useT();
 	const newConversation = useConversationStore(
 		(state) => state.newConversation,
 	);
@@ -59,7 +61,7 @@ export default function WorkspaceLauncher() {
 	const startItems: LauncherItem[] = [
 		{
 			id: "new-conversation",
-			label: "New conversation",
+			label: t("workspace.newConversation"),
 			icon: MessageSquarePlus,
 			tone: "bg-[#4263eb]",
 			onOpen: async () => {
@@ -71,7 +73,7 @@ export default function WorkspaceLauncher() {
 	const toolItems: LauncherItem[] = [
 		{
 			id: "settings",
-			label: "Settings",
+			label: t("workspace.settings"),
 			icon: Settings,
 			tone: "bg-[#495057]",
 			onOpen: () => openSettings(),
@@ -82,11 +84,11 @@ export default function WorkspaceLauncher() {
 		<div className="h-full overflow-y-auto">
 			<div className="mx-auto w-full max-w-6xl px-10 py-10 max-[700px]:px-5 max-[700px]:py-7">
 				<h1 className="mb-8 text-lg font-semibold text-text-primary">
-					Workbench
+					{t("nav.workbench")}
 				</h1>
 				<div className="space-y-10">
-					<LauncherGrid label="Start" items={startItems} />
-					<LauncherGrid label="Applications" items={toolItems} />
+					<LauncherGrid label={t("workspace.start")} items={startItems} />
+					<LauncherGrid label={t("workspace.applications")} items={toolItems} />
 				</div>
 			</div>
 		</div>

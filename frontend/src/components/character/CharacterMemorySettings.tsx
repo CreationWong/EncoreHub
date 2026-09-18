@@ -1,5 +1,8 @@
+// Per-character memory policy: default mode and inherited group access.
+
 import { Loader2, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { type MessageKey, useT } from "../../i18n";
 import {
 	type CharacterMemorySettingsResponse,
 	type MemoryGroup,
@@ -9,12 +12,26 @@ import {
 } from "../../services/memories";
 import { toast } from "../../stores/toastStore";
 
-const MODE_OPTIONS: Array<{ id: MemoryMode; label: string }> = [
-	{ id: "simple", label: "Simple" },
-	{ id: "rag", label: "RAG" },
-	{ id: "rag_enhanced", label: "RAG enhanced" },
+const MODE_OPTIONS: Array<{ id: MemoryMode; labelKey: MessageKey }> = [
+	{ id: "simple", labelKey: "character.memoryPolicy.simple" },
+	{ id: "rag", labelKey: "character.memoryPolicy.rag" },
+	{ id: "rag_enhanced", labelKey: "character.memoryPolicy.ragEnhanced" },
 ];
 
+/**
+ * Translate a memory group type for the inheritance list.
+ */
+function groupTypeLabel(
+	groupType: MemoryGroup["group_type"],
+	translate: (key: MessageKey) => string,
+): string {
+	if (groupType === "character") return translate("memory.groupTypeCharacter");
+	if (groupType === "global") return translate("memory.groupTypeGlobal");
+	if (groupType === "custom") return translate("memory.groupTypeCustom");
+	return groupType;
+}
+
+/** Dirty-check signature for the staged memory policy. */
 function settingsSignature(
 	settings: CharacterMemorySettingsResponse | null,
 ): string {
@@ -26,11 +43,15 @@ function settingsSignature(
 	});
 }
 
+/**
+ * Memory mode and inherited-group editor for the character currently open.
+ */
 export default function CharacterMemorySettings({
 	characterId,
 }: {
 	characterId: string;
 }) {
+	const t = useT();
 	const [policy, setPolicy] = useState<CharacterMemorySettingsResponse | null>(
 		null,
 	);
@@ -60,7 +81,7 @@ export default function CharacterMemorySettings({
 				setError(
 					loadError instanceof Error
 						? loadError.message
-						: "Failed to load memory settings",
+						: t("character.memoryPolicy.loadFailed"),
 				);
 			})
 			.finally(() => {
@@ -69,7 +90,7 @@ export default function CharacterMemorySettings({
 		return () => {
 			cancelled = true;
 		};
-	}, [characterId]);
+	}, [characterId, t]);
 
 	const inheritableGroups = useMemo(
 		() =>
@@ -133,12 +154,12 @@ export default function CharacterMemorySettings({
 			});
 			setPolicy(saved);
 			setSavedSignature(settingsSignature(saved));
-			toast.success("Character memory settings saved");
+			toast.success(t("character.memorySaved"));
 		} catch (saveError) {
 			setError(
 				saveError instanceof Error
 					? saveError.message
-					: "Failed to save memory settings",
+					: t("character.memoryPolicy.saveFailed"),
 			);
 		} finally {
 			setSaving(false);
@@ -147,17 +168,21 @@ export default function CharacterMemorySettings({
 
 	return (
 		<section
-			aria-label="Current character memory settings"
+			aria-label={t("character.memoryPolicy.section")}
 			className="border-b border-border px-5 py-5"
 		>
 			<div className="mb-4 flex items-center justify-between gap-3">
-				<h3 className="text-xs font-semibold text-text-primary">Memory</h3>
-				<span className="text-[11px] text-text-muted">Current character</span>
+				<h3 className="text-xs font-semibold text-text-primary">
+					{t("memory.title")}
+				</h3>
+				<span className="text-[11px] text-text-muted">
+					{t("character.memoryPolicy.currentCharacter")}
+				</span>
 			</div>
 
 			{loading ? (
 				<output
-					aria-label="Loading character memory settings"
+					aria-label={t("character.memoryPolicy.loading")}
 					className="flex h-16 items-center justify-center text-text-muted"
 				>
 					<Loader2 className="h-4 w-4 animate-spin" />
@@ -167,10 +192,10 @@ export default function CharacterMemorySettings({
 					<div className="flex flex-wrap items-end gap-3">
 						<label className="min-w-48 flex-1">
 							<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-								Default mode
+								{t("character.memoryPolicy.defaultMode")}
 							</span>
 							<select
-								aria-label="Character memory mode"
+								aria-label={t("character.memoryPolicy.mode")}
 								value={policy.settings.default_mode}
 								onChange={(event) =>
 									updatePolicy((current) => ({
@@ -185,7 +210,7 @@ export default function CharacterMemorySettings({
 							>
 								{MODE_OPTIONS.map((mode) => (
 									<option key={mode.id} value={mode.id}>
-										{mode.label}
+										{t(mode.labelKey)}
 									</option>
 								))}
 							</select>
@@ -201,17 +226,17 @@ export default function CharacterMemorySettings({
 							) : (
 								<Save className="h-3.5 w-3.5" />
 							)}
-							Save memory settings
+							{t("character.memoryPolicy.saveSettings")}
 						</button>
 					</div>
 
 					<fieldset className="mt-4 border-t border-border pt-3">
 						<legend className="pr-2 text-xs font-medium text-text-secondary">
-							Inherited memory groups
+							{t("character.memoryPolicy.inheritedGroups")}
 						</legend>
 						{inheritableGroups.length === 0 ? (
 							<p className="pt-2 text-xs text-text-muted">
-								No inheritable groups
+								{t("character.memoryPolicy.noneInheritable")}
 							</p>
 						) : (
 							<div className="mt-1 divide-y divide-border">
@@ -235,12 +260,14 @@ export default function CharacterMemorySettings({
 												/>
 												<span className="truncate">{group.name}</span>
 												<span className="shrink-0 text-[11px] uppercase text-text-muted">
-													{group.group_type}
+													{groupTypeLabel(group.group_type, t)}
 												</span>
 											</label>
 											{inheritance && (
 												<select
-													aria-label={`${group.name} access`}
+													aria-label={t("character.memoryPolicy.access", {
+														name: group.name,
+													})}
 													value={inheritance.access_mode}
 													onChange={(event) =>
 														setGroupAccess(
@@ -251,8 +278,12 @@ export default function CharacterMemorySettings({
 													}
 													className="h-8 rounded-md border border-border bg-control px-2 text-xs text-text-primary outline-none focus:border-accent"
 												>
-													<option value="read">Read</option>
-													<option value="read_write">Read/write</option>
+													<option value="read">
+														{t("character.memoryPolicy.read")}
+													</option>
+													<option value="read_write">
+														{t("character.memoryPolicy.readWrite")}
+													</option>
 												</select>
 											)}
 										</div>
@@ -264,7 +295,7 @@ export default function CharacterMemorySettings({
 				</>
 			) : (
 				<p role="alert" className="text-xs text-danger">
-					{error || "Memory settings unavailable"}
+					{error || t("character.memoryPolicy.unavailable")}
 				</p>
 			)}
 

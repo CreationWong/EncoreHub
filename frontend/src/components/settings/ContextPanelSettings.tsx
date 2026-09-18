@@ -6,6 +6,7 @@
 
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n";
 import {
 	type ContextMeterMetricId,
 	useSettingsStore,
@@ -33,6 +34,7 @@ function metricIdAtPoint(x: number, y: number): ContextMeterMetricId | null {
  * Settings page for the conversation context occupancy meter.
  */
 export default function ContextPanelSettings() {
+	const t = useT();
 	const primary = useSettingsStore((state) => state.contextMeterPrimary);
 	const metrics = useSettingsStore((state) => state.contextMeterMetrics);
 	const setPrimary = useSettingsStore((state) => state.setContextMeterPrimary);
@@ -97,15 +99,14 @@ export default function ContextPanelSettings() {
 						id="context-meter-preview-heading"
 						className="text-sm font-semibold text-text-primary"
 					>
-						Preview
+						{t("context.meter.preview")}
 					</h3>
 					<p className="mt-1 text-xs text-text-muted">
-						The conversation panel uses this arrangement for the next request.
-						The sample below is a 4,000 token request in a 100,000 token window.
+						{t("context.meter.previewHelp")}
 					</p>
 				</div>
 				<div
-					aria-label="Context meter preview"
+					aria-label={t("context.meter.previewLabel")}
 					className="rounded-md border border-border bg-surface-alt/40 p-4"
 				>
 					<ContextMeter
@@ -123,11 +124,10 @@ export default function ContextPanelSettings() {
 							id="context-meter-order-heading"
 							className="text-sm font-semibold text-text-primary"
 						>
-							Display order
+							{t("context.meter.order")}
 						</h3>
 						<p className="mt-1 text-xs text-text-muted">
-							Choose the large figure, then drag supporting lines into the order
-							you scan them.
+							{t("context.meter.orderHelp")}
 						</p>
 					</div>
 					<button
@@ -135,20 +135,21 @@ export default function ContextPanelSettings() {
 						onClick={reset}
 						className="shrink-0 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-control hover:text-text-primary"
 					>
-						Reset to defaults
+						{t("common.reset")}
 					</button>
 				</div>
 				<ul
-					aria-label="Context meter metrics"
+					aria-label={t("context.meter.metrics")}
 					className="list-none divide-y divide-border border-y border-border p-0"
 				>
 					{metrics.map((item, index) => {
 						const definition = CONTEXT_METER_METRIC_DEFINITIONS[item.id];
+						const label = t(definition.labelKey);
 						const isPrimary = primary === item.id;
 						return (
 							<li
 								key={item.id}
-								aria-label={definition.label}
+								aria-label={label}
 								data-context-meter-metric-id={item.id}
 								className={`flex min-h-14 items-center gap-3 px-1 py-2 transition-colors ${
 									targetId === item.id
@@ -165,18 +166,18 @@ export default function ContextPanelSettings() {
 										lastTargetRef.current = null;
 										setDraggedId(item.id);
 									}}
-									aria-label={`Drag ${definition.label}`}
-									title="Drag to reorder"
+									aria-label={t("context.meter.dragMetric", { name: label })}
+									title={t("common.dragToReorder")}
 									className="flex h-7 w-7 touch-none items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary active:cursor-grabbing"
 								>
 									<GripVertical className="h-4 w-4 cursor-grab" />
 								</button>
 								<span className="min-w-0 flex-1">
 									<span className="block truncate text-sm text-text-primary">
-										{definition.label}
+										{label}
 									</span>
 									<span className="mt-0.5 block text-xs text-text-muted">
-										{definition.detail}
+										{t(definition.detailKey)}
 									</span>
 								</span>
 								<label className="flex shrink-0 items-center gap-1.5 text-xs text-text-secondary">
@@ -186,10 +187,10 @@ export default function ContextPanelSettings() {
 										name="context-meter-primary"
 										checked={isPrimary}
 										onChange={() => setPrimary(item.id)}
-										aria-label={`Use ${definition.label} as the main context metric`}
+										aria-label={t("context.meter.useMain", { name: label })}
 										className="h-4 w-4 accent-accent"
 									/>
-									Main
+									{t("context.meter.main")}
 								</label>
 								<label className="flex shrink-0 items-center">
 									<input
@@ -202,7 +203,7 @@ export default function ContextPanelSettings() {
 										onChange={(event) =>
 											setVisible(item.id, event.target.checked)
 										}
-										aria-label={`Show ${definition.label}`}
+										aria-label={t("context.meter.showMetric", { name: label })}
 										className="h-4 w-4 accent-accent"
 									/>
 								</label>
@@ -210,8 +211,8 @@ export default function ContextPanelSettings() {
 									type="button"
 									disabled={index === 0}
 									onClick={() => moveBy(item.id, -1)}
-									aria-label={`Move ${definition.label} up`}
-									title="Move up"
+									aria-label={`${t("common.moveUp")}: ${label}`}
+									title={t("common.moveUp")}
 									className="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 								>
 									<ChevronUp className="h-3.5 w-3.5" />
@@ -220,8 +221,8 @@ export default function ContextPanelSettings() {
 									type="button"
 									disabled={index === metrics.length - 1}
 									onClick={() => moveBy(item.id, 1)}
-									aria-label={`Move ${definition.label} down`}
-									title="Move down"
+									aria-label={`${t("common.moveDown")}: ${label}`}
+									title={t("common.moveDown")}
 									className="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 								>
 									<ChevronDown className="h-3.5 w-3.5" />

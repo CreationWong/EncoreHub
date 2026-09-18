@@ -1,3 +1,5 @@
+// Desktop log viewer: levels, communication capture, filters, and export.
+
 import {
 	Bug,
 	Download,
@@ -7,6 +9,7 @@ import {
 	TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import {
 	type LogEntry,
 	type LogLevel,
@@ -31,7 +34,9 @@ const LEVEL_STYLES: Record<LogLevel, string> = {
 	debug: "text-text-muted",
 };
 
+/** Desktop log viewer with capture mode, filters, and export actions. */
 export default function LogsPanel() {
+	const translate = useT();
 	const fullCommunicationLogs = useSettingsStore(
 		(state) => state.fullCommunicationLogs,
 	);
@@ -118,8 +123,8 @@ export default function LogsPanel() {
 		const next = !fullCommunicationLogs;
 		if (next) {
 			const accepted = await confirm.ask(
-				"Enable full communication logging?",
-				"Request and response bodies will be retained in memory only. They are written to disk only when you explicitly export logs; authentication headers remain redacted.",
+				t("logs.enableFullTitle"),
+				t("logs.enableFullMessage"),
 			);
 			if (!accepted) return;
 		}
@@ -129,15 +134,11 @@ export default function LogsPanel() {
 			const applied = await devtools.setFullCommunicationLogs(next);
 			setFullCommunicationLogs(applied);
 			toast.success(
-				applied
-					? "Full communication logging enabled"
-					: "Restricted logging restored",
+				applied ? t("logs.fullEnabled") : t("logs.restrictedRestored"),
 			);
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to change communication logging",
+				error instanceof Error ? error.message : t("logs.changeFailed"),
 			);
 		} finally {
 			setChangingCapture(false);
@@ -148,10 +149,10 @@ export default function LogsPanel() {
 		setLogLevelState(level);
 		try {
 			await devtools.setLogLevel(level);
-			toast.success(`Log level set to ${level}`);
+			toast.success(t("toast.logLevelSet", { level }));
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to set log level",
+				error instanceof Error ? error.message : t("logs.levelFailed"),
 			);
 		}
 	}, []);
@@ -160,8 +161,8 @@ export default function LogsPanel() {
 		async (level: LogLevel) => {
 			if (level === "debug" && fileLogLevel !== "debug") {
 				const accepted = await confirm.ask(
-					"Enable debug file logs?",
-					"DEBUG will write high-volume logs to disk and may make log files grow quickly.",
+					t("logs.enableDebugTitle"),
+					t("logs.enableDebugMessage"),
 				);
 				if (!accepted) return;
 			}
@@ -171,13 +172,11 @@ export default function LogsPanel() {
 			try {
 				const applied = await devtools.setFileLogLevel(level);
 				setFileLogLevelState(applied);
-				toast.success(`File log level set to ${applied}`);
+				toast.success(t("toast.fileLogLevelSet", { level: applied }));
 			} catch (error) {
 				setFileLogLevelState(previous);
 				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to set file log level",
+					error instanceof Error ? error.message : t("logs.fileLevelFailed"),
 				);
 			}
 		},
@@ -190,22 +189,22 @@ export default function LogsPanel() {
 			setLogs([]);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to clear logs",
+				error instanceof Error ? error.message : t("logs.clearFailed"),
 			);
 		}
 	}, []);
 
 	const exportLogs = useCallback(async () => {
 		if (filtered.length === 0) {
-			toast.info("No logs to export");
+			toast.info(t("toast.noLogsToExport"));
 			return;
 		}
 		try {
 			const path = await devtools.exportLogs(filtered);
-			if (path) toast.success(`Logs exported to ${path}`);
+			if (path) toast.success(t("toast.logsExported", { path }));
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to export logs",
+				error instanceof Error ? error.message : t("logs.exportFailed"),
 			);
 		}
 	}, [filtered]);
@@ -213,7 +212,7 @@ export default function LogsPanel() {
 	if (!tauri) {
 		return (
 			<p className="p-10 text-center text-sm text-text-muted">
-				Logs are only available in the desktop app.
+				{translate("logs.desktopOnly")}
 			</p>
 		);
 	}
@@ -223,7 +222,7 @@ export default function LogsPanel() {
 	return (
 		<div className="flex h-full min-h-0 flex-col gap-4 p-5">
 			<section
-				aria-label="Communication logging mode"
+				aria-label={translate("logs.mode")}
 				className={`flex items-start gap-3 border-y px-3 py-3 ${
 					fullCommunicationLogs
 						? "border-warning/40 bg-warning/5"
@@ -236,20 +235,20 @@ export default function LogsPanel() {
 				<div className="min-w-0 flex-1">
 					<p className="text-xs font-semibold text-text-primary">
 						{fullCommunicationLogs
-							? "Full communication logging"
-							: "Restricted logging"}
+							? translate("logs.fullTitle")
+							: translate("logs.restrictedTitle")}
 					</p>
 					<p className="mt-1 text-[11px] leading-5 text-text-muted">
 						{fullCommunicationLogs
-							? "Request and response bodies are retained in memory only and written to disk only when you export; authentication headers remain redacted."
-							: "Service events and communication metadata are recorded with bodies and credentials redacted."}
+							? translate("logs.fullHelp")
+							: translate("logs.restrictedHelp")}
 					</p>
 				</div>
 				<button
 					type="button"
 					role="switch"
 					aria-checked={fullCommunicationLogs}
-					aria-label="Full communication logging"
+					aria-label={translate("logs.fullTitle")}
 					disabled={changingCapture}
 					onClick={() => void toggleFullCommunicationLogs()}
 					className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
@@ -268,14 +267,14 @@ export default function LogsPanel() {
 			<div className="flex flex-wrap items-center gap-3">
 				<label className="flex items-center gap-2">
 					<span className="text-xs font-medium text-text-secondary">
-						Runtime level
+						{translate("logs.runtimeLevel")}
 					</span>
 					<select
 						value={logLevel}
 						onChange={(event) =>
 							void changeLogLevel(event.target.value as LogLevel)
 						}
-						aria-label="Set runtime log level"
+						aria-label={translate("logs.setRuntimeLevel")}
 						className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
 					>
 						{LEVELS.map((level) => (
@@ -287,14 +286,14 @@ export default function LogsPanel() {
 				</label>
 				<label className="flex items-center gap-2">
 					<span className="text-xs font-medium text-text-secondary">
-						File level
+						{translate("logs.fileLevel")}
 					</span>
 					<select
 						value={fileLogLevel}
 						onChange={(event) =>
 							void changeFileLogLevel(event.target.value as LogLevel)
 						}
-						aria-label="Set file log level"
+						aria-label={translate("logs.setFileLevel")}
 						className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
 					>
 						{LEVELS.map((level) => (
@@ -312,22 +311,24 @@ export default function LogsPanel() {
 					onChange={(event) =>
 						setActivityScope(event.target.value as ActivityScope)
 					}
-					aria-label="Filter by activity type"
+					aria-label={translate("logs.filterActivity")}
 					className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
 				>
-					<option value="all">All activity</option>
-					<option value="communication">Communication</option>
-					<option value="database">Database reads/writes</option>
+					<option value="all">{translate("logs.allActivity")}</option>
+					<option value="communication">
+						{translate("logs.communication")}
+					</option>
+					<option value="database">{translate("logs.databaseReads")}</option>
 				</select>
 				<select
 					value={sourceFilter}
 					onChange={(event) =>
 						setSourceFilter(event.target.value as LogSource | "all")
 					}
-					aria-label="Filter by source"
+					aria-label={translate("logs.filterSource")}
 					className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
 				>
-					<option value="all">All sources</option>
+					<option value="all">{translate("logs.allSources")}</option>
 					{SOURCES.map((source) => (
 						<option key={source} value={source}>
 							{source}
@@ -339,10 +340,10 @@ export default function LogsPanel() {
 					onChange={(event) =>
 						setLevelFilter(event.target.value as LogLevel | "all")
 					}
-					aria-label="Filter by level"
+					aria-label={translate("logs.filterLevel")}
 					className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary"
 				>
-					<option value="all">All levels</option>
+					<option value="all">{translate("logs.allLevels")}</option>
 					{LEVELS.map((level) => (
 						<option key={level} value={level}>
 							{level}
@@ -354,8 +355,8 @@ export default function LogsPanel() {
 					type="search"
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search logs..."
-					aria-label="Search logs"
+					placeholder={translate("logs.searchPlaceholder")}
+					aria-label={translate("logs.search")}
 					className="min-w-36 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-primary placeholder:text-text-muted"
 				/>
 				<label className="flex items-center gap-1.5 text-xs text-text-muted">
@@ -365,13 +366,13 @@ export default function LogsPanel() {
 						checked={follow}
 						onChange={(event) => setFollow(event.target.checked)}
 					/>
-					Follow
+					{translate("common.follow")}
 				</label>
 				<button
 					type="button"
 					onClick={() => void devtools.openDevtools()}
-					aria-label="Open DevTools"
-					title="Open DevTools"
+					aria-label={translate("logs.openDevTools")}
+					title={translate("logs.openDevTools")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 				>
 					<Bug className="h-4 w-4" />
@@ -379,8 +380,8 @@ export default function LogsPanel() {
 				<button
 					type="button"
 					onClick={() => void devtools.openLogDirectory()}
-					aria-label="Open log folder"
-					title="Open log folder"
+					aria-label={translate("logs.openFolder")}
+					title={translate("logs.openFolder")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 				>
 					<FolderOpen className="h-4 w-4" />
@@ -389,8 +390,8 @@ export default function LogsPanel() {
 					type="button"
 					onClick={() => void exportLogs()}
 					disabled={filtered.length === 0}
-					aria-label="Export logs"
-					title="Export logs"
+					aria-label={translate("logs.export")}
+					title={translate("logs.export")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 				>
 					<Download className="h-4 w-4" />
@@ -398,8 +399,8 @@ export default function LogsPanel() {
 				<button
 					type="button"
 					onClick={() => void clearLogs()}
-					aria-label="Clear logs"
-					title="Clear logs"
+					aria-label={translate("logs.clear")}
+					title={translate("logs.clear")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-danger"
 				>
 					<Trash2 className="h-4 w-4" />
@@ -411,7 +412,9 @@ export default function LogsPanel() {
 				className="min-h-48 flex-1 overflow-y-auto rounded-md border border-border bg-surface-alt/30 p-2 font-mono text-[11px] leading-relaxed"
 			>
 				{filtered.length === 0 ? (
-					<p className="py-10 text-center text-text-muted">No log lines.</p>
+					<p className="py-10 text-center text-text-muted">
+						{translate("logs.empty")}
+					</p>
 				) : (
 					filtered.map((entry) => (
 						<div

@@ -1,3 +1,5 @@
+// Provider model create/edit dialog: identity, capabilities, and pricing.
+
 import {
 	AlertTriangle,
 	BrainCircuit,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MODEL_CAPABILITIES } from "../../constants/providers";
+import { type MessageKey, useT } from "../../i18n";
 import { writeClipboardText } from "../../services/clipboard";
 import { applyMetadataToModelConfig } from "../../services/modelMetadata";
 import type {
@@ -66,6 +69,16 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 	EUR: "€",
 };
 
+const CAPABILITY_LABEL_KEYS: Record<ProviderModelCapability, MessageKey> = {
+	vision: "providers.capability.vision",
+	web: "providers.capability.web",
+	reasoning: "providers.capability.reasoning",
+	tools: "providers.capability.tools",
+	rerank: "providers.capability.rerank",
+	embedding: "providers.capability.embedding",
+};
+
+/** Form label with an optional required mark and hover hint. */
 function FieldLabel({
 	children,
 	hint,
@@ -84,6 +97,7 @@ function FieldLabel({
 	);
 }
 
+/** Modal for creating or editing one provider model record. */
 export default function ProviderModelModal({
 	model,
 	existingIds,
@@ -91,9 +105,12 @@ export default function ProviderModelModal({
 	onSave,
 	onClose,
 }: Props) {
+	const t = useT();
 	const editing = model !== null;
 	const [draft, setDraft] = useState<ProviderModelConfig>(() =>
-		model ? { ...model } : defaultModelConfig("", "", "Models"),
+		model
+			? { ...model }
+			: defaultModelConfig("", "", t("providers.modelEditor.defaultGroup")),
 	);
 	const [advanced, setAdvanced] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -174,7 +191,7 @@ export default function ProviderModelModal({
 	const handleSave = () => {
 		const id = draft.id.trim();
 		if (!id) {
-			setError("Model ID is required");
+			setError(t("providers.modelEditor.idRequired"));
 			return;
 		}
 		if (
@@ -182,18 +199,18 @@ export default function ProviderModelModal({
 				(existingId) => existingId === id && existingId !== model?.id,
 			)
 		) {
-			setError(`Model "${id}" already exists`);
+			setError(t("providers.modelEditor.idExists", { id }));
 			return;
 		}
 		if ((draft.input_price ?? 0) < 0 || (draft.output_price ?? 0) < 0) {
-			setError("Prices cannot be negative");
+			setError(t("providers.modelEditor.pricesNegative"));
 			return;
 		}
 		if (
 			draft.context_window !== undefined &&
 			(!Number.isInteger(draft.context_window) || draft.context_window < 1)
 		) {
-			setError("Maximum context size must be a positive integer");
+			setError(t("providers.modelEditor.contextPositive"));
 			return;
 		}
 		if (
@@ -201,14 +218,14 @@ export default function ProviderModelModal({
 			draft.dimensions !== undefined &&
 			(draft.dimensions < 1 || draft.dimensions > 3072)
 		) {
-			setError("Dimensions must be between 1 and 3072");
+			setError(t("providers.modelEditor.dimensions"));
 			return;
 		}
 		onSave({
 			...draft,
 			id,
 			name: draft.name?.trim() || id,
-			group: draft.group?.trim() || "Models",
+			group: draft.group?.trim() || t("providers.modelEditor.defaultGroup"),
 			type: modelType,
 			capabilities: [...capabilities].filter(
 				(capability) => capability !== "embedding",
@@ -250,13 +267,15 @@ export default function ProviderModelModal({
 						id="provider-model-dialog-title"
 						className="text-base font-semibold"
 					>
-						{editing ? "Edit model" : "Add model"}
+						{editing
+							? t("providers.modelEditor.edit")
+							: t("providers.modelEditor.add")}
 					</h3>
 					<button
 						type="button"
 						onClick={onClose}
-						aria-label="Close model editor"
-						title="Close"
+						aria-label={t("providers.modelEditor.close")}
+						title={t("common.close")}
 						className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 					>
 						<X className="h-4 w-4" />
@@ -266,11 +285,8 @@ export default function ProviderModelModal({
 				<div className="px-6 pb-6">
 					<div className="space-y-4 py-3">
 						<label className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
-							<FieldLabel
-								required
-								hint="The model identifier sent to the provider API"
-							>
-								Model ID
+							<FieldLabel required hint={t("providers.modelEditor.idHint")}>
+								{t("providers.modelEditor.modelId")}
 							</FieldLabel>
 							<span className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 								<input
@@ -286,8 +302,8 @@ export default function ProviderModelModal({
 									<button
 										type="button"
 										onClick={() => void writeClipboardText(draft.id)}
-										aria-label="Copy model ID"
-										title="Copy model ID"
+										aria-label={t("providers.modelEditor.copyId")}
+										title={t("providers.modelEditor.copyId")}
 										className="flex w-10 shrink-0 items-center justify-center border-l border-border bg-transparent text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none"
 									>
 										<Copy className="h-4 w-4" />
@@ -297,38 +313,38 @@ export default function ProviderModelModal({
 						</label>
 
 						<label className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
-							<FieldLabel hint="An optional local note or alias; it is never sent to the provider API">
-								Model name
+							<FieldLabel hint={t("providers.modelEditor.nameHint")}>
+								{t("providers.modelEditor.modelName")}
 							</FieldLabel>
 							<input
 								autoComplete="off"
 								value={draft.name ?? ""}
 								onChange={(event) => update("name", event.target.value)}
-								placeholder="GPT-4.1 Mini"
+								placeholder={t("providers.modelEditor.namePlaceholder")}
 								className="rounded-md border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
 							/>
 						</label>
 
 						<label className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
-							<FieldLabel hint="Models with the same group are displayed together">
-								Group
+							<FieldLabel hint={t("providers.modelEditor.groupHint")}>
+								{t("providers.modelEditor.group")}
 							</FieldLabel>
 							<input
 								autoComplete="off"
 								value={draft.group ?? ""}
 								onChange={(event) => update("group", event.target.value)}
-								placeholder="General"
+								placeholder={t("providers.modelEditor.groupPlaceholder")}
 								className="rounded-md border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
 							/>
 						</label>
 
 						{embeddingsSupported && (
 							<div className="grid gap-1.5 sm:grid-cols-[9rem_1fr] sm:items-center">
-								<FieldLabel hint="Chat models generate replies; embedding models only convert text into vectors">
-									Model function
+								<FieldLabel hint={t("providers.modelEditor.typeHint")}>
+									{t("providers.modelEditor.function")}
 								</FieldLabel>
 								<fieldset
-									aria-label="Model function"
+									aria-label={t("providers.modelEditor.function")}
 									className="m-0 grid grid-cols-2 rounded-md border border-border bg-surface-alt p-1"
 								>
 									<button
@@ -338,7 +354,7 @@ export default function ProviderModelModal({
 										className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "chat" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
 									>
 										<MessageSquare className="h-3.5 w-3.5" />
-										Chat
+										{t("providers.modelEditor.chat")}
 									</button>
 									<button
 										type="button"
@@ -347,7 +363,7 @@ export default function ProviderModelModal({
 										className={`flex h-8 items-center justify-center gap-2 rounded text-sm ${modelType === "embedding" ? "bg-surface text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
 									>
 										<Layers3 className="h-3.5 w-3.5" />
-										Embedding
+										{t("providers.modelEditor.embedding")}
 									</button>
 								</fieldset>
 							</div>
@@ -360,7 +376,7 @@ export default function ProviderModelModal({
 								aria-expanded={advanced}
 								className="flex items-center gap-2 rounded-md bg-surface-alt px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 							>
-								More settings
+								{t("providers.modelEditor.moreSettings")}
 								{advanced ? (
 									<ChevronUp className="h-4 w-4" />
 								) : (
@@ -373,7 +389,7 @@ export default function ProviderModelModal({
 								className="flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover"
 							>
 								<Save className="h-4 w-4" />
-								{editing ? "Save" : "Add model"}
+								{editing ? t("common.save") : t("providers.modelEditor.add")}
 							</button>
 						</div>
 					</div>
@@ -382,14 +398,16 @@ export default function ProviderModelModal({
 						<div className="space-y-0 border-t border-border">
 							{modelType === "chat" && (
 								<fieldset className="m-0 border-0 p-0">
-									<legend className="sr-only">Model capabilities</legend>
+									<legend className="sr-only">
+										{t("providers.modelEditor.capabilities")}
+									</legend>
 									<div className="flex items-center justify-between gap-3 py-4">
 										<span className="flex items-center gap-1.5 text-sm font-medium text-text-secondary">
-											Model capabilities
+											{t("providers.modelEditor.capabilities")}
 											{metadata ? (
 												<span
-													aria-label="Configured from model metadata"
-													title="Configured from model metadata"
+													aria-label={t("providers.modelEditor.fromMetadata")}
+													title={t("providers.modelEditor.fromMetadata")}
 													className="text-accent"
 												>
 													<Sparkles
@@ -413,8 +431,8 @@ export default function ProviderModelModal({
 															},
 												);
 											}}
-											aria-label="Reset model capabilities"
-											title="Reset model capabilities"
+											aria-label={t("providers.modelEditor.resetCapabilities")}
+											title={t("providers.modelEditor.resetCapabilities")}
 											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 										>
 											<RotateCcw className="h-4 w-4" />
@@ -439,7 +457,7 @@ export default function ProviderModelModal({
 													}`}
 												>
 													<Icon className="h-3.5 w-3.5" />
-													{capability.label}
+													{t(CAPABILITY_LABEL_KEYS[capability.value])}
 												</button>
 											);
 										})}
@@ -450,9 +468,9 @@ export default function ProviderModelModal({
 							{modelType === "chat" && (
 								<label className="flex min-h-16 items-center justify-between border-t border-border py-3 text-sm text-text-secondary">
 									<span className="flex items-center gap-1.5">
-										Supports streaming output
+										{t("providers.modelEditor.streaming")}
 										<CircleHelp
-											aria-label="Whether this model can return incremental output"
+											aria-label={t("providers.modelEditor.incremental")}
 											className="h-3.5 w-3.5 text-text-muted"
 										/>
 									</span>
@@ -479,7 +497,7 @@ export default function ProviderModelModal({
 									htmlFor="model-context-window"
 									className="text-sm text-text-secondary"
 								>
-									Maximum context size
+									{t("providers.modelEditor.maxContext")}
 								</label>
 								<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 									<input
@@ -497,11 +515,13 @@ export default function ProviderModelModal({
 													: undefined,
 											)
 										}
-										placeholder="From metadata"
+										placeholder={t(
+											"providers.modelEditor.fromMetadataPlaceholder",
+										)}
 										className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 									/>
 									<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
-										tokens
+										{t("providers.modelEditor.tokens")}
 									</span>
 								</div>
 
@@ -509,7 +529,7 @@ export default function ProviderModelModal({
 									htmlFor="model-currency"
 									className="text-sm text-text-secondary"
 								>
-									Currency
+									{t("providers.modelEditor.currency")}
 								</label>
 								<select
 									id="model-currency"
@@ -526,7 +546,7 @@ export default function ProviderModelModal({
 									htmlFor="model-input-price"
 									className="text-sm text-text-secondary"
 								>
-									Input price
+									{t("providers.modelEditor.inputPrice")}
 								</label>
 								<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 									<input
@@ -542,7 +562,9 @@ export default function ProviderModelModal({
 										className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 									/>
 									<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
-										{currencySymbol} / 1M tokens
+										{t("providers.modelEditor.perMillion", {
+											symbol: currencySymbol,
+										})}
 									</span>
 								</div>
 
@@ -552,7 +574,7 @@ export default function ProviderModelModal({
 											htmlFor="model-dimensions"
 											className="text-sm text-text-secondary"
 										>
-											Default dimensions
+											{t("providers.modelEditor.defaultDimensions")}
 										</label>
 										<input
 											autoComplete="off"
@@ -569,7 +591,7 @@ export default function ProviderModelModal({
 														: undefined,
 												)
 											}
-											placeholder="Provider default"
+											placeholder={t("providers.modelEditor.providerDefault")}
 											className="rounded-md border border-border bg-surface-alt px-3 py-2 text-sm"
 										/>
 									</>
@@ -581,7 +603,7 @@ export default function ProviderModelModal({
 											htmlFor="model-output-price"
 											className="text-sm text-text-secondary"
 										>
-											Output price
+											{t("providers.modelEditor.outputPrice")}
 										</label>
 										<div className="joined-input-control flex min-w-0 overflow-hidden rounded-md border border-border bg-surface-alt">
 											<input
@@ -597,7 +619,9 @@ export default function ProviderModelModal({
 												className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
 											/>
 											<span className="flex shrink-0 items-center border-l border-border bg-transparent px-3 text-xs text-text-muted">
-												{currencySymbol} / 1M tokens
+												{t("providers.modelEditor.perMillion", {
+													symbol: currencySymbol,
+												})}
 											</span>
 										</div>
 									</>

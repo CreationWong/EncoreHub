@@ -1,3 +1,5 @@
+// Editable API-key pool for one provider: order, enablement, and reveal.
+
 import {
 	ArrowDown,
 	ArrowUp,
@@ -9,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { keyHintFor } from "../../constants/providers";
+import { t, useT } from "../../i18n";
 import type {
 	ProviderKeyValidationResult,
 	ProviderProtocol,
@@ -32,16 +35,20 @@ interface Props {
 	onChange: (keys: ProviderAPIKey[], connectionChanged: boolean) => void;
 }
 
+/** Human status for a key-validation row; translated at call time. */
 function resultLabel(result?: ProviderKeyValidationResult): string {
-	if (!result) return "Not tested";
-	if (result.status === "valid") return "Key is valid";
-	if (result.status === "invalid") return "Key was rejected";
-	if (result.status === "skipped") return "Key is disabled";
+	if (!result) return t("providers.notTested");
+	if (result.status === "valid") return t("providers.keyValid");
+	if (result.status === "invalid") return t("providers.keyRejected");
+	if (result.status === "skipped") return t("providers.keyDisabled");
 	return result.error_category
-		? `Validation failed: ${result.error_category.replaceAll("_", " ")}`
-		: "Validation failed";
+		? t("providers.validationFailedReason", {
+				reason: result.error_category.replaceAll("_", " "),
+			})
+		: t("providers.validationFailed");
 }
 
+/** Ordered API-key rows for one provider, including validation chrome. */
 export default function ProviderKeyPoolEditor({
 	keys,
 	protocol,
@@ -50,6 +57,7 @@ export default function ProviderKeyPoolEditor({
 	waiting = false,
 	onChange,
 }: Props) {
+	const t = useT();
 	const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
 
 	const update = (
@@ -87,7 +95,7 @@ export default function ProviderKeyPoolEditor({
 			<div className="overflow-hidden rounded-md border border-border">
 				{keys.length === 0 ? (
 					<div className="px-4 py-6 text-center text-xs text-text-muted">
-						No API keys configured
+						{t("providers.noKeys")}
 					</div>
 				) : (
 					keys.map((key, index) => {
@@ -103,7 +111,7 @@ export default function ProviderKeyPoolEditor({
 							providerRuntimeStatusPresentation(runtimeStatus);
 						const label =
 							validating && key.enabled
-								? "Testing key"
+								? t("providers.testingKey")
 								: result
 									? resultLabel(result)
 									: statusPresentation.label;
@@ -117,7 +125,7 @@ export default function ProviderKeyPoolEditor({
 										className={`h-2 w-2 shrink-0 rounded-full ${
 											statusPresentation.className
 										} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
-										aria-label={`${key.name || `API key ${index + 1}`}: ${label}`}
+										aria-label={`${key.name || t("providers.apiKeyNamed", { index: index + 1 })}: ${label}`}
 										title={label}
 									/>
 									<input
@@ -126,8 +134,12 @@ export default function ProviderKeyPoolEditor({
 										onChange={(event) =>
 											update(index, { name: event.target.value }, false)
 										}
-										aria-label={`API key ${index + 1} name`}
-										placeholder={index === 0 ? "Primary" : `Backup ${index}`}
+										aria-label={t("providers.apiKeyName", { index: index + 1 })}
+										placeholder={
+											index === 0
+												? t("providers.primary")
+												: t("providers.backup", { index })
+										}
 										className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 text-xs font-medium text-text-secondary placeholder:text-text-muted"
 									/>
 								</div>
@@ -140,14 +152,24 @@ export default function ProviderKeyPoolEditor({
 											update(index, { value: event.target.value }, true)
 										}
 										placeholder={keyHintFor(protocol)}
-										aria-label={`API key ${index + 1} value`}
+										aria-label={t("providers.apiKeyValue", {
+											index: index + 1,
+										})}
 										className="min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-xs text-text-primary outline-none placeholder:text-text-muted"
 									/>
 									<button
 										type="button"
 										onClick={() => toggleReveal(key.id)}
-										aria-label={`${isRevealed ? "Hide" : "Show"} API key ${index + 1}`}
-										title={isRevealed ? "Hide key" : "Show key"}
+										aria-label={
+											isRevealed
+												? t("providers.hideKeyNamed", { index: index + 1 })
+												: t("providers.showKeyNamed", { index: index + 1 })
+										}
+										title={
+											isRevealed
+												? t("providers.hideKey")
+												: t("providers.showKey")
+										}
 										className="flex w-9 items-center justify-center border-l border-border bg-transparent text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none"
 									>
 										{isRevealed ? (
@@ -162,8 +184,16 @@ export default function ProviderKeyPoolEditor({
 										type="button"
 										role="switch"
 										aria-checked={key.enabled}
-										aria-label={`${key.enabled ? "Disable" : "Enable"} API key ${index + 1}`}
-										title={key.enabled ? "Disable key" : "Enable key"}
+										aria-label={
+											key.enabled
+												? t("providers.disableKeyNamed", { index: index + 1 })
+												: t("providers.enableKeyNamed", { index: index + 1 })
+										}
+										title={
+											key.enabled
+												? t("providers.disableKey")
+												: t("providers.enableKey")
+										}
 										onClick={() =>
 											update(index, { enabled: !key.enabled }, true)
 										}
@@ -177,8 +207,8 @@ export default function ProviderKeyPoolEditor({
 										type="button"
 										onClick={() => move(index, index - 1)}
 										disabled={index === 0}
-										aria-label={`Move API key ${index + 1} up`}
-										title="Move up"
+										aria-label={t("providers.moveKeyUp", { index: index + 1 })}
+										title={t("common.moveUp")}
 										className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover disabled:opacity-25"
 									>
 										<ArrowUp className="h-3.5 w-3.5" />
@@ -187,8 +217,10 @@ export default function ProviderKeyPoolEditor({
 										type="button"
 										onClick={() => move(index, index + 1)}
 										disabled={index === keys.length - 1}
-										aria-label={`Move API key ${index + 1} down`}
-										title="Move down"
+										aria-label={t("providers.moveKeyDown", {
+											index: index + 1,
+										})}
+										title={t("common.moveDown")}
 										className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover disabled:opacity-25"
 									>
 										<ArrowDown className="h-3.5 w-3.5" />
@@ -201,8 +233,10 @@ export default function ProviderKeyPoolEditor({
 												true,
 											)
 										}
-										aria-label={`Remove API key ${index + 1}`}
-										title="Remove API key"
+										aria-label={t("providers.removeKeyNamed", {
+											index: index + 1,
+										})}
+										title={t("providers.removeKey")}
 										className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger"
 									>
 										<Trash2 className="h-3.5 w-3.5" />
@@ -216,8 +250,7 @@ export default function ProviderKeyPoolEditor({
 			<div className="mt-3 flex items-center justify-between gap-3">
 				<p className="flex items-center gap-1.5 text-xs text-text-muted">
 					<Info className="h-3.5 w-3.5" />
-					Key values are encrypted together and never stored in the provider
-					profile.
+					{t("providers.keysEncryptedHelp")}
 				</p>
 				<button
 					type="button"
@@ -228,7 +261,7 @@ export default function ProviderKeyPoolEditor({
 					className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 				>
 					<Plus className="h-3.5 w-3.5" />
-					Add API key
+					{t("providers.addKey")}
 				</button>
 			</div>
 		</>

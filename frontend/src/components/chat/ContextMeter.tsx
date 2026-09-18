@@ -7,6 +7,7 @@
 // will show.
 
 import { Gauge } from "lucide-react";
+import { t } from "../../i18n";
 import type {
 	ContextMeterMetricId,
 	ContextMeterMetricPreference,
@@ -73,7 +74,7 @@ export default function ContextMeter({
 			<div
 				role="progressbar"
 				tabIndex={0}
-				aria-label="Context usage"
+				aria-label={t("context.usage")}
 				aria-valuemin={0}
 				// Assistive values stay in tokens so a 0.4% window still reports
 				// the four occupied tokens instead of rounding the bar to zero.

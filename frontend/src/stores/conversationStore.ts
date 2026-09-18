@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { t } from "../i18n";
 import { upgradeConversationCharacter as upgradeCharacterSnapshot } from "../services/characters";
 import {
 	type ChatTurnOptions,
@@ -400,7 +401,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 					? { loading: false, error: "Failed to load conversation" }
 					: {},
 			);
-			toast.error("Failed to load conversation");
+			toast.error(t("conversation.loadFailed"));
 		}
 	},
 
@@ -452,7 +453,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			logStoreError("Failed to create conversation", err);
 			set({ error: "Failed to create conversation" });
-			toast.error("Failed to create conversation");
+			toast.error(t("conversation.createFailed"));
 			return "";
 		}
 	},
@@ -507,7 +508,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 		} catch (err) {
 			logStoreError("Failed to delete conversation", err);
 			set({ error: "Failed to delete conversation" });
-			toast.error("Failed to delete conversation");
+			toast.error(t("conversation.deleteFailed"));
 		}
 	},
 
@@ -531,7 +532,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				),
 				error: "Rename failed",
 			}));
-			toast.error("Rename failed");
+			toast.error(t("conversation.renameFailed"));
 		}
 	},
 
@@ -583,7 +584,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				),
 				error: "Failed to update conversation model",
 			}));
-			toast.error("Failed to update conversation model");
+			toast.error(t("conversation.modelUpdateFailed"));
 		}
 	},
 
@@ -1162,7 +1163,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			}));
 		} catch (err) {
 			logStoreError("Generate title failed", err);
-			toast.error("Failed to generate title");
+			toast.error(t("conversation.titleFailed"));
 		}
 	},
 

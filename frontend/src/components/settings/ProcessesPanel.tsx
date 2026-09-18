@@ -1,22 +1,35 @@
+// Local Engine/Gateway process table with restart controls.
+
 import { RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { t, useT } from "../../i18n";
 import { type ServiceStatus, devtools, inTauri } from "../../services/devtools";
 import { confirm } from "../../stores/confirmStore";
 import { toast } from "../../stores/toastStore";
 
 const POLL_MS = 1500;
 
+/** Compact uptime for the process table; units follow the active locale. */
 function uptimeLabel(secs: number): string {
 	if (secs <= 0) return "—";
 	const h = Math.floor(secs / 3600);
 	const m = Math.floor((secs % 3600) / 60);
 	const s = secs % 60;
-	if (h > 0) return `${h}h ${m}m`;
-	if (m > 0) return `${m}m ${s}s`;
-	return `${s}s`;
+	if (h > 0) return t("processes.uptimeHours", { h, m });
+	if (m > 0) return t("processes.uptimeMinutes", { m, s });
+	return t("processes.uptimeSeconds", { s });
 }
 
+/** Translate known service ids; unknown names stay as identifiers. */
+function processDisplayName(name: string): string {
+	if (name === "engine") return t("processes.engine");
+	if (name === "gateway") return t("processes.gateway");
+	return name;
+}
+
+/** Desktop process table for Engine and Gateway, including restart. */
 export default function ProcessesPanel() {
+	const translate = useT();
 	const [statuses, setStatuses] = useState<ServiceStatus[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [restarting, setRestarting] = useState<"engine" | "gateway" | null>(
@@ -44,10 +57,10 @@ export default function ProcessesPanel() {
 
 	const restartService = async (service: "engine" | "gateway") => {
 		const accepted = await confirm.ask(
-			`Restart ${service}?`,
+			t("processes.restartTitle", { name: processDisplayName(service) }),
 			service === "engine"
-				? "The local Engine will briefly stop. In-flight requests can fail while its database and API are reopened."
-				: "The local Gateway will briefly stop. In-flight model requests and streams can be interrupted.",
+				? t("processes.restartEngine")
+				: t("processes.restartGateway"),
 		);
 		if (!accepted) return;
 
@@ -55,10 +68,21 @@ export default function ProcessesPanel() {
 		try {
 			await devtools.restartService(service);
 			await refresh();
-			toast.success(`${service === "engine" ? "Engine" : "Gateway"} restarted`);
+			toast.success(
+				t("toast.serviceRestarted", {
+					name:
+						service === "engine"
+							? t("processes.engine")
+							: t("processes.gateway"),
+				}),
+			);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : `Failed to restart ${service}`,
+				error instanceof Error
+					? error.message
+					: t("processes.restartFailed", {
+							name: processDisplayName(service),
+						}),
 			);
 		} finally {
 			setRestarting(null);
@@ -68,7 +92,7 @@ export default function ProcessesPanel() {
 	if (!tauri) {
 		return (
 			<p className="p-10 text-center text-sm text-text-muted">
-				System processes are only available in the desktop app.
+				{translate("processes.desktopOnly")}
 			</p>
 		);
 	}
@@ -77,17 +101,19 @@ export default function ProcessesPanel() {
 		<div className="flex h-full min-h-0 flex-col p-5">
 			<div className="mb-4 flex items-center justify-between gap-4">
 				<div>
-					<p className="text-sm font-medium text-text-primary">Local runtime</p>
+					<p className="text-sm font-medium text-text-primary">
+						{translate("processes.localRuntime")}
+					</p>
 					<p className="mt-1 text-xs text-text-muted">
-						Desktop host and managed services
+						{translate("processes.hostAndServices")}
 					</p>
 				</div>
 				<button
 					type="button"
 					onClick={() => void refresh()}
 					disabled={loading}
-					aria-label="Refresh process status"
-					title="Refresh process status"
+					aria-label={translate("processes.refresh")}
+					title={translate("processes.refresh")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 				>
 					<RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -96,12 +122,12 @@ export default function ProcessesPanel() {
 
 			<div className="min-h-0 overflow-auto border-y border-border">
 				<div className="grid min-w-[880px] grid-cols-[minmax(150px,1fr)_280px_90px_80px_90px_64px] gap-4 border-b border-border bg-surface-alt/50 px-3 py-2 text-[10px] font-semibold text-text-muted">
-					<span>PROCESS</span>
-					<span>VERSION</span>
-					<span>PID</span>
-					<span>PORT</span>
-					<span>UPTIME</span>
-					<span className="text-right">ACTION</span>
+					<span>{translate("processes.process")}</span>
+					<span>{translate("common.version")}</span>
+					<span>{translate("processes.pid")}</span>
+					<span>{translate("processes.port")}</span>
+					<span>{translate("processes.uptime")}</span>
+					<span className="text-right">{translate("processes.action")}</span>
 				</div>
 				{statuses.map((service) => {
 					const restartable =
@@ -119,16 +145,16 @@ export default function ProcessesPanel() {
 								/>
 								<div className="min-w-0">
 									<p className="truncate text-sm font-medium capitalize text-text-primary">
-										{service.name}
+										{processDisplayName(service.name)}
 									</p>
 									<p
 										className={`text-[10px] ${service.running ? "text-success" : "text-danger"}`}
 									>
 										{isRestarting
-											? "restarting"
+											? translate("processes.restarting")
 											: service.running
-												? "running"
-												: "stopped"}
+												? translate("processes.running")
+												: translate("processes.stopped")}
 									</p>
 								</div>
 							</div>
@@ -136,7 +162,8 @@ export default function ProcessesPanel() {
 								<span className="mr-2 font-sans text-[10px] uppercase text-text-muted">
 									{service.component}
 								</span>
-								{service.version} (Build {service.build_id})
+								{service.version}{" "}
+								{translate("processes.build", { id: service.build_id })}
 							</span>
 							<span className="font-mono text-xs text-text-secondary">
 								{service.pid ?? "—"}
@@ -155,8 +182,12 @@ export default function ProcessesPanel() {
 											void restartService(service.name as "engine" | "gateway")
 										}
 										disabled={isRestarting}
-										aria-label={`Restart ${service.name}`}
-										title={`Restart ${service.name}`}
+										aria-label={translate("processes.restartNamed", {
+											name: processDisplayName(service.name),
+										})}
+										title={translate("processes.restartNamed", {
+											name: processDisplayName(service.name),
+										})}
 										className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-wait disabled:opacity-40"
 									>
 										<RotateCcw
@@ -170,7 +201,7 @@ export default function ProcessesPanel() {
 				})}
 				{!loading && statuses.length === 0 && (
 					<p className="p-8 text-center text-sm text-text-muted">
-						No process status available.
+						{translate("processes.none")}
 					</p>
 				)}
 			</div>

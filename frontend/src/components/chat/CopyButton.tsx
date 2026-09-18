@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import { writeClipboardText } from "../../services/clipboard";
 import { toast } from "../../stores/toastStore";
 
@@ -8,7 +9,9 @@ interface Props {
 	label?: string;
 }
 
-export default function CopyButton({ text, label = "Copy" }: Props) {
+export default function CopyButton({ text, label }: Props) {
+	const translate = useT();
+	const resolvedLabel = label ?? translate("common.copy");
 	const [copied, setCopied] = useState(false);
 	const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -23,14 +26,14 @@ export default function CopyButton({ text, label = "Copy" }: Props) {
 		try {
 			await writeClipboardText(text);
 			setCopied(true);
-			toast.success("Copied to clipboard");
+			toast.success(t("toast.copied"));
 			if (resetTimer.current) clearTimeout(resetTimer.current);
 			resetTimer.current = setTimeout(() => setCopied(false), 1500);
 		} catch {
-			toast.error("Copy failed");
+			toast.error(t("toast.copyFailed"));
 		}
 	};
-	const accessibleLabel = copied ? "Copied" : label;
+	const accessibleLabel = copied ? translate("common.copied") : resolvedLabel;
 
 	return (
 		<button

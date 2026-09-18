@@ -1,15 +1,20 @@
 import { MessageSquarePlus, Settings } from "lucide-react";
+import { t } from "../../i18n";
 import type { GlobalContextMenuItemId } from "../../stores/settingsStore";
 
 export const GLOBAL_CONTEXT_MENU_ITEM_DEFINITIONS: ReadonlyArray<{
 	id: GlobalContextMenuItemId;
-	label: string;
+	labelKey: "contextMenu.newChat" | "contextMenu.settings";
 	icon: typeof MessageSquarePlus;
 }> = [
-	{ id: "new-chat", label: "New conversation", icon: MessageSquarePlus },
-	{ id: "settings", label: "Settings", icon: Settings },
+	{ id: "new-chat", labelKey: "contextMenu.newChat", icon: MessageSquarePlus },
+	{ id: "settings", labelKey: "contextMenu.settings", icon: Settings },
 ];
 
 export function globalContextMenuItemDefinition(id: GlobalContextMenuItemId) {
-	return GLOBAL_CONTEXT_MENU_ITEM_DEFINITIONS.find((item) => item.id === id);
+	const definition = GLOBAL_CONTEXT_MENU_ITEM_DEFINITIONS.find(
+		(item) => item.id === id,
+	);
+	if (!definition) return undefined;
+	return { ...definition, label: t(definition.labelKey) };
 }

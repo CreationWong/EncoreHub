@@ -1,3 +1,5 @@
+// Staged remote model list: choose additions or review keep/remove diffs.
+
 import {
 	AlertTriangle,
 	Check,
@@ -8,6 +10,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { type MessageKey, useT } from "../../i18n";
 import type { ProviderModelConfig } from "../../services/providers";
 import {
 	type ProviderModelDiscoveryDiff,
@@ -21,11 +24,27 @@ interface Props {
 }
 
 const TONES = {
-	add: { icon: Plus, label: "Add", className: "text-success" },
-	keep: { icon: Minus, label: "Keep", className: "text-text-secondary" },
-	remove: { icon: Trash2, label: "Remove", className: "text-danger" },
-} as const;
+	add: {
+		icon: Plus,
+		labelKey: "common.add" as const,
+		className: "text-success",
+	},
+	keep: {
+		icon: Minus,
+		labelKey: "providers.discovery.keep" as const,
+		className: "text-text-secondary",
+	},
+	remove: {
+		icon: Trash2,
+		labelKey: "providers.discovery.remove" as const,
+		className: "text-danger",
+	},
+} satisfies Record<
+	string,
+	{ icon: typeof Plus; labelKey: MessageKey; className: string }
+>;
 
+/** Compact add/keep/remove column for a discovery diff. */
 function DiffGroup({
 	tone,
 	models,
@@ -33,6 +52,7 @@ function DiffGroup({
 	tone: keyof typeof TONES;
 	models: ProviderModelConfig[];
 }) {
+	const t = useT();
 	const config = TONES[tone];
 	const Icon = config.icon;
 	return (
@@ -41,11 +61,11 @@ function DiffGroup({
 				className={`mb-2 flex items-center gap-1.5 text-xs font-semibold ${config.className}`}
 			>
 				<Icon className="h-3.5 w-3.5" />
-				<span>{config.label}</span>
+				<span>{t(config.labelKey)}</span>
 				<span className="text-text-muted">{models.length}</span>
 			</div>
 			{models.length === 0 ? (
-				<span className="text-xs text-text-muted">None</span>
+				<span className="text-xs text-text-muted">{t("common.none")}</span>
 			) : (
 				<ul className="space-y-1">
 					{models.slice(0, 5).map((model) => (
@@ -59,7 +79,7 @@ function DiffGroup({
 					))}
 					{models.length > 5 && (
 						<li className="text-[11px] text-text-muted">
-							+{models.length - 5} more
+							{t("providers.discovery.more", { count: models.length - 5 })}
 						</li>
 					)}
 				</ul>
@@ -68,11 +88,13 @@ function DiffGroup({
 	);
 }
 
+/** Review UI for a staged model-discovery diff. */
 export default function ProviderDiscoveryReview({
 	diff,
 	onApply,
 	onCancel,
 }: Props) {
+	const t = useT();
 	const selectable = diff.selectionRequired && diff.additions.length > 0;
 	const [selectedIds, setSelectedIds] = useState(
 		() => new Set(diff.additions.map((model) => model.id)),
@@ -105,7 +127,7 @@ export default function ProviderDiscoveryReview({
 
 	return (
 		<section
-			aria-label="Model discovery changes"
+			aria-label={t("providers.discovery.changes")}
 			aria-live="polite"
 			className="mb-3 overflow-hidden rounded-md border border-border bg-surface"
 		>
@@ -114,13 +136,16 @@ export default function ProviderDiscoveryReview({
 				<div className="min-w-0">
 					<h5 className="text-xs font-semibold text-text-primary">
 						{selectable
-							? "Choose models to add"
-							: "Review remote model changes"}
+							? t("providers.discovery.chooseAdd")
+							: t("providers.discovery.reviewRemote")}
 					</h5>
 					<p className="text-[11px] text-text-muted">
 						{selectable
-							? `${diff.additions.length} new models from ${Math.max(diff.owners.length, 1)} owner groups. Source metadata is applied automatically.`
-							: "Source metadata has been mapped into the provider model records."}
+							? t("providers.discovery.newFromOwners", {
+									count: diff.additions.length,
+									owners: Math.max(diff.owners.length, 1),
+								})
+							: t("providers.discovery.mapped")}
 					</p>
 				</div>
 			</header>
@@ -134,14 +159,14 @@ export default function ProviderDiscoveryReview({
 								autoComplete="off"
 								value={query}
 								onChange={(event) => setQuery(event.target.value)}
-								placeholder="Filter discovered models"
-								aria-label="Filter discovered models"
+								placeholder={t("providers.discovery.filter")}
+								aria-label={t("providers.discovery.filter")}
 								className="h-8 w-full rounded-md border border-border bg-surface-alt pl-8 pr-2 text-xs text-text-primary placeholder:text-text-muted"
 							/>
 						</div>
 						<div className="flex items-center gap-2 text-[11px]">
 							<span className="text-text-muted">
-								{selectedIds.size} selected
+								{t("providers.discovery.selected", { count: selectedIds.size })}
 							</span>
 							<button
 								type="button"
@@ -152,14 +177,14 @@ export default function ProviderDiscoveryReview({
 								}
 								className="text-accent hover:underline"
 							>
-								Select all
+								{t("providers.discovery.selectAll")}
 							</button>
 							<button
 								type="button"
 								onClick={() => setSelectedIds(new Set())}
 								className="text-text-secondary hover:underline"
 							>
-								Clear
+								{t("common.clear")}
 							</button>
 						</div>
 					</div>
@@ -204,7 +229,7 @@ export default function ProviderDiscoveryReview({
 			{diff.removalsWithheld && (
 				<p className="flex items-start gap-1.5 border-t border-warning-border bg-warning-bg px-3 py-2 text-[11px] text-warning">
 					<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					Local-only models will be kept because at least one endpoint failed.
+					{t("providers.discovery.removalsWithheld")}
 				</p>
 			)}
 			<footer className="flex items-center justify-end gap-2 border-t border-border px-3 py-2.5">
@@ -213,7 +238,7 @@ export default function ProviderDiscoveryReview({
 					onClick={onCancel}
 					className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 				>
-					Keep local list
+					{t("providers.discovery.keepLocal")}
 				</button>
 				<button
 					type="button"
@@ -228,7 +253,9 @@ export default function ProviderDiscoveryReview({
 					className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					<Check className="h-3.5 w-3.5" />
-					{selectable ? "Save selected models" : "Apply & save"}
+					{selectable
+						? t("providers.discovery.saveSelected")
+						: t("providers.discovery.applySave")}
 				</button>
 			</footer>
 		</section>

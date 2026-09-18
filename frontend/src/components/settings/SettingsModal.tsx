@@ -18,6 +18,8 @@ import {
 	Terminal,
 } from "lucide-react";
 import { Suspense, lazy, useEffect } from "react";
+import { useT } from "../../i18n";
+import type { MessageKey } from "../../i18n";
 import {
 	type SettingsTab,
 	isDeveloperSettingsTab,
@@ -46,63 +48,64 @@ const TokenModelsPanel = lazy(() => import("./TokenModelsPanel"));
 
 interface TabDefinition {
 	id: SettingsTab;
-	label: string;
+	labelKey: MessageKey;
 	icon: typeof Bot;
 }
 
 interface TabGroup {
-	label: string;
+	labelKey: MessageKey;
 	tabs: TabDefinition[];
 }
 
 const TAB_GROUPS: TabGroup[] = [
 	{
-		label: "Interface",
+		labelKey: "settings.groupInterface",
 		tabs: [
-			{ id: "appearance", label: "Appearance", icon: Palette },
-			{ id: "context-panel", label: "Context panel", icon: Gauge },
-			{ id: "context-menu", label: "Context menu", icon: MousePointer2 },
+			{ id: "appearance", labelKey: "settings.appearance", icon: Palette },
+			{ id: "context-panel", labelKey: "settings.contextPanel", icon: Gauge },
+			{
+				id: "context-menu",
+				labelKey: "settings.contextMenu",
+				icon: MousePointer2,
+			},
 		],
 	},
 	{
-		label: "AI & tools",
+		labelKey: "settings.groupAi",
 		tabs: [
-			{ id: "providers", label: "Providers", icon: Bot },
-			{ id: "model-metadata", label: "Model metadata", icon: Tags },
-			{ id: "search", label: "Web search", icon: Search },
-			{ id: "skills", label: "Skills", icon: Sparkles },
-			{ id: "usage", label: "Usage", icon: ChartNoAxesColumn },
+			{ id: "providers", labelKey: "settings.providers", icon: Bot },
+			{
+				id: "model-metadata",
+				labelKey: "settings.modelMetadata",
+				icon: Tags,
+			},
+			{ id: "search", labelKey: "settings.webSearch", icon: Search },
+			{ id: "skills", labelKey: "settings.skills", icon: Sparkles },
+			{ id: "usage", labelKey: "settings.usage", icon: ChartNoAxesColumn },
 		],
 	},
 	{
-		label: "Data & privacy",
+		labelKey: "settings.groupData",
 		tabs: [
-			{ id: "data", label: "Data", icon: FolderArchive },
-			{ id: "knowledge", label: "Knowledge", icon: Database },
-			{ id: "memories", label: "Memories", icon: BookOpen },
-			{ id: "security", label: "Security", icon: ShieldCheck },
+			{ id: "data", labelKey: "settings.data", icon: FolderArchive },
+			{ id: "knowledge", labelKey: "settings.knowledge", icon: Database },
+			{ id: "memories", labelKey: "settings.memories", icon: BookOpen },
+			{ id: "security", labelKey: "settings.security", icon: ShieldCheck },
 		],
 	},
 	{
-		label: "System",
-		tabs: [{ id: "about", label: "About", icon: Info }],
+		labelKey: "settings.groupSystem",
+		tabs: [{ id: "about", labelKey: "settings.about", icon: Info }],
 	},
 ];
 
 const DEV_TABS: TabDefinition[] = [
-	{ id: "developer", label: "Developer", icon: Terminal },
-	{ id: "processes", label: "Processes", icon: Cpu },
-	{ id: "logs", label: "Logs", icon: ScrollText },
-	{ id: "database", label: "Database", icon: Database },
-	{ id: "token-models", label: "Token models", icon: Gauge },
+	{ id: "developer", labelKey: "settings.developer", icon: Terminal },
+	{ id: "processes", labelKey: "settings.processes", icon: Cpu },
+	{ id: "logs", labelKey: "settings.logs", icon: ScrollText },
+	{ id: "database", labelKey: "settings.database", icon: Database },
+	{ id: "token-models", labelKey: "settings.tokenModels", icon: Gauge },
 ];
-
-const TAB_LABELS = Object.fromEntries(
-	[...TAB_GROUPS.flatMap((group) => group.tabs), ...DEV_TABS].map((tab) => [
-		tab.id,
-		tab.label,
-	]),
-) as Record<SettingsTab, string>;
 
 const FULL_BLEED_TABS: readonly SettingsTab[] = [
 	"providers",
@@ -128,12 +131,19 @@ function LoadingPanel({ label }: { label: string }) {
 }
 
 export default function SettingsModal() {
+	const t = useT();
 	const tab = useSettingsStore((s) => s.settingsTab);
 	const setTab = useSettingsStore((s) => s.openSettings);
 	const devMode = useSettingsStore((s) => s.devMode);
+	const tabLabels = Object.fromEntries(
+		[...TAB_GROUPS.flatMap((group) => group.tabs), ...DEV_TABS].map((item) => [
+			item.id,
+			t(item.labelKey),
+		]),
+	) as Record<SettingsTab, string>;
 
 	const tabGroups = TAB_GROUPS.map((group) =>
-		group.label === "System" && devMode
+		group.labelKey === "settings.groupSystem" && devMode
 			? { ...group, tabs: [...group.tabs, ...DEV_TABS] }
 			: group,
 	);
@@ -148,18 +158,18 @@ export default function SettingsModal() {
 
 	return (
 		<section
-			aria-label="Settings"
+			aria-label={t("settings.title")}
 			className="flex h-full min-h-0 w-full overflow-hidden bg-workspace text-text-primary"
 		>
 			<aside className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-alt p-3 max-[760px]:w-14 max-[760px]:px-2">
 				<div className="mb-4 px-2 text-sm font-semibold text-text-primary max-[760px]:hidden">
-					Settings
+					{t("settings.title")}
 				</div>
-				<nav aria-label="Settings sections" className="space-y-3">
+				<nav aria-label={t("settings.sections")} className="space-y-3">
 					{tabGroups.map((group) => (
-						<fieldset key={group.label} className="m-0 min-w-0 border-0 p-0">
+						<fieldset key={group.labelKey} className="m-0 min-w-0 border-0 p-0">
 							<legend className="mb-1 w-full px-2 text-[10px] font-semibold text-text-muted max-[760px]:sr-only">
-								{group.label}
+								{t(group.labelKey)}
 							</legend>
 							{group.tabs.map((item) => (
 								<button
@@ -167,7 +177,7 @@ export default function SettingsModal() {
 									type="button"
 									onClick={() => selectTab(item.id)}
 									aria-current={tab === item.id ? "page" : undefined}
-									title={item.label}
+									title={t(item.labelKey)}
 									className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors max-[760px]:justify-center max-[760px]:px-2 ${
 										tab === item.id
 											? "bg-selected text-text-primary"
@@ -176,7 +186,7 @@ export default function SettingsModal() {
 								>
 									<item.icon className="h-4 w-4 shrink-0" />
 									<span className="truncate max-[760px]:hidden">
-										{item.label}
+										{t(item.labelKey)}
 									</span>
 								</button>
 							))}
@@ -188,7 +198,7 @@ export default function SettingsModal() {
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header className="flex h-14 shrink-0 items-center border-b border-border px-5">
 					<h2 className="text-sm font-semibold text-text-primary">
-						{TAB_LABELS[tab]}
+						{tabLabels[tab]}
 					</h2>
 				</header>
 				<div
@@ -204,7 +214,7 @@ export default function SettingsModal() {
 					{tab === "usage" && <UsagePanel />}
 					{tab === "search" && (
 						<Suspense
-							fallback={<LoadingPanel label="Loading web search settings" />}
+							fallback={<LoadingPanel label={t("settings.loadingSearch")} />}
 						>
 							<SearchPanel />
 						</Suspense>
@@ -218,37 +228,45 @@ export default function SettingsModal() {
 					{tab === "context-menu" && <ContextMenuPanel />}
 					{tab === "about" && (
 						<Suspense
-							fallback={
-								<LoadingPanel label="Loading application information" />
-							}
+							fallback={<LoadingPanel label={t("settings.loadingAbout")} />}
 						>
 							<AboutPanel />
 						</Suspense>
 					)}
 					{tab === "developer" && (
 						<Suspense
-							fallback={<LoadingPanel label="Loading developer tools" />}
+							fallback={<LoadingPanel label={t("settings.loadingDeveloper")} />}
 						>
 							<DeveloperPanel />
 						</Suspense>
 					)}
 					{tab === "processes" && (
-						<Suspense fallback={<LoadingPanel label="Loading processes" />}>
+						<Suspense
+							fallback={<LoadingPanel label={t("settings.loadingProcesses")} />}
+						>
 							<ProcessesPanel />
 						</Suspense>
 					)}
 					{tab === "logs" && (
-						<Suspense fallback={<LoadingPanel label="Loading logs" />}>
+						<Suspense
+							fallback={<LoadingPanel label={t("settings.loadingLogs")} />}
+						>
 							<LogsPanel />
 						</Suspense>
 					)}
 					{tab === "database" && (
-						<Suspense fallback={<LoadingPanel label="Loading database" />}>
+						<Suspense
+							fallback={<LoadingPanel label={t("settings.loadingDatabase")} />}
+						>
 							<DatabasePanel />
 						</Suspense>
 					)}
 					{tab === "token-models" && (
-						<Suspense fallback={<LoadingPanel label="Loading token models" />}>
+						<Suspense
+							fallback={
+								<LoadingPanel label={t("settings.loadingTokenModels")} />
+							}
+						>
 							<TokenModelsPanel />
 						</Suspense>
 					)}

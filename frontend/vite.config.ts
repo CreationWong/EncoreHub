@@ -107,5 +107,6 @@ export default defineConfig(({ mode }) => ({
 		environment: "jsdom",
 		globals: false,
 		include: ["src/**/*.{test,spec}.{ts,tsx}"],
+		setupFiles: ["src/testing/setupI18n.ts"],
 	},
 }));

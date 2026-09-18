@@ -1,5 +1,8 @@
+// Conversation character-upgrade preview: compare snapshot fields and apply.
+
 import { AlertTriangle, ArrowRight, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { type MessageKey, t, useT } from "../../i18n";
 import {
 	type CharacterSnapshot,
 	type CharacterUpgradePreview,
@@ -9,17 +12,20 @@ import type { Conversation } from "../../services/conversation";
 import { useConversationStore } from "../../stores/conversationStore";
 import { toast } from "../../stores/toastStore";
 
-const FIELD_LABELS: Record<string, string> = {
-	name: "Name",
-	avatar: "Avatar",
-	description: "Description",
-	system_prompt: "Global prompt",
-	opening_message: "Opening message",
-	tags: "Tags",
-	provider: "Provider",
-	model: "Model",
+const FIELD_LABELS: Record<string, MessageKey> = {
+	name: "character.name",
+	avatar: "character.upgrade.fieldAvatar",
+	description: "character.description",
+	system_prompt: "character.globalPrompt",
+	opening_message: "character.openingMessage",
+	tags: "character.tags",
+	provider: "common.provider",
+	model: "common.model",
 };
 
+/**
+ * Readable snapshot value for one compared field.
+ */
 function fieldValue(
 	preview: CharacterUpgradePreview,
 	field: CharacterUpgradePreview["changed_fields"][number],
@@ -36,9 +42,12 @@ function fieldValue(
 	const snapshot: CharacterSnapshot =
 		side === "current" ? preview.current_snapshot : preview.proposed_snapshot;
 	const value = snapshot[field];
-	return Array.isArray(value) ? value.join(", ") : value || "Empty";
+	return Array.isArray(value) ? value.join(", ") : value || t("common.empty");
 }
 
+/**
+ * Review and apply a newer character revision onto an existing conversation.
+ */
 export default function CharacterUpgradeDialog({
 	conversation,
 	latestVersion,
@@ -46,6 +55,7 @@ export default function CharacterUpgradeDialog({
 	conversation: Conversation;
 	latestVersion: number;
 }) {
+	const translate = useT();
 	const upgrade = useConversationStore(
 		(state) => state.upgradeConversationCharacter,
 	);
@@ -67,7 +77,7 @@ export default function CharacterUpgradeDialog({
 			setError(
 				loadError instanceof Error
 					? loadError.message
-					: "Unable to preview this update.",
+					: t("character.upgrade.previewFailed"),
 			);
 		} finally {
 			setLoading(false);
@@ -122,14 +132,14 @@ export default function CharacterUpgradeDialog({
 		try {
 			await upgrade(conversation.id, preview.from_version);
 			toast.success(
-				`Conversation upgraded to character version ${preview.to_version}`,
+				t("character.upgrade.upgraded", { version: preview.to_version }),
 			);
 			close();
 		} catch (applyError) {
 			setError(
 				applyError instanceof Error
 					? applyError.message
-					: "Unable to apply this update.",
+					: t("character.upgrade.applyFailed"),
 			);
 		} finally {
 			setApplying(false);
@@ -146,12 +156,16 @@ export default function CharacterUpgradeDialog({
 					setPreview(null);
 					void loadPreview();
 				}}
-				aria-label="Review character update"
-				title={`Character version ${latestVersion} is available`}
+				aria-label={translate("character.upgrade.review")}
+				title={translate("character.upgrade.versionAvailable", {
+					version: latestVersion,
+				})}
 				className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-warning-border bg-warning-bg px-2 text-[11px] font-medium text-warning hover:bg-control max-[899px]:w-8 max-[899px]:justify-center max-[899px]:px-0"
 			>
 				<RefreshCw className="h-3.5 w-3.5" />
-				<span className="max-[899px]:hidden">Update available</span>
+				<span className="max-[899px]:hidden">
+					{translate("character.upgrade.updateAvailable")}
+				</span>
 			</button>
 
 			{open && (
@@ -160,7 +174,7 @@ export default function CharacterUpgradeDialog({
 						type="button"
 						tabIndex={-1}
 						onClick={close}
-						aria-label="Dismiss character update preview"
+						aria-label={translate("character.upgrade.dismiss")}
 						className="absolute inset-0 bg-black/45"
 					/>
 					<dialog
@@ -175,18 +189,17 @@ export default function CharacterUpgradeDialog({
 									id="character-upgrade-title"
 									className="truncate text-sm font-semibold"
 								>
-									Review character update
+									{translate("character.upgrade.review")}
 								</h2>
 								<p className="text-[11px] text-text-muted">
-									Conversation snapshot remains unchanged until you apply this
-									update.
+									{translate("character.upgrade.snapshotUnchanged")}
 								</p>
 							</div>
 							<button
 								ref={closeRef}
 								type="button"
 								onClick={close}
-								aria-label="Close character update preview"
+								aria-label={translate("character.upgrade.close")}
 								className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 							>
 								<X className="h-4 w-4" />
@@ -196,7 +209,7 @@ export default function CharacterUpgradeDialog({
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
 							{loading && (
 								<output
-									aria-label="Loading character update preview"
+									aria-label={translate("character.upgrade.loading")}
 									className="flex h-40 items-center justify-center"
 								>
 									<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
@@ -212,7 +225,7 @@ export default function CharacterUpgradeDialog({
 										onClick={() => void loadPreview()}
 										className="shrink-0 rounded-md border border-danger-border px-2 py-1 text-xs font-medium"
 									>
-										Retry
+										{translate("common.retry")}
 									</button>
 								</div>
 							)}
@@ -221,29 +234,35 @@ export default function CharacterUpgradeDialog({
 								<>
 									<div className="flex items-center gap-3 border-b border-border pb-4 text-sm">
 										<span className="rounded-md bg-control px-2 py-1 font-medium tabular-nums">
-											Version {preview.from_version}
+											{translate("character.versionLabel", {
+												version: preview.from_version,
+											})}
 										</span>
 										<ArrowRight className="h-4 w-4 text-text-muted" />
 										<span className="rounded-md bg-success-bg px-2 py-1 font-medium text-success tabular-nums">
-											Version {preview.to_version}
+											{translate("character.versionLabel", {
+												version: preview.to_version,
+											})}
 										</span>
 									</div>
 
 									{preview.changed_fields.length === 0 ? (
 										<p className="py-8 text-center text-sm text-text-muted">
-											No content fields changed.
+											{translate("character.upgrade.noFields")}
 										</p>
 									) : (
 										<div className="divide-y divide-border">
 											{preview.changed_fields.map((field) => (
 												<section key={field} className="py-4">
 													<h3 className="mb-2 text-xs font-semibold text-text-secondary">
-														{FIELD_LABELS[field] ?? field}
+														{FIELD_LABELS[field]
+															? translate(FIELD_LABELS[field])
+															: field}
 													</h3>
 													<div className="grid grid-cols-2 gap-3 max-[680px]:grid-cols-1">
 														<div className="min-w-0">
 															<p className="mb-1 text-[10px] font-medium text-text-muted">
-																Current snapshot
+																{translate("character.upgrade.currentSnapshot")}
 															</p>
 															<pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-control p-2 font-sans text-xs leading-5 text-text-secondary">
 																{fieldValue(preview, field, "current")}
@@ -251,7 +270,7 @@ export default function CharacterUpgradeDialog({
 														</div>
 														<div className="min-w-0">
 															<p className="mb-1 text-[10px] font-medium text-text-muted">
-																Latest profile
+																{translate("character.upgrade.latestProfile")}
 															</p>
 															<pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-control p-2 font-sans text-xs leading-5 text-text-primary">
 																{fieldValue(preview, field, "proposed")}
@@ -272,7 +291,7 @@ export default function CharacterUpgradeDialog({
 								onClick={close}
 								className="h-9 rounded-md border border-border px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
 							>
-								Keep current snapshot
+								{translate("character.upgrade.keepSnapshot")}
 							</button>
 							<button
 								type="button"
@@ -281,7 +300,7 @@ export default function CharacterUpgradeDialog({
 								className="flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-								Apply update
+								{translate("character.upgrade.apply")}
 							</button>
 						</footer>
 					</dialog>

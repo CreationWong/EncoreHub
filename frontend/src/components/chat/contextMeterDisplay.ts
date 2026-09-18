@@ -7,6 +7,8 @@
 // questions. Window-dependent metrics return null when the limit is unknown so
 // callers can fall back to a raw used-token count.
 
+import { activeLocaleId, intlLocale, t } from "../../i18n";
+import type { MessageKey } from "../../i18n";
 import type {
 	ContextMeterMetricId,
 	ContextMeterMetricPreference,
@@ -27,26 +29,26 @@ export interface ContextMeterLine {
 	title?: string;
 }
 
-/** Copy shown in Settings when choosing order and the primary metric. */
+/** Catalog keys for Settings copy; labels are resolved through `t()` so new languages only add a pack. */
 export const CONTEXT_METER_METRIC_DEFINITIONS: Record<
 	ContextMeterMetricId,
-	{ label: string; detail: string }
+	{ labelKey: MessageKey; detailKey: MessageKey }
 > = {
 	percentage: {
-		label: "Window used",
-		detail: "Share of the model context window the next request occupies.",
+		labelKey: "context.meter.percentage",
+		detailKey: "context.meter.percentageDetail",
 	},
 	remaining: {
-		label: "Tokens remaining",
-		detail: "Space left before the conversation fills the window.",
+		labelKey: "context.meter.remaining",
+		detailKey: "context.meter.remainingDetail",
 	},
 	usedOfLimit: {
-		label: "Used of window",
-		detail: "Tokens already occupied versus the context limit.",
+		labelKey: "context.meter.usedOfLimit",
+		detailKey: "context.meter.usedOfLimitDetail",
 	},
 	used: {
-		label: "Tokens used",
-		detail: "Absolute tokens included in the next request.",
+		labelKey: "context.meter.used",
+		detailKey: "context.meter.usedDetail",
 	},
 };
 
@@ -62,9 +64,9 @@ export const CONTEXT_METER_PREVIEW_VALUES: ContextMeterValues = {
  * Format a token count with grouping separators and no fraction digits.
  */
 export function formatTokens(value: number): string {
-	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(
-		value,
-	);
+	return new Intl.NumberFormat(intlLocale(activeLocaleId()), {
+		maximumFractionDigits: 0,
+	}).format(value);
 }
 
 /**
@@ -74,7 +76,7 @@ export function formatContextPercentage(value: number): string {
 	if (value === 0) return "0%";
 	if (value < 0.01) return "<0.01%";
 	if (value < 1) {
-		return `${new Intl.NumberFormat("en-US", {
+		return `${new Intl.NumberFormat(intlLocale(activeLocaleId()), {
 			maximumFractionDigits: 2,
 		}).format(value)}%`;
 	}
@@ -108,28 +110,36 @@ export function formatContextMeterLine(
 ): ContextMeterLine | null {
 	if (!contextMeterMetricAvailable(id, values)) return null;
 
+	const usedCount = formatTokens(values.used);
+	const limitCount = formatTokens(values.limit ?? 0);
+	const remainingCount = formatTokens(values.remaining ?? 0);
 	const usedOfLimitTitle =
 		values.limit != null
-			? `${formatTokens(values.used)} of ${formatTokens(values.limit)} tokens used`
+			? t("context.meter.usedOfLimitTitle", {
+					used: usedCount,
+					limit: limitCount,
+				})
 			: undefined;
 
 	switch (id) {
-		case "percentage":
+		case "percentage": {
+			const value = formatContextPercentage(values.percentage ?? 0);
 			return {
 				id,
 				text:
 					variant === "primary"
-						? formatContextPercentage(values.percentage ?? 0)
-						: `${formatContextPercentage(values.percentage ?? 0)} of window`,
+						? value
+						: t("context.meter.percentageOfWindow", { value }),
 				title: usedOfLimitTitle,
 			};
+		}
 		case "remaining":
 			return {
 				id,
 				text:
 					variant === "primary"
-						? `${formatTokens(values.remaining ?? 0)} remaining`
-						: `${formatTokens(values.remaining ?? 0)} tokens remaining`,
+						? t("context.meter.remainingPrimary", { count: remainingCount })
+						: t("context.meter.remainingSecondary", { count: remainingCount }),
 				title: usedOfLimitTitle,
 			};
 		case "usedOfLimit":
@@ -137,8 +147,14 @@ export function formatContextMeterLine(
 				id,
 				text:
 					variant === "primary"
-						? `${formatTokens(values.used)} of ${formatTokens(values.limit ?? 0)}`
-						: `${formatTokens(values.used)} of ${formatTokens(values.limit ?? 0)} tokens`,
+						? t("context.meter.usedOfLimitPrimary", {
+								used: usedCount,
+								limit: limitCount,
+							})
+						: t("context.meter.usedOfLimitSecondary", {
+								used: usedCount,
+								limit: limitCount,
+							}),
 			};
 		case "used":
 			// Without a window the raw count is the only honest headline; the
@@ -148,11 +164,11 @@ export function formatContextMeterLine(
 				text:
 					variant === "primary"
 						? values.limit == null
-							? formatTokens(values.used)
-							: `${formatTokens(values.used)} used`
+							? usedCount
+							: t("context.meter.usedPrimary", { count: usedCount })
 						: values.limit == null
-							? `${formatTokens(values.used)} estimated tokens`
-							: `${formatTokens(values.used)} tokens used`,
+							? t("context.meter.usedEstimated", { count: usedCount })
+							: t("context.meter.usedSecondary", { count: usedCount }),
 			};
 	}
 }

@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n";
 import type {
 	ProviderModelCapability,
 	ProviderProtocol,
@@ -20,24 +21,23 @@ export function keyHintFor(protocol: ProviderProtocol): string {
 
 export const API_FORMATS: {
 	value: ProviderProtocol;
-	label: string;
-	description: string;
+	labelKey: MessageKey;
+	descriptionKey: MessageKey;
 }[] = [
 	{
 		value: "openai",
-		label: "OpenAI Chat Completions",
-		description: "OpenAI, DeepSeek, compatible gateways, and local servers",
+		labelKey: "providers.openaiChat",
+		descriptionKey: "providers.openaiChatHelp",
 	},
 	{
 		value: "openai-responses",
-		label: "OpenAI Responses API",
-		description:
-			"OpenAI Responses API with its independent input and event format",
+		labelKey: "providers.openaiResponses",
+		descriptionKey: "providers.openaiResponsesHelp",
 	},
 	{
 		value: "anthropic",
-		label: "Anthropic Messages",
-		description: "Anthropic and gateways implementing the Messages API",
+		labelKey: "providers.anthropic",
+		descriptionKey: "providers.anthropicHelp",
 	},
 ];
 

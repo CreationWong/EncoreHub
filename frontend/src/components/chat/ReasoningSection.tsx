@@ -7,6 +7,7 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
+import { t } from "../../i18n";
 import type { Message } from "../../services/conversation";
 
 interface ReasoningSectionProps {
@@ -28,7 +29,7 @@ function reasoningState(
 } {
 	if (streaming) {
 		return {
-			label: "Thinking",
+			label: t("chat.thinking"),
 			Icon: LoaderCircle,
 			className: "text-text-muted",
 			animate: true,
@@ -36,20 +37,20 @@ function reasoningState(
 	}
 	if (status === "failed") {
 		return {
-			label: "Processing failed",
+			label: t("chat.processingFailed"),
 			Icon: CircleX,
 			className: "text-danger",
 		};
 	}
 	if (status === "stopped") {
 		return {
-			label: "Stopped",
+			label: t("common.stopped"),
 			Icon: CircleStop,
 			className: "text-warning",
 		};
 	}
 	return {
-		label: "Processed",
+		label: t("chat.processed"),
 		Icon: CheckCircle2,
 		className: "text-text-muted",
 	};

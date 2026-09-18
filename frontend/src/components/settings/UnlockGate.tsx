@@ -1,5 +1,6 @@
 import { Lock } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { t, useT } from "../../i18n";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { toast } from "../../stores/toastStore";
 
@@ -10,6 +11,7 @@ import { toast } from "../../stores/toastStore";
  * keys without unlocking), but reappears until unlocked.
  */
 export default function UnlockGate() {
+	const translate = useT();
 	const encrypted = useSecretsStore((s) => s.encrypted);
 	const unlocked = useSecretsStore((s) => s.unlocked);
 	const loaded = useSecretsStore((s) => s.loaded);
@@ -27,9 +29,9 @@ export default function UnlockGate() {
 		try {
 			await unlock(pw);
 			setPw("");
-			toast.success("Unlocked");
+			toast.success(t("toast.unlocked"));
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Incorrect password");
+			toast.error(err instanceof Error ? err.message : t("unlock.incorrect"));
 		} finally {
 			setBusy(false);
 		}
@@ -47,9 +49,11 @@ export default function UnlockGate() {
 						<Lock className="h-5 w-5 text-accent" />
 					</div>
 					<div>
-						<h2 className="text-sm font-semibold">Unlock EncoreHub</h2>
+						<h2 className="text-sm font-semibold">
+							{translate("unlock.title")}
+						</h2>
 						<p className="text-xs text-text-muted">
-							Enter your master password to use stored API keys.
+							{translate("unlock.help")}
 						</p>
 					</div>
 				</div>
@@ -59,7 +63,7 @@ export default function UnlockGate() {
 						type="password"
 						value={pw}
 						onChange={(e) => setPw(e.target.value)}
-						placeholder="Master password"
+						placeholder={translate("security.masterPassword")}
 						// biome-ignore lint/a11y/noAutofocus: unlock prompt should focus immediately
 						autoFocus
 						className="w-full rounded-lg border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
@@ -70,14 +74,14 @@ export default function UnlockGate() {
 							disabled={busy || !pw}
 							className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-40"
 						>
-							Unlock
+							{translate("security.unlock")}
 						</button>
 						<button
 							type="button"
 							onClick={() => setDismissed(true)}
 							className="rounded-lg border border-border px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover"
 						>
-							Later
+							{translate("unlock.later")}
 						</button>
 					</div>
 				</form>

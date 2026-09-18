@@ -1,3 +1,5 @@
+// Global character version history: commit, branch, and restore working copies.
+
 import {
 	GitBranch,
 	GitCommitHorizontal,
@@ -6,6 +8,7 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { intlLocale, useActiveLocaleId, useT } from "../../i18n";
 import {
 	type CharacterHistory as CharacterHistoryData,
 	type CharacterHistoryListResponse,
@@ -28,8 +31,11 @@ type PendingAction =
 	| { type: "commit" }
 	| null;
 
-function formattedDate(value: string): string {
-	return new Intl.DateTimeFormat(undefined, {
+/**
+ * Format a history timestamp in the active catalog locale.
+ */
+function formattedDate(value: string, localeId: string): string {
+	return new Intl.DateTimeFormat(intlLocale(localeId), {
 		month: "short",
 		day: "numeric",
 		hour: "2-digit",
@@ -37,11 +43,16 @@ function formattedDate(value: string): string {
 	}).format(new Date(value));
 }
 
+/**
+ * Version tree for every character, plus commit/branch/restore actions.
+ */
 export default function CharacterHistory({
 	selectedCharacterId,
 	onProfileChange,
 	loadHistories = listCharacterHistories,
 }: CharacterHistoryProps) {
+	const t = useT();
+	const localeId = useActiveLocaleId();
 	const commitVersion = useCharacterStore((state) => state.commitVersion);
 	const createBranch = useCharacterStore((state) => state.createBranch);
 	const restoreVersion = useCharacterStore((state) => state.restoreVersion);
@@ -59,12 +70,14 @@ export default function CharacterHistory({
 			setHistories((await loadHistories()).histories);
 		} catch (caught) {
 			setError(
-				caught instanceof Error ? caught.message : "Failed to load history",
+				caught instanceof Error
+					? caught.message
+					: t("character.historyPanel.loadFailed"),
 			);
 		} finally {
 			setLoading(false);
 		}
-	}, [loadHistories]);
+	}, [loadHistories, t]);
 
 	useEffect(() => {
 		void refresh();
@@ -91,15 +104,21 @@ export default function CharacterHistory({
 			onProfileChange(profile);
 			toast.success(
 				pending.type === "commit"
-					? `Version ${profile.version} created`
-					: `Branch ${profile.active_branch} created`,
+					? t("character.historyPanel.versionCreated", {
+							version: profile.version,
+						})
+					: t("character.historyPanel.branchCreated", {
+							name: profile.active_branch,
+						}),
 			);
 			setPending(null);
 			setValue("");
 			await refresh();
 		} catch (caught) {
 			setError(
-				caught instanceof Error ? caught.message : "History action failed",
+				caught instanceof Error
+					? caught.message
+					: t("character.historyPanel.actionFailed"),
 			);
 		} finally {
 			setSubmitting(false);
@@ -111,8 +130,12 @@ export default function CharacterHistory({
 		version: CharacterVersion,
 	) {
 		const accepted = await confirm.ask(
-			"Restore this version?",
-			`Load ${history.character.name} Version ${version.version} into the ${history.character.active_branch} working copy? The history tree will not be changed.`,
+			t("character.historyPanel.restoreTitle"),
+			t("character.historyPanel.restoreMessage", {
+				name: history.character.name,
+				version: version.version,
+				branch: history.character.active_branch,
+			}),
 		);
 		if (!accepted) return;
 		setSubmitting(true);
@@ -122,10 +145,14 @@ export default function CharacterHistory({
 				version.version,
 			);
 			onProfileChange(profile);
-			toast.success(`Version ${version.version} restored to working copy`);
+			toast.success(t("toast.versionRestored", { version: version.version }));
 			await refresh();
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Restore failed");
+			setError(
+				caught instanceof Error
+					? caught.message
+					: t("character.historyPanel.restoreFailed"),
+			);
 		} finally {
 			setSubmitting(false);
 		}
@@ -139,11 +166,16 @@ export default function CharacterHistory({
 		<div className="flex min-h-0 flex-1 flex-col">
 			<header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-2">
 				<div className="min-w-0 flex-1">
-					<p className="text-sm font-semibold">Global version history</p>
+					<p className="text-sm font-semibold">
+						{t("character.historyPanel.globalTitle")}
+					</p>
 					<p className="text-[11px] text-text-muted">
 						{selectedHistory
-							? `${selectedHistory.character.active_branch} · Version ${selectedHistory.character.version} working copy`
-							: "Select a character to create a version"}
+							? t("character.historyPanel.workingCopy", {
+									branch: selectedHistory.character.active_branch,
+									version: selectedHistory.character.version,
+								})
+							: t("character.historyPanel.selectToVersion")}
 					</p>
 				</div>
 				<button
@@ -153,7 +185,7 @@ export default function CharacterHistory({
 					className="flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
 				>
 					<GitCommitHorizontal className="h-3.5 w-3.5" />
-					Create version
+					{t("character.historyPanel.createVersion")}
 				</button>
 			</header>
 
@@ -162,8 +194,10 @@ export default function CharacterHistory({
 					<label className="min-w-0 flex-1">
 						<span className="mb-1 block text-[11px] font-medium text-text-secondary">
 							{pending.type === "commit"
-								? "Version message"
-								: `Branch from Version ${pending.version.version}`}
+								? t("character.historyPanel.versionMessage")
+								: t("character.historyPanel.branchFrom", {
+										version: pending.version.version,
+									})}
 						</span>
 						<input
 							autoComplete="off"
@@ -175,8 +209,8 @@ export default function CharacterHistory({
 							maxLength={pending.type === "commit" ? 200 : 64}
 							placeholder={
 								pending.type === "commit"
-									? "Describe this version"
-									: "branch-name"
+									? t("character.historyPanel.describeVersion")
+									: t("character.historyPanel.branchName")
 							}
 							className="h-8 w-full rounded-md border border-border bg-control px-2.5 text-xs text-text-primary outline-none focus:border-accent"
 						/>
@@ -186,7 +220,7 @@ export default function CharacterHistory({
 						onClick={() => setPending(null)}
 						className="h-8 rounded-md px-3 text-xs text-text-secondary hover:bg-control"
 					>
-						Cancel
+						{t("common.cancel")}
 					</button>
 					<button
 						type="button"
@@ -195,10 +229,10 @@ export default function CharacterHistory({
 						className="h-8 rounded-md border border-border px-3 text-xs font-medium hover:bg-control disabled:opacity-50"
 					>
 						{submitting
-							? "Working..."
+							? t("common.working")
 							: pending.type === "commit"
-								? "Create"
-								: "Create branch"}
+								? t("common.create")
+								: t("character.historyPanel.createBranch")}
 					</button>
 				</div>
 			)}
@@ -212,7 +246,7 @@ export default function CharacterHistory({
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 				{loading && (
 					<output
-						aria-label="Loading character history"
+						aria-label={t("character.historyPanel.loading")}
 						className="flex h-40 items-center justify-center"
 					>
 						<Loader2 className="h-4 w-4 animate-spin text-text-muted" />
@@ -221,22 +255,25 @@ export default function CharacterHistory({
 				{!loading && histories.length === 0 && (
 					<div className="flex h-40 flex-col items-center justify-center text-text-muted">
 						<History className="mb-2 h-5 w-5" />
-						<p className="text-xs">No character history</p>
+						<p className="text-xs">{t("character.historyPanel.none")}</p>
 					</div>
 				)}
 				<div className="space-y-6">
 					{histories.map((history) => (
 						<section
 							key={history.character.id}
-							aria-label={`${history.character.name} history`}
+							aria-label={t("character.historyPanel.historyFor", {
+								name: history.character.name,
+							})}
 						>
 							<div className="mb-2 flex items-center gap-2 border-b border-border pb-2">
 								<h3 className="min-w-0 flex-1 truncate text-xs font-semibold">
 									{history.character.name}
 								</h3>
 								<span className="text-[10px] text-text-muted">
-									{history.branches.length}{" "}
-									{history.branches.length === 1 ? "branch" : "branches"}
+									{t("character.historyPanel.branch", {
+										count: history.branches.length,
+									})}
 								</span>
 							</div>
 							<div className="relative ml-2 border-l border-border pl-5">
@@ -273,15 +310,15 @@ export default function CharacterHistory({
 													))}
 													{isWorking && (
 														<span className="text-[10px] font-medium text-accent">
-															working copy
+															{t("character.historyPanel.workingCopyBadge")}
 														</span>
 													)}
 												</div>
 												<p className="mt-1 text-[10px] text-text-muted">
 													{version.branch_name} ·{" "}
-													{formattedDate(version.created_at)}
+													{formattedDate(version.created_at, localeId)}
 													{version.parent_version
-														? ` · parent v${version.parent_version}`
+														? ` · ${t("character.historyPanel.parentVersion", { version: version.parent_version })}`
 														: ""}
 												</p>
 											</div>
@@ -293,8 +330,11 @@ export default function CharacterHistory({
 														history.character.id !== selectedCharacterId ||
 														submitting
 													}
-													title="Create branch from this version"
-													aria-label={`Create branch from version ${version.version}`}
+													title={t("character.historyPanel.createBranchFrom")}
+													aria-label={t(
+														"character.historyPanel.createBranchFromVersion",
+														{ version: version.version },
+													)}
 													className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 												>
 													<GitBranch className="h-3.5 w-3.5" />
@@ -307,8 +347,11 @@ export default function CharacterHistory({
 														submitting ||
 														isWorking
 													}
-													title="Restore to working copy"
-													aria-label={`Restore version ${version.version}`}
+													title={t("character.historyPanel.restoreWorking")}
+													aria-label={t(
+														"character.historyPanel.restoreVersion",
+														{ version: version.version },
+													)}
 													className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 												>
 													<RotateCcw className="h-3.5 w-3.5" />

@@ -54,6 +54,7 @@ beforeEach(() => {
 		searXNGSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.searxng },
 		openSERPSearchSettings: { ...DEFAULT_WEB_SEARCH_SETTINGS.openserp },
 		searchSettingsLoaded: false,
+		locale: "en",
 	});
 	useWorkspaceStore.setState({
 		activeTab: "home",
@@ -231,6 +232,17 @@ describe("settingsStore global context menu preferences", () => {
 			{ id: "settings", visible: true },
 			{ id: "new-chat", visible: false },
 		]);
+	});
+});
+
+describe("settingsStore locale preference", () => {
+	it("persists a registered catalog id and rejects unknown ids as system", () => {
+		useSettingsStore.getState().setLocale("zh-CN");
+		expect(useSettingsStore.getState().locale).toBe("zh-CN");
+		expect(localStorage.getItem("encorehub-locale")).toBe("zh-CN");
+
+		useSettingsStore.getState().setLocale("klingon");
+		expect(useSettingsStore.getState().locale).toBe("system");
 	});
 });
 

@@ -1,5 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listLocales } from "../../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 const runtime = vi.hoisted(() => ({ platform: "windows" }));
@@ -58,6 +65,27 @@ describe("AppearancePanel", () => {
 			}),
 		).toBeNull();
 		expect(screen.queryByText("Window controls")).toBeNull();
+	});
+
+	it("lists registered languages instead of a hardcoded pair", () => {
+		render(<AppearancePanel />);
+
+		const languages = screen.getByLabelText("Application language");
+		expect(screen.getByText("Language")).toBeDefined();
+		expect(
+			within(languages).getByRole("button", { name: "System" }),
+		).toBeDefined();
+		for (const pack of listLocales()) {
+			expect(
+				within(languages).getByRole("button", { name: pack.nativeName }),
+			).toBeDefined();
+		}
+
+		fireEvent.click(
+			within(languages).getByRole("button", { name: "简体中文" }),
+		);
+		expect(useSettingsStore.getState().locale).toBe("zh-CN");
+		expect(screen.getByText("语言")).toBeDefined();
 	});
 
 	it("switches the math rendering engine and persists the choice", () => {

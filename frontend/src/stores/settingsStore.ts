@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import "../i18n/locales";
+import { normalizeLocalePreference } from "../i18n/registry";
+import { setLocalePreference } from "../i18n/runtime";
+import { type LocalePreference, SYSTEM_LOCALE } from "../i18n/types";
 import { secretsApi } from "../services/secrets";
 import {
 	DEFAULT_WEB_SEARCH_SETTINGS,
@@ -110,6 +114,8 @@ interface SettingsState {
 	searchSettingsLoaded: boolean;
 	deepThinking: boolean;
 	mathRenderer: MathRenderer;
+	/** `system` or a registered catalog id; unknown ids fall back to system. */
+	locale: LocalePreference;
 
 	setTheme: (theme: Theme) => void;
 	setProvider: (provider: string, model?: string) => void;
@@ -151,6 +157,7 @@ interface SettingsState {
 	saveWebSearchSettings: (settings: WebSearchSettings) => Promise<void>;
 	setDeepThinking: (on: boolean) => void;
 	setMathRenderer: (renderer: MathRenderer) => void;
+	setLocale: (locale: LocalePreference) => void;
 }
 
 function getSystemTheme(): "dark" | "light" {
@@ -254,6 +261,17 @@ function persistGlobalContextMenuItems(
 		localStorage.setItem(GLOBAL_CONTEXT_MENU_ITEMS_KEY, JSON.stringify(items));
 	} catch {
 		/* ignore */
+	}
+}
+
+const LOCALE_STORAGE_KEY = "encorehub-locale";
+
+function loadLocalePreference(): LocalePreference {
+	if (typeof window === "undefined") return SYSTEM_LOCALE;
+	try {
+		return normalizeLocalePreference(localStorage.getItem(LOCALE_STORAGE_KEY));
+	} catch {
+		return SYSTEM_LOCALE;
 	}
 }
 
@@ -501,6 +519,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 				: null;
 		return value === "off" || value === "mathjax" ? value : "katex";
 	})(),
+	locale: loadLocalePreference(),
 
 	setTheme: (theme: Theme) => {
 		set({ theme });
@@ -790,6 +809,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 			/* ignore */
 		}
 	},
+
+	setLocale: (locale: LocalePreference) => {
+		const next = setLocalePreference(locale);
+		set({ locale: next });
+		try {
+			localStorage.setItem(LOCALE_STORAGE_KEY, next);
+		} catch {
+			/* ignore */
+		}
+	},
 }));
 
 function webSearchSettingsFromState(state: SettingsState): WebSearchSettings {
@@ -828,4 +857,5 @@ function persistSearchSelection(settings: WebSearchSettings) {
 if (typeof window !== "undefined") {
 	const saved = localStorage.getItem("encorehub-theme") as Theme | null;
 	applyTheme(saved || "dark");
+	setLocalePreference(useSettingsStore.getState().locale);
 }

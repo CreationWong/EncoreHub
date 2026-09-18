@@ -1,8 +1,12 @@
+// Character draft helpers: limits, validation, copy names, and token estimates.
+
+import { t } from "../../i18n";
 import type {
 	CharacterProfile,
 	CharacterProfileInput,
 } from "../../services/characters";
 
+/** Field length limits enforced by the editor and the Engine profile contract. */
 export const CHARACTER_LIMITS = {
 	name: 100,
 	avatar: 4096,
@@ -13,6 +17,7 @@ export const CHARACTER_LIMITS = {
 	tag: 64,
 } as const;
 
+/** Editable character fields held in the manager form. */
 export interface CharacterDraft {
 	name: string;
 	avatar: string;
@@ -24,10 +29,12 @@ export interface CharacterDraft {
 	tags: string;
 }
 
+/** Per-field validation messages for a character draft. */
 export type CharacterDraftErrors = Partial<
 	Record<keyof CharacterDraft, string>
 >;
 
+/** Empty draft used when creating a character. */
 export function emptyCharacterDraft(): CharacterDraft {
 	return {
 		name: "",
@@ -41,6 +48,7 @@ export function emptyCharacterDraft(): CharacterDraft {
 	};
 }
 
+/** Copy a stored profile into editor draft fields. */
 export function draftFromCharacter(profile: CharacterProfile): CharacterDraft {
 	return {
 		name: profile.name,
@@ -54,6 +62,7 @@ export function draftFromCharacter(profile: CharacterProfile): CharacterDraft {
 	};
 }
 
+/** Split, trim, and de-duplicate tags from a comma-separated input. */
 export function parseCharacterTags(value: string): string[] {
 	const seen = new Set<string>();
 	return value
@@ -68,6 +77,7 @@ export function parseCharacterTags(value: string): string[] {
 		});
 }
 
+/** Map a draft onto the Engine create/update payload. */
 export function characterInputFromDraft(
 	draft: CharacterDraft,
 ): CharacterProfileInput {
@@ -87,6 +97,11 @@ function characterCount(value: string): number {
 	return Array.from(value).length;
 }
 
+/**
+ * Validate identity, prompt, tags, and provider/model pairing.
+ *
+ * Messages are translated at call time so a locale switch refreshes errors.
+ */
 export function validateCharacterDraft(
 	draft: CharacterDraft,
 	characters: CharacterProfile[],
@@ -96,9 +111,11 @@ export function validateCharacterDraft(
 	const name = draft.name.trim();
 	const normalizedName = name.toLocaleLowerCase();
 
-	if (!name) errors.name = "Name is required.";
+	if (!name) errors.name = t("character.validation.nameRequired");
 	else if (characterCount(name) > CHARACTER_LIMITS.name) {
-		errors.name = `Name must be ${CHARACTER_LIMITS.name} characters or fewer.`;
+		errors.name = t("character.validation.nameMax", {
+			count: CHARACTER_LIMITS.name,
+		});
 	} else if (
 		characters.some(
 			(profile) =>
@@ -106,48 +123,65 @@ export function validateCharacterDraft(
 				profile.name.trim().toLocaleLowerCase() === normalizedName,
 		)
 	) {
-		errors.name = "A character with this name already exists.";
+		errors.name = t("character.validation.nameExists");
 	}
 
 	if (characterCount(draft.avatar) > CHARACTER_LIMITS.avatar) {
-		errors.avatar = `Avatar must be ${CHARACTER_LIMITS.avatar} characters or fewer.`;
+		errors.avatar = t("character.validation.avatarMax", {
+			count: CHARACTER_LIMITS.avatar,
+		});
 	}
 	if (characterCount(draft.description) > CHARACTER_LIMITS.description) {
-		errors.description = `Description must be ${CHARACTER_LIMITS.description.toLocaleString()} characters or fewer.`;
+		errors.description = t("character.validation.descriptionMax", {
+			count: CHARACTER_LIMITS.description.toLocaleString(),
+		});
 	}
 	if (characterCount(draft.systemPrompt) > CHARACTER_LIMITS.systemPrompt) {
-		errors.systemPrompt = `Prompt must be ${CHARACTER_LIMITS.systemPrompt.toLocaleString()} characters or fewer.`;
+		errors.systemPrompt = t("character.validation.promptMax", {
+			count: CHARACTER_LIMITS.systemPrompt.toLocaleString(),
+		});
 	}
 	if (characterCount(draft.openingMessage) > CHARACTER_LIMITS.openingMessage) {
-		errors.openingMessage = `Opening message must be ${CHARACTER_LIMITS.openingMessage.toLocaleString()} characters or fewer.`;
+		errors.openingMessage = t("character.validation.openingMax", {
+			count: CHARACTER_LIMITS.openingMessage.toLocaleString(),
+		});
 	}
 	if (draft.defaultProvider && !draft.defaultModel) {
-		errors.defaultModel =
-			"Choose a model or use the app default for both fields.";
+		errors.defaultModel = t("character.validation.chooseModel");
 	}
 	if (!draft.defaultProvider && draft.defaultModel) {
-		errors.defaultProvider =
-			"Choose a provider or use the app default for both fields.";
+		errors.defaultProvider = t("character.validation.chooseProvider");
 	}
 
 	const tags = parseCharacterTags(draft.tags);
 	if (tags.length > CHARACTER_LIMITS.tags) {
-		errors.tags = `Use no more than ${CHARACTER_LIMITS.tags} tags.`;
+		errors.tags = t("character.validation.tagsMax", {
+			count: CHARACTER_LIMITS.tags,
+		});
 	} else if (tags.some((tag) => characterCount(tag) > CHARACTER_LIMITS.tag)) {
-		errors.tags = `Each tag must be ${CHARACTER_LIMITS.tag} characters or fewer.`;
+		errors.tags = t("character.validation.tagMax", {
+			count: CHARACTER_LIMITS.tag,
+		});
 	}
 	return errors;
 }
 
+/** Stable signature used to detect unsaved draft changes. */
 export function characterDraftSignature(draft: CharacterDraft): string {
 	return JSON.stringify(characterInputFromDraft(draft));
 }
 
+/** Rough UTF-8 token estimate for the global prompt preview. */
 export function estimatePromptTokens(prompt: string): number {
 	if (!prompt) return 0;
 	return Math.ceil(new TextEncoder().encode(prompt).length / 4);
 }
 
+/**
+ * Build a unique duplicate name using locale copy suffixes.
+ *
+ * English suffixes stay `" copy"` / `" copy {n}"` so existing names still match.
+ */
 export function uniqueCopyName(
 	name: string,
 	characters: CharacterProfile[],
@@ -155,17 +189,17 @@ export function uniqueCopyName(
 	const existing = new Set(
 		characters.map((profile) => profile.name.trim().toLocaleLowerCase()),
 	);
-	const source = name.trim() || "Character";
+	const source = name.trim() || t("character.fallbackName");
 	const candidate = (suffix: string) => {
 		const available = CHARACTER_LIMITS.name - characterCount(suffix);
 		const base = Array.from(source).slice(0, available).join("").trimEnd();
 		return `${base}${suffix}`;
 	};
-	const root = candidate(" copy");
+	const root = candidate(t("character.copySuffix"));
 	if (!existing.has(root.toLocaleLowerCase())) return root;
 	for (let index = 2; index < 10_000; index += 1) {
-		const numbered = candidate(` copy ${index}`);
+		const numbered = candidate(t("character.copySuffixN", { n: index }));
 		if (!existing.has(numbered.toLocaleLowerCase())) return numbered;
 	}
-	return candidate(` copy ${Date.now()}`);
+	return candidate(t("character.copySuffixN", { n: Date.now() }));
 }

@@ -1,3 +1,6 @@
+// Connection-health dots for the provider list and key/endpoint rows.
+
+import { type MessageKey, t } from "../../i18n";
 import type { ProviderKeyValidationResponse } from "../../services/providers";
 
 export type ProviderRuntimeStatus =
@@ -13,37 +16,39 @@ interface ProviderRuntimeStatusPresentation {
 	pulse: boolean;
 }
 
+/** Chrome keys for each status; `t()` runs when presentation is requested. */
 const STATUS_PRESENTATION: Record<
 	ProviderRuntimeStatus,
-	ProviderRuntimeStatusPresentation
+	{ labelKey: MessageKey; className: string; pulse: boolean }
 > = {
 	disabled: {
-		label: "Disabled",
+		labelKey: "providers.disabled",
 		className: "border border-border bg-transparent",
 		pulse: false,
 	},
 	healthy: {
-		label: "Normal",
+		labelKey: "providers.normal",
 		className: "bg-success",
 		pulse: false,
 	},
 	waiting: {
-		label: "Waiting for connection check",
+		labelKey: "providers.waitingCheck",
 		className: "bg-warning",
 		pulse: true,
 	},
 	timeout: {
-		label: "Connection timed out",
+		labelKey: "providers.timedOut",
 		className: "bg-warning",
 		pulse: false,
 	},
 	error: {
-		label: "Connection fault",
+		labelKey: "providers.connectionFault",
 		className: "bg-danger",
 		pulse: false,
 	},
 };
 
+/** Initial list-dot status before a connection check has run. */
 export function defaultProviderRuntimeStatus(
 	enabled: boolean,
 	isDraft = false,
@@ -52,12 +57,19 @@ export function defaultProviderRuntimeStatus(
 	return isDraft ? "waiting" : "healthy";
 }
 
+/** Resolve the current-locale label together with the status chrome. */
 export function providerRuntimeStatusPresentation(
 	status: ProviderRuntimeStatus,
 ): ProviderRuntimeStatusPresentation {
-	return STATUS_PRESENTATION[status];
+	const config = STATUS_PRESENTATION[status];
+	return {
+		label: t(config.labelKey),
+		className: config.className,
+		pulse: config.pulse,
+	};
 }
 
+/** Map a key/endpoint validation row onto the shared status chrome. */
 export function validationResultRuntimeStatus(
 	enabled: boolean,
 	waiting: boolean,
@@ -79,6 +91,7 @@ export function validationResultRuntimeStatus(
 	return "error";
 }
 
+/** Collapse a full validation response into one provider-level status. */
 export function statusFromValidation(
 	response: ProviderKeyValidationResponse,
 ): ProviderRuntimeStatus {
@@ -100,6 +113,7 @@ export function statusFromValidation(
 	return "error";
 }
 
+/** True when a thrown error looks like a request timeout or abort. */
 export function isTimeoutError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	return (

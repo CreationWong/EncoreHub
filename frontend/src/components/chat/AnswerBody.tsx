@@ -1,3 +1,4 @@
+import { useT } from "../../i18n";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 export default function AnswerBody({
@@ -7,10 +8,11 @@ export default function AnswerBody({
 	content: string;
 	streaming?: boolean;
 }) {
+	const t = useT();
 	if (!content && !streaming) {
 		return (
 			<output className="block text-sm text-text-muted">
-				No response content
+				{t("chat.noResponse")}
 			</output>
 		);
 	}
@@ -22,7 +24,7 @@ export default function AnswerBody({
 			)}
 			{streaming && (
 				<>
-					<output className="sr-only">Generating response</output>
+					<output className="sr-only">{t("chat.generating")}</output>
 					<span
 						aria-hidden="true"
 						className="ml-0.5 inline-block h-4 w-1.5 animate-cursor-blink bg-accent align-text-bottom"

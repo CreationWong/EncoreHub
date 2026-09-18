@@ -1,3 +1,5 @@
+// Usage analytics: Engine-aggregated tokens, latency, and estimated spend.
+
 import {
 	BadgeCheck,
 	CalendarDays,
@@ -16,6 +18,12 @@ import {
 import type { ComponentType } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
+	type MessageKey,
+	intlLocale,
+	useActiveLocaleId,
+	useT,
+} from "../../i18n";
+import {
 	type UsageBreakdownItem,
 	type UsageRange,
 	type UsageTrendBucket,
@@ -25,20 +33,25 @@ import {
 
 type UsageTab = "requests" | "providers" | "models";
 type ShareChart = "bar" | "pie";
+type Translate = (
+	key: MessageKey,
+	vars?: Record<string, string | number>,
+) => string;
 
-const RANGE_OPTIONS: { value: UsageRange; label: string }[] = [
-	{ value: "15m", label: "15 minutes" },
-	{ value: "30m", label: "30 minutes" },
-	{ value: "1h", label: "1 hour" },
-	{ value: "3h", label: "3 hours" },
-	{ value: "day", label: "Day" },
-	{ value: "week", label: "Week" },
-	{ value: "3w", label: "3 weeks" },
-	{ value: "month", label: "Month" },
-	{ value: "quarter", label: "Quarter" },
-	{ value: "year", label: "Year" },
-	{ value: "custom", label: "Custom" },
-	{ value: "all", label: "All time" },
+/** Period picker; labels resolve at render time so locale switches update. */
+const RANGE_OPTIONS: { value: UsageRange; labelKey: MessageKey }[] = [
+	{ value: "15m", labelKey: "usage.range15m" },
+	{ value: "30m", labelKey: "usage.range30m" },
+	{ value: "1h", labelKey: "usage.range1h" },
+	{ value: "3h", labelKey: "usage.range3h" },
+	{ value: "day", labelKey: "usage.day" },
+	{ value: "week", labelKey: "usage.week" },
+	{ value: "3w", labelKey: "usage.range3w" },
+	{ value: "month", labelKey: "usage.month" },
+	{ value: "quarter", labelKey: "usage.quarter" },
+	{ value: "year", labelKey: "usage.year" },
+	{ value: "custom", labelKey: "usage.custom" },
+	{ value: "all", labelKey: "usage.allTime" },
 ];
 
 const PIE_COLORS = [
@@ -49,21 +62,21 @@ const PIE_COLORS = [
 	"var(--color-danger)",
 ];
 
-function formatNumber(value: number): string {
-	return new Intl.NumberFormat("en-US").format(Math.round(value));
+function formatNumber(value: number, locale: string): string {
+	return new Intl.NumberFormat(locale).format(Math.round(value));
 }
 
-function formatCompactNumber(value: number): string {
-	return new Intl.NumberFormat("en-US", {
+function formatCompactNumber(value: number, locale: string): string {
+	return new Intl.NumberFormat(locale, {
 		notation: "compact",
 		maximumFractionDigits: 1,
 	}).format(value);
 }
 
-function formatTrendDate(value: string): string {
+function formatTrendDate(value: string, locale: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
-	return new Intl.DateTimeFormat("en-US", {
+	return new Intl.DateTimeFormat(locale, {
 		month: "short",
 		day: "2-digit",
 		year: "numeric",
@@ -78,11 +91,16 @@ function getNiceScaleMaximum(value: number): number {
 	return (step ?? 10) * magnitude;
 }
 
-function formatCost(value: number | null, currency = "USD"): string {
-	if (value == null) return "Unpriced";
-	if (currency === "MIXED") return "Mixed currencies";
+function formatCost(
+	value: number | null,
+	currency: string,
+	translate: Translate,
+	locale: string,
+): string {
+	if (value == null) return translate("usage.unpriced");
+	if (currency === "MIXED") return translate("usage.mixedCurrencies");
 	try {
-		return new Intl.NumberFormat("en-US", {
+		return new Intl.NumberFormat(locale, {
 			style: "currency",
 			currency,
 			minimumFractionDigits: 4,
@@ -93,8 +111,8 @@ function formatCost(value: number | null, currency = "USD"): string {
 	}
 }
 
-function formatDate(value: string): string {
-	return new Intl.DateTimeFormat("en-US", {
+function formatDate(value: string, locale: string): string {
+	return new Intl.DateTimeFormat(locale, {
 		month: "short",
 		day: "2-digit",
 		hour: "2-digit",
@@ -119,7 +137,10 @@ function localValueToIso(value: string): string | undefined {
 		: undefined;
 }
 
+/** Engine-backed usage report with filters, charts, and request log. */
 export default function UsagePanel() {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	const [tab, setTab] = useState<UsageTab>("requests");
 	const [range, setRange] = useState<UsageRange>("day");
 	const [provider, setProvider] = useState("all");
@@ -212,18 +233,18 @@ export default function UsagePanel() {
 						</div>
 						<div>
 							<h3 className="text-lg font-semibold text-text-primary">
-								Usage details
+								{translate("usage.details")}
 							</h3>
 							<p className="text-xs text-text-muted">
-								Engine-aggregated tokens, latency, and estimated spend.
+								{translate("usage.detailsHelp")}
 							</p>
 						</div>
 					</div>
 					<div className="flex items-center gap-2">
 						<button
 							type="button"
-							title="Refresh usage"
-							aria-label="Refresh usage"
+							title={translate("usage.refresh")}
+							aria-label={translate("usage.refresh")}
 							onClick={() => setRefreshKey((value) => value + 1)}
 							className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
 						>
@@ -233,8 +254,8 @@ export default function UsagePanel() {
 						</button>
 						<button
 							type="button"
-							title="Export usage"
-							aria-label="Export usage"
+							title={translate("usage.export")}
+							aria-label={translate("usage.export")}
 							onClick={exportUsage}
 							disabled={report.records.length === 0}
 							className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-muted enabled:hover:bg-surface-hover enabled:hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
@@ -252,49 +273,64 @@ export default function UsagePanel() {
 				>
 					<Metric
 						icon={Zap}
-						label="Total tokens"
-						value={formatNumber(totalTokens)}
-						detail={`${formatNumber(report.totals.input)} in / ${formatNumber(report.totals.output)} out`}
+						label={translate("usage.totalTokens")}
+						value={formatNumber(totalTokens, locale)}
+						detail={translate("usage.inOut", {
+							input: formatNumber(report.totals.input, locale),
+							output: formatNumber(report.totals.output, locale),
+						})}
 					/>
 					<Metric
 						icon={CircleDollarSign}
-						label="Estimated cost"
+						label={translate("usage.estimatedCost")}
 						value={
 							report.totals.priced
-								? formatCost(report.totals.cost, report.totals.currency)
-								: "Unpriced"
+								? formatCost(
+										report.totals.cost,
+										report.totals.currency,
+										translate,
+										locale,
+									)
+								: translate("usage.unpriced")
 						}
-						detail={`${report.totals.priced} priced requests · ${report.totals.currency}`}
+						detail={translate("usage.pricedRequests", {
+							count: report.totals.priced,
+							currency: report.totals.currency,
+						})}
 						tone="green"
 					/>
 					<Metric
 						icon={ListFilter}
-						label="Requests"
-						value={formatNumber(report.totals.requests)}
-						detail="Recorded model calls"
+						label={translate("usage.requests")}
+						value={formatNumber(report.totals.requests, locale)}
+						detail={translate("usage.recordedCalls")}
 					/>
 					<Metric
 						icon={Clock3}
-						label="Provider time"
-						value={`${(report.totals.durationMs / 1000).toFixed(1)}s`}
-						detail="Stream duration"
+						label={translate("usage.providerTime")}
+						value={translate("usage.durationSeconds", {
+							value: (report.totals.durationMs / 1000).toFixed(1),
+						})}
+						detail={translate("usage.streamDuration")}
 					/>
 					<Metric
 						icon={BadgeCheck}
-						label="Cache hits"
-						value={formatNumber(report.totals.cacheRead)}
-						detail={`${formatShare(
-							report.totals.input > 0
-								? (report.totals.cacheRead / report.totals.input) * 100
-								: 0,
-						)} of input tokens`}
+						label={translate("usage.cacheHits")}
+						value={formatNumber(report.totals.cacheRead, locale)}
+						detail={translate("usage.ofInput", {
+							value: formatShare(
+								report.totals.input > 0
+									? (report.totals.cacheRead / report.totals.input) * 100
+									: 0,
+							),
+						})}
 						tone="info"
 					/>
 					<Metric
 						icon={Layers3}
-						label="Cache created"
-						value={formatNumber(report.totals.cacheCreation)}
-						detail="Prompt tokens written"
+						label={translate("usage.cacheCreated")}
+						value={formatNumber(report.totals.cacheCreation, locale)}
+						detail={translate("usage.promptWritten")}
 						tone="warning"
 					/>
 				</div>
@@ -305,11 +341,11 @@ export default function UsagePanel() {
 					<div className="flex items-center gap-1 rounded-lg border border-border bg-surface-alt p-1">
 						{(
 							[
-								["requests", "Request log", ListFilter],
-								["providers", "Provider stats", TrendingUp],
-								["models", "Model stats", ChartNoAxesColumn],
+								["requests", "usage.requestLogTab", ListFilter],
+								["providers", "usage.providerStats", TrendingUp],
+								["models", "usage.modelStats", ChartNoAxesColumn],
 							] as const
-						).map(([value, label, Icon]) => (
+						).map(([value, labelKey, Icon]) => (
 							<button
 								key={value}
 								type="button"
@@ -322,7 +358,7 @@ export default function UsagePanel() {
 								}
 							>
 								<Icon className="h-3.5 w-3.5" />
-								{label}
+								{translate(labelKey)}
 							</button>
 						))}
 					</div>
@@ -331,12 +367,12 @@ export default function UsagePanel() {
 						<select
 							value={range}
 							onChange={(event) => setRange(event.target.value as UsageRange)}
-							aria-label="Usage period"
+							aria-label={translate("usage.period")}
 							className="h-8 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 						>
 							{RANGE_OPTIONS.map((option) => (
 								<option key={option.value} value={option.value}>
-									{option.label}
+									{translate(option.labelKey)}
 								</option>
 							))}
 						</select>
@@ -348,7 +384,7 @@ export default function UsagePanel() {
 									value={customFrom}
 									max={customTo}
 									onChange={(event) => setCustomFrom(event.target.value)}
-									aria-label="Custom usage start"
+									aria-label={translate("usage.customStart")}
 									className="h-8 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 								/>
 								<input
@@ -357,7 +393,7 @@ export default function UsagePanel() {
 									value={customTo}
 									min={customFrom}
 									onChange={(event) => setCustomTo(event.target.value)}
-									aria-label="Custom usage end"
+									aria-label={translate("usage.customEnd")}
 									className="h-8 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 								/>
 							</>
@@ -365,10 +401,10 @@ export default function UsagePanel() {
 						<select
 							value={provider}
 							onChange={(event) => setProvider(event.target.value)}
-							aria-label="Usage provider"
+							aria-label={translate("usage.provider")}
 							className="h-8 max-w-40 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 						>
-							<option value="all">All providers</option>
+							<option value="all">{translate("usage.allProviders")}</option>
 							{providerOptions.map((item) => (
 								<option key={item} value={item}>
 									{item}
@@ -378,10 +414,10 @@ export default function UsagePanel() {
 						<select
 							value={model}
 							onChange={(event) => setModel(event.target.value)}
-							aria-label="Usage model"
+							aria-label={translate("usage.model")}
 							className="h-8 max-w-48 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
 						>
-							<option value="all">All models</option>
+							<option value="all">{translate("usage.allModels")}</option>
 							{modelOptions.map((item) => (
 								<option key={item} value={item}>
 									{item}
@@ -391,9 +427,9 @@ export default function UsagePanel() {
 						<select
 							value={currency}
 							onChange={(event) => setCurrency(event.target.value)}
-							aria-label="Usage currency"
+							aria-label={translate("usage.currency")}
 							className="h-8 w-28 rounded-md border border-border bg-surface px-2 text-xs text-text-primary"
-							title="Display currency"
+							title={translate("usage.displayCurrency")}
 						>
 							{report.currencies.map((item) => (
 								<option key={item} value={item}>
@@ -403,42 +439,46 @@ export default function UsagePanel() {
 						</select>
 						<span className="hidden items-center gap-1 text-[11px] text-text-muted md:flex">
 							<CalendarDays className="h-3.5 w-3.5" />
-							{report.totals.requests} records
+							{translate("usage.recordsCount", {
+								count: report.totals.requests,
+							})}
 						</span>
 					</div>
 				</div>
 
 				<section
-					aria-label="Usage bar chart"
+					aria-label={translate("usage.barChart")}
 					className="mb-5 rounded-lg border border-border bg-surface p-5"
 				>
 					<div className="mb-4 flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<h4 className="text-sm font-semibold text-text-primary">
-								Usage over time
+								{translate("usage.overTime")}
 							</h4>
 							<p className="mt-0.5 text-xs text-text-muted">
-								Input and output tokens in Engine-defined time buckets.
+								{translate("usage.overTimeHelp")}
 							</p>
 						</div>
 						<div className="flex items-center gap-4 text-[11px] text-text-muted">
 							<span className="flex items-center gap-1.5">
 								<span className="h-2.5 w-2.5 bg-accent" />
-								Input
+								{translate("usage.input")}
 							</span>
 							<span className="flex items-center gap-1.5">
 								<span className="h-2.5 w-2.5 bg-success" />
-								Output
+								{translate("usage.output")}
 							</span>
 							<span className="tabular-nums">
-								{formatNumber(totalTokens)} tokens
+								{translate("usage.tokensCount", {
+									count: formatNumber(totalTokens, locale),
+								})}
 							</span>
 						</div>
 					</div>
 					{loadError ? (
-						<UsagePlaceholder message="Usage report is unavailable." />
+						<UsagePlaceholder message={translate("usage.unavailable")} />
 					) : loading && report.totals.requests === 0 ? (
-						<UsagePlaceholder message="Loading usage report..." />
+						<UsagePlaceholder message={translate("usage.loading")} />
 					) : report.totals.requests === 0 ? (
 						<EmptyUsage />
 					) : (
@@ -450,7 +490,7 @@ export default function UsagePanel() {
 					<RequestTable records={report.records} loading={loading} />
 				) : (
 					<BreakdownSection
-						kind={tab === "providers" ? "Provider" : "Model"}
+						kind={tab === "providers" ? "providers" : "models"}
 						items={breakdown}
 						chart={shareChart}
 						onChartChange={setShareChart}
@@ -462,6 +502,8 @@ export default function UsagePanel() {
 }
 
 function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
 	const maxTokens = Math.max(0, ...buckets.map((bucket) => bucket.tokens));
 	const scaleMaximum = getNiceScaleMaximum(maxTokens);
@@ -479,7 +521,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 						className="flex h-48 flex-col justify-between pb-px text-right text-[10px] tabular-nums text-text-muted"
 					>
 						{ticks.map((tick) => (
-							<span key={tick}>{formatCompactNumber(tick)}</span>
+							<span key={tick}>{formatCompactNumber(tick, locale)}</span>
 						))}
 					</div>
 
@@ -506,8 +548,12 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 										: 0;
 								const inputShare =
 									bucket.tokens > 0 ? (bucket.input / bucket.tokens) * 100 : 0;
-								const detail = `${formatNumber(bucket.tokens)} tokens (${formatNumber(bucket.input)} in / ${formatNumber(bucket.output)} out)`;
-								const dateLabel = formatTrendDate(bucket.startAt);
+								const detail = translate("usage.bucketDetail", {
+									tokens: formatNumber(bucket.tokens, locale),
+									input: formatNumber(bucket.input, locale),
+									output: formatNumber(bucket.output, locale),
+								});
+								const dateLabel = formatTrendDate(bucket.startAt, locale);
 								const isSelected = selectedBucket === bucket.startAt;
 								const tooltipPlacement =
 									index < buckets.length / 2 ? "right" : "left";
@@ -518,7 +564,11 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 										key={bucket.startAt}
 										type="button"
 										aria-pressed={isSelected}
-										aria-label={`${dateLabel} · ${bucket.label}: ${detail}`}
+										aria-label={translate("usage.bucketAria", {
+											date: dateLabel,
+											label: bucket.label,
+											detail,
+										})}
 										title={detail}
 										onClick={() =>
 											setSelectedBucket(isSelected ? null : bucket.startAt)
@@ -531,7 +581,7 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 												className="pointer-events-none absolute -translate-y-1.5 text-[9px] tabular-nums text-text-muted"
 												style={{ bottom: `${height}%` }}
 											>
-												{formatCompactNumber(bucket.tokens)}
+												{formatCompactNumber(bucket.tokens, locale)}
 											</span>
 										)}
 										<span
@@ -543,8 +593,10 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 												{bucket.label}
 											</strong>
 											<span className="block text-text-muted">{dateLabel}</span>
-											{formatNumber(bucket.input)} input ·{" "}
-											{formatNumber(bucket.output)} output
+											{translate("usage.inputOutputShort", {
+												input: formatNumber(bucket.input, locale),
+												output: formatNumber(bucket.output, locale),
+											})}
 										</span>
 
 										{bucket.tokens > 0 && (
@@ -577,12 +629,15 @@ function UsageBarChart({ buckets }: { buckets: UsageTrendBucket[] }) {
 					}}
 				>
 					{buckets.map((bucket) => {
-						const dateLabel = formatTrendDate(bucket.startAt);
+						const dateLabel = formatTrendDate(bucket.startAt, locale);
 						return (
 							<span
 								key={bucket.startAt}
 								className="min-w-0 text-center tabular-nums"
-								title={`${dateLabel} · ${bucket.label}`}
+								title={translate("usage.bucketTitle", {
+									date: dateLabel,
+									label: bucket.label,
+								})}
 							>
 								<span className="block text-[10px] text-text-secondary">
 									{bucket.label}
@@ -606,22 +661,38 @@ function RequestTable({
 	records: Awaited<ReturnType<typeof getUsageReport>>["records"];
 	loading: boolean;
 }) {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	return (
 		<section
-			aria-label="Request log"
+			aria-label={translate("usage.requestLog")}
 			className="overflow-hidden rounded-lg border border-border bg-surface"
 		>
 			<div className="overflow-x-auto">
 				<table className="w-full min-w-[760px] text-left text-xs">
 					<thead className="bg-surface-alt text-text-muted">
 						<tr>
-							<th className="px-4 py-3 font-medium">Time</th>
-							<th className="px-4 py-3 font-medium">Provider</th>
-							<th className="px-4 py-3 font-medium">Model</th>
-							<th className="px-4 py-3 text-right font-medium">Input</th>
-							<th className="px-4 py-3 text-right font-medium">Output</th>
-							<th className="px-4 py-3 text-right font-medium">Cost</th>
-							<th className="px-4 py-3 text-right font-medium">Status</th>
+							<th className="px-4 py-3 font-medium">
+								{translate("usage.time")}
+							</th>
+							<th className="px-4 py-3 font-medium">
+								{translate("common.provider")}
+							</th>
+							<th className="px-4 py-3 font-medium">
+								{translate("common.model")}
+							</th>
+							<th className="px-4 py-3 text-right font-medium">
+								{translate("usage.input")}
+							</th>
+							<th className="px-4 py-3 text-right font-medium">
+								{translate("usage.output")}
+							</th>
+							<th className="px-4 py-3 text-right font-medium">
+								{translate("usage.cost")}
+							</th>
+							<th className="px-4 py-3 text-right font-medium">
+								{translate("common.status")}
+							</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -631,7 +702,7 @@ function RequestTable({
 								className="border-t border-border hover:bg-surface-hover"
 							>
 								<td className="whitespace-nowrap px-4 py-3 text-text-muted">
-									{formatDate(record.createdAt)}
+									{formatDate(record.createdAt, locale)}
 								</td>
 								<td className="px-4 py-3 font-medium text-text-primary">
 									{record.provider}
@@ -643,13 +714,13 @@ function RequestTable({
 									{record.model}
 								</td>
 								<td className="px-4 py-3 text-right tabular-nums text-text-primary">
-									{formatNumber(record.inputTokens)}
+									{formatNumber(record.inputTokens, locale)}
 								</td>
 								<td className="px-4 py-3 text-right tabular-nums text-text-primary">
-									{formatNumber(record.outputTokens)}
+									{formatNumber(record.outputTokens, locale)}
 								</td>
 								<td className="px-4 py-3 text-right tabular-nums font-medium text-text-primary">
-									{formatCost(record.cost, record.currency)}
+									{formatCost(record.cost, record.currency, translate, locale)}
 								</td>
 								<td className="px-4 py-3 text-right">
 									<span
@@ -659,7 +730,9 @@ function RequestTable({
 												: "inline-flex rounded-full bg-warning-bg px-2 py-0.5 text-[10px] text-warning"
 										}
 									>
-										{record.status}
+										{record.status === "completed"
+											? translate("common.completed")
+											: translate("common.failed")}
 									</span>
 								</td>
 							</tr>
@@ -668,7 +741,7 @@ function RequestTable({
 				</table>
 				{records.length === 0 &&
 					(loading ? (
-						<UsagePlaceholder message="Loading usage report..." />
+						<UsagePlaceholder message={translate("usage.loading")} />
 					) : (
 						<EmptyUsage />
 					))}
@@ -683,29 +756,33 @@ function BreakdownSection({
 	chart,
 	onChartChange,
 }: {
-	kind: "Provider" | "Model";
+	kind: "providers" | "models";
 	items: UsageBreakdownItem[];
 	chart: ShareChart;
 	onChartChange: (chart: ShareChart) => void;
 }) {
+	const translate = useT();
+	const kindLabel = translate(
+		kind === "providers" ? "usage.kindProvider" : "usage.kindModel",
+	);
 	return (
 		<section
-			aria-label="Usage share chart"
+			aria-label={translate("usage.shareChart")}
 			className="rounded-lg border border-border bg-surface"
 		>
 			<div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
 				<div>
 					<h4 className="text-sm font-semibold text-text-primary">
-						{kind} share
+						{translate("usage.kindShare", { kind: kindLabel })}
 					</h4>
 					<p className="mt-0.5 text-xs text-text-muted">
-						Token share calculated by Engine.
+						{translate("usage.shareHelp")}
 					</p>
 				</div>
 				<div className="flex items-center gap-1 rounded-md border border-border bg-surface-alt p-1">
 					<button
 						type="button"
-						aria-label="Bar share chart"
+						aria-label={translate("usage.barShare")}
 						aria-pressed={chart === "bar"}
 						onClick={() => onChartChange("bar")}
 						className={
@@ -715,11 +792,11 @@ function BreakdownSection({
 						}
 					>
 						<ChartNoAxesColumn className="h-3.5 w-3.5" />
-						Bars
+						{translate("usage.bars")}
 					</button>
 					<button
 						type="button"
-						aria-label="Pie share chart"
+						aria-label={translate("usage.pieShare")}
 						aria-pressed={chart === "pie"}
 						onClick={() => onChartChange("pie")}
 						className={
@@ -729,7 +806,7 @@ function BreakdownSection({
 						}
 					>
 						<ChartPie className="h-3.5 w-3.5" />
-						Pie
+						{translate("usage.pieLabel")}
 					</button>
 				</div>
 			</div>
@@ -740,7 +817,9 @@ function BreakdownSection({
 			) : (
 				<SharePieChart items={items} />
 			)}
-			{items.length > 0 && <BreakdownRows kind={kind} items={items} />}
+			{items.length > 0 && (
+				<BreakdownRows kindLabel={kindLabel} items={items} />
+			)}
 		</section>
 	);
 }
@@ -779,6 +858,7 @@ function ShareBarChart({ items }: { items: UsageBreakdownItem[] }) {
 }
 
 function SharePieChart({ items }: { items: UsageBreakdownItem[] }) {
+	const translate = useT();
 	let start = 0;
 	const segments = items.map((item, index) => {
 		const end = Math.min(100, start + Math.max(0, item.share));
@@ -788,7 +868,7 @@ function SharePieChart({ items }: { items: UsageBreakdownItem[] }) {
 	});
 	return (
 		<div
-			aria-label="Usage share pie chart"
+			aria-label={translate("usage.pie")}
 			className="grid items-center gap-6 p-5 md:grid-cols-[180px_minmax(0,1fr)]"
 		>
 			<div
@@ -824,19 +904,21 @@ function SharePieChart({ items }: { items: UsageBreakdownItem[] }) {
 }
 
 function BreakdownRows({
-	kind,
+	kindLabel,
 	items,
 }: {
-	kind: "Provider" | "Model";
+	kindLabel: string;
 	items: UsageBreakdownItem[];
 }) {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	return (
 		<div className="border-t border-border">
 			<div className="grid grid-cols-[minmax(0,1.5fr)_90px_120px_120px] gap-4 bg-surface-alt px-4 py-3 text-xs font-medium text-text-muted">
-				<span>{kind}</span>
-				<span className="text-right">Requests</span>
-				<span className="text-right">Tokens</span>
-				<span className="text-right">Cost</span>
+				<span>{kindLabel}</span>
+				<span className="text-right">{translate("usage.requests")}</span>
+				<span className="text-right">{translate("usage.tokens")}</span>
+				<span className="text-right">{translate("usage.cost")}</span>
 			</div>
 			{items.map((item) => (
 				<div
@@ -853,13 +935,13 @@ function BreakdownRows({
 						{item.requests}
 					</span>
 					<span className="text-right tabular-nums text-text-secondary">
-						{formatNumber(item.tokens)}{" "}
+						{formatNumber(item.tokens, locale)}{" "}
 						<span className="text-[10px] text-text-muted">
 							({formatShare(item.share)})
 						</span>
 					</span>
 					<span className="text-right tabular-nums font-medium text-text-primary">
-						{formatCost(item.cost, item.currency)}
+						{formatCost(item.cost, item.currency, translate, locale)}
 					</span>
 				</div>
 			))}
@@ -915,7 +997,6 @@ function UsagePlaceholder({ message }: { message: string }) {
 }
 
 function EmptyUsage() {
-	return (
-		<UsagePlaceholder message="Usage records will appear after the next model response." />
-	);
+	const translate = useT();
+	return <UsagePlaceholder message={translate("usage.empty")} />;
 }

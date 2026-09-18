@@ -1,3 +1,6 @@
+// Provider URL, endpoint, and model-config helpers for the settings editor.
+
+import { t } from "../../i18n";
 import type {
 	ProviderEndpoint,
 	ProviderModelConfig,
@@ -84,6 +87,7 @@ export function defaultBaseUrl(protocol: ProviderProtocol): string {
 	return DEFAULT_BASE_URLS[protocol];
 }
 
+/** Stored endpoints, or a single primary endpoint derived from `base_url`. */
 export function profileEndpoints(profile: ProviderProfile): ProviderEndpoint[] {
 	if (profile.endpoints && profile.endpoints.length > 0) {
 		return profile.endpoints.map((endpoint) => ({
@@ -94,7 +98,7 @@ export function profileEndpoints(profile: ProviderProfile): ProviderEndpoint[] {
 	return [
 		{
 			id: "primary",
-			name: "Primary",
+			name: t("providers.primary"),
 			base_url: normalizeBaseUrl(
 				profile.base_url ||
 					(profile.builtin ? defaultBaseUrl(profile.protocol) : ""),
@@ -104,10 +108,11 @@ export function profileEndpoints(profile: ProviderProfile): ProviderEndpoint[] {
 	];
 }
 
+/** Build a local model record; the default group name follows the active locale. */
 export function defaultModelConfig(
 	id: string,
 	name = id,
-	group = "Models",
+	group = t("providers.modelEditor.defaultGroup"),
 ): ProviderModelConfig {
 	return {
 		id,
@@ -136,10 +141,11 @@ export function profileModelConfigs(
 	}));
 }
 
+/** Create an empty endpoint whose default name is translated at call time. */
 export function createEndpoint(index: number): ProviderEndpoint {
 	return {
 		id: `endpoint-${Date.now().toString(36)}-${index}`,
-		name: `Endpoint ${index}`,
+		name: t("providers.endpointNamed", { index }),
 		base_url: "",
 		enabled: true,
 	};

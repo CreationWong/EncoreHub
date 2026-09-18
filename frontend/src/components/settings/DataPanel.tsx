@@ -16,6 +16,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	type MessageKey,
+	intlLocale,
+	t,
+	useActiveLocaleId,
+	useT,
+} from "../../i18n";
+import {
 	type DataConversation,
 	type DataDomain,
 	type DataOverview,
@@ -36,19 +43,32 @@ const EMPTY_OVERVIEW: DataOverview = {
 	cache_entries: 0,
 };
 
+/** Backup domains; labels resolve through the catalog so locale switches update. */
 const DATA_DOMAINS: Array<{
 	id: DataDomain;
-	label: string;
-	detail: string;
+	labelKey: MessageKey;
+	detailKey: MessageKey;
 }> = [
-	{ id: "characters", label: "Characters", detail: "Profiles and versions" },
+	{
+		id: "characters",
+		labelKey: "data.domainCharacters",
+		detailKey: "data.profilesAndVersions",
+	},
 	{
 		id: "conversations",
-		label: "Conversations",
-		detail: "Messages, tools, and attachments",
+		labelKey: "data.domainConversations",
+		detailKey: "data.messagesToolsAttachments",
 	},
-	{ id: "memories", label: "Memories", detail: "Groups and saved memory" },
-	{ id: "knowledge", label: "Knowledge", detail: "Documents and chunks" },
+	{
+		id: "memories",
+		labelKey: "data.domainMemories",
+		detailKey: "data.groupsAndMemory",
+	},
+	{
+		id: "knowledge",
+		labelKey: "data.domainKnowledge",
+		detailKey: "data.documentsAndChunks",
+	},
 ];
 
 /** Format storage using stable binary units. */
@@ -59,10 +79,10 @@ function formatBytes(value: number): string {
 }
 
 /** Format conversation activity as a compact, locale-aware calendar date. */
-function formatUpdatedAt(value: string): string {
+function formatUpdatedAt(value: string, locale: string): string {
 	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "Unknown";
-	return new Intl.DateTimeFormat("en", {
+	if (Number.isNaN(date.getTime())) return t("common.unknown");
+	return new Intl.DateTimeFormat(locale, {
 		month: "short",
 		day: "numeric",
 		year:
@@ -87,6 +107,8 @@ function downloadBackup(backup: UserDataBackup): void {
 
 /** Dense settings surface for inspecting, moving, and clearing local data. */
 export default function DataPanel() {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	const [overview, setOverview] = useState(EMPTY_OVERVIEW);
 	const [loading, setLoading] = useState(true);
 	const [operation, setOperation] = useState("");
@@ -122,7 +144,7 @@ export default function DataPanel() {
 			);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to load data summary",
+				error instanceof Error ? error.message : t("data.loadFailed"),
 			);
 		} finally {
 			setLoading(false);
@@ -140,7 +162,7 @@ export default function DataPanel() {
 			await refresh();
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Data operation failed",
+				error instanceof Error ? error.message : t("data.operationFailed"),
 			);
 		} finally {
 			setOperation("");
@@ -150,7 +172,7 @@ export default function DataPanel() {
 	const exportData = () =>
 		run("export", async () => {
 			downloadBackup(await dataManagementApi.exportData(selectedDomains));
-			toast.success("Data backup exported");
+			toast.success(t("toast.backupExported"));
 		});
 
 	const importData = (file: File) =>
@@ -159,38 +181,44 @@ export default function DataPanel() {
 			const result = await dataManagementApi.importData(backup);
 			await reloadConversations();
 			toast.success(
-				`Imported ${result.imported_rows} records; skipped ${result.skipped_rows} existing records`,
+				t("toast.importedRecords", {
+					imported: result.imported_rows,
+					skipped: result.skipped_rows,
+				}),
 			);
 		});
 
 	const clearHistory = async () => {
 		const answer = await showConfirm({
-			title: "Clear all conversation history?",
-			message:
-				"Every conversation, message, tool call, and conversation attachment will be permanently deleted. Characters, memories, knowledge, and settings are kept.",
+			title: t("data.clearHistoryTitle"),
+			message: t("data.clearHistoryMessage"),
 			danger: true,
-			confirmLabel: "Clear history",
+			confirmLabel: t("data.clearHistory"),
 		});
 		if (answer !== "confirm") return;
 		await run("history", async () => {
 			const result = await dataManagementApi.clearHistory();
 			await reloadConversations();
-			toast.success(`Cleared ${result.conversations} conversations`);
+			toast.success(
+				t("toast.clearedConversations", { count: result.conversations }),
+			);
 		});
 	};
 
 	const clearCache = async () => {
 		const answer = await showConfirm({
-			title: "Clear regenerable cache?",
-			message:
-				"Cached search results and orphaned attachment files will be removed. Your conversations, memories, knowledge, credentials, and settings are not affected.",
-			confirmLabel: "Clear cache",
+			title: t("data.clearCacheTitle"),
+			message: t("data.clearCacheMessage"),
+			confirmLabel: t("data.clearCache"),
 		});
 		if (answer !== "confirm") return;
 		await run("cache", async () => {
 			const result = await dataManagementApi.clearCache();
 			toast.success(
-				`Cleared ${result.cache_entries} cache records and ${result.orphaned_blobs} orphaned files`,
+				t("toast.clearedCache", {
+					cache: result.cache_entries,
+					orphaned: result.orphaned_blobs,
+				}),
 			);
 		});
 	};
@@ -201,18 +229,17 @@ export default function DataPanel() {
 				await dataManagementApi.exportConversations(selectedConversations),
 			);
 			toast.success(
-				`Exported ${selectedConversations.length} selected conversations`,
+				t("toast.exportedSelected", { count: selectedConversations.length }),
 			);
 		});
 
 	const deleteSelectedConversations = async () => {
 		const count = selectedConversations.length;
 		const answer = await showConfirm({
-			title: `Delete ${count} selected conversations?`,
-			message:
-				"Their messages, tool calls, summaries, and unshared attachments will be permanently deleted as one operation.",
+			title: t("data.deleteSelectedTitle", { count }),
+			message: t("data.deleteSelectedMessage"),
 			danger: true,
-			confirmLabel: "Delete selected",
+			confirmLabel: t("data.deleteSelectedLabel"),
 		});
 		if (answer !== "confirm") return;
 		await run("conversation-delete", async () => {
@@ -221,15 +248,17 @@ export default function DataPanel() {
 			);
 			setSelectedConversations([]);
 			await reloadConversations();
-			toast.success(`Deleted ${result.conversations} conversations`);
+			toast.success(
+				t("toast.deletedConversations", { count: result.conversations }),
+			);
 		});
 	};
 
 	const busy = operation !== "";
 	const visibleConversations = useMemo(() => {
-		const query = conversationQuery.trim().toLocaleLowerCase();
+		const query = conversationQuery.trim().toLocaleLowerCase(locale);
 		return conversations
-			.filter(({ title }) => title.toLocaleLowerCase().includes(query))
+			.filter(({ title }) => title.toLocaleLowerCase(locale).includes(query))
 			.sort((left, right) => {
 				switch (conversationSort) {
 					case "oldest":
@@ -242,7 +271,7 @@ export default function DataPanel() {
 						return right.updated_at.localeCompare(left.updated_at);
 				}
 			});
-	}, [conversationQuery, conversationSort, conversations]);
+	}, [conversationQuery, conversationSort, conversations, locale]);
 	const visibleConversationIds = visibleConversations.map(({ id }) => id);
 	const allVisibleSelected =
 		visibleConversationIds.length > 0 &&
@@ -270,6 +299,7 @@ export default function DataPanel() {
 				: Array.from(new Set([...current, ...visibleConversationIds])),
 		);
 	};
+	const formatCount = (value: number) => value.toLocaleString(locale);
 
 	return (
 		<div className="h-full min-h-0 overflow-y-auto bg-workspace">
@@ -281,10 +311,10 @@ export default function DataPanel() {
 						</div>
 						<div>
 							<h3 className="text-base font-semibold text-text-primary">
-								Local data
+								{translate("data.localData")}
 							</h3>
 							<p className="mt-0.5 text-xs text-text-muted">
-								Inspect, move, and remove data stored by EncoreHub.
+								{translate("data.localDataHelp")}
 							</p>
 						</div>
 					</div>
@@ -292,8 +322,8 @@ export default function DataPanel() {
 						type="button"
 						onClick={() => void refresh()}
 						disabled={loading || busy}
-						aria-label="Refresh data summary"
-						title="Refresh data summary"
+						aria-label={translate("data.refreshSummary")}
+						title={translate("data.refreshSummary")}
 						className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 					>
 						<RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -301,34 +331,34 @@ export default function DataPanel() {
 				</header>
 
 				<section
-					aria-label="Data summary"
+					aria-label={translate("data.summary")}
 					className="grid overflow-hidden rounded-md border border-border bg-surface sm:grid-cols-3"
 				>
 					<SummaryGroup
 						icon={MessagesSquare}
-						label="Conversation activity"
-						primary={loading ? "-" : overview.conversations.toLocaleString()}
-						primaryLabel="conversations"
-						secondary={loading ? "-" : overview.messages.toLocaleString()}
-						secondaryLabel="messages"
+						label={translate("data.activity")}
+						primary={loading ? "-" : formatCount(overview.conversations)}
+						primaryLabel={translate("data.conversations")}
+						secondary={loading ? "-" : formatCount(overview.messages)}
+						secondaryLabel={translate("data.messages")}
 					/>
 					<SummaryGroup
 						icon={HardDrive}
-						label="Attachment storage"
+						label={translate("data.attachmentStorage")}
 						primary={loading ? "-" : formatBytes(overview.attachment_bytes)}
-						primaryLabel="stored"
-						secondary={loading ? "-" : overview.attachments.toLocaleString()}
-						secondaryLabel="files"
+						primaryLabel={translate("data.stored")}
+						secondary={loading ? "-" : formatCount(overview.attachments)}
+						secondaryLabel={translate("data.files")}
 					/>
 					<SummaryGroup
 						icon={FileArchive}
-						label="Saved context"
-						primary={loading ? "-" : overview.memories.toLocaleString()}
-						primaryLabel="memories"
+						label={translate("data.savedContext")}
+						primary={loading ? "-" : formatCount(overview.memories)}
+						primaryLabel={translate("data.memories")}
 						secondary={
-							loading ? "-" : overview.knowledge_documents.toLocaleString()
+							loading ? "-" : formatCount(overview.knowledge_documents)
 						}
-						secondaryLabel="knowledge files"
+						secondaryLabel={translate("data.knowledgeFiles")}
 					/>
 				</section>
 
@@ -344,32 +374,38 @@ export default function DataPanel() {
 									id="conversation-data-heading"
 									className="text-sm font-semibold text-text-primary"
 								>
-									Conversations
+									{translate("data.conversationsHeading")}
 								</h4>
 								<span className="rounded bg-surface-alt px-1.5 py-0.5 text-[10px] tabular-nums text-text-muted">
 									{conversations.length}
 								</span>
 							</div>
 							<span className="text-xs tabular-nums text-text-muted">
-								{selectedConversations.length} selected
+								{translate("data.selectedCount", {
+									count: selectedConversations.length,
+								})}
 							</span>
 						</div>
 
 						<div className="flex flex-wrap items-center gap-2 border-y border-border bg-surface-alt/40 px-3 py-2.5">
 							<label className="relative min-w-44 flex-1">
-								<span className="sr-only">Search conversations</span>
+								<span className="sr-only">
+									{translate("data.searchConversations")}
+								</span>
 								<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 								<input
 									type="search"
 									autoComplete="off"
 									value={conversationQuery}
 									onChange={(event) => setConversationQuery(event.target.value)}
-									placeholder="Search conversations"
+									placeholder={translate("data.searchConversations")}
 									className="h-8 w-full rounded-md border border-border bg-workspace pl-8 pr-3 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 								/>
 							</label>
 							<label className="relative shrink-0">
-								<span className="sr-only">Sort conversations</span>
+								<span className="sr-only">
+									{translate("data.sortConversations")}
+								</span>
 								<ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
 								<select
 									value={conversationSort}
@@ -378,10 +414,12 @@ export default function DataPanel() {
 									}
 									className="h-8 rounded-md border border-border bg-workspace pl-8 pr-7 text-xs text-text-secondary outline-none focus:border-accent"
 								>
-									<option value="newest">Newest</option>
-									<option value="oldest">Oldest</option>
-									<option value="title">Title</option>
-									<option value="messages">Most messages</option>
+									<option value="newest">{translate("data.newest")}</option>
+									<option value="oldest">{translate("data.oldest")}</option>
+									<option value="title">{translate("data.title")}</option>
+									<option value="messages">
+										{translate("data.mostMessages")}
+									</option>
 								</select>
 							</label>
 						</div>
@@ -391,18 +429,20 @@ export default function DataPanel() {
 								<input
 									type="checkbox"
 									autoComplete="off"
-									aria-label="Toggle all conversations"
+									aria-label={translate("data.toggleAll")}
 									checked={allVisibleSelected}
 									onChange={toggleVisibleConversations}
 									disabled={busy || visibleConversations.length === 0}
 									className="h-3.5 w-3.5 accent-accent disabled:opacity-40"
 								/>
-								{conversationQuery ? "Select filtered" : "Select all"}
+								{conversationQuery
+									? translate("data.selectFiltered")
+									: translate("data.selectAll")}
 							</label>
 							<div className="flex items-center gap-2">
 								<button
 									type="button"
-									aria-label="Export selected conversations"
+									aria-label={translate("data.exportSelected")}
 									onClick={() => void exportSelectedConversations()}
 									disabled={busy || selectedConversations.length === 0}
 									className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-40"
@@ -412,11 +452,11 @@ export default function DataPanel() {
 									) : (
 										<Download className="h-3.5 w-3.5" />
 									)}
-									Export
+									{translate("common.export")}
 								</button>
 								<button
 									type="button"
-									aria-label="Delete selected conversations"
+									aria-label={translate("data.deleteSelected")}
 									onClick={() => void deleteSelectedConversations()}
 									disabled={busy || selectedConversations.length === 0}
 									className="flex h-8 items-center gap-1.5 rounded-md border border-danger-border px-2.5 text-xs font-medium text-danger hover:bg-danger-bg disabled:opacity-40"
@@ -426,18 +466,18 @@ export default function DataPanel() {
 									) : (
 										<Trash2 className="h-3.5 w-3.5" />
 									)}
-									Delete
+									{translate("common.delete")}
 								</button>
 							</div>
 						</div>
 						<div className="max-h-[32rem] overflow-y-auto">
 							{conversations.length === 0 ? (
 								<p className="px-4 py-8 text-center text-xs text-text-muted">
-									No conversations stored
+									{translate("data.noConversationsStored")}
 								</p>
 							) : visibleConversations.length === 0 ? (
 								<p className="px-4 py-8 text-center text-xs text-text-muted">
-									No conversations match this search
+									{translate("data.noConversationsMatch")}
 								</p>
 							) : (
 								visibleConversations.map((conversation) => (
@@ -457,13 +497,17 @@ export default function DataPanel() {
 												{conversation.title}
 											</span>
 											<span className="mt-0.5 block text-[10px] tabular-nums text-text-muted">
-												{conversation.message_count} messages
+												{translate("data.messagesCount", {
+													count: conversation.message_count,
+												})}
 												{conversation.attachment_count > 0 &&
-													` · ${conversation.attachment_count} files`}
+													` · ${translate("data.filesCount", {
+														count: conversation.attachment_count,
+													})}`}
 											</span>
 										</span>
 										<span className="whitespace-nowrap text-[10px] tabular-nums text-text-muted">
-											{formatUpdatedAt(conversation.updated_at)}
+											{formatUpdatedAt(conversation.updated_at, locale)}
 										</span>
 									</label>
 								))
@@ -471,7 +515,10 @@ export default function DataPanel() {
 						</div>
 					</section>
 
-					<aside className="space-y-5" aria-label="Data maintenance">
+					<aside
+						className="space-y-5"
+						aria-label={translate("data.maintenance")}
+					>
 						<section
 							aria-labelledby="backup-heading"
 							className="overflow-hidden rounded-md border border-border bg-surface"
@@ -482,12 +529,14 @@ export default function DataPanel() {
 									id="backup-heading"
 									className="text-sm font-semibold text-text-primary"
 								>
-									Backup and transfer
+									{translate("data.backupTransfer")}
 								</h4>
 							</div>
 							<fieldset className="divide-y divide-border">
-								<legend className="sr-only">Backup data domains</legend>
-								{DATA_DOMAINS.map(({ id, label, detail }) => (
+								<legend className="sr-only">
+									{translate("data.backupDomains")}
+								</legend>
+								{DATA_DOMAINS.map(({ id, labelKey, detailKey }) => (
 									<label
 										key={id}
 										className="flex cursor-pointer items-start gap-2.5 px-4 py-2.5 hover:bg-surface-hover"
@@ -501,10 +550,10 @@ export default function DataPanel() {
 										/>
 										<span className="min-w-0">
 											<span className="block text-xs font-medium text-text-primary">
-												{label}
+												{translate(labelKey)}
 											</span>
 											<span className="block text-[10px] leading-4 text-text-muted">
-												{detail}
+												{translate(detailKey)}
 											</span>
 										</span>
 									</label>
@@ -513,14 +562,14 @@ export default function DataPanel() {
 							<div className="grid grid-cols-2 gap-2 border-t border-border bg-surface-alt/40 p-3">
 								<CommandButton
 									icon={Download}
-									label="Export"
+									label={translate("common.export")}
 									busy={operation === "export"}
 									disabled={busy || selectedDomains.length === 0}
 									onClick={() => void exportData()}
 								/>
 								<CommandButton
 									icon={Upload}
-									label="Import"
+									label={translate("common.import")}
 									busy={operation === "import"}
 									disabled={busy}
 									onClick={() => fileInput.current?.click()}
@@ -550,14 +599,16 @@ export default function DataPanel() {
 									id="cleanup-heading"
 									className="text-sm font-semibold text-text-primary"
 								>
-									Maintenance
+									{translate("data.maintenanceHeading")}
 								</h4>
 							</div>
 							<MaintenanceRow
 								icon={DatabaseZap}
-								title="Regenerable cache"
-								detail={`${overview.cache_entries.toLocaleString()} cached records`}
-								label="Clear"
+								title={translate("data.regenerableCache")}
+								detail={translate("data.cachedRecords", {
+									count: formatCount(overview.cache_entries),
+								})}
+								label={translate("common.clear")}
 								busy={operation === "cache"}
 								disabled={busy}
 								onClick={() => void clearCache()}
@@ -565,9 +616,11 @@ export default function DataPanel() {
 							<div className="border-t border-danger-border bg-danger-bg/40">
 								<MaintenanceRow
 									icon={Trash2}
-									title="All conversation history"
-									detail={`${overview.conversations.toLocaleString()} conversations`}
-									label="Clear"
+									title={translate("data.allHistory")}
+									detail={translate("data.conversationsCount", {
+										count: formatCount(overview.conversations),
+									})}
+									label={translate("common.clear")}
 									danger
 									busy={operation === "history"}
 									disabled={busy || overview.conversations === 0}
@@ -678,6 +731,7 @@ function MaintenanceRow({
 	disabled,
 	onClick,
 }: MaintenanceRowProps) {
+	const locale = intlLocale(useActiveLocaleId());
 	return (
 		<div className="grid grid-cols-[2rem_minmax(0,1fr)_3.75rem] items-center gap-2.5 px-3 py-3">
 			<div
@@ -697,7 +751,7 @@ function MaintenanceRow({
 			</div>
 			<button
 				type="button"
-				aria-label={`${label} ${title.toLocaleLowerCase()}`}
+				aria-label={`${label} ${title.toLocaleLowerCase(locale)}`}
 				onClick={onClick}
 				disabled={disabled}
 				className={`flex h-8 items-center justify-center rounded-md border px-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${danger ? "border-danger-border text-danger hover:bg-danger-bg" : "border-border text-text-secondary hover:bg-surface-hover"}`}

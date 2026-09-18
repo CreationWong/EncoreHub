@@ -7,6 +7,7 @@ import {
 	useState,
 } from "react";
 import type { MutableRefObject } from "react";
+import { useT } from "../../i18n";
 import type { Message } from "../../services/conversation";
 import { useConversationStore } from "../../stores/conversationStore";
 import AnswerBody from "./AnswerBody";
@@ -46,6 +47,7 @@ function cancelFrame(frameRef: MutableRefObject<number | null>) {
 }
 
 export default function MessageFeed() {
+	const t = useT();
 	const activeId = useConversationStore((state) => state.activeId);
 	const messages = useConversationStore((state) => state.messages);
 	const conversation = useConversationStore((state) =>
@@ -207,7 +209,7 @@ export default function MessageFeed() {
 				<div className="mx-auto w-full max-w-[1080px]">
 					{messages.length === 0 && !streaming && openingMessage && (
 						<article
-							aria-label="Character opening message"
+							aria-label={t("chat.openingMessage")}
 							className="app-message app-message-assistant px-4 py-5"
 						>
 							<AssistantIdentity />
@@ -217,7 +219,7 @@ export default function MessageFeed() {
 
 					{messages.length === 0 && !streaming && !openingMessage && (
 						<div className="flex items-center justify-center py-24">
-							<p className="text-sm text-text-muted">No messages yet.</p>
+							<p className="text-sm text-text-muted">{t("chat.noMessages")}</p>
 						</div>
 					)}
 
@@ -286,8 +288,8 @@ export default function MessageFeed() {
 						followingRef.current = true;
 						scheduleScrollToLatest();
 					}}
-					aria-label="Back to latest"
-					title="Back to latest"
+					aria-label={t("chat.backToLatest")}
+					title={t("chat.backToLatest")}
 					className="absolute bottom-4 right-4 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary shadow-lg transition-colors hover:bg-surface-hover hover:text-text-primary"
 				>
 					<ArrowDownToLine className="h-4 w-4" />

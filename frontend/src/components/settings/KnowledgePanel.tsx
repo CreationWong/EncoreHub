@@ -17,6 +17,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+	type MessageKey,
+	intlLocale,
+	t,
+	useActiveLocaleId,
+	useT,
+} from "../../i18n";
+import {
 	type KnowledgeBackend,
 	type KnowledgeChunk,
 	type KnowledgeDoc,
@@ -28,6 +35,7 @@ import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
+/** Product names for the serving vector backend; not translated. */
 const BACKEND_LABELS: Record<KnowledgeBackend, string> = {
 	lance_db: "LanceDB",
 	sqlite_vec: "SQLite-Vec",
@@ -35,10 +43,11 @@ const BACKEND_LABELS: Record<KnowledgeBackend, string> = {
 
 type DocSort = "recent" | "title" | "size";
 
-const DOC_SORTS: { id: DocSort; label: string }[] = [
-	{ id: "recent", label: "Newest" },
-	{ id: "title", label: "Title" },
-	{ id: "size", label: "Largest" },
+/** Document sort options; labels resolve at render time. */
+const DOC_SORTS: { id: DocSort; labelKey: MessageKey }[] = [
+	{ id: "recent", labelKey: "data.newest" },
+	{ id: "title", labelKey: "data.title" },
+	{ id: "size", labelKey: "knowledge.largest" },
 ];
 
 function fmtBytes(n: number): string {
@@ -47,17 +56,20 @@ function fmtBytes(n: number): string {
 	return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fmtDate(value: string): string {
+function fmtDate(value: string, locale: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return "";
-	return new Intl.DateTimeFormat(undefined, {
+	return new Intl.DateTimeFormat(locale, {
 		month: "short",
 		day: "numeric",
 		year: "numeric",
 	}).format(date);
 }
 
+/** Ingest, browse, search, and inspect knowledge documents and chunks. */
 export default function KnowledgePanel() {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [docFilter, setDocFilter] = useState("");
@@ -93,7 +105,7 @@ export default function KnowledgePanel() {
 			setDocs(r);
 		} catch (err) {
 			toast.error(
-				err instanceof Error ? err.message : "Failed to load documents",
+				err instanceof Error ? err.message : t("toast.loadDocumentsFailed"),
 			);
 		} finally {
 			setLoading(false);
@@ -136,7 +148,7 @@ export default function KnowledgePanel() {
 			setBackend(r.backend);
 			setSearched(true);
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Search failed");
+			toast.error(err instanceof Error ? err.message : t("toast.searchFailed"));
 		} finally {
 			setSearching(false);
 		}
@@ -154,7 +166,9 @@ export default function KnowledgePanel() {
 			const loaded = await knowledgeApi.chunks(doc.id);
 			setChunks((current) => ({ ...current, [doc.id]: loaded }));
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Failed to load chunks");
+			toast.error(
+				err instanceof Error ? err.message : t("toast.loadChunksFailed"),
+			);
 			setExpandedDocId(null);
 		} finally {
 			setLoadingChunks(null);
@@ -170,7 +184,9 @@ export default function KnowledgePanel() {
 			setUploadContent(text);
 			setShowUpload(true);
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Failed to read file");
+			toast.error(
+				err instanceof Error ? err.message : t("toast.readFileFailed"),
+			);
 		}
 		e.target.value = "";
 	};
@@ -186,9 +202,9 @@ export default function KnowledgePanel() {
 			setUploadContent("");
 			setShowUpload(false);
 			await refresh(docFilter);
-			toast.success("Document ingested");
+			toast.success(t("toast.documentIngested"));
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Ingest failed");
+			toast.error(err instanceof Error ? err.message : t("toast.ingestFailed"));
 		} finally {
 			setUploading(false);
 		}
@@ -197,8 +213,8 @@ export default function KnowledgePanel() {
 	const onDelete = async (doc: KnowledgeDoc) => {
 		if (
 			!(await confirm.ask(
-				"Delete document",
-				`Delete "${doc.title}" and all of its indexed chunks? This cannot be undone.`,
+				t("knowledge.deleteDocument"),
+				t("knowledge.deleteMessage", { title: doc.title }),
 				true,
 			))
 		)
@@ -212,9 +228,9 @@ export default function KnowledgePanel() {
 				return next;
 			});
 			if (expandedDocId === doc.id) setExpandedDocId(null);
-			toast.success("Document deleted");
+			toast.success(t("toast.documentDeleted"));
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Delete failed");
+			toast.error(err instanceof Error ? err.message : t("toast.deleteFailed"));
 		}
 	};
 
@@ -228,8 +244,8 @@ export default function KnowledgePanel() {
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						onKeyDown={(e) => e.key === "Enter" && void onSearch()}
-						placeholder="Search chunks (Enter)..."
-						aria-label="Search knowledge chunks"
+						placeholder={translate("knowledge.searchPlaceholder")}
+						aria-label={translate("knowledge.searchChunks")}
 						className="w-full rounded-lg border border-border bg-surface-alt py-2 pl-8 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
 					/>
 				</div>
@@ -239,7 +255,7 @@ export default function KnowledgePanel() {
 					className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-alt px-3 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 				>
 					<Upload className="h-3.5 w-3.5" />
-					Add
+					{translate("common.add")}
 				</button>
 			</div>
 
@@ -249,16 +265,16 @@ export default function KnowledgePanel() {
 						autoComplete="off"
 						value={uploadTitle}
 						onChange={(e) => setUploadTitle(e.target.value)}
-						placeholder="Title"
-						aria-label="Document title"
+						placeholder={translate("knowledge.titlePlaceholder")}
+						aria-label={translate("knowledge.documentTitle")}
 						className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
 					/>
 					<textarea
 						autoComplete="off"
 						value={uploadContent}
 						onChange={(e) => setUploadContent(e.target.value)}
-						placeholder="Paste document content (text). Will be chunked & indexed."
-						aria-label="Document content"
+						placeholder={translate("knowledge.contentPlaceholder")}
+						aria-label={translate("knowledge.documentContent")}
 						rows={6}
 						className="w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
 					/>
@@ -272,7 +288,7 @@ export default function KnowledgePanel() {
 								className="hidden"
 							/>
 							<span className="rounded-md border border-border px-2 py-1">
-								Load .txt/.md...
+								{translate("knowledge.loadFile")}
 							</span>
 						</label>
 						<div className="flex gap-2">
@@ -281,7 +297,7 @@ export default function KnowledgePanel() {
 								onClick={() => setShowUpload(false)}
 								className="rounded-md px-3 py-1 text-xs text-text-muted hover:text-text-primary"
 							>
-								Cancel
+								{translate("common.cancel")}
 							</button>
 							<button
 								type="button"
@@ -292,7 +308,7 @@ export default function KnowledgePanel() {
 								className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-40"
 							>
 								{uploading && <Loader2 className="h-3 w-3 animate-spin" />}
-								Ingest
+								{translate("knowledge.ingest")}
 							</button>
 						</div>
 					</div>
@@ -301,7 +317,8 @@ export default function KnowledgePanel() {
 
 			{searching && (
 				<div className="flex items-center gap-2 text-xs text-text-muted">
-					<Loader2 className="h-3 w-3 animate-spin" /> Searching...
+					<Loader2 className="h-3 w-3 animate-spin" />{" "}
+					{translate("knowledge.searching")}
 				</div>
 			)}
 
@@ -309,7 +326,7 @@ export default function KnowledgePanel() {
 				<section className="space-y-2">
 					<div className="flex items-center justify-between gap-2">
 						<h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-							Search results ({results.length})
+							{translate("knowledge.searchResults", { count: results.length })}
 						</h3>
 						{backend && (
 							<span className="flex items-center gap-1 text-[10px] text-text-muted">
@@ -320,7 +337,7 @@ export default function KnowledgePanel() {
 					</div>
 					{results.length === 0 ? (
 						<p className="py-4 text-center text-sm text-text-muted">
-							No chunks matched this query.
+							{translate("knowledge.noChunks")}
 						</p>
 					) : (
 						<ul className="space-y-2">
@@ -331,21 +348,31 @@ export default function KnowledgePanel() {
 								>
 									<div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-text-muted">
 										<span className="min-w-0 truncate">
-											{docIndex.get(r.document_id)?.title ?? "Unknown document"}
-											{" · "}chunk #{r.chunk_index}
+											{docIndex.get(r.document_id)?.title ??
+												translate("knowledge.unknownDocument")}
+											{" · "}
+											{translate("knowledge.chunkIndex", {
+												index: r.chunk_index,
+											})}
 										</span>
 										<span className="flex shrink-0 items-center gap-2">
-											<span>score {r.score.toFixed(3)}</span>
+											<span>
+												{translate("knowledge.score", {
+													value: r.score.toFixed(3),
+												})}
+											</span>
 											<button
 												type="button"
 												onClick={() =>
 													onQuote(
 														r.content,
-														`knowledge chunk #${r.chunk_index}`,
+														translate("knowledge.quoteChunk", {
+															index: r.chunk_index,
+														}),
 													)
 												}
-												aria-label="Quote into chat input"
-												title="Quote into chat input"
+												aria-label={translate("knowledge.quoteIntoChat")}
+												title={translate("knowledge.quoteIntoChat")}
 												className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent"
 											>
 												<Quote className="h-3.5 w-3.5" />
@@ -365,7 +392,7 @@ export default function KnowledgePanel() {
 			<section className="space-y-2">
 				<div className="flex flex-wrap items-center gap-2">
 					<h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-						Documents ({visibleDocs.length})
+						{translate("knowledge.documents", { count: visibleDocs.length })}
 					</h3>
 					<div className="relative ml-auto min-w-40 flex-1 sm:max-w-64">
 						<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
@@ -374,8 +401,8 @@ export default function KnowledgePanel() {
 							value={docFilter}
 							onChange={(e) => setDocFilter(e.target.value)}
 							onKeyDown={(e) => e.key === "Enter" && onFilterSubmit()}
-							placeholder="Filter by title (Enter)"
-							aria-label="Filter documents by title"
+							placeholder={translate("knowledge.filterPlaceholder")}
+							aria-label={translate("knowledge.filterByTitle")}
 							className="w-full rounded-md border border-border bg-surface-alt py-1.5 pl-8 pr-3 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
 						/>
 					</div>
@@ -392,7 +419,7 @@ export default function KnowledgePanel() {
 										: "text-text-muted hover:text-text-primary"
 								}`}
 							>
-								{sort.label}
+								{translate(sort.labelKey)}
 							</button>
 						))}
 					</div>
@@ -410,8 +437,8 @@ export default function KnowledgePanel() {
 				) : visibleDocs.length === 0 ? (
 					<p className="py-6 text-center text-sm text-text-muted">
 						{docFilter.trim()
-							? "No documents match this title."
-							: "No documents yet. Click Add to ingest one."}
+							? translate("knowledge.noMatch")
+							: translate("knowledge.noneYet")}
 					</p>
 				) : (
 					<ul className="space-y-2">
@@ -427,7 +454,12 @@ export default function KnowledgePanel() {
 											type="button"
 											onClick={() => void toggleDoc(d)}
 											aria-expanded={expanded}
-											aria-label={`${expanded ? "Collapse" : "Expand"} ${d.title} chunks`}
+											aria-label={translate(
+												expanded
+													? "knowledge.collapseChunks"
+													: "knowledge.expandChunks",
+												{ title: d.title },
+											)}
 											className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 										>
 											{expanded ? (
@@ -442,16 +474,23 @@ export default function KnowledgePanel() {
 												{d.title}
 											</div>
 											<div className="text-[11px] text-text-muted">
-												{d.file_type} · {d.chunk_count} chunks ·{" "}
-												{fmtBytes(d.size_bytes)}
-												{d.created_at ? ` · ${fmtDate(d.created_at)}` : ""}
+												{translate("knowledge.chunksMeta", {
+													type: d.file_type,
+													count: d.chunk_count,
+													size: fmtBytes(d.size_bytes),
+												})}
+												{d.created_at
+													? ` · ${fmtDate(d.created_at, locale)}`
+													: ""}
 											</div>
 										</div>
 										<button
 											type="button"
 											onClick={() => void onDelete(d)}
-											aria-label={`Delete ${d.title}`}
-											title="Delete"
+											aria-label={translate("knowledge.deleteNamed", {
+												title: d.title,
+											})}
+											title={translate("common.delete")}
 											className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger focus-visible:opacity-100"
 										>
 											<Trash2 className="h-3.5 w-3.5" />
@@ -462,7 +501,7 @@ export default function KnowledgePanel() {
 											{loadingChunks === d.id ? (
 												<div className="flex items-center gap-2 py-2 text-xs text-text-muted">
 													<Loader2 className="h-3 w-3 animate-spin" />
-													Loading chunks...
+													{translate("knowledge.loadingChunks")}
 												</div>
 											) : (
 												<ol className="space-y-2">
@@ -473,19 +512,25 @@ export default function KnowledgePanel() {
 														>
 															<div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-text-muted">
 																<span>
-																	chunk #{chunk.chunk_index} ·{" "}
-																	{chunk.token_count} tokens
+																	{translate("knowledge.chunkTokens", {
+																		index: chunk.chunk_index,
+																		count: chunk.token_count,
+																	})}
 																</span>
 																<button
 																	type="button"
 																	onClick={() =>
 																		onQuote(
 																			chunk.content,
-																			`knowledge chunk #${chunk.chunk_index}`,
+																			translate("knowledge.quoteChunk", {
+																				index: chunk.chunk_index,
+																			}),
 																		)
 																	}
-																	aria-label="Quote into chat input"
-																	title="Quote into chat input"
+																	aria-label={translate(
+																		"knowledge.quoteIntoChat",
+																	)}
+																	title={translate("knowledge.quoteIntoChat")}
 																	className="hover:text-accent"
 																>
 																	<Quote className="h-3 w-3" />

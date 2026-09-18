@@ -1,3 +1,5 @@
+// Developer index: process, log, and database tools plus desktop utilities.
+
 import {
 	ArrowRight,
 	Bug,
@@ -7,37 +9,40 @@ import {
 	ScrollText,
 	ShieldCheck,
 } from "lucide-react";
+import { type MessageKey, t, useT } from "../../i18n";
 import { devtools, inTauri } from "../../services/devtools";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
 const FEATURES: Array<{
 	id: Extract<SettingsTab, "processes" | "logs" | "database">;
-	label: string;
-	detail: string;
+	labelKey: MessageKey;
+	detailKey: MessageKey;
 	icon: typeof Cpu;
 }> = [
 	{
 		id: "processes",
-		label: "System processes",
-		detail: "Desktop, Engine, and Gateway runtime state",
+		labelKey: "developer.systemProcesses",
+		detailKey: "developer.runtimeState",
 		icon: Cpu,
 	},
 	{
 		id: "logs",
-		label: "Logs",
-		detail: "Runtime levels, local files, filters, and exports",
+		labelKey: "settings.logs",
+		detailKey: "developer.logs",
 		icon: ScrollText,
 	},
 	{
 		id: "database",
-		label: "Database",
-		detail: "Read-only SQLite table inspection",
+		labelKey: "settings.database",
+		detailKey: "developer.database",
 		icon: Database,
 	},
 ];
 
+/** Developer-mode index for processes, logs, database, and desktop utilities. */
 export default function DeveloperPanel() {
+	const translate = useT();
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const fullCommunicationLogs = useSettingsStore(
 		(state) => state.fullCommunicationLogs,
@@ -53,7 +58,9 @@ export default function DeveloperPanel() {
 	const openInspector = () => {
 		void devtools.openDevtools().catch((error) => {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to open DevTools",
+				error instanceof Error
+					? error.message
+					: t("developer.openDevToolsFailed"),
 			);
 		});
 	};
@@ -61,17 +68,20 @@ export default function DeveloperPanel() {
 	return (
 		<div className="mx-auto max-w-4xl space-y-6">
 			<section
-				aria-label="Developer mode status"
+				aria-label={translate("developer.modeStatus")}
 				className="flex items-start gap-3 border-y border-border py-4"
 			>
 				<ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" />
 				<div className="min-w-0 flex-1">
 					<p className="text-sm font-medium text-text-primary">
-						Developer features enabled
+						{translate("developer.featuresEnabled")}
 					</p>
 					<p className="mt-1 text-xs leading-5 text-text-muted">
-						Communication logging is currently{" "}
-						{fullCommunicationLogs ? "full" : "restricted"}.
+						{translate("developer.loggingStatus", {
+							mode: fullCommunicationLogs
+								? translate("developer.loggingFull")
+								: translate("developer.loggingRestricted"),
+						})}
 					</p>
 				</div>
 				<span
@@ -81,7 +91,9 @@ export default function DeveloperPanel() {
 							: "border-success/30 bg-success/10 text-success"
 					}`}
 				>
-					{fullCommunicationLogs ? "FULL LOGGING" : "RESTRICTED"}
+					{fullCommunicationLogs
+						? translate("developer.fullLogging")
+						: translate("developer.restricted")}
 				</span>
 			</section>
 
@@ -90,7 +102,7 @@ export default function DeveloperPanel() {
 					id="developer-tools-heading"
 					className="mb-3 text-xs font-semibold text-text-muted"
 				>
-					Developer tools
+					{translate("developer.toolsHeading")}
 				</h3>
 				<div className="divide-y divide-border border-y border-border">
 					{FEATURES.map((feature) => {
@@ -105,10 +117,10 @@ export default function DeveloperPanel() {
 								<Icon className="h-5 w-5 shrink-0 text-text-muted transition-colors group-hover:text-text-primary" />
 								<div className="min-w-0 flex-1">
 									<p className="text-sm font-medium text-text-primary">
-										{feature.label}
+										{translate(feature.labelKey)}
 									</p>
 									<p className="mt-0.5 text-xs text-text-muted">
-										{feature.detail}
+										{translate(feature.detailKey)}
 									</p>
 								</div>
 								<ArrowRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-text-primary" />
@@ -123,7 +135,7 @@ export default function DeveloperPanel() {
 					id="developer-utilities-heading"
 					className="mb-3 text-xs font-semibold text-text-muted"
 				>
-					Utilities
+					{translate("common.utilities")}
 				</h3>
 				<button
 					type="button"
@@ -132,21 +144,25 @@ export default function DeveloperPanel() {
 					className="flex min-h-12 w-full items-center gap-3 border-y border-border px-1 py-3 text-left text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					<Bug className="h-4 w-4" />
-					<span className="flex-1">Webview inspector</span>
+					<span className="flex-1">
+						{translate("developer.webviewInspector")}
+					</span>
 					<span className="text-xs text-text-muted">
-						{tauri ? "Open" : "Desktop only"}
+						{tauri
+							? translate("developer.open")
+							: translate("developer.desktopOnly")}
 					</span>
 				</button>
 				<div className="flex min-h-14 items-center gap-3 border-b border-border px-1 py-3">
 					<MousePointer2 className="h-4 w-4 shrink-0 text-text-muted" />
 					<span className="min-w-0 flex-1 text-sm text-text-secondary">
-						Override system context menu
+						{translate("developer.overrideContextMenu")}
 					</span>
 					<button
 						type="button"
 						role="switch"
 						aria-checked={globalContextMenuEnabled}
-						aria-label="Override system context menu"
+						aria-label={translate("developer.overrideContextMenu")}
 						onClick={() =>
 							setGlobalContextMenuEnabled(!globalContextMenuEnabled)
 						}

@@ -23,6 +23,8 @@ import {
 	Zap,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { useT } from "../../i18n";
+import type { MessageKey } from "../../i18n";
 import { modelKeyFor } from "../../services/tokenModel";
 import {
 	type ContextPanelTab,
@@ -47,29 +49,41 @@ import CurrentMemoryPanel from "./CurrentMemoryPanel";
 import { formatTokens } from "./contextMeterDisplay";
 
 /** Tab order and labels for the panel header. */
-const TABS: { id: ContextPanelTab; label: string; icon: typeof Gauge }[] = [
-	{ id: "context", label: "Context", icon: Gauge },
-	{ id: "memory", label: "Memory", icon: BrainCircuit },
-	{ id: "parameters", label: "Parameters", icon: SlidersHorizontal },
-	{ id: "rendering", label: "Rendering", icon: Sigma },
+const TABS: {
+	id: ContextPanelTab;
+	labelKey: MessageKey;
+	icon: typeof Gauge;
+}[] = [
+	{ id: "context", labelKey: "context.tabContext", icon: Gauge },
+	{ id: "memory", labelKey: "context.tabMemory", icon: BrainCircuit },
+	{
+		id: "parameters",
+		labelKey: "context.tabParameters",
+		icon: SlidersHorizontal,
+	},
+	{ id: "rendering", labelKey: "context.tabRendering", icon: Sigma },
 ];
 
 /** Math engines offered on the rendering tab, matching Settings → Appearance. */
-const MATH_RENDERERS: { id: MathRenderer; label: string; detail: string }[] = [
+const MATH_RENDERERS: {
+	id: MathRenderer;
+	labelKey: MessageKey;
+	detailKey: MessageKey;
+}[] = [
 	{
 		id: "katex",
-		label: "KaTeX",
-		detail: "Fast server-style typesetting with bundled fonts.",
+		labelKey: "context.katex",
+		detailKey: "context.katexDetail",
 	},
 	{
 		id: "mathjax",
-		label: "MathJax",
-		detail: "Self-contained SVG output with broader TeX coverage.",
+		labelKey: "context.mathjax",
+		detailKey: "context.mathjaxDetail",
 	},
 	{
 		id: "off",
-		label: "Off",
-		detail: "Leave LaTeX delimiters as plain text.",
+		labelKey: "context.mathOff",
+		detailKey: "context.mathOffDetail",
 	},
 ];
 
@@ -204,6 +218,7 @@ export default function ContextManagementPanel() {
 	const setContextPanelOpen = useContextManagementStore(
 		(state) => state.setContextPanelOpen,
 	);
+	const t = useT();
 	const mathRenderer = useSettingsStore((state) => state.mathRenderer);
 	const setMathRenderer = useSettingsStore((state) => state.setMathRenderer);
 	const contextMeterPrimary = useSettingsStore(
@@ -290,63 +305,63 @@ export default function ContextManagementPanel() {
 	const autoCompactDescription =
 		autoCompact && context.limit != null
 			? compactThresholdTokens != null && compactThresholdTokens > 0
-				? `Compresses automatically at about ${compactThresholdShare}% (${formatTokens(compactThresholdTokens)} tokens).`
-				: "Compresses as soon as this model window allows; the reply reserve exceeds the window."
-			: "Compact before the model runs out of safe working space.";
+				? t("context.autoCompactAt", {
+						percent: compactThresholdShare ?? 0,
+						tokens: formatTokens(compactThresholdTokens),
+					})
+				: t("context.autoCompactImmediate")
+			: t("context.autoCompactFallback");
 
 	if (!open) return null;
 
 	const breakdown = [
 		{
-			label: "System prompt",
+			label: t("context.system"),
 			value: context.categories.system,
 			icon: Zap,
 			tone: "bg-accent",
-			detail:
-				"Character instructions, current date/time, and compaction summary.",
+			detail: t("context.systemDetail"),
 		},
 		{
-			label: "Tools",
+			label: t("context.tools"),
 			value: context.categories.tools,
 			icon: Wrench,
 			tone: "bg-success",
-			detail:
-				"Tool definitions and tool call payloads included in the request.",
+			detail: t("context.toolsDetail"),
 		},
 		{
-			label: "Skills",
+			label: t("context.skills"),
 			value: context.categories.skills,
 			icon: Sparkles,
 			tone: "bg-info",
-			detail: "Skill instruction text injected by the gateway.",
+			detail: t("context.skillsDetail"),
 		},
 		{
-			label: "Messages",
+			label: t("context.messages"),
 			value: context.categories.messages,
 			icon: MessageSquareText,
 			tone: "bg-warning",
-			detail: "Visible conversation history sent to the model.",
+			detail: t("context.messagesDetail"),
 		},
 		{
-			label: "Other request data",
+			label: t("context.other"),
 			value: context.categories.other,
 			icon: Layers3,
 			// Protocol overhead must remain distinct from the neutral progress track.
 			tone: "bg-text-muted",
-			detail:
-				"Protocol and formatting overhead the estimator cannot attribute.",
+			detail: t("context.otherDetail"),
 		},
 	] as const;
 
 	return (
 		<aside
-			aria-label="Context management"
+			aria-label={t("context.management")}
 			className="absolute inset-y-0 right-0 z-30 flex w-[min(22rem,calc(100%-1rem))] shrink-0 flex-col border-l border-border bg-workspace shadow-2xl min-[900px]:relative min-[900px]:z-auto min-[900px]:w-[22rem] min-[900px]:shadow-none"
 		>
 			<header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">
 				<div
 					role="tablist"
-					aria-label="Context panel sections"
+					aria-label={t("context.sections")}
 					className="context-tab-strip flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
 				>
 					{TABS.map((item, index) => {
@@ -364,7 +379,7 @@ export default function ContextManagementPanel() {
 								aria-selected={active}
 								aria-controls={`context-panel-${item.id}`}
 								tabIndex={active ? 0 : -1}
-								title={item.label}
+								title={t(item.labelKey)}
 								onClick={() => {
 									setTab(item.id);
 									tabRefs.current[index]?.scrollIntoView?.({
@@ -404,7 +419,7 @@ export default function ContextManagementPanel() {
 								}`}
 							>
 								<Icon className="h-3.5 w-3.5 shrink-0" />
-								<span>{item.label}</span>
+								<span>{t(item.labelKey)}</span>
 							</button>
 						);
 					})}
@@ -412,8 +427,8 @@ export default function ContextManagementPanel() {
 				<button
 					type="button"
 					onClick={() => setContextPanelOpen(false)}
-					aria-label="Close context panel"
-					title="Close context panel"
+					aria-label={t("context.close")}
+					title={t("context.close")}
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 				>
 					<X className="h-4 w-4" />
@@ -438,10 +453,10 @@ export default function ContextManagementPanel() {
 				>
 					<section className="border-b border-border px-4 py-4">
 						<p className="truncate text-[11px] font-medium text-text-muted">
-							{profile?.name || providerId || "No provider"}
+							{profile?.name || providerId || t("context.noProvider")}
 						</p>
 						<h2 className="mt-0.5 truncate text-sm font-semibold text-text-primary">
-							{modelConfig?.name || modelId || "No model selected"}
+							{modelConfig?.name || modelId || t("context.noModel")}
 						</h2>
 						<div className="mt-4">
 							<ContextMeter
@@ -461,31 +476,29 @@ export default function ContextManagementPanel() {
 								onClick={() => openSettings("context-panel")}
 								className="mt-2 text-[10px] text-text-muted hover:text-text-primary"
 							>
-								Customize display
+								{t("context.customize")}
 							</button>
 						</div>
 						{context.percentage != null && context.percentage >= 90 ? (
 							<p className="mt-2 text-[11px] font-medium text-danger">
-								Almost out of room — compress before sending the next message.
+								{t("context.almostFull")}
 							</p>
 						) : context.percentage != null && context.percentage >= 75 ? (
 							<p className="mt-2 text-[11px] font-medium text-warning">
-								Filling up — compress soon to keep replies accurate.
+								{t("context.fillingUp")}
 							</p>
 						) : null}
 						{!activeId ? (
 							<p className="mt-2 text-[11px] leading-4 text-text-muted">
-								Select or start a conversation to inspect its context.
+								{t("context.selectConversation")}
 							</p>
 						) : messages.length === 0 ? (
 							<p className="mt-2 text-[11px] leading-4 text-text-muted">
-								No messages yet — this meter fills as the conversation
-								continues.
+								{t("context.noMessages")}
 							</p>
 						) : context.limit == null ? (
 							<p className="mt-2 text-[11px] leading-4 text-text-muted">
-								Context window unknown — add it to this model or its metadata
-								source to see a percentage.
+								{t("context.windowUnknown")}
 							</p>
 						) : null}
 						<p
@@ -494,30 +507,36 @@ export default function ContextManagementPanel() {
 								context.source === "provider" &&
 								context.snapshotInputTokens != null &&
 								context.snapshotOutputTokens != null
-									? `${formatTokens(context.snapshotInputTokens)} input · ${formatTokens(context.snapshotOutputTokens)} output retained`
+									? t("context.inputOutputRetained", {
+											input: formatTokens(context.snapshotInputTokens),
+											output: formatTokens(context.snapshotOutputTokens),
+										})
 									: context.modelTrusted
-										? `Input model fitted from ${context.modelSamples} samples · output model from ${context.outputModelSamples} samples`
+										? t("context.fittedSamples", {
+												input: context.modelSamples,
+												output: context.outputModelSamples,
+											})
 										: undefined
 							}
 						>
 							{context.source === "provider" &&
 							context.snapshotInputTokens != null &&
 							context.snapshotOutputTokens != null
-								? "Measured from the latest provider response"
+								? t("context.measured")
 								: context.modelTrusted
-									? `Estimated from this conversation · calibrated from ${context.modelSamples} samples`
-									: "Estimated from active request content"}
+									? t("context.estimatedCalibrated", {
+											count: context.modelSamples,
+										})
+									: t("context.estimatedContent")}
 						</p>
 					</section>
 
 					<section className="border-b border-border px-4 py-3">
 						<h3 className="text-[11px] font-semibold text-text-primary">
-							Request contents
+							{t("context.requestContents")}
 						</h3>
 						<p className="mt-0.5 text-[10px] text-text-muted">
-							{retainedMessageCount} message
-							{retainedMessageCount === 1 ? "" : "s"} included in the next
-							request
+							{t("context.messagesIncluded", { count: retainedMessageCount })}
 						</p>
 						<div className="mt-2 space-y-1">
 							{breakdown.map(({ label, value, icon: Icon, tone, detail }) => {
@@ -561,12 +580,14 @@ export default function ContextManagementPanel() {
 							<div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
 								<span
 									className="text-text-muted"
-									title="Space left in the model window after the compact reserve."
+									title={t("context.freeAfterReserveTitle")}
 								>
-									Free after reserve
+									{t("context.freeAfterReserve")}
 								</span>
 								<span className="tabular-nums text-text-primary">
-									{formatTokens(context.freeTokens)} tokens
+									{t("context.freeTokens", {
+										count: formatTokens(context.freeTokens),
+									})}
 								</span>
 							</div>
 						)}
@@ -576,13 +597,13 @@ export default function ContextManagementPanel() {
 									className="text-text-muted"
 									title={
 										autoCompact
-											? "Tokens held back so auto compact can fit a summary."
-											: "Tokens held back so a manual compression still fits."
+											? t("context.autoReserveTitle")
+											: t("context.manualReserveTitle")
 									}
 								>
 									{autoCompact
-										? "Auto compact reserve"
-										: "Manual compact reserve"}
+										? t("context.autoReserve")
+										: t("context.manualReserve")}
 								</span>
 								<span className="tabular-nums text-text-primary">
 									{formatTokens(context.reservedTokens)} tokens
@@ -593,7 +614,7 @@ export default function ContextManagementPanel() {
 							<div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px]">
 								<span className="flex items-center gap-1.5 text-text-muted">
 									<CircleDollarSign className="h-3.5 w-3.5" />
-									Last call
+									{t("context.lastCall")}
 								</span>
 								<span className="tabular-nums font-medium text-text-primary">
 									{formatCost(lastPricedCall.cost, lastPricedCall.currency)}
@@ -606,7 +627,7 @@ export default function ContextManagementPanel() {
 						<Toggle
 							checked={autoCompact}
 							onChange={setAutoCompact}
-							label="Auto compact"
+							label={t("context.autoCompact")}
 							description={autoCompactDescription}
 						/>
 						<button
@@ -617,19 +638,19 @@ export default function ContextManagementPanel() {
 							disabled={!activeId || messages.length < 4}
 							title={
 								!activeId
-									? "No active conversation"
+									? t("context.noConversation")
 									: messages.length < 4
-										? "Needs at least 4 messages"
-										: "Summarizes older messages and keeps the most recent ones"
+										? t("context.needsMessages")
+										: t("context.compressTitle")
 							}
 							className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Scissors className="h-3.5 w-3.5" />
-							{compaction ? "Re-compress context" : "Compress context"}
+							{compaction ? t("context.recompress") : t("context.compress")}
 						</button>
 						{compaction && (
 							<p className="mt-1.5 text-[10px] leading-4 text-text-muted">
-								Compressing again replaces the saved summary.
+								{t("context.recompressNote")}
 							</p>
 						)}
 					</section>
@@ -638,10 +659,10 @@ export default function ContextManagementPanel() {
 						<div className="flex items-center justify-between gap-3">
 							<div>
 								<h3 className="text-xs font-semibold text-text-primary">
-									Compaction summary
+									{t("context.compactionSummary")}
 								</h3>
 								<p className="mt-0.5 text-[11px] text-text-muted">
-									Full history remains stored in the conversation.
+									{t("context.compactionHelp")}
 								</p>
 							</div>
 							{activeId && compaction && (
@@ -650,7 +671,7 @@ export default function ContextManagementPanel() {
 									onClick={() => clearCompaction(activeId)}
 									className="h-7 rounded-md px-2 text-[11px] text-text-muted hover:bg-control hover:text-text-primary"
 								>
-									Clear
+									{t("common.clear")}
 								</button>
 							)}
 						</div>
@@ -679,17 +700,21 @@ export default function ContextManagementPanel() {
 										) : (
 											<ChevronDown className="h-3 w-3" />
 										)}
-										{summaryExpanded ? "Show less" : "Show more"}
+										{summaryExpanded
+											? t("context.showLess")
+											: t("context.showMore")}
 									</button>
 								)}
 								<p className="mt-2 text-[10px] tabular-nums text-text-muted">
-									{formatTokens(compaction.sourceTokens)} source tokens ·
-									keeping {compaction.keepRecent} recent messages
+									{t("context.sourceKeeping", {
+										source: formatTokens(compaction.sourceTokens),
+										count: compaction.keepRecent,
+									})}
 								</p>
 							</div>
 						) : (
 							<p className="mt-3 text-[11px] leading-5 text-text-muted">
-								No compacted context for this conversation.
+								{t("context.noCompacted")}
 							</p>
 						)}
 					</section>
@@ -703,14 +728,14 @@ export default function ContextManagementPanel() {
 				>
 					<div className="mb-3">
 						<h2 className="text-sm font-semibold text-text-primary">
-							Math rendering
+							{t("context.renderingEngine")}
 						</h2>
 						<p className="mt-1 text-xs leading-5 text-text-muted">
-							Choose the engine that typesets LaTeX math in chat responses.
+							{t("appearance.mathHelp")}
 						</p>
 					</div>
 					<div
-						aria-label="Math rendering engine"
+						aria-label={t("appearance.mathGroup")}
 						className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-alt/40"
 					>
 						{MATH_RENDERERS.map((option) => {
@@ -733,10 +758,10 @@ export default function ContextManagementPanel() {
 													: "text-text-secondary"
 											}`}
 										>
-											{option.label}
+											{t(option.labelKey)}
 										</span>
 										<span className="mt-0.5 block text-xs text-text-muted">
-											{option.detail}
+											{t(option.detailKey)}
 										</span>
 									</span>
 									<Check
@@ -758,11 +783,11 @@ export default function ContextManagementPanel() {
 					className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 				>
 					<p className="pb-1 text-[11px] leading-5 text-text-muted">
-						Sampling parameters apply to requests in every conversation.
+						{t("context.parametersNote")}
 					</p>
 					<NumberSlider
 						id="context-temperature"
-						label="Temperature"
+						label={t("context.temperature")}
 						value={advanced.temperature}
 						min={0}
 						max={2}
@@ -771,7 +796,7 @@ export default function ContextManagementPanel() {
 					/>
 					<NumberSlider
 						id="context-top-p"
-						label="Top P"
+						label={t("context.topP")}
 						value={advanced.topP}
 						min={0}
 						max={1}
@@ -780,7 +805,7 @@ export default function ContextManagementPanel() {
 					/>
 					<NumberSlider
 						id="context-max-completion"
-						label="Max completion tokens"
+						label={t("context.maxCompletion")}
 						value={advanced.maxCompletionTokens}
 						min={1}
 						max={maxCompletionTokens}
@@ -794,7 +819,7 @@ export default function ContextManagementPanel() {
 							htmlFor="context-seed"
 							className="mb-1.5 block text-xs font-medium text-text-primary"
 						>
-							Seed
+							{t("context.seed")}
 						</label>
 						<input
 							autoComplete="off"
@@ -802,7 +827,7 @@ export default function ContextManagementPanel() {
 							type="number"
 							value={advanced.seed}
 							onChange={(event) => setAdvanced({ seed: event.target.value })}
-							placeholder="Random"
+							placeholder={t("context.seedRandom")}
 							className="h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 						/>
 					</div>
@@ -811,7 +836,7 @@ export default function ContextManagementPanel() {
 							htmlFor="context-stop-sequences"
 							className="mb-1.5 block text-xs font-medium text-text-primary"
 						>
-							Stop sequences
+							{t("context.stopSequences")}
 						</label>
 						<input
 							autoComplete="off"
@@ -821,14 +846,14 @@ export default function ContextManagementPanel() {
 							onChange={(event) =>
 								setAdvanced({ stopSequences: event.target.value })
 							}
-							placeholder="Comma-separated"
+							placeholder={t("context.stopHint")}
 							className="h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 						/>
 					</div>
 					<div className="border-t border-border">
 						<NumberSlider
 							id="context-frequency-penalty"
-							label="Frequency penalty"
+							label={t("context.frequencyPenalty")}
 							value={advanced.frequencyPenalty}
 							min={-2}
 							max={2}
@@ -837,7 +862,7 @@ export default function ContextManagementPanel() {
 						/>
 						<NumberSlider
 							id="context-presence-penalty"
-							label="Presence penalty"
+							label={t("context.presencePenalty")}
 							value={advanced.presencePenalty}
 							min={-2}
 							max={2}
@@ -849,13 +874,13 @@ export default function ContextManagementPanel() {
 						<Toggle
 							checked={advanced.logprobs}
 							onChange={(logprobs) => setAdvanced({ logprobs })}
-							label="Log probabilities"
-							description="OpenAI-compatible providers only."
+							label={t("context.logprobs")}
+							description={t("context.logprobsHelp")}
 						/>
 						{advanced.logprobs && (
 							<NumberSlider
 								id="context-top-logprobs"
-								label="Top log probabilities"
+								label={t("context.topLogprobs")}
 								value={advanced.topLogprobs}
 								min={0}
 								max={20}

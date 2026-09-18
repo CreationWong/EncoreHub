@@ -6,6 +6,7 @@ import {
 	useState,
 } from "react";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useT } from "../../i18n";
 import {
 	SIDEBAR_MAX_WIDTH,
 	SIDEBAR_MIN_WIDTH,
@@ -15,9 +16,12 @@ import {
 import CharacterList from "./CharacterList";
 import ConversationList from "./ConversationList";
 
-const TABS: { id: SidebarMode; label: string }[] = [
-	{ id: "characters", label: "Characters" },
-	{ id: "conversations", label: "Conversations" },
+const TABS: {
+	id: SidebarMode;
+	labelKey: "sidebar.characters" | "sidebar.conversations";
+}[] = [
+	{ id: "characters", labelKey: "sidebar.characters" },
+	{ id: "conversations", labelKey: "sidebar.conversations" },
 ];
 
 const SIDEBAR_KEYBOARD_STEP = 8;
@@ -51,14 +55,15 @@ function ResizeHandle({
 		};
 	}, [dragging, onPointerResize]);
 
+	const t = useT();
 	return (
 		<hr
-			aria-label="Resize sidebar"
+			aria-label={t("sidebar.resize")}
 			aria-orientation="vertical"
 			aria-valuemin={SIDEBAR_MIN_WIDTH}
 			aria-valuemax={SIDEBAR_MAX_WIDTH}
 			aria-valuenow={Math.round(width)}
-			aria-valuetext={`${Math.round(width)} pixels`}
+			aria-valuetext={t("sidebar.pixels", { count: Math.round(width) })}
 			tabIndex={0}
 			onPointerDown={(event) => {
 				if (event.button > 0) return;
@@ -90,6 +95,7 @@ function ResizeHandle({
 }
 
 export default function Sidebar() {
+	const t = useT();
 	const sidebarOpen = useSettingsStore((state) => state.sidebarOpen);
 	const sidebarWidth = useSettingsStore((state) => state.sidebarWidth);
 	const setSidebarWidth = useSettingsStore((state) => state.setSidebarWidth);
@@ -176,14 +182,14 @@ export default function Sidebar() {
 				<button
 					type="button"
 					onClick={toggleSidebar}
-					aria-label="Close sidebar drawer"
+					aria-label={t("sidebar.closeDrawer")}
 					tabIndex={-1}
 					className="absolute inset-0 z-30 bg-black/45"
 				/>
 			)}
 			<aside
 				ref={asideRef}
-				aria-label="Characters and conversations"
+				aria-label={t("sidebar.charactersAndConversations")}
 				role={drawer ? "dialog" : undefined}
 				aria-modal={drawer ? true : undefined}
 				data-sidebar-layout={layout}
@@ -196,7 +202,7 @@ export default function Sidebar() {
 			>
 				<div
 					role="tablist"
-					aria-label="Sidebar mode"
+					aria-label={t("sidebar.mode")}
 					className="flex h-16 shrink-0 border-b border-border"
 				>
 					{TABS.map((tab, index) => {
@@ -241,7 +247,7 @@ export default function Sidebar() {
 										: "text-text-muted hover:text-text-secondary"
 								}`}
 							>
-								{tab.label}
+								{t(tab.labelKey)}
 								{active && (
 									<span className="absolute bottom-0 left-4 right-4 h-0.5 rounded-t bg-accent" />
 								)}

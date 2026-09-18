@@ -1,5 +1,6 @@
 import { Copy, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import {
 	type DesktopWindowController,
 	getDesktopWindowController,
@@ -7,9 +8,8 @@ import {
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
-const WINDOW_ACTION_ERROR = "Unable to control the application window.";
-
 export default function WindowControls({ enabled }: { enabled: boolean }) {
+	const translate = useT();
 	const controllerRef = useRef<DesktopWindowController | null>(null);
 	const [maximized, setMaximized] = useState(false);
 	const trafficLights = useSettingsStore(
@@ -39,7 +39,7 @@ export default function WindowControls({ enabled }: { enabled: boolean }) {
 				});
 			})
 			.catch(() => {
-				if (!disposed) toast.error(WINDOW_ACTION_ERROR);
+				if (!disposed) toast.error(t("window.controlError"));
 			});
 
 		return () => {
@@ -60,7 +60,7 @@ export default function WindowControls({ enabled }: { enabled: boolean }) {
 			await action(controller);
 			if (refresh) await syncMaximized(controller);
 		} catch {
-			toast.error(WINDOW_ACTION_ERROR);
+			toast.error(t("window.controlError"));
 		}
 	};
 
@@ -68,15 +68,15 @@ export default function WindowControls({ enabled }: { enabled: boolean }) {
 
 	return (
 		<fieldset
-			aria-label="Window controls"
+			aria-label={translate("window.controls")}
 			data-window-control-style={trafficLights ? "traffic-lights" : "standard"}
 			className="m-0 ml-1 flex h-full shrink-0 items-stretch border-0 border-l border-border p-0"
 		>
 			<button
 				type="button"
 				onClick={() => void run((controller) => controller.minimize())}
-				aria-label="Minimize window"
-				title="Minimize"
+				aria-label={translate("window.minimizeWindow")}
+				title={translate("window.minimize")}
 				className={`group flex h-full w-11 items-center justify-center text-text-secondary transition-colors ${
 					trafficLights ? "" : "hover:bg-control hover:text-text-primary"
 				}`}
@@ -97,8 +97,14 @@ export default function WindowControls({ enabled }: { enabled: boolean }) {
 				onClick={() =>
 					void run((controller) => controller.toggleMaximize(), true)
 				}
-				aria-label={maximized ? "Restore window" : "Maximize window"}
-				title={maximized ? "Restore" : "Maximize"}
+				aria-label={
+					maximized
+						? translate("window.restoreWindow")
+						: translate("window.maximizeWindow")
+				}
+				title={
+					maximized ? translate("window.restore") : translate("window.maximize")
+				}
 				className={`group flex h-full w-11 items-center justify-center text-text-secondary transition-colors ${
 					trafficLights ? "" : "hover:bg-control hover:text-text-primary"
 				}`}
@@ -121,8 +127,8 @@ export default function WindowControls({ enabled }: { enabled: boolean }) {
 			<button
 				type="button"
 				onClick={() => void run((controller) => controller.close())}
-				aria-label="Close window"
-				title="Close"
+				aria-label={translate("window.closeWindow")}
+				title={translate("window.close")}
 				className={`group flex h-full w-11 items-center justify-center text-text-secondary transition-colors ${
 					trafficLights ? "" : "hover:bg-danger-bg hover:text-danger"
 				}`}

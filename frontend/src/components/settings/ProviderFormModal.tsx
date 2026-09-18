@@ -2,6 +2,7 @@
 import { Braces, MessageSquareText, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { API_FORMATS } from "../../constants/providers";
+import { useT } from "../../i18n";
 import type {
 	ProviderProfile,
 	ProviderProtocol,
@@ -32,6 +33,7 @@ function createProviderId(): string {
  * immutable provider id is an opaque UUID generated at creation time.
  */
 export default function ProviderFormModal({ onCreated, onClose }: Props) {
+	const t = useT();
 	const profiles = useProviderStore((s) => s.profiles);
 
 	const [name, setName] = useState("");
@@ -41,7 +43,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 	const handleSubmit = () => {
 		const trimmedName = name.trim();
 		if (!trimmedName) {
-			setError("Name is required");
+			setError(t("providers.nameRequired"));
 			return;
 		}
 		let id = createProviderId();
@@ -82,12 +84,12 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 			>
 				<header className="flex items-center justify-between border-b border-border px-5 py-4">
 					<h3 id="add-provider-title" className="text-base font-semibold">
-						Add provider
+						{t("providers.addProvider")}
 					</h3>
 					<button
 						type="button"
 						onClick={onClose}
-						aria-label="Close"
+						aria-label={t("common.close")}
 						className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
 					>
 						<X className="h-4 w-4" />
@@ -100,7 +102,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 							htmlFor="prov-name"
 							className="text-xs font-medium text-text-secondary"
 						>
-							Name
+							{t("common.name")}
 						</label>
 						<input
 							id="prov-name"
@@ -112,7 +114,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 									handleSubmit();
 								}
 							}}
-							placeholder="My Provider"
+							placeholder={t("providers.namePlaceholder")}
 							// biome-ignore lint/a11y/noAutofocus: single-field dialog, keyboard-first
 							autoFocus
 							className="mt-1.5 w-full rounded-md border border-border bg-surface-alt px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
@@ -121,7 +123,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 
 					<fieldset className="m-0 border-0 p-0">
 						<legend className="text-xs font-medium text-text-secondary">
-							API format
+							{t("providers.apiFormat")}
 						</legend>
 						<div className="mt-1.5 grid gap-2 sm:grid-cols-2">
 							{API_FORMATS.map((format) => {
@@ -147,10 +149,10 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 										/>
 										<span className="min-w-0">
 											<span className="block text-sm font-medium text-text-primary">
-												{format.label}
+												{t(format.labelKey)}
 											</span>
 											<span className="mt-1 block text-xs leading-4 text-text-muted">
-												{format.description}
+												{t(format.descriptionKey)}
 											</span>
 										</span>
 									</button>
@@ -158,8 +160,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 							})}
 						</div>
 						<p className="mt-2 text-xs text-text-muted">
-							All endpoints added later must belong to this provider and use
-							this API format.
+							{t("providers.apiFormatHelp")}
 						</p>
 					</fieldset>
 
@@ -176,7 +177,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 						onClick={onClose}
 						className="rounded-md border border-border px-4 py-2 text-sm text-text-secondary hover:bg-surface-hover"
 					>
-						Cancel
+						{t("common.cancel")}
 					</button>
 					<button
 						type="button"
@@ -184,7 +185,7 @@ export default function ProviderFormModal({ onCreated, onClose }: Props) {
 						className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
 					>
 						<Plus className="h-4 w-4" />
-						Create
+						{t("common.create")}
 					</button>
 				</footer>
 			</dialog>

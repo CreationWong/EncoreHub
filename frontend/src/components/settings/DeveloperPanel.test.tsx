@@ -174,7 +174,7 @@ describe("Developer feature workspace", () => {
 			2,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Restart gateway" }));
+		fireEvent.click(screen.getByRole("button", { name: "Restart Gateway" }));
 		await waitFor(() => expect(restartService).toHaveBeenCalledWith("gateway"));
 	});
 

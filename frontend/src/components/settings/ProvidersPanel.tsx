@@ -1,6 +1,12 @@
+// Provider list and detail host: drafts, leave-guard, and runtime-status dots.
+
 import { ArrowLeft, Plus, Search, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProviderProfile } from "../../services/providers";
+import { t, useT } from "../../i18n";
+import type {
+	ProviderProfile,
+	ProviderProtocol,
+} from "../../services/providers";
 import { confirm } from "../../stores/confirmStore";
 import { useProviderStore } from "../../stores/providerStore";
 import { useSecretsStore } from "../../stores/secretsStore";
@@ -24,6 +30,13 @@ function providerInitial(name: string): string {
 	return name.trim().charAt(0).toUpperCase() || "P";
 }
 
+/** Protocol chrome for the list subtitle; brand names stay as identifiers. */
+function protocolLabel(protocol: ProviderProtocol): string {
+	if (protocol === "anthropic") return t("providers.anthropic");
+	if (protocol === "openai-responses") return t("providers.openaiResponses");
+	return t("providers.openaiCompatible");
+}
+
 function loadLastSettingsProvider(): string | null {
 	if (typeof window === "undefined") return null;
 	try {
@@ -43,7 +56,9 @@ function rememberSettingsProvider(id: string | null): void {
 	}
 }
 
+/** Provider list plus the selected profile's configuration editor. */
 export default function ProvidersPanel() {
+	const translate = useT();
 	const apiKeys = useSettingsStore((state) => state.apiKeys);
 	const setApiKey = useSettingsStore((state) => state.setApiKey);
 	const clearApiKey = useSettingsStore((state) => state.clearApiKey);
@@ -155,14 +170,14 @@ export default function ProvidersPanel() {
 		if (dirtyIds.length === 0) return true;
 
 		const choice = await confirm.choose({
-			title: "Unsaved provider changes",
+			title: t("providers.unsavedTitle"),
 			message:
 				dirtyIds.length === 1
-					? "This provider has unsaved changes. Save them before leaving Providers?"
-					: `${dirtyIds.length} providers have unsaved changes. Save them before leaving Providers?`,
-			confirmLabel: "Save changes",
-			discardLabel: "Don't save",
-			cancelLabel: "Cancel",
+					? t("providers.unsavedMessage")
+					: t("providers.unsavedMessageMany", { count: dirtyIds.length }),
+			confirmLabel: t("common.saveChanges"),
+			discardLabel: t("common.dontSave"),
+			cancelLabel: t("common.cancel"),
 		});
 		if (choice === "cancel") return false;
 		if (choice === "discard") {
@@ -209,8 +224,8 @@ export default function ProvidersPanel() {
 		}
 		if (
 			!(await confirm.ask(
-				"Delete provider",
-				`Delete provider "${profile.name}"? This cannot be undone.`,
+				t("providers.deleteTitle"),
+				t("providers.deleteMessage", { name: profile.name }),
 				true,
 			))
 		) {
@@ -222,10 +237,10 @@ export default function ProvidersPanel() {
 				setSelectedId(null);
 				setMobileDetailOpen(false);
 			}
-			toast.success(`Removed ${profile.name}`);
+			toast.success(t("toast.providerRemoved", { name: profile.name }));
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to delete provider",
+				error instanceof Error ? error.message : t("providers.deleteFailed"),
 			);
 		}
 	};
@@ -252,8 +267,8 @@ export default function ProvidersPanel() {
 							autoComplete="off"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Search providers"
-							aria-label="Search providers"
+							placeholder={translate("providers.search")}
+							aria-label={translate("providers.search")}
 							className="w-full rounded-md border border-border bg-surface py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted"
 						/>
 					</div>
@@ -261,13 +276,15 @@ export default function ProvidersPanel() {
 
 				<div className="min-h-0 flex-1 overflow-y-auto p-2">
 					{loading && list.length === 0 ? (
-						<p className="px-2 py-4 text-xs text-text-muted">Loading...</p>
+						<p className="px-2 py-4 text-xs text-text-muted">
+							{translate("providers.loading")}
+						</p>
 					) : filtered.length === 0 ? (
 						<div className="flex min-h-32 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-text-muted">
 							<Server className="h-5 w-5" />
 							{list.length === 0
-								? "No providers configured"
-								: "No providers match your search"}
+								? translate("providers.none")
+								: translate("providers.noMatch")}
 						</div>
 					) : (
 						filtered.map((profile) => {
@@ -304,24 +321,25 @@ export default function ProvidersPanel() {
 											</span>
 											{draft && (
 												<span className="shrink-0 rounded bg-warning-bg px-1 py-0.5 text-[9px] uppercase text-warning">
-													draft
+													{translate("providers.draft")}
 												</span>
 											)}
 										</span>
 										<span className="block truncate text-[11px] text-text-muted">
-											{profile.protocol === "anthropic"
-												? "Anthropic Messages"
-												: profile.protocol === "openai-responses"
-													? "OpenAI Responses API"
-													: "OpenAI compatible"}{" "}
-											/ {profile.models.length} models
+											{protocolLabel(profile.protocol)} /{" "}
+											{translate("providers.modelsCount", {
+												count: profile.models.length,
+											})}
 										</span>
 									</span>
 									<span
 										className={`h-2.5 w-2.5 shrink-0 rounded-full ${
 											statusPresentation.className
 										} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
-										aria-label={`${profile.name} status: ${statusPresentation.label}`}
+										aria-label={translate("providers.statusAria", {
+											name: profile.name,
+											status: statusPresentation.label,
+										})}
 										title={statusPresentation.label}
 									/>
 								</button>
@@ -337,7 +355,7 @@ export default function ProvidersPanel() {
 						className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 					>
 						<Plus className="h-4 w-4" />
-						Add provider
+						{translate("providers.addProvider")}
 					</button>
 				</div>
 			</aside>
@@ -354,11 +372,11 @@ export default function ProvidersPanel() {
 							<button
 								type="button"
 								onClick={() => setMobileDetailOpen(false)}
-								aria-label="Back to provider list"
+								aria-label={translate("providers.back")}
 								className="flex h-8 items-center gap-1 rounded-md px-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 							>
 								<ArrowLeft className="h-4 w-4" />
-								Providers
+								{translate("settings.providers")}
 							</button>
 							<span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
 								{selected.name}
@@ -415,7 +433,7 @@ export default function ProvidersPanel() {
 				) : (
 					<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-text-muted">
 						<Server className="h-6 w-6" />
-						<span>Select a provider to configure it</span>
+						<span>{translate("providers.selectToConfigure")}</span>
 					</div>
 				)}
 			</div>

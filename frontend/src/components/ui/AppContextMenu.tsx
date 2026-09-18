@@ -16,6 +16,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { t, useT } from "../../i18n";
 import {
 	canReadClipboardText,
 	readClipboardText,
@@ -134,6 +135,7 @@ function shortcut(command: string): string {
 }
 
 export default function AppContextMenu() {
+	const translate = useT();
 	const newConversation = useConversationStore(
 		(state) => state.newConversation,
 	);
@@ -251,7 +253,7 @@ export default function AppContextMenu() {
 		close();
 		void Promise.resolve(action()).catch((error) => {
 			toast.error(
-				error instanceof Error ? error.message : "Context menu action failed",
+				error instanceof Error ? error.message : t("contextMenu.actionFailed"),
 			);
 		});
 	};
@@ -264,8 +266,8 @@ export default function AppContextMenu() {
 	const confirmDelete = async () => {
 		if (!message) return;
 		const confirmed = await confirm.ask(
-			"Delete message?",
-			"This action cannot be undone.",
+			t("contextMenu.deleteMessageTitle"),
+			t("contextMenu.deleteMessageBody"),
 			true,
 		);
 		if (confirmed) await deleteMessage(message.id);
@@ -276,7 +278,7 @@ export default function AppContextMenu() {
 		entries = [
 			{
 				id: "copy-message",
-				label: "Copy",
+				label: translate("contextMenu.copy"),
 				icon: Copy,
 				shortcut: shortcut("C"),
 				action: () =>
@@ -286,7 +288,7 @@ export default function AppContextMenu() {
 				? [
 						{
 							id: "edit-message",
-							label: "Edit",
+							label: translate("contextMenu.edit"),
 							icon: Edit3,
 							disabled: streaming,
 							action: () => startEditingMessage(message.id),
@@ -295,7 +297,7 @@ export default function AppContextMenu() {
 				: [
 						{
 							id: "regenerate-message",
-							label: "Regenerate",
+							label: translate("contextMenu.regenerate"),
 							icon: RefreshCcw,
 							disabled: streaming || !message.parent_id,
 							action: () => regenerateMessage(message.id),
@@ -304,7 +306,7 @@ export default function AppContextMenu() {
 			{ id: "message-separator", separator: true },
 			{
 				id: "delete-message",
-				label: "Delete",
+				label: translate("contextMenu.delete"),
 				icon: Trash2,
 				disabled: streaming,
 				action: confirmDelete,
@@ -314,7 +316,7 @@ export default function AppContextMenu() {
 		entries = [
 			{
 				id: "undo",
-				label: "Undo",
+				label: translate("contextMenu.undo"),
 				icon: Undo2,
 				shortcut: shortcut("Z"),
 				disabled: !modifiable,
@@ -325,7 +327,7 @@ export default function AppContextMenu() {
 			},
 			{
 				id: "redo",
-				label: "Redo",
+				label: translate("contextMenu.redo"),
 				icon: Redo2,
 				shortcut: shortcut("Y"),
 				disabled: !modifiable,
@@ -337,7 +339,7 @@ export default function AppContextMenu() {
 			{ id: "history-separator", separator: true },
 			{
 				id: "cut",
-				label: "Cut",
+				label: translate("contextMenu.cut"),
 				icon: Scissors,
 				shortcut: shortcut("X"),
 				disabled: !modifiable || !hasSelection,
@@ -348,7 +350,7 @@ export default function AppContextMenu() {
 			},
 			{
 				id: "copy",
-				label: "Copy",
+				label: translate("contextMenu.copy"),
 				icon: Copy,
 				shortcut: shortcut("C"),
 				disabled: !hasSelection,
@@ -356,7 +358,7 @@ export default function AppContextMenu() {
 			},
 			{
 				id: "paste",
-				label: "Paste",
+				label: translate("contextMenu.paste"),
 				icon: ClipboardPaste,
 				shortcut: shortcut("V"),
 				disabled: !modifiable || !canReadClipboardText(),
@@ -368,7 +370,7 @@ export default function AppContextMenu() {
 			{ id: "clipboard-separator", separator: true },
 			{
 				id: "select-all",
-				label: "Select all",
+				label: translate("contextMenu.selectAll"),
 				icon: TextSelect,
 				shortcut: shortcut("A"),
 				action: () => selectAll(editable),
@@ -378,7 +380,7 @@ export default function AppContextMenu() {
 		entries = [
 			{
 				id: "copy",
-				label: "Copy",
+				label: translate("contextMenu.copy"),
 				icon: Copy,
 				shortcut: shortcut("C"),
 				action: () => writeClipboardText(context.selectedText),
@@ -438,7 +440,7 @@ export default function AppContextMenu() {
 			ref={menuRef}
 			role="menu"
 			tabIndex={-1}
-			aria-label="EncoreHub context menu"
+			aria-label={translate("contextMenu.menu")}
 			onKeyDown={handleKeyDown}
 			className="fixed z-[100] w-52 rounded-md border border-border bg-workspace p-1 shadow-[0_12px_32px_rgba(0,0,0,0.24)] focus:outline-none focus:shadow-[0_12px_32px_rgba(0,0,0,0.24)]"
 			style={{ left: position.x, top: position.y }}

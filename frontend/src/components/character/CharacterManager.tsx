@@ -1,3 +1,5 @@
+// Character profile editor: identity, defaults, prompt, memory, and history.
+
 import {
 	AlertTriangle,
 	Copy,
@@ -21,6 +23,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useT } from "../../i18n";
 import { ApiError } from "../../services/api";
 import {
 	type CharacterHistoryListResponse,
@@ -53,6 +56,7 @@ import {
 	validateCharacterDraft,
 } from "./characterForm";
 
+/** Chat models for a provider, using configured display names when present. */
 function providerModels(profile: ProviderProfile): Array<{
 	id: string;
 	name: string;
@@ -65,6 +69,7 @@ function providerModels(profile: ProviderProfile): Array<{
 	}));
 }
 
+/** Enabled providers that expose at least one chat model. */
 function selectableProviderProfiles(
 	providers: ProviderProfile[],
 ): ProviderProfile[] {
@@ -73,6 +78,7 @@ function selectableProviderProfiles(
 	);
 }
 
+/** Fill empty or unavailable provider/model defaults from enabled profiles. */
 function resolveDraftDefaults(
 	draft: CharacterDraft,
 	providers: ProviderProfile[],
@@ -107,6 +113,7 @@ function resolveDraftDefaults(
 	};
 }
 
+/** Whether the draft provider/model pair is still enabled for chat. */
 function modelIsAvailable(
 	providers: ProviderProfile[],
 	providerId: string,
@@ -120,6 +127,7 @@ function modelIsAvailable(
 	);
 }
 
+/** Inline validation message under a form field. */
 function FieldError({ id, message }: { id: string; message?: string }) {
 	if (!message) return null;
 	return (
@@ -129,6 +137,7 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 	);
 }
 
+/** Single-line labeled input used by the identity section. */
 function TextField({
 	id,
 	label,
@@ -173,6 +182,7 @@ function TextField({
 	);
 }
 
+/** Stable `id` for character form controls. */
 function fieldId(name: string): string {
 	return `character-${name}`;
 }
@@ -181,9 +191,13 @@ interface CharacterManagerProps {
 	historyLoader?: () => Promise<CharacterHistoryListResponse>;
 }
 
+/**
+ * Modal editor for creating, updating, duplicating, and testing characters.
+ */
 export default function CharacterManager({
 	historyLoader,
 }: CharacterManagerProps = {}) {
+	const t = useT();
 	const open = useCharacterManagerStore((state) => state.open);
 	const requestedId = useCharacterManagerStore((state) => state.characterId);
 	const requestedCreating = useCharacterManagerStore((state) => state.creating);
@@ -220,10 +234,7 @@ export default function CharacterManager({
 
 	const currentProfile =
 		characters.find((item) => item.id === editingId) ?? null;
-	const errors = useMemo(
-		() => validateCharacterDraft(draft, characters, editingId),
-		[draft, characters, editingId],
-	);
+	const errors = validateCharacterDraft(draft, characters, editingId);
 	const valid = Object.keys(errors).length === 0;
 	const dirty = characterDraftSignature(draft) !== sourceSignature;
 	const promptTokens = estimatePromptTokens(draft.systemPrompt);
@@ -316,8 +327,8 @@ export default function CharacterManager({
 	async function confirmDiscard(): Promise<boolean> {
 		if (!dirty) return true;
 		return confirm.ask(
-			"Discard character changes?",
-			"Unsaved character fields will be restored to their last saved values.",
+			t("character.discardTitle"),
+			t("character.discardMessage"),
 		);
 	}
 
@@ -366,17 +377,15 @@ export default function CharacterManager({
 			setCreating(false);
 			setDraft(savedDraft);
 			setSourceSignature(characterDraftSignature(savedDraft));
-			toast.success(creating ? "Character created" : "Character saved");
+			toast.success(creating ? t("character.created") : t("character.saved"));
 			return saved;
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 409) {
 				setConflict(true);
-				setActionError(
-					"This character changed elsewhere. Reload the latest version before saving again.",
-				);
+				setActionError(t("character.changedElsewhere"));
 			} else {
 				setActionError(
-					error instanceof Error ? error.message : "Failed to save character",
+					error instanceof Error ? error.message : t("character.saveFailed"),
 				);
 			}
 			clearStoreError();
@@ -390,9 +399,7 @@ export default function CharacterManager({
 		await load();
 		const state = useCharacterStore.getState();
 		if (state.error) {
-			setActionError(
-				"Unable to reload the latest character. Your unsaved draft is still intact.",
-			);
+			setActionError(t("character.reloadFailed"));
 			setConflict(true);
 			return;
 		}
@@ -401,9 +408,7 @@ export default function CharacterManager({
 			resetEditor(latest);
 			return;
 		}
-		setActionError(
-			"This character is no longer available. Copy the draft before choosing another character.",
-		);
+		setActionError(t("character.noLongerAvailable"));
 		setConflict(false);
 	}
 
@@ -424,8 +429,8 @@ export default function CharacterManager({
 	async function deleteCurrent() {
 		if (!currentProfile || currentProfile.id === DEFAULT_CHARACTER_ID) return;
 		const accepted = await confirm.ask(
-			"Delete character?",
-			`Delete "${currentProfile.name}"? Existing conversations keep their saved character snapshot.`,
+			t("character.deleteTitle"),
+			t("character.deleteMessage", { name: currentProfile.name }),
 			true,
 		);
 		if (!accepted) return;
@@ -438,10 +443,10 @@ export default function CharacterManager({
 				useCharacterStore.getState().characters[0] ??
 				null;
 			resetEditor(next);
-			toast.success("Character deleted");
+			toast.success(t("character.deleted"));
 		} catch (error) {
 			setActionError(
-				error instanceof Error ? error.message : "Failed to delete character",
+				error instanceof Error ? error.message : t("character.deleteFailed"),
 			);
 			clearStoreError();
 		}
@@ -504,7 +509,7 @@ export default function CharacterManager({
 				type="button"
 				tabIndex={-1}
 				onClick={() => void requestClose()}
-				aria-label="Close character manager"
+				aria-label={t("character.closeManager")}
 				className="absolute inset-0 bg-black/45"
 			/>
 			<dialog
@@ -521,13 +526,13 @@ export default function CharacterManager({
 							id="character-manager-title"
 							className="text-sm font-semibold max-[760px]:sr-only"
 						>
-							Characters
+							{t("character.characters")}
 						</h2>
 						<button
 							type="button"
 							onClick={() => void selectCharacter(null)}
-							aria-label="Add character"
-							title="Add character"
+							aria-label={t("character.add")}
+							title={t("character.add")}
 							className="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary hover:bg-control hover:text-text-primary"
 						>
 							<Plus className="h-4 w-4" />
@@ -537,7 +542,7 @@ export default function CharacterManager({
 					<div className="min-h-0 flex-1 overflow-y-auto p-2">
 						{loading && characters.length === 0 && (
 							<output
-								aria-label="Loading characters"
+								aria-label={t("character.loading")}
 								className="flex h-24 items-center justify-center"
 							>
 								<Loader2 className="h-4 w-4 animate-spin text-text-muted" />
@@ -546,20 +551,20 @@ export default function CharacterManager({
 						{loadError && characters.length === 0 && (
 							<div className="px-2 py-6 text-center">
 								<p className="text-xs text-danger">
-									Unable to load characters.
+									{t("character.unableToLoad")}
 								</p>
 								<button
 									type="button"
 									onClick={() => void load()}
 									className="mt-3 h-8 rounded-md border border-border px-3 text-xs text-text-secondary hover:bg-control"
 								>
-									Retry
+									{t("common.retry")}
 								</button>
 							</div>
 						)}
 						{!loading && !loadError && characters.length === 0 && (
 							<p className="px-2 py-8 text-center text-xs text-text-muted">
-								No characters yet.
+								{t("character.none")}
 							</p>
 						)}
 						<div className="space-y-1">
@@ -587,7 +592,9 @@ export default function CharacterManager({
 												{profile.name}
 											</span>
 											<span className="block text-[10px] text-text-muted">
-												Version {profile.version}
+												{t("character.versionLabel", {
+													version: profile.version,
+												})}
 											</span>
 										</span>
 									</button>
@@ -608,18 +615,20 @@ export default function CharacterManager({
 							/>
 							<div className="min-w-0 flex-1">
 								<p className="truncate text-sm font-semibold">
-									{draft.name.trim() || "New character"}
+									{draft.name.trim() || t("character.newCharacter")}
 								</p>
 								<p className="truncate text-[11px] text-text-muted">
 									{creating
-										? "Unsaved profile"
-										: `Version ${currentProfile?.version ?? 1}`}
+										? t("character.unsavedProfile")
+										: t("character.versionLabel", {
+												version: currentProfile?.version ?? 1,
+											})}
 								</p>
 							</div>
 						</div>
 						<div
 							className="flex h-8 items-center rounded-md border border-border bg-control p-0.5"
-							aria-label="Character manager view"
+							aria-label={t("character.manager")}
 						>
 							<button
 								type="button"
@@ -627,7 +636,7 @@ export default function CharacterManager({
 								aria-pressed={view === "edit"}
 								className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] ${view === "edit" ? "bg-workspace text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
 							>
-								<Pencil className="h-3 w-3" /> Edit
+								<Pencil className="h-3 w-3" /> {t("common.edit")}
 							</button>
 							<button
 								type="button"
@@ -635,14 +644,14 @@ export default function CharacterManager({
 								aria-pressed={view === "history"}
 								className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] ${view === "history" ? "bg-workspace text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
 							>
-								<History className="h-3 w-3" /> History
+								<History className="h-3 w-3" /> {t("character.historyTab")}
 							</button>
 						</div>
 						<button
 							type="button"
 							onClick={() => void requestClose()}
-							aria-label="Close character manager"
-							title="Close (Esc)"
+							aria-label={t("character.closeManager")}
+							title={t("character.closeEsc")}
 							className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 						>
 							<X className="h-4 w-4" />
@@ -668,7 +677,7 @@ export default function CharacterManager({
 												onClick={() => void reloadConflict()}
 												className="shrink-0 rounded-md border border-danger-border px-2 py-1 text-xs font-medium hover:bg-danger-bg"
 											>
-												Reload latest
+												{t("character.reloadLatest")}
 											</button>
 										)}
 									</div>
@@ -676,12 +685,12 @@ export default function CharacterManager({
 
 								<div className="border-b border-border px-5 py-5">
 									<h3 className="mb-4 text-xs font-semibold text-text-primary">
-										Identity
+										{t("character.identity")}
 									</h3>
 									<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
 										<TextField
 											id={fieldId("name")}
-											label="Name"
+											label={t("character.name")}
 											value={draft.name}
 											onChange={(value) => setField("name", value)}
 											error={errors.name}
@@ -690,11 +699,11 @@ export default function CharacterManager({
 										/>
 										<TextField
 											id={fieldId("avatar")}
-											label="Avatar URL or data URI"
+											label={t("character.avatar")}
 											value={draft.avatar}
 											onChange={(value) => setField("avatar", value)}
 											error={errors.avatar}
-											placeholder="Optional"
+											placeholder={t("common.optional")}
 											maxLength={CHARACTER_LIMITS.avatar + 1}
 										/>
 									</div>
@@ -703,7 +712,7 @@ export default function CharacterManager({
 										className="mt-4 block"
 									>
 										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-											Description
+											{t("character.description")}
 										</span>
 										<textarea
 											autoComplete="off"
@@ -724,11 +733,11 @@ export default function CharacterManager({
 									</label>
 									<TextField
 										id={fieldId("tags")}
-										label="Tags"
+										label={t("character.tags")}
 										value={draft.tags}
 										onChange={(value) => setField("tags", value)}
 										error={errors.tags}
-										placeholder="research, writing, support"
+										placeholder={t("character.tagsPlaceholder")}
 										maxLength={
 											CHARACTER_LIMITS.tags * (CHARACTER_LIMITS.tag + 2)
 										}
@@ -737,12 +746,12 @@ export default function CharacterManager({
 
 								<div className="border-b border-border px-5 py-5">
 									<h3 className="mb-4 text-xs font-semibold text-text-primary">
-										Conversation defaults
+										{t("character.conversationDefaults")}
 									</h3>
 									<div className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1">
 										<label htmlFor={fieldId("provider")} className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Provider
+												{t("common.provider")}
 											</span>
 											<select
 												id={fieldId("provider")}
@@ -753,7 +762,9 @@ export default function CharacterManager({
 												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent"
 											>
 												{selectableProviders.length === 0 && (
-													<option value="">No enabled providers</option>
+													<option value="">
+														{t("character.noEnabledProviders")}
+													</option>
 												)}
 												{selectableProviders.map((provider) => (
 													<option key={provider.id} value={provider.id}>
@@ -769,7 +780,7 @@ export default function CharacterManager({
 
 										<label htmlFor={fieldId("model")} className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Model
+												{t("common.model")}
 											</span>
 											<select
 												id={fieldId("model")}
@@ -782,7 +793,9 @@ export default function CharacterManager({
 												className="h-9 w-full rounded-md border border-border bg-control px-3 text-sm text-text-primary outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
 											>
 												{models.length === 0 && (
-													<option value="">No chat models available</option>
+													<option value="">
+														{t("character.noChatModels")}
+													</option>
 												)}
 												{models.map((model) => (
 													<option key={model.id} value={model.id}>
@@ -800,10 +813,7 @@ export default function CharacterManager({
 									{!resolvedModelAvailable && (
 										<div className="mt-3 flex items-start gap-2 rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning">
 											<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-											<span>
-												The selected model is unavailable. Choose an enabled
-												provider and model before starting a test conversation.
-											</span>
+											<span>{t("character.modelUnavailableHelp")}</span>
 										</div>
 									)}
 
@@ -812,7 +822,7 @@ export default function CharacterManager({
 										className="mt-4 block"
 									>
 										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-											Opening message
+											{t("character.openingMessage")}
 										</span>
 										<textarea
 											autoComplete="off"
@@ -840,13 +850,15 @@ export default function CharacterManager({
 								<div className="px-5 py-5">
 									<div className="mb-2 flex items-center justify-between gap-3">
 										<h3 className="text-xs font-semibold text-text-primary">
-											Global prompt
+											{t("character.globalPrompt")}
 										</h3>
 										<span
-											title="Local UTF-8 estimate; this is not provider usage"
+											title={t("character.tokenEstimate")}
 											className="shrink-0 text-[11px] tabular-nums text-text-muted"
 										>
-											~{promptTokens.toLocaleString()} estimated tokens
+											{t("character.estimatedTokens", {
+												count: promptTokens.toLocaleString(),
+											})}
 										</span>
 									</div>
 									<textarea
@@ -873,12 +885,10 @@ export default function CharacterManager({
 									>
 										<summary className="flex cursor-pointer list-none items-center gap-1.5 text-text-secondary hover:text-text-primary">
 											<Info className="h-3.5 w-3.5" />
-											Prompt variables
+											{t("character.promptVariables")}
 										</summary>
 										<p className="mt-2 max-w-2xl leading-5">
-											Prompt text is currently inserted exactly as written.
-											Character name and description are supplied separately;
-											template variables are not expanded in this version.
+											{t("character.promptVariablesHelp")}
 										</p>
 									</details>
 								</div>
@@ -892,7 +902,7 @@ export default function CharacterManager({
 									className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 								>
 									<Copy className="h-3.5 w-3.5" />
-									Duplicate
+									{t("common.duplicate")}
 								</button>
 								<button
 									type="button"
@@ -904,13 +914,13 @@ export default function CharacterManager({
 									}
 									title={
 										currentProfile?.id === DEFAULT_CHARACTER_ID
-											? "The default character cannot be deleted"
-											: "Delete character"
+											? t("character.cannotDeleteDefault")
+											: t("common.delete")
 									}
 									className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-danger hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-40"
 								>
 									<Trash2 className="h-3.5 w-3.5" />
-									Delete
+									{t("common.delete")}
 								</button>
 								<div className="min-w-2 flex-1" />
 								{dirty && (
@@ -921,7 +931,7 @@ export default function CharacterManager({
 										className="flex h-9 items-center gap-2 rounded-md px-3 text-sm text-text-secondary hover:bg-control hover:text-text-primary disabled:opacity-50"
 									>
 										<RotateCcw className="h-3.5 w-3.5" />
-										Cancel changes
+										{t("character.cancelChanges")}
 									</button>
 								)}
 								<button
@@ -935,7 +945,7 @@ export default function CharacterManager({
 									) : (
 										<Save className="h-3.5 w-3.5" />
 									)}
-									Save
+									{t("common.save")}
 								</button>
 								<button
 									type="button"
@@ -944,7 +954,7 @@ export default function CharacterManager({
 									className="flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
 								>
 									<MessageSquare className="h-3.5 w-3.5" />
-									Test conversation
+									{t("character.testConversation")}
 								</button>
 							</footer>
 						</>

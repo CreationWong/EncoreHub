@@ -8,6 +8,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { t, useT } from "../../i18n";
 import { DEFAULT_CHARACTER_ID } from "../../services/characters";
 import {
 	type Memory,
@@ -19,18 +20,26 @@ import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
-const STATE_LABELS: Record<Memory["state"], string> = {
-	transient: "Transient",
-	short_term: "Short-term",
-	long_term: "Long-term",
-	permanent_candidate: "Candidate",
-	permanent: "Permanent",
-	forgotten: "Forgotten",
+const STATE_LABELS: Record<
+	Memory["state"],
+	| "memory.transient"
+	| "memory.shortTerm"
+	| "memory.longTerm"
+	| "memory.candidate"
+	| "memory.permanent"
+	| "memory.forgotten"
+> = {
+	transient: "memory.transient",
+	short_term: "memory.shortTerm",
+	long_term: "memory.longTerm",
+	permanent_candidate: "memory.candidate",
+	permanent: "memory.permanent",
+	forgotten: "memory.forgotten",
 };
 
 function formatDate(value: string): string {
 	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "Unknown date";
+	if (Number.isNaN(date.getTime())) return t("memory.unknownDate");
 	return new Intl.DateTimeFormat(undefined, {
 		month: "short",
 		day: "numeric",
@@ -38,6 +47,7 @@ function formatDate(value: string): string {
 }
 
 export default function CurrentMemoryPanel() {
+	const translate = useT();
 	const activeId = useConversationStore((state) => state.activeId);
 	const conversations = useConversationStore((state) => state.conversations);
 	const appendDraft = useConversationStore((state) => state.appendDraft);
@@ -64,9 +74,7 @@ export default function CurrentMemoryPanel() {
 			setGroups(groupResponse.groups);
 		} catch (loadError) {
 			setError(
-				loadError instanceof Error
-					? loadError.message
-					: "Failed to load current memories",
+				loadError instanceof Error ? loadError.message : t("memory.loadFailed"),
 			);
 		} finally {
 			setLoading(false);
@@ -111,7 +119,7 @@ export default function CurrentMemoryPanel() {
 		try {
 			await memoriesApi.delete(memory.id);
 			setMemories((current) => current.filter((item) => item.id !== memory.id));
-			toast.success("Memory deleted");
+			toast.success(t("memory.deleted"));
 		} catch (deleteError) {
 			toast.error(
 				deleteError instanceof Error ? deleteError.message : "Delete failed",
@@ -122,7 +130,7 @@ export default function CurrentMemoryPanel() {
 	return (
 		<div
 			role="tabpanel"
-			aria-label="Memory"
+			aria-label={translate("memory.title")}
 			className="flex min-h-0 flex-1 flex-col"
 		>
 			<section className="shrink-0 border-b border-border px-3 py-3">
@@ -140,7 +148,7 @@ export default function CurrentMemoryPanel() {
 						type="button"
 						onClick={() => void load()}
 						disabled={loading}
-						aria-label="Refresh current memories"
+						aria-label={translate("memory.refresh")}
 						title="Refresh current memories"
 						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-50"
 					>
@@ -157,18 +165,18 @@ export default function CurrentMemoryPanel() {
 						type="search"
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
-						aria-label="Search current memories"
-						placeholder="Search memories"
+						aria-label={translate("memory.search")}
+						placeholder={translate("memory.searchPlaceholder")}
 						className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-2 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 					/>
 				</div>
 				<select
 					value={groupId}
 					onChange={(event) => setGroupId(event.target.value)}
-					aria-label="Memory group filter"
+					aria-label={translate("memory.groupFilter")}
 					className="mt-2 h-8 w-full rounded-md border border-border bg-surface px-2 text-xs text-text-secondary outline-none focus:border-accent"
 				>
-					<option value="">All visible groups</option>
+					<option value="">{translate("memory.allGroups")}</option>
 					{visibleGroups.map((group) => (
 						<option key={group.id} value={group.id}>
 							{group.name}
@@ -181,7 +189,7 @@ export default function CurrentMemoryPanel() {
 				{loading ? (
 					<div
 						className="flex h-40 items-center justify-center"
-						aria-label="Loading current memories"
+						aria-label={translate("memory.loading")}
 					>
 						<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
 					</div>
@@ -201,7 +209,7 @@ export default function CurrentMemoryPanel() {
 						<BrainCircuit className="h-6 w-6 text-text-muted" />
 						<p className="mt-3 text-xs font-medium text-text-primary">
 							{memories.length === 0
-								? "No memories yet"
+								? translate("memory.none")
 								: "No matching memories"}
 						</p>
 						<p className="mt-1 text-[11px] leading-4 text-text-muted">
@@ -223,7 +231,7 @@ export default function CurrentMemoryPanel() {
 											{groupNames.get(memory.group_id) ?? "Memory group"}
 										</span>
 										<span className="rounded bg-control px-1.5 py-0.5 text-text-muted">
-											{STATE_LABELS[memory.state]}
+											{translate(STATE_LABELS[memory.state])}
 										</span>
 										<span className="capitalize text-text-muted">
 											{memory.kind}
@@ -235,8 +243,8 @@ export default function CurrentMemoryPanel() {
 											onClick={() =>
 												appendDraft(`> [memory] ${memory.content}`)
 											}
-											aria-label="Quote memory"
-											title="Quote in message"
+											aria-label={translate("memory.quote")}
+											title={translate("memory.quoteInMessage")}
 											className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 										>
 											<Quote className="h-3.5 w-3.5" />
@@ -244,7 +252,7 @@ export default function CurrentMemoryPanel() {
 										<button
 											type="button"
 											onClick={() => void deleteMemory(memory)}
-											aria-label="Delete memory"
+											aria-label={translate("memory.delete")}
 											title="Delete memory"
 											className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-danger/10 hover:text-danger"
 										>

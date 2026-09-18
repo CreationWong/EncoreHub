@@ -1,5 +1,6 @@
 import { FileText, ImageOff, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n";
 import {
 	type Attachment,
 	fetchAttachmentContent,
@@ -14,12 +15,15 @@ interface UserBubbleProps {
 	onEditSubmit?: (content: string) => void | Promise<void>;
 }
 
-function userStatus(status: Message["status"]) {
+function userStatus(
+	status: Message["status"],
+	translate: (key: "common.failed" | "common.stopped") => string,
+) {
 	if (status === "failed") {
-		return { label: "Failed", className: "text-danger" };
+		return { label: translate("common.failed"), className: "text-danger" };
 	}
 	if (status === "stopped") {
-		return { label: "Stopped", className: "text-warning" };
+		return { label: translate("common.stopped"), className: "text-warning" };
 	}
 	return null;
 }
@@ -77,10 +81,11 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
 }
 
 function AttachmentList({ attachments }: { attachments: Attachment[] }) {
+	const t = useT();
 	if (attachments.length === 0) return null;
 	return (
 		<div
-			aria-label="Message attachments"
+			aria-label={t("chat.attachments")}
 			className="flex max-w-full flex-wrap justify-end gap-2"
 		>
 			{attachments.map((attachment) =>
@@ -107,7 +112,8 @@ export default function UserBubble({
 	onEditCancel,
 	onEditSubmit,
 }: UserBubbleProps) {
-	const status = userStatus(message.status);
+	const t = useT();
+	const status = userStatus(message.status, t);
 	const attachments = message.attachments ?? [];
 	const [draft, setDraft] = useState(message.content);
 	const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -132,7 +138,7 @@ export default function UserBubble({
 
 	return (
 		<article
-			aria-label="User message"
+			aria-label={t("chat.userMessage")}
 			data-message-id={message.id}
 			data-message-role="user"
 			className="app-message app-message-user group flex justify-end px-4 py-3"
@@ -145,7 +151,7 @@ export default function UserBubble({
 						<textarea
 							autoComplete="off"
 							ref={editorRef}
-							aria-label="Edit user message"
+							aria-label={t("chat.editUser")}
 							value={draft}
 							onChange={(event) => setDraft(event.target.value)}
 							onKeyDown={(event) => {
@@ -167,8 +173,8 @@ export default function UserBubble({
 							<button
 								type="button"
 								onClick={onEditCancel}
-								aria-label="Cancel editing"
-								title="Cancel editing (Esc)"
+								aria-label={t("chat.cancelEdit")}
+								title={t("chat.cancelEditEsc")}
 								className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 							>
 								<X className="h-4 w-4" />
@@ -179,8 +185,8 @@ export default function UserBubble({
 								disabled={
 									!draft.trim() || draft.trim() === message.content.trim()
 								}
-								aria-label="Update and regenerate"
-								title="Update and regenerate (Ctrl+Enter)"
+								aria-label={t("chat.updateRegenerate")}
+								title={t("chat.updateRegenerateShortcut")}
 								className="flex h-8 w-8 items-center justify-center rounded-md bg-accent text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 							>
 								<Send className="h-4 w-4" />
@@ -191,7 +197,10 @@ export default function UserBubble({
 					<>
 						{message.content.trim() && (
 							<div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-								<CopyButton text={message.content} label="Copy message" />
+								<CopyButton
+									text={message.content}
+									label={t("chat.copyMessage")}
+								/>
 							</div>
 						)}
 						<div className="flex min-w-0 flex-col items-end gap-2">

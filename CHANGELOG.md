@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **界面语言**：设置 → 外观可选择跟随系统、English 或简体中文；语言包通过注册表扩展，新增语种只需添加目录并登记，不必改应用内的语种分支。缺失词条回退到英文。聊天壳、侧栏、上下文面板、通知、确认框、角色编辑器（含历史与升级预览），以及 Providers、Model metadata、Search、Skills、Usage、Data、Knowledge、Memory、Security、About、Developer、Processes、Logs、Database、Token models 等设置面板已接入中英词表。
+
 ### Changed
 
 - **发布构建启用 Thin LTO**：Engine Runtime 与桌面壳的 release profile 由 `lto = false` 改为 `lto = "thin"`，在保留逐 crate 并行代码生成、不引入 fat LTO 单步链接耗时的前提下获得跨 crate 优化；`codegen-units = 16` 保持不变。

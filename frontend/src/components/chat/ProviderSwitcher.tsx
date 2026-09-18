@@ -7,6 +7,7 @@ import {
 	Settings2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n";
 import { providerChatModels } from "../../services/providers";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useProviderStore } from "../../stores/providerStore";
@@ -22,6 +23,7 @@ function getMenuItems(menu: HTMLDivElement | null): HTMLElement[] {
 }
 
 export default function ProviderSwitcher() {
+	const t = useT();
 	const defaultProvider = useSettingsStore((state) => state.provider);
 	const defaultModel = useSettingsStore((state) => state.model);
 	const setProvider = useSettingsStore((state) => state.setProvider);
@@ -53,8 +55,10 @@ export default function ProviderSwitcher() {
 	const providerName =
 		selectedProfile?.name ||
 		provider ||
-		(activeId ? "Conversation provider unavailable" : "Select provider");
-	const modelName = model || "Select model";
+		(activeId
+			? t("providerSwitcher.unavailable")
+			: t("providerSwitcher.selectProvider"));
+	const modelName = model || t("providerSwitcher.selectModel");
 	const selection = [providerName, modelName].join(" · ");
 	const currentModelAvailable = Boolean(
 		selectedProfile?.enabled &&
@@ -66,14 +70,14 @@ export default function ProviderSwitcher() {
 			(provider && model && !currentModelAvailable),
 	);
 	const contextLabel = activeId
-		? "Current conversation"
-		: "New conversation default";
+		? t("providerSwitcher.currentConversation")
+		: t("providerSwitcher.newConversationDefault");
 	const triggerLabel = [
 		activeId
-			? "Select current conversation provider and model"
-			: "Select default provider and model",
+			? t("providerSwitcher.selectCurrent")
+			: t("providerSwitcher.selectDefault"),
 		`${contextLabel}: ${selection}`,
-		unavailable ? "Current model unavailable" : "",
+		unavailable ? t("providerSwitcher.modelUnavailable") : "",
 	]
 		.filter(Boolean)
 		.join(". ");
@@ -175,7 +179,7 @@ export default function ProviderSwitcher() {
 				<div
 					ref={menuRef}
 					role="menu"
-					aria-label="Provider and model"
+					aria-label={t("providerSwitcher.label")}
 					onKeyDown={(event) => {
 						if (
 							event.key !== "ArrowDown" &&
@@ -205,8 +209,8 @@ export default function ProviderSwitcher() {
 				>
 					<p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-text-muted">
 						{activeId
-							? "Current conversation model"
-							: "New conversation default"}
+							? t("providerSwitcher.currentModel")
+							: t("providerSwitcher.newConversationDefault")}
 					</p>
 					{unavailable && (
 						<p className="mx-1 mb-1 rounded bg-warning-bg px-2 py-1.5 text-[11px] text-warning">

@@ -7,6 +7,7 @@
  * boundary and owns communication with the engine.
  */
 import { MessageSquare } from "lucide-react";
+import { t } from "../../i18n";
 
 /** Readiness signals exposed by the top-level startup coordinator. */
 type StartupScreenProps = {
@@ -29,10 +30,10 @@ function statusMessage({
 	engineReady,
 	gatewayReady,
 }: StartupScreenProps) {
-	if (!portsReady) return "Preparing desktop runtime";
-	if (!engineReady) return "Starting local services";
-	if (!gatewayReady) return "Connecting workspace";
-	return "Opening workspace";
+	if (!portsReady) return t("startup.preparingRuntime");
+	if (!engineReady) return t("startup.startingServices");
+	if (!gatewayReady) return t("startup.connectingWorkspace");
+	return t("startup.openingWorkspace");
 }
 
 /**
@@ -60,7 +61,7 @@ export default function StartupScreen(props: StartupScreenProps) {
 					<h1 id="startup-title">EncoreHub</h1>
 					<output
 						className="startup-status"
-						aria-label="Startup status"
+						aria-label={t("startup.status")}
 						aria-live="polite"
 					>
 						{status}

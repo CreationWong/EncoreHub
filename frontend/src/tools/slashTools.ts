@@ -1,7 +1,7 @@
 export interface SlashTool {
 	id: string;
 	name: `/${string}`;
-	description: string;
+	descriptionKey: "slash.web_search" | "slash.web_fetch";
 }
 
 // This registry describes LLM-callable tools only; execution remains owned by the Gateway.
@@ -9,12 +9,12 @@ export const SLASH_TOOLS: readonly SlashTool[] = [
 	{
 		id: "web_search",
 		name: "/web_search",
-		description: "Search the web before asking the model",
+		descriptionKey: "slash.web_search",
 	},
 	{
 		id: "web_fetch",
 		name: "/web_fetch",
-		description: "Read a public web page before asking the model",
+		descriptionKey: "slash.web_fetch",
 	},
 ];
 

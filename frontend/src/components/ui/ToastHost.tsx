@@ -5,6 +5,7 @@ import {
 	Info,
 	X,
 } from "lucide-react";
+import { useT } from "../../i18n";
 import {
 	type Toast,
 	type ToastKind,
@@ -33,6 +34,7 @@ const ICON_STYLES: Record<ToastKind, string> = {
 };
 
 function ToastItem({ toast }: { toast: Toast }) {
+	const t = useT();
 	const dismiss = useToastStore((s) => s.dismiss);
 	const Icon = ICONS[toast.kind];
 	return (
@@ -54,7 +56,7 @@ function ToastItem({ toast }: { toast: Toast }) {
 			</span>
 			<button
 				type="button"
-				aria-label="Dismiss notification"
+				aria-label={t("notifications.dismiss")}
 				onClick={() => dismiss(toast.id)}
 				className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-control hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 			>
@@ -65,11 +67,12 @@ function ToastItem({ toast }: { toast: Toast }) {
 }
 
 export default function ToastHost() {
+	const t = useT();
 	const toasts = useToastStore((s) => s.toasts);
 	if (toasts.length === 0) return null;
 	return (
 		<section
-			aria-label="Notifications"
+			aria-label={t("notifications.label")}
 			className="pointer-events-none fixed right-3 top-[4.75rem] z-[70] flex w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-2 sm:right-4"
 		>
 			{toasts.map((t) => (

@@ -1,5 +1,8 @@
+// Web search settings: default provider, endpoints, and connection tests.
+
 import { ArrowLeft, Check, Globe2, Loader2, Save, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { type MessageKey, t, useT } from "../../i18n";
 import {
 	DEFAULT_WEB_SEARCH_SETTINGS,
 	type OpenSERPEngine,
@@ -10,29 +13,40 @@ import {
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
+/** Provider list metadata; labels resolve through the catalog at render time. */
 const PROVIDERS: Array<{
 	value: SearchProvider;
-	label: string;
-	detail: string;
+	labelKey: MessageKey;
+	detailKey: MessageKey;
 }> = [
 	{
 		value: "duckduckgo",
-		label: "DuckDuckGo",
-		detail: "Web results + Instant Answers",
+		labelKey: "searchPanel.duckduckgo",
+		detailKey: "searchPanel.duckduckgoDetail",
 	},
-	{ value: "searxng", label: "SearXNG", detail: "Custom endpoint" },
-	{ value: "openserp", label: "OpenSERP", detail: "Custom endpoint" },
+	{
+		value: "searxng",
+		labelKey: "searchPanel.searxng",
+		detailKey: "searchPanel.searxngDetail",
+	},
+	{
+		value: "openserp",
+		labelKey: "searchPanel.openserp",
+		detailKey: "searchPanel.openserpDetail",
+	},
 ];
 
-const OPENSERP_ENGINES: Array<{ value: OpenSERPEngine; label: string }> = [
-	{ value: "mega", label: "Mega search" },
-	{ value: "google", label: "Google" },
-	{ value: "bing", label: "Bing" },
-	{ value: "duckduckgo", label: "DuckDuckGo" },
-	{ value: "baidu", label: "Baidu" },
-	{ value: "yandex", label: "Yandex" },
-	{ value: "ecosia", label: "Ecosia" },
-];
+/** OpenSERP engine options; brand names stay in the catalog as product names. */
+const OPENSERP_ENGINES: Array<{ value: OpenSERPEngine; labelKey: MessageKey }> =
+	[
+		{ value: "mega", labelKey: "searchPanel.mega" },
+		{ value: "google", labelKey: "searchPanel.google" },
+		{ value: "bing", labelKey: "searchPanel.bing" },
+		{ value: "duckduckgo", labelKey: "searchPanel.duckduckgo" },
+		{ value: "baidu", labelKey: "searchPanel.baidu" },
+		{ value: "yandex", labelKey: "searchPanel.yandex" },
+		{ value: "ecosia", labelKey: "searchPanel.ecosia" },
+	];
 
 function SearchSwitch({
 	checked,
@@ -84,26 +98,29 @@ function TextField({
 	);
 }
 
-function validateEndpoint(label: string, value: string): void {
+/** Reject relative, non-HTTP, or credential-bearing search endpoints. */
+function validateEndpoint(name: string, value: string): void {
 	let endpoint: URL;
 	try {
 		endpoint = new URL(value);
 	} catch {
-		throw new Error(`${label} endpoint must be an absolute URL`);
+		throw new Error(t("searchPanel.endpointAbsolute", { name }));
 	}
 	if (
 		!(["http:", "https:"] as const).includes(
 			endpoint.protocol as "http:" | "https:",
 		)
 	) {
-		throw new Error(`${label} endpoint must use HTTP or HTTPS`);
+		throw new Error(t("searchPanel.endpointProtocol", { name }));
 	}
 	if (endpoint.username || endpoint.password) {
-		throw new Error(`${label} endpoint cannot contain credentials`);
+		throw new Error(t("searchPanel.endpointCredentials", { name }));
 	}
 }
 
+/** Default search provider, endpoints, and per-conversation toggle. */
 export default function SearchPanel() {
+	const translate = useT();
 	const loaded = useSettingsStore((state) => state.searchSettingsLoaded);
 	const loadSettings = useSettingsStore((state) => state.loadWebSearchSettings);
 	const saveSettings = useSettingsStore((state) => state.saveWebSearchSettings);
@@ -150,6 +167,8 @@ export default function SearchPanel() {
 	const selected =
 		PROVIDERS.find((provider) => provider.value === selectedProvider) ??
 		PROVIDERS[0];
+	const selectedLabel = translate(selected.labelKey);
+	const selectedDetail = translate(selected.detailKey);
 	const ready = (provider: SearchProvider) =>
 		provider === "duckduckgo" ||
 		(provider === "searxng"
@@ -158,15 +177,21 @@ export default function SearchPanel() {
 
 	const validate = (provider: SearchProvider) => {
 		if (provider === "searxng")
-			validateEndpoint("SearXNG", draft.searxng.endpoint);
+			validateEndpoint(
+				translate("searchPanel.searxng"),
+				draft.searxng.endpoint,
+			);
 		if (provider === "openserp")
-			validateEndpoint("OpenSERP", draft.openserp.endpoint);
+			validateEndpoint(
+				translate("searchPanel.openserp"),
+				draft.openserp.endpoint,
+			);
 	};
 
 	const persist = async (provider: SearchProvider, showToast: boolean) => {
 		validate(provider);
 		await saveSettings(draft);
-		if (showToast) toast.success("Web search settings saved");
+		if (showToast) toast.success(t("toast.searchSettingsSaved"));
 	};
 
 	const handleSave = async () => {
@@ -175,9 +200,7 @@ export default function SearchPanel() {
 			await persist(draft.provider, true);
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to save web search settings",
+				error instanceof Error ? error.message : t("searchPanel.saveFailed"),
 			);
 		} finally {
 			setSaving(false);
@@ -192,10 +215,17 @@ export default function SearchPanel() {
 				selectedProvider,
 				draft.max_results,
 			);
-			toast.success(`${response.provider}: ${response.results.length} results`);
+			toast.success(
+				t("toast.searchResults", {
+					provider: response.provider,
+					count: response.results.length,
+				}),
+			);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Search connection failed",
+				error instanceof Error
+					? error.message
+					: t("searchPanel.connectionFailed"),
 			);
 		} finally {
 			setTesting(false);
@@ -206,7 +236,7 @@ export default function SearchPanel() {
 		return (
 			<output
 				className="flex h-full min-h-48 items-center justify-center"
-				aria-label="Loading web search settings"
+				aria-label={translate("searchPanel.loading")}
 			>
 				<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
 			</output>
@@ -221,53 +251,64 @@ export default function SearchPanel() {
 			>
 				<div className="flex items-center justify-between gap-3 border-b border-border p-3">
 					<div>
-						<p className="text-sm font-medium text-text-primary">Web search</p>
+						<p className="text-sm font-medium text-text-primary">
+							{translate("searchPanel.heading")}
+						</p>
 						<p className="mt-0.5 text-[11px] text-text-muted">
-							Default for new conversations
+							{translate("searchPanel.defaultForNew")}
 						</p>
 					</div>
 					<SearchSwitch
 						checked={draft.enabled}
-						label="Enable web search by default"
+						label={translate("searchPanel.enableDefault")}
 						onChange={(enabled) =>
 							setDraft((current) => ({ ...current, enabled }))
 						}
 					/>
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto p-2">
-					{PROVIDERS.map((provider) => (
-						<button
-							key={provider.value}
-							type="button"
-							onClick={() => {
-								setSelectedProvider(provider.value);
-								setMobileDetailOpen(true);
-							}}
-							aria-label={`Configure ${provider.label}`}
-							aria-current={
-								selectedProvider === provider.value ? "page" : undefined
-							}
-							className={`mb-1 flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left ${selectedProvider === provider.value ? "border-border bg-surface" : "border-transparent hover:bg-surface-hover"}`}
-						>
-							<Globe2 className="h-4 w-4 shrink-0 text-text-muted" />
-							<span className="min-w-0 flex-1">
-								<span className="block truncate text-sm font-medium text-text-primary">
-									{provider.label}
+					{PROVIDERS.map((provider) => {
+						const label = translate(provider.labelKey);
+						return (
+							<button
+								key={provider.value}
+								type="button"
+								onClick={() => {
+									setSelectedProvider(provider.value);
+									setMobileDetailOpen(true);
+								}}
+								aria-label={translate("searchPanel.configure", { name: label })}
+								aria-current={
+									selectedProvider === provider.value ? "page" : undefined
+								}
+								className={`mb-1 flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left ${selectedProvider === provider.value ? "border-border bg-surface" : "border-transparent hover:bg-surface-hover"}`}
+							>
+								<Globe2 className="h-4 w-4 shrink-0 text-text-muted" />
+								<span className="min-w-0 flex-1">
+									<span className="block truncate text-sm font-medium text-text-primary">
+										{label}
+									</span>
+									<span className="block truncate text-[11px] text-text-muted">
+										{translate(provider.detailKey)}
+									</span>
 								</span>
-								<span className="block truncate text-[11px] text-text-muted">
-									{provider.detail}
-								</span>
-							</span>
-							<span
-								className={`h-2.5 w-2.5 rounded-full ${ready(provider.value) ? "bg-success" : "border border-border"}`}
-								aria-label={`${provider.label} ${ready(provider.value) ? "ready" : "not configured"}`}
-							/>
-						</button>
-					))}
+								<span
+									className={`h-2.5 w-2.5 rounded-full ${ready(provider.value) ? "bg-success" : "border border-border"}`}
+									aria-label={
+										ready(provider.value)
+											? translate("searchPanel.statusReady", { name: label })
+											: translate("searchPanel.statusNotConfigured", {
+													name: label,
+												})
+									}
+								/>
+							</button>
+						);
+					})}
 				</div>
 				<label className="border-t border-border p-3">
 					<span className="mb-1.5 block text-[11px] font-medium text-text-muted">
-						Results per search
+						{translate("searchPanel.resultsPerSearch")}
 					</span>
 					<input
 						autoComplete="off"
@@ -297,24 +338,24 @@ export default function SearchPanel() {
 					<button
 						type="button"
 						onClick={() => setMobileDetailOpen(false)}
-						aria-label="Back to search providers"
+						aria-label={translate("searchPanel.back")}
 						className="flex h-8 items-center gap-1 rounded-md px-2 text-sm text-text-secondary hover:bg-surface-hover"
 					>
 						<ArrowLeft className="h-4 w-4" />
-						Providers
+						{translate("searchPanel.providers")}
 					</button>
 				</div>
 				<header className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-5 py-3">
 					<div>
 						<h3 className="text-base font-semibold text-text-primary">
-							{selected.label}
+							{selectedLabel}
 						</h3>
-						<p className="text-xs text-text-muted">{selected.detail}</p>
+						<p className="text-xs text-text-muted">{selectedDetail}</p>
 					</div>
 					{draft.provider === selectedProvider ? (
 						<span className="flex items-center gap-1.5 text-xs text-accent">
 							<Check className="h-3.5 w-3.5" />
-							Default
+							{translate("searchPanel.default")}
 						</span>
 					) : (
 						<button
@@ -327,7 +368,7 @@ export default function SearchPanel() {
 							}
 							className="rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary hover:bg-surface-hover"
 						>
-							Set as default
+							{translate("searchPanel.setDefault")}
 						</button>
 					)}
 				</header>
@@ -336,16 +377,16 @@ export default function SearchPanel() {
 						{selectedProvider === "duckduckgo" && (
 							<div className="border-b border-border pb-5">
 								<p className="text-sm font-medium text-text-primary">
-									Ready without configuration
+									{translate("searchPanel.readyNoConfig")}
 								</p>
 								<p className="mt-1 text-xs text-text-muted">
-									HTML web results with featured Instant Answer summaries
+									{translate("searchPanel.duckduckgoHelp")}
 								</p>
 							</div>
 						)}
 						{selectedProvider === "searxng" && (
 							<TextField
-								label="SearXNG endpoint"
+								label={translate("searchPanel.endpoint")}
 								value={draft.searxng.endpoint}
 								onChange={(endpoint) =>
 									setDraft((current) => ({ ...current, searxng: { endpoint } }))
@@ -356,7 +397,7 @@ export default function SearchPanel() {
 						{selectedProvider === "openserp" && (
 							<>
 								<TextField
-									label="OpenSERP endpoint"
+									label={translate("searchPanel.openserpEndpoint")}
 									value={draft.openserp.endpoint}
 									onChange={(endpoint) =>
 										setDraft((current) => ({
@@ -368,7 +409,7 @@ export default function SearchPanel() {
 								/>
 								<label className="block">
 									<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-										Search engine
+										{translate("searchPanel.searchEngine")}
 									</span>
 									<select
 										value={draft.openserp.engine}
@@ -385,14 +426,14 @@ export default function SearchPanel() {
 									>
 										{OPENSERP_ENGINES.map((engine) => (
 											<option key={engine.value} value={engine.value}>
-												{engine.label}
+												{translate(engine.labelKey)}
 											</option>
 										))}
 									</select>
 								</label>
 								{draft.openserp.engine === "mega" && (
 									<TextField
-										label="Mega search engines"
+										label={translate("searchPanel.megaEngines")}
 										value={draft.openserp.engines}
 										onChange={(engines) =>
 											setDraft((current) => ({
@@ -416,7 +457,7 @@ export default function SearchPanel() {
 							) : (
 								<Search className="h-4 w-4" />
 							)}
-							Test connection
+							{translate("searchPanel.testConnection")}
 						</button>
 					</div>
 				</div>
@@ -432,7 +473,7 @@ export default function SearchPanel() {
 						) : (
 							<Save className="h-3.5 w-3.5" />
 						)}
-						Save changes
+						{translate("common.saveChanges")}
 					</button>
 				</div>
 			</div>

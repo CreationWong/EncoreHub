@@ -2,6 +2,7 @@
 import { PackageOpen, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../../i18n";
 import {
 	COMPONENT_LAYERS,
 	OSS_RELEASE_TARGET,
@@ -13,10 +14,12 @@ interface OpenSourceComponentsDialogProps {
 	onClose: () => void;
 }
 
+/** Full-screen OSS component list with search, grouped by packaging layer. */
 export default function OpenSourceComponentsDialog({
 	open,
 	onClose,
 }: OpenSourceComponentsDialogProps) {
+	const translate = useT();
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const closeButtonRef = useRef<HTMLButtonElement>(null);
 	const [query, setQuery] = useState("");
@@ -90,11 +93,13 @@ export default function OpenSourceComponentsDialog({
 									id="open-source-components-title"
 									className="text-base font-semibold text-text-primary"
 								>
-									Open-source components
+									{translate("about.ossTitle")}
 								</h2>
 								<p className="mt-1 text-xs leading-5 text-text-muted">
-									{THIRD_PARTY_COMPONENTS.length} production components for{" "}
-									{OSS_RELEASE_TARGET}.
+									{translate("about.ossCount", {
+										count: THIRD_PARTY_COMPONENTS.length,
+										target: OSS_RELEASE_TARGET,
+									})}
 								</p>
 							</div>
 						</div>
@@ -102,8 +107,8 @@ export default function OpenSourceComponentsDialog({
 							ref={closeButtonRef}
 							type="button"
 							onClick={onClose}
-							aria-label="Close open-source components"
-							title="Close (Esc)"
+							aria-label={translate("about.closeOss")}
+							title={translate("common.closeEsc")}
 							className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 						>
 							<X className="h-4 w-4" />
@@ -112,13 +117,13 @@ export default function OpenSourceComponentsDialog({
 
 					<div className="shrink-0 border-b border-border px-5 py-3 max-[560px]:px-3">
 						<label className="relative block">
-							<span className="sr-only">Search open-source components</span>
+							<span className="sr-only">{translate("about.searchOss")}</span>
 							<Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
 							<input
 								type="search"
 								value={query}
 								onChange={(event) => setQuery(event.target.value)}
-								placeholder="Search packages, versions, or licenses"
+								placeholder={translate("about.searchOssPlaceholder")}
 								autoComplete="off"
 								className="h-9 w-full rounded-md border border-border bg-surface-alt pl-9 pr-20 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 							/>
@@ -143,9 +148,9 @@ export default function OpenSourceComponentsDialog({
 											<table className="w-full min-w-[540px] table-fixed text-left text-xs">
 												<thead className="sr-only">
 													<tr>
-														<th>Component</th>
-														<th>Version</th>
-														<th>License</th>
+														<th>{translate("common.component")}</th>
+														<th>{translate("common.version")}</th>
+														<th>{translate("common.license")}</th>
 													</tr>
 												</thead>
 												<tbody>
@@ -178,13 +183,12 @@ export default function OpenSourceComponentsDialog({
 							)}
 							{groupedComponents.count === 0 ? (
 								<p className="px-3 py-8 text-center text-xs text-text-muted">
-									No matching components
+									{translate("about.ossEmpty")}
 								</p>
 							) : null}
 						</div>
 						<p className="mt-3 text-[11px] leading-5 text-text-muted">
-							Each component remains subject to its respective open-source
-							license. License identifiers use SPDX naming where available.
+							{translate("about.ossLicenseNote")}
 						</p>
 					</div>
 				</section>

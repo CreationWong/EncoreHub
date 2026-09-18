@@ -1,3 +1,5 @@
+// Security settings: master-password encryption for stored provider API keys.
+
 import {
 	KeyRound,
 	Lock,
@@ -6,6 +8,7 @@ import {
 	ShieldCheck,
 } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { t, useT } from "../../i18n";
 import { confirm } from "../../stores/confirmStore";
 import { useSecretsStore } from "../../stores/secretsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -20,6 +23,7 @@ import { toast } from "../../stores/toastStore";
  * unrecoverable.
  */
 export default function SecurityPanel() {
+	const translate = useT();
 	const {
 		encrypted,
 		unlocked,
@@ -48,9 +52,7 @@ export default function SecurityPanel() {
 						// Seed the keys currently held in session memory so they get
 						// encrypted at rest rather than lost.
 						await enable(pw, apiKeys);
-						toast.success(
-							"Encryption enabled — keys are now encrypted at rest",
-						);
+						toast.success(translate("security.encryptionEnabled"));
 					}}
 				/>
 			)}
@@ -59,7 +61,7 @@ export default function SecurityPanel() {
 				<UnlockSection
 					onUnlock={async (pw) => {
 						await unlock(pw);
-						toast.success("Database unlocked for this session");
+						toast.success(t("toast.unlockedSession"));
 					}}
 				/>
 			)}
@@ -69,19 +71,19 @@ export default function SecurityPanel() {
 					<LockSection
 						onLock={async () => {
 							await lock();
-							toast.info("Database locked");
+							toast.info(t("toast.databaseLocked"));
 						}}
 					/>
 					<ResetSection
 						onReset={async (oldPw, newPw) => {
 							await resetPassword(oldPw, newPw);
-							toast.success("Master password changed");
+							toast.success(t("toast.passwordChanged"));
 						}}
 					/>
 					<DisableSection
 						onDisable={async (pw) => {
 							await disable(pw);
-							toast.info("Encryption disabled — keys stored as plaintext");
+							toast.info(t("toast.encryptionDisabled"));
 						}}
 					/>
 				</>
@@ -91,7 +93,7 @@ export default function SecurityPanel() {
 				<DangerSection
 					onClear={async () => {
 						await clear();
-						toast.info("All stored keys cleared");
+						toast.info(t("toast.keysCleared"));
 					}}
 				/>
 			)}
@@ -108,9 +110,12 @@ function StatusBanner({
 	unlocked: boolean;
 	loaded: boolean;
 }) {
+	const translate = useT();
 	if (!loaded) {
 		return (
-			<p className="text-xs text-text-muted">Checking encryption status…</p>
+			<p className="text-xs text-text-muted">
+				{translate("security.checking")}
+			</p>
 		);
 	}
 	const Icon = !encrypted ? ShieldAlert : unlocked ? ShieldCheck : Lock;
@@ -120,10 +125,10 @@ function StatusBanner({
 			? "text-success"
 			: "text-text-secondary";
 	const label = !encrypted
-		? "Not encrypted — keys are stored as plaintext on disk"
+		? translate("security.notEncrypted")
 		: unlocked
-			? "Encrypted and unlocked for this session"
-			: "Encrypted — locked, unlock to use stored keys";
+			? translate("security.unlockedSession")
+			: translate("security.locked");
 	return (
 		<div className="flex items-center gap-2 rounded-lg border border-border bg-surface-alt/40 px-3 py-2.5">
 			<Icon className={`h-4 w-4 shrink-0 ${tone}`} />
@@ -201,12 +206,13 @@ function PrimaryButton({
 	);
 }
 
+/** Run a vault mutation, surface failures, and always clear the busy flag. */
 async function run(action: () => Promise<void>, setBusy: (b: boolean) => void) {
 	setBusy(true);
 	try {
 		await action();
 	} catch (e) {
-		toast.error(e instanceof Error ? e.message : "Operation failed");
+		toast.error(e instanceof Error ? e.message : t("toast.operationFailed"));
 	} finally {
 		setBusy(false);
 	}
@@ -215,52 +221,52 @@ async function run(action: () => Promise<void>, setBusy: (b: boolean) => void) {
 function EnableSection({
 	onEnable,
 }: { onEnable: (pw: string) => Promise<void> }) {
+	const translate = useT();
 	const [pw, setPw] = useState("");
-	const [confirm, setConfirm] = useState("");
+	const [confirmPw, setConfirmPw] = useState("");
 	const [busy, setBusy] = useState(false);
 
 	const submit = (e: FormEvent) => {
 		e.preventDefault();
-		if (pw !== confirm) {
-			toast.error("Passwords do not match");
+		if (pw !== confirmPw) {
+			toast.error(t("toast.passwordsMismatch"));
 			return;
 		}
 		if (pw.length < 8) {
-			toast.error("Use a password of at least 8 characters");
+			toast.error(t("toast.passwordTooShort"));
 			return;
 		}
 		run(async () => {
 			await onEnable(pw);
 			setPw("");
-			setConfirm("");
+			setConfirmPw("");
 		}, setBusy);
 	};
 
 	return (
 		<Section
-			title="Enable encryption"
-			desc="Set a master password to encrypt your API keys at rest. You'll enter it each time you open the app. This protects keys if your database file is stolen — it does not protect an already-unlocked session."
+			title={translate("security.enableEncryption")}
+			desc={translate("security.enableHelp")}
 		>
 			<form onSubmit={submit} className="space-y-2">
 				<PasswordInput
 					id="enc-pw"
 					value={pw}
 					onChange={setPw}
-					placeholder="Master password (min 8 chars)"
+					placeholder={translate("security.masterPasswordMin")}
 				/>
 				<PasswordInput
 					id="enc-pw-confirm"
-					value={confirm}
-					onChange={setConfirm}
-					placeholder="Confirm password"
+					value={confirmPw}
+					onChange={setConfirmPw}
+					placeholder={translate("security.confirmPassword")}
 				/>
 				<p className="flex items-start gap-1.5 text-xs text-warning">
 					<ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					If you forget this password it cannot be recovered — you'll have to
-					clear and re-enter your keys.
+					{translate("security.forgetWarning")}
 				</p>
 				<PrimaryButton disabled={busy || !pw} icon={Lock}>
-					Enable encryption
+					{translate("security.enableEncryption")}
 				</PrimaryButton>
 			</form>
 		</Section>
@@ -270,6 +276,7 @@ function EnableSection({
 function UnlockSection({
 	onUnlock,
 }: { onUnlock: (pw: string) => Promise<void> }) {
+	const translate = useT();
 	const [pw, setPw] = useState("");
 	const [busy, setBusy] = useState(false);
 
@@ -283,19 +290,19 @@ function UnlockSection({
 
 	return (
 		<Section
-			title="Unlock"
-			desc="Enter your master password to use stored keys this session."
+			title={translate("security.unlock")}
+			desc={translate("security.unlockHelp")}
 		>
 			<form onSubmit={submit} className="space-y-2">
 				<PasswordInput
 					id="unlock-pw"
 					value={pw}
 					onChange={setPw}
-					placeholder="Master password"
+					placeholder={translate("security.masterPassword")}
 					autoFocus
 				/>
 				<PrimaryButton disabled={busy || !pw} icon={LockOpen}>
-					Unlock
+					{translate("security.unlock")}
 				</PrimaryButton>
 			</form>
 		</Section>
@@ -303,11 +310,12 @@ function UnlockSection({
 }
 
 function LockSection({ onLock }: { onLock: () => Promise<void> }) {
+	const translate = useT();
 	const [busy, setBusy] = useState(false);
 	return (
 		<Section
-			title="Lock"
-			desc="Drop the cached key now. You'll need the password again to chat."
+			title={translate("security.lock")}
+			desc={translate("security.lockHelp")}
 		>
 			<button
 				type="button"
@@ -316,7 +324,7 @@ function LockSection({ onLock }: { onLock: () => Promise<void> }) {
 				className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 			>
 				<Lock className="h-4 w-4" />
-				Lock now
+				{translate("security.lockNow")}
 			</button>
 		</Section>
 	);
@@ -327,55 +335,56 @@ function ResetSection({
 }: {
 	onReset: (oldPw: string, newPw: string) => Promise<void>;
 }) {
+	const translate = useT();
 	const [oldPw, setOldPw] = useState("");
 	const [newPw, setNewPw] = useState("");
-	const [confirm, setConfirm] = useState("");
+	const [confirmPw, setConfirmPw] = useState("");
 	const [busy, setBusy] = useState(false);
 
 	const submit = (e: FormEvent) => {
 		e.preventDefault();
-		if (newPw !== confirm) {
-			toast.error("New passwords do not match");
+		if (newPw !== confirmPw) {
+			toast.error(t("toast.newPasswordsMismatch"));
 			return;
 		}
 		if (newPw.length < 8) {
-			toast.error("Use a password of at least 8 characters");
+			toast.error(t("toast.passwordTooShort"));
 			return;
 		}
 		run(async () => {
 			await onReset(oldPw, newPw);
 			setOldPw("");
 			setNewPw("");
-			setConfirm("");
+			setConfirmPw("");
 		}, setBusy);
 	};
 
 	return (
 		<Section
-			title="Change master password"
-			desc="Re-encrypts all stored keys under a new password."
+			title={translate("security.changePassword")}
+			desc={translate("security.changeHelp")}
 		>
 			<form onSubmit={submit} className="space-y-2">
 				<PasswordInput
 					id="reset-old"
 					value={oldPw}
 					onChange={setOldPw}
-					placeholder="Current password"
+					placeholder={translate("security.currentPassword")}
 				/>
 				<PasswordInput
 					id="reset-new"
 					value={newPw}
 					onChange={setNewPw}
-					placeholder="New password (min 8 chars)"
+					placeholder={translate("security.newPasswordMin")}
 				/>
 				<PasswordInput
 					id="reset-confirm"
-					value={confirm}
-					onChange={setConfirm}
-					placeholder="Confirm new password"
+					value={confirmPw}
+					onChange={setConfirmPw}
+					placeholder={translate("security.confirmNewPassword")}
 				/>
 				<PrimaryButton disabled={busy || !oldPw || !newPw} icon={KeyRound}>
-					Change password
+					{translate("security.changePassword")}
 				</PrimaryButton>
 			</form>
 		</Section>
@@ -385,6 +394,7 @@ function ResetSection({
 function DisableSection({
 	onDisable,
 }: { onDisable: (pw: string) => Promise<void> }) {
+	const translate = useT();
 	const [pw, setPw] = useState("");
 	const [busy, setBusy] = useState(false);
 
@@ -398,22 +408,22 @@ function DisableSection({
 
 	return (
 		<Section
-			title="Disable encryption"
-			desc="Decrypts your keys back to plaintext storage. Confirm with your current password."
+			title={translate("security.disableEncryption")}
+			desc={translate("security.disableHelp")}
 		>
 			<form onSubmit={submit} className="flex gap-2">
 				<PasswordInput
 					id="disable-pw"
 					value={pw}
 					onChange={setPw}
-					placeholder="Master password"
+					placeholder={translate("security.masterPassword")}
 				/>
 				<button
 					type="submit"
 					disabled={busy || !pw}
 					className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
 				>
-					Disable
+					{translate("security.disable")}
 				</button>
 			</form>
 		</Section>
@@ -421,12 +431,13 @@ function DisableSection({
 }
 
 function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
+	const translate = useT();
 	const [busy, setBusy] = useState(false);
 	const handle = async () => {
 		if (
 			!(await confirm.ask(
-				"Clear All Keys",
-				"Clear all stored API keys and encryption metadata? This cannot be undone. Use this only if you've forgotten your master password.",
+				t("security.clearAllKeys"),
+				t("security.clearAllKeysConfirm"),
 				true,
 			))
 		)
@@ -435,8 +446,8 @@ function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
 	};
 	return (
 		<Section
-			title="Forgot password"
-			desc="If you've lost your master password, the only way forward is to clear all stored keys and re-enter them."
+			title={translate("security.forgotPassword")}
+			desc={translate("security.forgotHelp")}
 		>
 			<button
 				type="button"
@@ -444,7 +455,7 @@ function DangerSection({ onClear }: { onClear: () => Promise<void> }) {
 				onClick={handle}
 				className="rounded-lg border border-danger-border px-3 py-2 text-sm text-danger hover:bg-danger-bg disabled:opacity-40"
 			>
-				Clear all keys
+				{translate("security.clearAllKeysButton")}
 			</button>
 		</Section>
 	);

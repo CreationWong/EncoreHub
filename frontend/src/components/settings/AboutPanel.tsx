@@ -2,6 +2,7 @@
 import { Bug, ChevronRight, Code2, Cpu, PackageOpen } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import appIcon from "../../../src-tauri/icons/128x128.png";
+import { type MessageKey, t, useT } from "../../i18n";
 import {
 	type AppBuildInfo,
 	browserBuildInfo,
@@ -19,19 +20,27 @@ const OpenSourceComponentsDialog = lazy(
 	() => import("./OpenSourceComponentsDialog"),
 );
 
-const PLATFORM_NAMES: Record<string, string> = {
-	linux: "Linux",
-	macos: "macOS",
-	web: "Web",
-	windows: "Windows",
+/** Catalog keys for known desktop/web targets; unknown ids stay as raw OS names. */
+const PLATFORM_KEYS: Record<string, MessageKey> = {
+	linux: "about.linux",
+	macos: "about.macos",
+	web: "about.web",
+	windows: "about.windows",
 };
 
-function platformLabel(info: AppBuildInfo): string {
-	const platform = PLATFORM_NAMES[info.target_os] ?? info.target_os;
+/** Localized platform / architecture line for the build-information table. */
+function platformLabel(
+	info: AppBuildInfo,
+	translate: (key: MessageKey) => string,
+): string {
+	const key = PLATFORM_KEYS[info.target_os];
+	const platform = key ? translate(key) : info.target_os;
 	return `${platform} / ${info.target_arch}`;
 }
 
+/** About settings: version, target, developer access, and OSS credits. */
 export default function AboutPanel() {
+	const translate = useT();
 	const [info, setInfo] = useState<AppBuildInfo>(() => browserBuildInfo());
 	const [componentsOpen, setComponentsOpen] = useState(false);
 	const devMode = useSettingsStore((state) => state.devMode);
@@ -54,8 +63,8 @@ export default function AboutPanel() {
 		}
 
 		const accepted = await confirm.ask(
-			"Enable developer features?",
-			"Developer mode exposes local process controls, logs, and a read-only database browser. Full communication logging remains disabled until you enable it separately in Logs.",
+			t("about.enableDeveloper"),
+			t("about.enableDeveloperMessage"),
 		);
 		if (accepted) setDevMode(true);
 	};
@@ -67,7 +76,7 @@ export default function AboutPanel() {
 				<div className="min-w-0">
 					<h3 className="text-xl font-semibold text-text-primary">EncoreHub</h3>
 					<p className="mt-1 text-sm text-text-secondary">
-						Multi-provider AI desktop client
+						{translate("about.tagline")}
 					</p>
 					<p className="mt-1 font-mono text-xs text-text-muted">
 						{formatDisplayVersion(
@@ -86,7 +95,7 @@ export default function AboutPanel() {
 						id="build-information-heading"
 						className="text-sm font-semibold text-text-primary"
 					>
-						Build information
+						{translate("about.buildInformation")}
 					</h3>
 				</div>
 				<dl
@@ -94,7 +103,7 @@ export default function AboutPanel() {
 					className="grid grid-cols-2 border-y border-border text-sm max-[760px]:grid-cols-1"
 				>
 					<div className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-1 py-3 sm:border-r sm:pr-5 max-[760px]:border-r-0">
-						<dt className="text-text-muted">Version</dt>
+						<dt className="text-text-muted">{translate("common.version")}</dt>
 						<dd className="font-mono text-xs text-text-primary">
 							{formatDisplayVersion(
 								info.version,
@@ -104,13 +113,13 @@ export default function AboutPanel() {
 						</dd>
 					</div>
 					<div className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-1 py-3 sm:pl-5 max-[760px]:pl-1">
-						<dt className="text-text-muted">Target</dt>
+						<dt className="text-text-muted">{translate("about.target")}</dt>
 						<dd className="text-right text-text-primary">
-							{platformLabel(info)}
+							{platformLabel(info, translate)}
 						</dd>
 					</div>
 					<div className="flex min-h-12 items-center justify-between gap-4 px-1 py-3 sm:border-r sm:pr-5 max-[760px]:border-b max-[760px]:border-r-0">
-						<dt className="text-text-muted">Build mode</dt>
+						<dt className="text-text-muted">{translate("about.buildMode")}</dt>
 						<dd
 							className={`flex items-center gap-2 font-medium ${
 								info.debug_build ? "text-warning" : "text-success"
@@ -122,13 +131,19 @@ export default function AboutPanel() {
 									info.debug_build ? "bg-warning" : "bg-success"
 								}`}
 							/>
-							{info.debug_build ? "Debug" : "Release"}
+							{info.debug_build
+								? translate("about.debug")
+								: translate("about.release")}
 						</dd>
 					</div>
 					<div className="flex min-h-12 items-center justify-between gap-4 px-1 py-3 sm:pl-5 max-[760px]:pl-1">
-						<dt className="text-text-muted">Developer tools</dt>
+						<dt className="text-text-muted">
+							{translate("about.developerTools")}
+						</dt>
 						<dd className={devMode ? "text-success" : "text-text-secondary"}>
-							{devMode ? "Enabled" : "Disabled"}
+							{devMode
+								? translate("common.enabled")
+								: translate("common.disabled")}
 						</dd>
 					</div>
 				</dl>
@@ -141,25 +156,24 @@ export default function AboutPanel() {
 						id="developer-access-heading"
 						className="text-sm font-semibold text-text-primary"
 					>
-						Developer access
+						{translate("about.developerAccess")}
 					</h3>
 				</div>
 				<div className="flex min-h-16 items-center gap-4 border-y border-border py-3">
 					<Bug className="h-5 w-5 shrink-0 text-text-muted" />
 					<div className="min-w-0 flex-1">
 						<p className="text-sm font-medium text-text-primary">
-							Developer tools
+							{translate("about.developerTools")}
 						</p>
 						<p className="mt-0.5 text-xs text-text-muted">
-							Show the developer index, process controls, logs, and the
-							read-only database browser.
+							{translate("about.developerToolsHelp")}
 						</p>
 					</div>
 					<button
 						type="button"
 						role="switch"
 						aria-checked={devMode}
-						aria-label="Developer tools"
+						aria-label={translate("about.developerTools")}
 						onClick={() => void toggleDeveloperMode()}
 						className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
 							devMode ? "bg-accent" : "bg-surface-hover"
@@ -180,7 +194,7 @@ export default function AboutPanel() {
 					id="open-source-heading"
 					className="mb-3 text-sm font-semibold text-text-primary"
 				>
-					Legal
+					{translate("common.legal")}
 				</h3>
 				<button
 					type="button"
@@ -191,15 +205,17 @@ export default function AboutPanel() {
 					<PackageOpen className="h-5 w-5 shrink-0 text-text-muted" />
 					<div className="min-w-0 flex-1">
 						<p className="text-sm font-medium text-text-primary">
-							Open-source components
+							{translate("about.openSource")}
 						</p>
 						<p className="mt-0.5 text-xs leading-5 text-text-muted">
-							Review {OSS_COMPONENT_COUNT} production components for{" "}
-							{OSS_RELEASE_TARGET}.
+							{translate("about.openSourceCount", {
+								count: OSS_COMPONENT_COUNT,
+								target: OSS_RELEASE_TARGET,
+							})}
 						</p>
 					</div>
 					<span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary transition-colors group-hover:text-text-primary">
-						View
+						{translate("common.view")}
 						<ChevronRight className="h-4 w-4" />
 					</span>
 				</button>

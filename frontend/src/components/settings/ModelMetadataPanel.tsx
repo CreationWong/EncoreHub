@@ -1,3 +1,5 @@
+// Model metadata catalog: provider sources, field mapping, and stored records.
+
 import {
 	AlertCircle,
 	Bug,
@@ -11,9 +13,9 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { type MessageKey, t, useT } from "../../i18n";
 import {
 	MODEL_METADATA_FIELDS,
-	MODEL_METADATA_FIELD_LABELS,
 	MODEL_METADATA_PRESETS,
 	type ModelMetadataFetchResult,
 	type ModelMetadataField,
@@ -32,6 +34,38 @@ import ProviderDebugPanel, {
 } from "./ProviderDebugPanel";
 
 const LAST_PROVIDER_KEY = "encorehub-model-metadata-provider";
+
+const FIELD_KEYS: Record<ModelMetadataField, MessageKey> = {
+	id: "metadata.fields.id",
+	name: "metadata.fields.name",
+	description: "metadata.fields.description",
+	family: "metadata.fields.family",
+	ownedBy: "metadata.fields.ownedBy",
+	capabilities: "metadata.fields.capabilities",
+	contextWindow: "metadata.fields.contextWindow",
+	maxOutputTokens: "metadata.fields.maxOutputTokens",
+	inputModalities: "metadata.fields.inputModalities",
+	outputModalities: "metadata.fields.outputModalities",
+	apiEndpoints: "metadata.fields.apiEndpoints",
+	documentationUrl: "metadata.fields.documentationUrl",
+	sourceUrl: "metadata.fields.sourceUrl",
+	pricing: "metadata.fields.pricing",
+	knowledgeCutoff: "metadata.fields.knowledgeCutoff",
+	releaseDate: "metadata.fields.releaseDate",
+	lastUpdated: "metadata.fields.lastUpdated",
+	reasoning: "metadata.fields.reasoning",
+	toolCalling: "metadata.fields.toolCalling",
+	structuredOutput: "metadata.fields.structuredOutput",
+	attachments: "metadata.fields.attachments",
+	temperature: "metadata.fields.temperature",
+};
+
+const PRESET_KEYS: Record<ModelMetadataPreset, MessageKey> = {
+	custom: "metadata.presetCustom",
+	"models-dev": "metadata.presetModelsDev",
+	"openai-data": "metadata.presetOpenai",
+	aimlapi: "metadata.presetAimlapi",
+};
 
 function cloneProvider(provider: ModelMetadataProvider): ModelMetadataProvider {
 	return { ...provider, mapping: { ...provider.mapping } };
@@ -58,19 +92,23 @@ function providerInitial(name: string): string {
 	return name.trim().charAt(0).toUpperCase() || "M";
 }
 
+/** Relative catalog freshness for the selected metadata provider. */
 function lastUpdatedLabel(
 	providerId: string,
 	updatedAt: Record<string, string>,
 ): string {
 	const timestamp = Date.parse(updatedAt[providerId] ?? "");
-	if (Number.isNaN(timestamp)) return "never updated";
-	return `last updated ${new Date(timestamp).toLocaleString()}`;
+	if (Number.isNaN(timestamp)) return t("metadata.neverUpdated");
+	return t("metadata.lastUpdated", {
+		time: new Date(timestamp).toLocaleString(),
+	});
 }
 
+/** Draft catalog source; the display name follows the active locale. */
 function newProvider(): ModelMetadataProvider {
 	return {
 		id: `metadata-${Date.now()}`,
-		name: "New metadata provider",
+		name: t("metadata.newProvider"),
 		url: "https://example.com/models.json",
 		enabled: true,
 		format: "array",
@@ -80,7 +118,9 @@ function newProvider(): ModelMetadataProvider {
 	};
 }
 
+/** Settings workspace for metadata sources, mapping, and stored records. */
 export default function ModelMetadataPanel() {
+	const translate = useT();
 	const providers = useModelMetadataStore((state) => state.providers);
 	const recordsByProvider = useModelMetadataStore(
 		(state) => state.recordsByProvider,
@@ -171,10 +211,14 @@ export default function ModelMetadataPanel() {
 			const result = await fetchModelMetadata(draft);
 			await storeFetchedRecords(draft.id, result.records);
 			setPreview(result);
-			toast.success(`${result.count.toLocaleString()} metadata records stored`);
+			toast.success(
+				t("toast.metadataStored", {
+					count: result.count.toLocaleString(),
+				}),
+			);
 		} catch (reason) {
 			const message =
-				reason instanceof Error ? reason.message : "Metadata request failed";
+				reason instanceof Error ? reason.message : t("metadata.requestFailed");
 			setError(message);
 			toast.error(message);
 		} finally {
@@ -201,8 +245,8 @@ export default function ModelMetadataPanel() {
 			dataPath: draft.dataPath?.trim() ?? "",
 		};
 		if (!normalized.id || !normalized.url) {
-			setError("Name, ID, and URL are required");
-			toast.error("Name, ID, and URL are required");
+			setError(t("toast.nameIdUrlRequired"));
+			toast.error(t("toast.nameIdUrlRequired"));
 			return;
 		}
 		try {
@@ -218,23 +262,25 @@ export default function ModelMetadataPanel() {
 					await storeFetchedRecords(normalized.id, result.records);
 					setPreview(result);
 					toast.success(
-						`Metadata provider saved; ${result.count.toLocaleString()} records refreshed`,
+						t("metadata.savedRefreshed", {
+							count: result.count.toLocaleString(),
+						}),
 					);
 				} catch (reason) {
 					const message =
 						reason instanceof Error
 							? reason.message
-							: "Metadata refresh failed";
+							: t("metadata.refreshFailed");
 					setError(message);
-					toast.warning("Provider saved, but its metadata refresh failed");
+					toast.warning(t("toast.metadataRefreshFailed"));
 				} finally {
 					setLoading(false);
 				}
 			} else {
-				toast.success("Metadata provider saved");
+				toast.success(t("toast.metadataProviderSaved"));
 			}
 		} catch {
-			toast.error("Failed to save metadata provider");
+			toast.error(t("toast.metadataProviderSaveFailed"));
 		}
 	};
 
@@ -247,7 +293,7 @@ export default function ModelMetadataPanel() {
 			setPreview(null);
 			setError(null);
 		} catch {
-			toast.error("Failed to add metadata provider");
+			toast.error(t("toast.metadataProviderAddFailed"));
 		}
 	};
 
@@ -260,9 +306,9 @@ export default function ModelMetadataPanel() {
 			rememberSelectedId(next?.id ?? null);
 			setDraft(next ? cloneProvider(next) : null);
 			setPreview(null);
-			toast.success("Metadata provider removed");
+			toast.success(t("toast.metadataProviderRemoved"));
 		} catch {
-			toast.error("Failed to remove metadata provider");
+			toast.error(t("toast.metadataProviderRemoveFailed"));
 		}
 	};
 
@@ -276,8 +322,8 @@ export default function ModelMetadataPanel() {
 							autoComplete="off"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Search providers"
-							aria-label="Search metadata providers"
+							placeholder={translate("metadata.search")}
+							aria-label={translate("metadata.searchAria")}
 							className="w-full rounded-md border border-border bg-surface py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted"
 						/>
 					</div>
@@ -285,7 +331,7 @@ export default function ModelMetadataPanel() {
 				<div className="min-h-0 flex-1 overflow-y-auto p-2">
 					{catalogLoading && providers.length === 0 ? (
 						<p className="px-2 py-4 text-xs text-text-muted">
-							Loading catalog…
+							{translate("metadata.loading")}
 						</p>
 					) : (
 						filteredProviders.map((provider) => (
@@ -308,10 +354,11 @@ export default function ModelMetadataPanel() {
 										{provider.name}
 									</span>
 									<span className="block truncate text-[11px] text-text-muted">
-										{(
-											recordsByProvider[provider.id] ?? []
-										).length.toLocaleString()}{" "}
-										records
+										{translate("metadata.records", {
+											count: (
+												recordsByProvider[provider.id] ?? []
+											).length.toLocaleString(),
+										})}
 									</span>
 								</span>
 								<span
@@ -321,7 +368,9 @@ export default function ModelMetadataPanel() {
 											: "bg-transparent ring-1 ring-border"
 									}`}
 									aria-label={`${provider.name} ${
-										provider.enabled ? "enabled" : "disabled"
+										provider.enabled
+											? translate("common.enabled")
+											: translate("common.disabled")
 									}`}
 								/>
 							</button>
@@ -331,7 +380,7 @@ export default function ModelMetadataPanel() {
 				<div className="space-y-2 border-t border-border p-2">
 					<label
 						className="flex cursor-pointer items-center gap-2 px-1 text-xs text-text-secondary"
-						title="Refresh enabled providers on startup when cached metadata is empty or older than 24 hours"
+						title={translate("metadata.autoRefresh")}
 					>
 						<input
 							autoComplete="off"
@@ -340,14 +389,14 @@ export default function ModelMetadataPanel() {
 							onChange={(event) => void setAutoUpdate(event.target.checked)}
 							className="h-3.5 w-3.5 accent-accent"
 						/>
-						Auto-update on startup
+						{translate("metadata.autoUpdate")}
 					</label>
 					<button
 						type="button"
 						onClick={() => void handleAdd()}
 						className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 					>
-						<Plus className="h-4 w-4" /> Add metadata provider
+						<Plus className="h-4 w-4" /> {translate("metadata.addProvider")}
 					</button>
 				</div>
 			</aside>
@@ -360,8 +409,10 @@ export default function ModelMetadataPanel() {
 								{draft.name}
 							</h3>
 							<p className="text-xs text-text-muted">
-								{storedRecords.length.toLocaleString()} records stored ·{" "}
-								{lastUpdatedLabel(draft.id, updatedAt)}
+								{translate("metadata.recordsStoredUpdated", {
+									count: storedRecords.length.toLocaleString(),
+									updated: lastUpdatedLabel(draft.id, updatedAt),
+								})}
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
@@ -375,8 +426,8 @@ export default function ModelMetadataPanel() {
 											matchers: [draft.url],
 										})
 									}
-									aria-label={`Debug ${draft.name}`}
-									title="Debug metadata provider"
+									aria-label={translate("metadata.debug", { name: draft.name })}
+									title={translate("metadata.debugTitle")}
 									className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-accent"
 								>
 									<Bug className="h-4 w-4" />
@@ -384,7 +435,7 @@ export default function ModelMetadataPanel() {
 							)}
 							<div
 								className="grid grid-cols-2 rounded-md border border-border bg-surface-alt p-0.5"
-								aria-label="Metadata view"
+								aria-label={translate("metadata.view")}
 							>
 								<button
 									type="button"
@@ -397,7 +448,7 @@ export default function ModelMetadataPanel() {
 									}`}
 								>
 									<Settings2 className="h-3.5 w-3.5" />
-									Provider setup
+									{translate("metadata.providerSetup")}
 								</button>
 								<button
 									type="button"
@@ -410,14 +461,14 @@ export default function ModelMetadataPanel() {
 									}`}
 								>
 									<Database className="h-3.5 w-3.5" />
-									Data
+									{translate("metadata.data")}
 								</button>
 							</div>
 							<button
 								type="button"
 								onClick={() => void handleRemove()}
-								aria-label="Remove metadata provider"
-								title="Remove metadata provider"
+								aria-label={translate("metadata.remove")}
+								title={translate("metadata.remove")}
 								className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger"
 							>
 								<Trash2 className="h-4 w-4" />
@@ -442,12 +493,12 @@ export default function ModelMetadataPanel() {
 										id="metadata-source-heading"
 										className="text-sm font-semibold text-text-primary"
 									>
-										Source
+										{translate("metadata.source")}
 									</h4>
 									<div className="grid gap-3 sm:grid-cols-2">
 										<label className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Name
+												{translate("common.name")}
 											</span>
 											<input
 												autoComplete="off"
@@ -460,7 +511,7 @@ export default function ModelMetadataPanel() {
 										</label>
 										<label className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Provider ID
+												{translate("metadata.providerId")}
 											</span>
 											<input
 												autoComplete="off"
@@ -474,7 +525,7 @@ export default function ModelMetadataPanel() {
 									</div>
 									<label className="block">
 										<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-											Metadata URL
+											{translate("metadata.url")}
 										</span>
 										<input
 											autoComplete="off"
@@ -489,7 +540,7 @@ export default function ModelMetadataPanel() {
 									<div className="grid gap-3 sm:grid-cols-2">
 										<label className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Source preset
+												{translate("metadata.sourcePreset")}
 											</span>
 											<select
 												value={draft.preset ?? "custom"}
@@ -508,14 +559,14 @@ export default function ModelMetadataPanel() {
 											>
 												{MODEL_METADATA_PRESETS.map((preset) => (
 													<option key={preset.id} value={preset.id}>
-														{preset.label}
+														{translate(PRESET_KEYS[preset.id])}
 													</option>
 												))}
 											</select>
 										</label>
 										<label className="block">
 											<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-												Collection path
+												{translate("metadata.collectionPath")}
 											</span>
 											<input
 												autoComplete="off"
@@ -523,7 +574,9 @@ export default function ModelMetadataPanel() {
 												onChange={(event) =>
 													updateDraft("dataPath", event.target.value)
 												}
-												placeholder="data (empty means root)"
+												placeholder={translate(
+													"metadata.collectionPlaceholder",
+												)}
 												className="w-full rounded-md border border-border bg-surface-alt px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted"
 											/>
 										</label>
@@ -539,10 +592,10 @@ export default function ModelMetadataPanel() {
 												}
 												className="h-4 w-4 accent-accent"
 											/>
-											Use this provider
+											{translate("metadata.useProvider")}
 										</label>
 										<label className="flex items-center gap-2 text-sm text-text-secondary">
-											Format
+											{translate("metadata.format")}
 											<select
 												value={draft.format}
 												onChange={(event) =>
@@ -554,8 +607,12 @@ export default function ModelMetadataPanel() {
 												}
 												className="rounded-md border border-border bg-surface-alt px-2 py-1.5 text-sm text-text-primary"
 											>
-												<option value="object">Object keyed by model ID</option>
-												<option value="array">Array of model objects</option>
+												<option value="object">
+													{translate("metadata.objectKeyed")}
+												</option>
+												<option value="array">
+													{translate("metadata.arrayOfObjects")}
+												</option>
 											</select>
 										</label>
 									</div>
@@ -571,10 +628,10 @@ export default function ModelMetadataPanel() {
 												id="metadata-mapping-heading"
 												className="text-sm font-semibold text-text-primary"
 											>
-												Field mapping
+												{translate("metadata.fieldMapping")}
 											</h4>
 											<p className="mt-1 text-xs text-text-muted">
-												Dot paths support nested provider-specific fields.
+												{translate("metadata.fieldMappingHelp")}
 											</p>
 										</div>
 										<div className="flex gap-2">
@@ -587,7 +644,9 @@ export default function ModelMetadataPanel() {
 												<RefreshCw
 													className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
 												/>
-												{loading ? "Fetching" : "Fetch & store"}
+												{loading
+													? translate("metadata.fetching")
+													: translate("metadata.fetchStore")}
 											</button>
 											<button
 												type="button"
@@ -595,7 +654,8 @@ export default function ModelMetadataPanel() {
 												disabled={!preview?.sample}
 												className="flex h-8 items-center gap-1.5 rounded-md border border-accent/30 bg-accent/10 px-3 text-xs text-accent hover:bg-accent/15 disabled:opacity-50"
 											>
-												<Check className="h-3.5 w-3.5" /> Auto map
+												<Check className="h-3.5 w-3.5" />{" "}
+												{translate("metadata.autoMap")}
 											</button>
 										</div>
 									</div>
@@ -606,16 +666,18 @@ export default function ModelMetadataPanel() {
 												className="grid gap-2 px-3 py-2.5 sm:grid-cols-[10rem_1fr] sm:items-center"
 											>
 												<span className="text-xs font-medium text-text-secondary">
-													{MODEL_METADATA_FIELD_LABELS[field]}
+													{translate(FIELD_KEYS[field])}
 												</span>
 												<input
 													autoComplete="off"
-													aria-label={`Mapping ${MODEL_METADATA_FIELD_LABELS[field]}`}
+													aria-label={translate("metadata.mapping", {
+														name: translate(FIELD_KEYS[field]),
+													})}
 													value={draft.mapping[field] ?? ""}
 													onChange={(event) =>
 														updateMapping(field, event.target.value)
 													}
-													placeholder="Not mapped"
+													placeholder={translate("metadata.notMapped")}
 													className="min-w-0 rounded-md border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted"
 												/>
 											</label>
@@ -635,15 +697,17 @@ export default function ModelMetadataPanel() {
 								{preview && (
 									<p className="flex items-center gap-2 rounded-md border border-success-border bg-success-bg px-3 py-2 text-xs text-success">
 										<Database className="h-4 w-4 shrink-0" />
-										{preview.count.toLocaleString()} records stored;{" "}
-										{mappedFields.length} fields mapped.
+										{translate("metadata.previewSummary", {
+											count: preview.count.toLocaleString(),
+											fields: mappedFields.length,
+										})}
 									</p>
 								)}
 								<div className="flex items-center justify-end gap-3 border-t border-border pt-4">
 									{saved && (
 										<span className="flex items-center gap-1 text-xs text-success">
 											<Check className="h-3.5 w-3.5" />
-											Saved
+											{translate("metadata.saved")}
 										</span>
 									)}
 									<button
@@ -652,7 +716,7 @@ export default function ModelMetadataPanel() {
 										className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover"
 									>
 										<Save className="h-4 w-4" />
-										Save provider
+										{translate("metadata.saveProvider")}
 									</button>
 								</div>
 							</div>
@@ -661,7 +725,7 @@ export default function ModelMetadataPanel() {
 				</main>
 			) : (
 				<main className="flex min-w-0 flex-1 items-center justify-center p-5 text-sm text-text-muted">
-					Add a metadata provider to configure model information.
+					{translate("metadata.empty")}
 				</main>
 			)}
 			{devMode && debugTarget && (

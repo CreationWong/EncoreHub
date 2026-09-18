@@ -1,4 +1,5 @@
 import { Loader2, MessageSquare } from "lucide-react";
+import { useT } from "../../i18n";
 import { useContextManagementStore } from "../../stores/contextManagementStore";
 import { useConversationStore } from "../../stores/conversationStore";
 import Composer from "./Composer";
@@ -7,6 +8,7 @@ import ContextManagementPanel from "./ContextManagementPanel";
 import MessageFeed from "./MessageFeed";
 
 function WelcomeState() {
+	const t = useT();
 	return (
 		<div className="flex h-full items-center justify-center px-6">
 			<div className="space-y-3 text-center">
@@ -15,17 +17,22 @@ function WelcomeState() {
 						<MessageSquare className="h-6 w-6" />
 					</div>
 				</div>
-				<h2 className="text-base font-semibold text-text-primary">EncoreHub</h2>
-				<p className="text-sm text-text-muted">New conversation</p>
+				<h2 className="text-base font-semibold text-text-primary">
+					{t("chat.emptyTitle")}
+				</h2>
+				<p className="text-sm text-text-muted">
+					{t("conversation.newConversation")}
+				</p>
 			</div>
 		</div>
 	);
 }
 
 function LoadingState() {
+	const t = useT();
 	return (
 		<output
-			aria-label="Loading conversation"
+			aria-label={t("header.loadingConversation")}
 			className="flex h-full items-center justify-center"
 		>
 			<Loader2 className="h-5 w-5 animate-spin text-text-muted" />
@@ -45,6 +52,7 @@ function LoadingComposer() {
 }
 
 export default function ChatView() {
+	const t = useT();
 	const loading = useConversationStore((state) => state.loading);
 	const activeId = useConversationStore((state) => state.activeId);
 	const contextPanelOpen = useContextManagementStore(
@@ -53,7 +61,7 @@ export default function ChatView() {
 
 	return (
 		<section
-			aria-label="Chat workspace"
+			aria-label={t("chat.workspace")}
 			className="relative flex h-full min-h-0 flex-col bg-workspace"
 		>
 			<ContextHeader />

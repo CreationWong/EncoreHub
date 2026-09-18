@@ -6,6 +6,7 @@ import {
 	PanelRight,
 	PanelRightClose,
 } from "lucide-react";
+import { useT } from "../../i18n";
 import { DEFAULT_CHARACTER_ID } from "../../services/characters";
 import { useCharacterManagerStore } from "../../stores/characterManagerStore";
 import { useCharacterStore } from "../../stores/characterStore";
@@ -18,6 +19,7 @@ import { DEFAULT_CHARACTER_NAME } from "../character/DefaultCharacter";
 import ProviderSwitcher from "./ProviderSwitcher";
 
 export default function ContextHeader() {
+	const t = useT();
 	const activeId = useConversationStore((state) => state.activeId);
 	const conversations = useConversationStore((state) => state.conversations);
 	const characters = useCharacterStore((state) => state.characters);
@@ -44,19 +46,26 @@ export default function ContextHeader() {
 		? characterSnapshot.avatar
 		: (latestCharacter?.avatar ?? "");
 	const title =
-		conversation?.title ?? (activeId ? "Conversation" : "New conversation");
-	const status = loading ? "Loading conversation" : null;
+		conversation?.title ??
+		(activeId
+			? t("conversation.conversation")
+			: t("conversation.newConversation"));
+	const status = loading ? t("header.loadingConversation") : null;
 
 	return (
 		<header
-			aria-label="Conversation context"
+			aria-label={t("header.context")}
 			className="flex h-16 shrink-0 items-center gap-1 border-b border-border bg-workspace px-2"
 		>
 			<button
 				type="button"
 				onClick={toggleSidebar}
-				aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-				title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+				aria-label={
+					sidebarOpen ? t("sidebar.closeSidebar") : t("sidebar.openSidebar")
+				}
+				title={
+					sidebarOpen ? t("sidebar.closeSidebar") : t("sidebar.openSidebar")
+				}
 				className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
 			>
 				{sidebarOpen ? (
@@ -70,7 +79,7 @@ export default function ContextHeader() {
 				type="button"
 				onClick={() => latestCharacter && openCharacter(latestCharacter.id)}
 				disabled={!latestCharacter}
-				aria-label={`Current character: ${characterName}`}
+				aria-label={t("character.current", { name: characterName })}
 				className="flex min-w-24 max-w-40 flex-[0_3_auto] items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-control disabled:pointer-events-none"
 				title={characterName}
 			>
@@ -123,10 +132,14 @@ export default function ContextHeader() {
 					type="button"
 					onClick={() => setContextPanelOpen(!contextPanelOpen)}
 					aria-label={
-						contextPanelOpen ? "Close context panel" : "Open context panel"
+						contextPanelOpen
+							? t("header.closeContextPanel")
+							: t("header.openContextPanel")
 					}
 					title={
-						contextPanelOpen ? "Close context panel" : "Open context panel"
+						contextPanelOpen
+							? t("header.closeContextPanel")
+							: t("header.openContextPanel")
 					}
 					aria-pressed={contextPanelOpen}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"

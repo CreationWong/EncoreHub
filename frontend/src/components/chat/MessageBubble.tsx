@@ -1,4 +1,5 @@
 import { Info, Wrench } from "lucide-react";
+import { useT } from "../../i18n";
 import type { Message } from "../../services/conversation";
 import AnswerBody from "./AnswerBody";
 import AssistantIdentity from "./AssistantIdentity";
@@ -19,9 +20,10 @@ interface MessageBubbleProps {
 }
 
 function SystemMessage({ message }: { message: Message }) {
+	const t = useT();
 	return (
 		<article
-			aria-label="System message"
+			aria-label={t("chat.systemMessage")}
 			className="app-message app-message-system flex gap-3 px-4 py-3 text-text-muted"
 		>
 			<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -36,10 +38,11 @@ function SystemMessage({ message }: { message: Message }) {
 }
 
 function ToolMessage({ message }: { message: Message }) {
+	const t = useT();
 	const toolCalls = message.tool_calls ?? [];
 	return (
 		<article
-			aria-label="Tool message"
+			aria-label={t("chat.toolMessage")}
 			className="app-message app-message-tool flex gap-3 px-4 py-3 text-text-muted"
 		>
 			<Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -63,6 +66,7 @@ export default function MessageBubble({
 	onEditCancel,
 	onEditSubmit,
 }: MessageBubbleProps) {
+	const t = useT();
 	const toolCalls = message.tool_calls ?? [];
 	if (message.role === "user") {
 		return (
@@ -79,7 +83,7 @@ export default function MessageBubble({
 
 	return (
 		<article
-			aria-label="Assistant message"
+			aria-label={t("chat.assistantMessage")}
 			data-message-id={isStreaming ? undefined : message.id}
 			data-message-role="assistant"
 			className="app-message app-message-assistant px-4 py-5"

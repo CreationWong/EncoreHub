@@ -1,3 +1,5 @@
+// Full provider editor: keys, endpoints, models, discovery, and connection tests.
+
 import {
 	Activity,
 	AlertCircle,
@@ -28,6 +30,7 @@ import {
 	useState,
 } from "react";
 import { API_FORMATS } from "../../constants/providers";
+import { t, useT } from "../../i18n";
 import {
 	type ProviderEndpoint,
 	type ProviderEndpointValidationResult,
@@ -149,7 +152,7 @@ function normalizeModelConfigs(
 		...model,
 		id: model.id.trim(),
 		name: model.name?.trim() || model.id.trim(),
-		group: model.group?.trim() || "Models",
+		group: model.group?.trim() || t("providers.modelEditor.defaultGroup"),
 		capabilities: model.capabilities ?? [],
 		currency: model.currency || "USD",
 		input_price: Number(model.input_price) || 0,
@@ -167,6 +170,7 @@ function modelConfigSignature(models: ProviderModelConfig[]): string {
 	return JSON.stringify(models);
 }
 
+/** Full editor for one provider profile, including keys, endpoints, and models. */
 export default function ProviderDetail({
 	profile,
 	isDraft,
@@ -181,6 +185,7 @@ export default function ProviderDetail({
 	onStatusChange,
 	onDraftControllerChange,
 }: DetailProps) {
+	const t = useT();
 	const persistedDraft = useMemo(() => draftFromProfile(profile), [profile]);
 	const persistedKeys = useMemo(() => parseProviderAPIKeys(apiKey), [apiKey]);
 	const [draft, setDraft] = useState<ProviderDraft>(persistedDraft);
@@ -302,41 +307,41 @@ export default function ProviderDetail({
 	const validationError = useMemo(() => {
 		if (!lockedStored) {
 			if (keyDraft.length > MAX_PROVIDER_API_KEYS) {
-				return `A provider can have at most ${MAX_PROVIDER_API_KEYS} API keys`;
+				return t("providers.maxKeys", { count: MAX_PROVIDER_API_KEYS });
 			}
 			const normalizedKeys = normalizeProviderAPIKeys(keyDraft);
 			if (normalizedKeys.some((key) => !key.id || !key.value)) {
-				return "Every API key row needs a key value";
+				return t("providers.keyValueRequired");
 			}
 			const keyIds = normalizedKeys.map((key) => key.id);
 			if (new Set(keyIds).size !== keyIds.length) {
-				return "API key IDs must be unique";
+				return t("providers.keyIdsUnique");
 			}
 			const keyValues = normalizedKeys.map((key) => key.value);
 			if (new Set(keyValues).size !== keyValues.length) {
-				return "API key values must be unique";
+				return t("providers.keyValuesUnique");
 			}
 			if (normalizedKeys.length > 0 && enabledKeys.length === 0) {
-				return "Enable at least one API key or remove the key pool";
+				return t("providers.enableOneKey");
 			}
 		}
-		if (draft.endpoints.length === 0) return "Add at least one endpoint";
+		if (draft.endpoints.length === 0) return t("providers.addEndpointRequired");
 		if (draft.endpoints.length > 16)
-			return "A provider can have at most 16 endpoints";
-		if (enabledEndpoints.length === 0) return "Enable at least one endpoint";
+			return t("providers.maxEndpoints", { count: 16 });
+		if (enabledEndpoints.length === 0) return t("providers.enableOneEndpoint");
 		if (!endpointsValid) {
-			return "Every endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment";
+			return t("providers.endpointUrlInvalid");
 		}
 		const urls = draft.endpoints.map((endpoint) =>
 			normalizeBaseUrl(endpoint.base_url).toLowerCase(),
 		);
 		if (new Set(urls).size !== urls.length)
-			return "Endpoint URLs must be unique";
-		if (draft.models.length === 0) return "Add at least one model";
+			return t("providers.endpointUrlsUnique");
+		if (draft.models.length === 0) return t("providers.addModelRequired");
 		const modelIds = draft.models.map((model) => model.id.trim());
-		if (modelIds.some((id) => !id)) return "Every model needs an ID";
+		if (modelIds.some((id) => !id)) return t("providers.modelIdRequired");
 		if (new Set(modelIds).size !== modelIds.length)
-			return "Model IDs must be unique";
+			return t("providers.modelIdsUnique");
 		return null;
 	}, [
 		draft.endpoints,
@@ -346,6 +351,7 @@ export default function ProviderDetail({
 		endpointsValid,
 		keyDraft,
 		lockedStored,
+		t,
 	]);
 
 	const updateConnection = (enabled = draft.enabled) => {
@@ -484,26 +490,26 @@ export default function ProviderDetail({
 				setDiscoveryNotice({
 					tone: "success",
 					text: isDraft
-						? `${models.length} models mapped to this provider draft`
-						: `${models.length} models mapped and saved`,
+						? t("providers.modelsMappedDraft", { count: models.length })
+						: t("providers.modelsMappedSaved", { count: models.length }),
 				});
 				toast.success(
 					isDraft
-						? "Discovered models added to the provider draft"
-						: "Discovered models mapped and saved",
+						? t("providers.discoveredDraft")
+						: t("providers.discoveredSaved"),
 				);
 			} catch {
 				setDiscoveryReview(diff);
 				setDiscoveryNotice({
 					tone: "error",
-					text: "Models were found but could not be saved. Review the staged changes and try again.",
+					text: t("providers.modelsSaveReview"),
 				});
-				toast.error("Failed to save fetched models");
+				toast.error(t("toast.fetchedModelsSaveFailed"));
 			} finally {
 				setSaving(false);
 			}
 		},
-		[isDraft, persistProviderModels],
+		[isDraft, persistProviderModels, t],
 	);
 
 	const runValidation = useCallback(async () => {
@@ -511,8 +517,8 @@ export default function ProviderDetail({
 			setValidationNotice({
 				tone: "warning",
 				text: lockedStored
-					? "Unlock the key vault before testing connections"
-					: "Enter an API key and valid endpoint before testing connections",
+					? t("providers.unlockBeforeTest")
+					: t("providers.enterBeforeTest"),
 			});
 			if (draft.enabled) reportStatus("waiting");
 			return;
@@ -564,22 +570,26 @@ export default function ProviderDetail({
 						: "success"
 					: "error",
 				text: response.valid
-					? `${response.success_count} of ${testedKeys} keys valid; ${reachableEndpoints} endpoints reachable`
-					: `No key could be validated; ${reachableEndpoints} endpoints responded`,
+					? t("providers.keysValid", {
+							valid: response.success_count,
+							tested: testedKeys,
+							endpoints: reachableEndpoints,
+						})
+					: t("providers.noKeyValidated", { endpoints: reachableEndpoints }),
 			});
 			if (draft.enabled) reportStatus(statusFromValidation(response));
-			if (response.valid) toast.success("Connection test completed");
-			else toast.error("Connection test did not validate any key");
+			if (response.valid) toast.success(t("toast.connectionTestCompleted"));
+			else toast.error(t("toast.connectionTestInvalid"));
 		} catch (validationFailure) {
 			if (requestID !== validationRequestRef.current) return;
 			setValidationNotice({
 				tone: "error",
-				text: "Connection test failed without changing keys or endpoints",
+				text: t("providers.testFailedKeep"),
 			});
 			if (draft.enabled) {
 				reportStatus(isTimeoutError(validationFailure) ? "timeout" : "error");
 			}
-			toast.error("Connection test failed");
+			toast.error(t("toast.connectionTestFailed"));
 		} finally {
 			if (requestID === validationRequestRef.current) setValidating(false);
 		}
@@ -592,6 +602,7 @@ export default function ProviderDetail({
 		lockedStored,
 		profile.id,
 		reportStatus,
+		t,
 	]);
 
 	const runDiscovery = useCallback(
@@ -601,8 +612,8 @@ export default function ProviderDetail({
 					setDiscoveryNotice({
 						tone: "warning",
 						text: lockedStored
-							? "Unlock the key vault before fetching models"
-							: "Enter an API key and valid endpoint before fetching models",
+							? t("providers.unlockBeforeFetch")
+							: t("providers.enterBeforeFetch"),
 					});
 				}
 				return;
@@ -635,7 +646,7 @@ export default function ProviderDetail({
 				if (!response.discovery_supported) {
 					setDiscoveryNotice({
 						tone: "warning",
-						text: "This provider does not expose model discovery. Add models manually.",
+						text: t("providers.noDiscovery"),
 					});
 				} else if (
 					response.success_count === 0 ||
@@ -651,8 +662,8 @@ export default function ProviderDetail({
 					setDiscoveryNotice({
 						tone: "error",
 						text: unsupportedPayload
-							? "The model endpoint responded successfully, but its response body was empty or not a supported JSON model list. Check the /models route or add models manually."
-							: "No endpoint returned a model list. Local models were kept unchanged.",
+							? t("providers.unsupportedList")
+							: t("providers.noModelList"),
 					});
 				} else {
 					if (!useModelMetadataStore.getState().loaded) {
@@ -670,7 +681,10 @@ export default function ProviderDetail({
 							setDiscoveryReview(diff);
 							setDiscoveryNotice({
 								tone: failed > 0 ? "warning" : "success",
-								text: `${response.models.length} models found across ${Math.max(diff.owners.length, 1)} owners. Choose which new models to save.`,
+								text: t("providers.foundChoose", {
+									count: response.models.length,
+									owners: Math.max(diff.owners.length, 1),
+								}),
 							});
 							return;
 						}
@@ -680,16 +694,22 @@ export default function ProviderDetail({
 					setDiscoveryReview(diff);
 					setDiscoveryNotice({
 						tone: failed > 0 ? "warning" : "success",
-						text: `${response.models.length} remote models ready for review${
-							failed > 0 ? `; ${failed} endpoint failed` : ""
-						}`,
+						text:
+							failed > 0
+								? t("providers.remoteReadyFailed", {
+										count: response.models.length,
+										failed,
+									})
+								: t("providers.remoteReady", {
+										count: response.models.length,
+									}),
 					});
 				}
 			} catch {
 				if (requestID !== discoveryRequestRef.current) return;
 				setDiscoveryNotice({
 					tone: "error",
-					text: "Model discovery failed. Local models were kept unchanged.",
+					text: t("providers.discoveryFailed"),
 				});
 			} finally {
 				if (requestID === discoveryRequestRef.current) setDiscovering(false);
@@ -702,6 +722,7 @@ export default function ProviderDetail({
 			lockedStored,
 			profile.id,
 			saveDiscoveredModels,
+			t,
 		],
 	);
 
@@ -741,12 +762,12 @@ export default function ProviderDetail({
 			await loadKeys();
 			setPassword("");
 			setUnlocking(false);
-			toast.success("Unlocked; API keys are available");
+			toast.success(t("toast.keysAvailable"));
 		} catch (unlockError) {
 			toast.error(
 				unlockError instanceof Error
 					? unlockError.message
-					: "Incorrect password",
+					: t("unlock.incorrect"),
 			);
 		} finally {
 			setUnlockBusy(false);
@@ -785,13 +806,13 @@ export default function ProviderDetail({
 		try {
 			await persistProviderDraft(draft);
 			reportStatus(draft.enabled ? "healthy" : "disabled");
-			toast.success(`Saved ${profile.name}`);
+			toast.success(t("toast.providerSaved", { name: profile.name }));
 			return true;
 		} catch (saveError) {
 			setError(
 				saveError instanceof Error
 					? saveError.message
-					: "Failed to save provider",
+					: t("providers.saveFailed"),
 			);
 			return false;
 		} finally {
@@ -802,6 +823,7 @@ export default function ProviderDetail({
 		persistProviderDraft,
 		profile.name,
 		reportStatus,
+		t,
 		validationError,
 	]);
 
@@ -832,11 +854,12 @@ export default function ProviderDetail({
 	const modelGroups = useMemo(() => {
 		const groups = new Map<string, ProviderModelConfig[]>();
 		for (const model of filteredModels) {
-			const group = model.group?.trim() || "Models";
+			const group =
+				model.group?.trim() || t("providers.modelEditor.defaultGroup");
 			groups.set(group, [...(groups.get(group) ?? []), model]);
 		}
 		return [...groups.entries()];
-	}, [filteredModels]);
+	}, [filteredModels, t]);
 
 	const selectedFormat =
 		API_FORMATS.find((format) => format.value === draft.protocol) ??
@@ -874,12 +897,12 @@ export default function ProviderDetail({
 						</h3>
 						{profile.builtin && (
 							<span className="rounded bg-surface-alt px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
-								builtin
+								{t("common.builtin")}
 							</span>
 						)}
 					</div>
 					<p className="truncate text-xs text-text-muted">
-						{selectedFormat.label} / {profile.id}
+						{t(selectedFormat.labelKey)} / {profile.id}
 					</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
@@ -892,8 +915,8 @@ export default function ProviderDetail({
 									...draft.models.map((model) => model.id),
 								])
 							}
-							aria-label={`Debug ${profile.name}`}
-							title="Debug provider"
+							aria-label={t("providers.debug", { name: profile.name })}
+							title={t("providers.debugTitle")}
 							className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-accent"
 						>
 							<Bug className="h-4 w-4" />
@@ -903,8 +926,12 @@ export default function ProviderDetail({
 						type="button"
 						role="switch"
 						aria-checked={draft.enabled}
-						aria-label={draft.enabled ? "Disable provider" : "Enable provider"}
-						title={draft.enabled ? "Disable provider" : "Enable provider"}
+						aria-label={
+							draft.enabled ? t("providers.disable") : t("providers.enable")
+						}
+						title={
+							draft.enabled ? t("providers.disable") : t("providers.enable")
+						}
 						onClick={() => {
 							const enabled = !draft.enabled;
 							setDraft((current) => ({ ...current, enabled }));
@@ -920,11 +947,11 @@ export default function ProviderDetail({
 						type="button"
 						disabled={profile.builtin}
 						onClick={onDelete}
-						aria-label={`Delete ${profile.name}`}
+						aria-label={t("providers.deleteNamed", { name: profile.name })}
 						title={
 							profile.builtin
-								? "Builtin providers cannot be deleted"
-								: "Delete provider"
+								? t("providers.cannotDeleteBuiltin")
+								: t("providers.deleteTitle")
 						}
 						className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-text-muted"
 					>
@@ -938,10 +965,10 @@ export default function ProviderDetail({
 					<div className="mb-3 flex items-center justify-between gap-3">
 						<div>
 							<h4 className="text-sm font-semibold text-text-primary">
-								API format
+								{t("providers.apiFormat")}
 							</h4>
 							<p className="text-xs text-text-muted">
-								One format applies to every endpoint below.
+								{t("providers.formatHelp")}
 							</p>
 						</div>
 						<select
@@ -964,12 +991,12 @@ export default function ProviderDetail({
 								});
 								updateConnection();
 							}}
-							aria-label="Provider API format"
+							aria-label={t("providers.formatAria")}
 							className="max-w-72 rounded-md border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary"
 						>
 							{API_FORMATS.map((format) => (
 								<option key={format.value} value={format.value}>
-									{format.label}
+									{t(format.labelKey)}
 								</option>
 							))}
 						</select>
@@ -982,12 +1009,11 @@ export default function ProviderDetail({
 							<div className="flex items-center gap-2">
 								<KeyRound className="h-4 w-4 text-text-muted" />
 								<h4 className="text-sm font-semibold text-text-primary">
-									API keys
+									{t("providers.apiKeys")}
 								</h4>
 							</div>
 							<p className="mt-1 text-xs text-text-muted">
-								Multiple keys must belong to this provider and use the selected
-								API format.
+								{t("providers.apiKeysHelp")}
 							</p>
 						</div>
 						<div className="flex flex-wrap items-center justify-end gap-2">
@@ -995,11 +1021,11 @@ export default function ProviderDetail({
 								type="button"
 								onClick={() => void runValidation()}
 								disabled={validating || !canValidate}
-								aria-label="Test API keys and endpoints"
+								aria-label={t("providers.testAria")}
 								title={
 									canValidate
-										? "Test API keys and endpoints"
-										: "Enter a key and valid endpoint first"
+										? t("providers.testAria")
+										: t("providers.needKeyAndEndpoint")
 								}
 								className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 							>
@@ -1008,18 +1034,18 @@ export default function ProviderDetail({
 								) : (
 									<Activity className="h-3.5 w-3.5" />
 								)}
-								Test connections
+								{t("providers.testConnections")}
 							</button>
 							<fieldset
 								className="m-0 flex rounded-md border-0 bg-surface-alt p-0.5"
-								aria-label="API key routing strategy"
+								aria-label={t("providers.keyRouting")}
 							>
 								{(
 									[
-										["failover", "Failover"],
-										["round_robin", "Round-robin"],
+										["failover", "providers.failover"],
+										["round_robin", "providers.roundRobin"],
 									] as const
-								).map(([value, label]) => (
+								).map(([value, labelKey]) => (
 									<button
 										key={value}
 										type="button"
@@ -1037,7 +1063,7 @@ export default function ProviderDetail({
 												: "text-text-muted hover:text-text-primary"
 										}`}
 									>
-										{label}
+										{t(labelKey)}
 									</button>
 								))}
 							</fieldset>
@@ -1047,8 +1073,7 @@ export default function ProviderDetail({
 						<>
 							<p className="mb-2 flex items-start gap-2 text-xs text-text-muted">
 								<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-								An API key pool is encrypted and the vault is locked. Unlock it
-								to edit keys or fetch models.
+								{t("providers.vaultLocked")}
 							</p>
 							<div className="flex gap-2">
 								<div className="flex min-w-0 flex-1 items-center rounded-md border border-border bg-surface-alt px-3 py-2">
@@ -1056,14 +1081,14 @@ export default function ProviderDetail({
 										****************
 									</span>
 									<span className="text-[10px] uppercase text-text-muted">
-										encrypted
+										{t("common.encrypted")}
 									</span>
 								</div>
 								<button
 									type="button"
 									onClick={() => setUnlocking((value) => !value)}
-									aria-label="Unlock to edit API keys"
-									title="Unlock key pool"
+									aria-label={t("providers.unlockKeys")}
+									title={t("providers.unlockPool")}
 									className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-text-muted hover:bg-surface-hover hover:text-text-primary"
 								>
 									<Eye className="h-4 w-4" />
@@ -1074,8 +1099,8 @@ export default function ProviderDetail({
 										setKeyDraft([]);
 										setPendingKeyClear(true);
 									}}
-									aria-label="Remove stored API key pool on save"
-									title="Remove key pool on save"
+									aria-label={t("providers.removePool")}
+									title={t("providers.removePoolTitle")}
 									className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-text-muted hover:bg-danger-bg hover:text-danger"
 								>
 									<Trash2 className="h-4 w-4" />
@@ -1088,7 +1113,7 @@ export default function ProviderDetail({
 										type="password"
 										value={password}
 										onChange={(event) => setPassword(event.target.value)}
-										placeholder="Master password"
+										placeholder={t("security.masterPassword")}
 										// biome-ignore lint/a11y/noAutofocus: reveal prompt should focus immediately
 										autoFocus
 										className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 text-sm text-text-primary"
@@ -1103,7 +1128,7 @@ export default function ProviderDetail({
 										) : (
 											<LockOpen className="h-4 w-4" />
 										)}
-										Unlock
+										{t("security.unlock")}
 									</button>
 								</form>
 							)}
@@ -1112,10 +1137,7 @@ export default function ProviderDetail({
 						<>
 							{pendingKeyClear && (
 								<div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-warning bg-warning-bg px-3 py-2 text-xs text-warning">
-									<span>
-										The stored key pool will be removed unless a new key is
-										added.
-									</span>
+									<span>{t("providers.pendingClear")}</span>
 									<button
 										type="button"
 										onClick={() => {
@@ -1124,7 +1146,7 @@ export default function ProviderDetail({
 										}}
 										className="font-medium underline underline-offset-2"
 									>
-										Undo
+										{t("common.undo")}
 									</button>
 								</div>
 							)}
@@ -1162,8 +1184,8 @@ export default function ProviderDetail({
 					<p className="mt-3 flex items-center gap-1.5 text-xs text-text-muted">
 						<Info className="h-3.5 w-3.5" />
 						{draft.keyRoutingStrategy === "failover"
-							? "The primary key is used first; backup keys are tried in order when the request cannot be established."
-							: "Each request starts with the next enabled key; failures continue through the remaining pool."}
+							? t("providers.keyFailoverHelp")
+							: t("providers.keyRoundRobinHelp")}
 					</p>
 				</section>
 
@@ -1173,24 +1195,23 @@ export default function ProviderDetail({
 							<div className="flex items-center gap-2">
 								<Server className="h-4 w-4 text-text-muted" />
 								<h4 className="text-sm font-semibold text-text-primary">
-									API endpoints
+									{t("providers.endpoints")}
 								</h4>
 							</div>
 							<p className="mt-1 max-w-2xl text-xs leading-5 text-text-muted">
-								Only different endpoints for the same provider are supported. Do
-								not mix suppliers or API formats in one profile.
+								{t("providers.endpointsHelp")}
 							</p>
 						</div>
 						<fieldset
 							className="m-0 flex rounded-md border-0 bg-surface-alt p-0.5"
-							aria-label="Endpoint routing strategy"
+							aria-label={t("providers.endpointRouting")}
 						>
 							{(
 								[
-									["failover", "Failover"],
-									["round_robin", "Round-robin"],
+									["failover", "providers.failover"],
+									["round_robin", "providers.roundRobin"],
 								] as const
-							).map(([value, label]) => (
+							).map(([value, labelKey]) => (
 								<button
 									key={value}
 									type="button"
@@ -1207,7 +1228,7 @@ export default function ProviderDetail({
 											: "text-text-muted hover:text-text-primary"
 									}`}
 								>
-									{label}
+									{t(labelKey)}
 								</button>
 							))}
 						</fieldset>
@@ -1226,7 +1247,7 @@ export default function ProviderDetail({
 								providerRuntimeStatusPresentation(runtimeStatus);
 							const resultLabel =
 								validating && endpoint.enabled
-									? "Testing endpoint"
+									? t("providers.testingEndpoint")
 									: result
 										? `${result.status.replaceAll("_", " ")}${
 												result.error_category
@@ -1244,7 +1265,7 @@ export default function ProviderDetail({
 											className={`h-2 w-2 shrink-0 rounded-full ${
 												statusPresentation.className
 											} ${statusPresentation.pulse ? "animate-pulse" : ""}`}
-											aria-label={`${endpoint.name || `Endpoint ${index + 1}`}: ${resultLabel}`}
+											aria-label={`${endpoint.name || t("providers.endpointNamed", { index: index + 1 })}: ${resultLabel}`}
 											title={resultLabel}
 										/>
 										<input
@@ -1253,7 +1274,9 @@ export default function ProviderDetail({
 											onChange={(event) =>
 												updateEndpoint(index, { name: event.target.value })
 											}
-											aria-label={`Endpoint ${index + 1} name`}
+											aria-label={t("providers.endpointName", {
+												index: index + 1,
+											})}
 											className="w-28 rounded-md border border-transparent bg-transparent px-2 py-1 text-xs font-medium text-text-secondary hover:border-border focus:border-border max-[700px]:min-w-0 max-[700px]:flex-1"
 										/>
 										<input
@@ -1271,14 +1294,20 @@ export default function ProviderDetail({
 													? defaultBaseUrl(draft.protocol)
 													: "https://gateway.example.com"
 											}
-											aria-label={`Endpoint ${index + 1} URL`}
+											aria-label={t("providers.endpointUrl", {
+												index: index + 1,
+											})}
 											className="min-w-0 flex-1 rounded-md border border-border bg-surface-alt px-3 py-2 font-mono text-xs text-text-primary placeholder:text-text-muted max-[700px]:order-last max-[700px]:w-full max-[700px]:flex-none"
 										/>
 										<button
 											type="button"
 											role="switch"
 											aria-checked={endpoint.enabled}
-											aria-label={`${endpoint.enabled ? "Disable" : "Enable"} endpoint ${index + 1}`}
+											aria-label={
+												endpoint.enabled
+													? t("providers.disableEndpoint", { index: index + 1 })
+													: t("providers.enableEndpoint", { index: index + 1 })
+											}
 											onClick={() =>
 												updateEndpoint(
 													index,
@@ -1296,8 +1325,10 @@ export default function ProviderDetail({
 											type="button"
 											onClick={() => moveEndpoint(index, index - 1)}
 											disabled={index === 0}
-											aria-label={`Move endpoint ${index + 1} up`}
-											title="Move up"
+											aria-label={t("providers.moveEndpointUp", {
+												index: index + 1,
+											})}
+											title={t("common.moveUp")}
 											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover disabled:opacity-25"
 										>
 											<ArrowUp className="h-3.5 w-3.5" />
@@ -1306,8 +1337,10 @@ export default function ProviderDetail({
 											type="button"
 											onClick={() => moveEndpoint(index, index + 1)}
 											disabled={index === draft.endpoints.length - 1}
-											aria-label={`Move endpoint ${index + 1} down`}
-											title="Move down"
+											aria-label={t("providers.moveEndpointDown", {
+												index: index + 1,
+											})}
+											title={t("common.moveDown")}
 											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover disabled:opacity-25"
 										>
 											<ArrowDown className="h-3.5 w-3.5" />
@@ -1324,8 +1357,8 @@ export default function ProviderDetail({
 												updateConnection();
 											}}
 											disabled={draft.endpoints.length === 1}
-											aria-label={`Remove endpoint ${index + 1}`}
-											title="Remove endpoint"
+											aria-label={t("providers.removeEndpoint")}
+											title={t("providers.removeEndpoint")}
 											className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger disabled:opacity-25"
 										>
 											<Trash2 className="h-3.5 w-3.5" />
@@ -1334,12 +1367,12 @@ export default function ProviderDetail({
 									{isValidBaseUrl(endpoint.base_url) && (
 										<div className="mt-2 flex min-w-0 items-center gap-2 pl-4 text-[11px] text-text-muted max-[700px]:hidden">
 											<span className="truncate">
-												Chat:{" "}
+												{t("providers.chatPreview")}{" "}
 												{chatRequestPreview(draft.protocol, endpoint.base_url)}
 											</span>
 											<span className="shrink-0 text-border">|</span>
 											<span className="truncate">
-												Models:{" "}
+												{t("providers.modelsPreview")}{" "}
 												{modelDiscoveryPreview(
 													draft.protocol,
 													endpoint.base_url,
@@ -1355,8 +1388,8 @@ export default function ProviderDetail({
 						<p className="flex items-center gap-1.5 text-xs text-text-muted">
 							<Info className="h-3.5 w-3.5" />
 							{draft.routingStrategy === "failover"
-								? "Requests use the first endpoint; backups are tried in order on connection failure."
-								: "Each request starts at the next endpoint; failures continue through the remaining pool."}
+								? t("providers.endpointFailoverHelp")
+								: t("providers.endpointRoundRobinHelp")}
 						</p>
 						<button
 							type="button"
@@ -1374,7 +1407,7 @@ export default function ProviderDetail({
 							className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 max-[700px]:self-end"
 						>
 							<Plus className="h-3.5 w-3.5" />
-							Add endpoint
+							{t("providers.addEndpoint")}
 						</button>
 					</div>
 				</section>
@@ -1383,11 +1416,10 @@ export default function ProviderDetail({
 					<div className="mb-3 flex flex-wrap items-center justify-between gap-3">
 						<div>
 							<h4 className="text-sm font-semibold text-text-primary">
-								Models
+								{t("providers.models")}
 							</h4>
 							<p className="text-xs text-text-muted">
-								Automatic discovery stages a diff for review. Fetch models saves
-								only the model list.
+								{t("providers.modelsHelp")}
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
@@ -1395,11 +1427,11 @@ export default function ProviderDetail({
 								type="button"
 								onClick={() => void runDiscovery(true)}
 								disabled={discovering || !canDiscover}
-								aria-label="Fetch model list"
+								aria-label={t("providers.fetchList")}
 								title={
 									canDiscover
-										? "Fetch model list"
-										: "Enter a key and valid endpoint first"
+										? t("providers.fetchList")
+										: t("providers.needKeyAndEndpoint")
 								}
 								className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 							>
@@ -1408,7 +1440,7 @@ export default function ProviderDetail({
 								) : (
 									<RefreshCw className="h-3.5 w-3.5" />
 								)}
-								Fetch models
+								{t("providers.fetchModels")}
 							</button>
 							<button
 								type="button"
@@ -1419,7 +1451,7 @@ export default function ProviderDetail({
 								className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 							>
 								<Plus className="h-3.5 w-3.5" />
-								Add model
+								{t("providers.addModel")}
 							</button>
 						</div>
 					</div>
@@ -1452,7 +1484,7 @@ export default function ProviderDetail({
 								setDiscoveryReview(null);
 								setDiscoveryNotice({
 									tone: "warning",
-									text: "Remote model changes were dismissed. Local models are unchanged.",
+									text: t("providers.dismissed"),
 								});
 							}}
 							onApply={(models) =>
@@ -1467,8 +1499,8 @@ export default function ProviderDetail({
 							autoComplete="off"
 							value={modelSearch}
 							onChange={(event) => setModelSearch(event.target.value)}
-							placeholder="Search models"
-							aria-label="Search provider models"
+							placeholder={t("providers.searchModels")}
+							aria-label={t("providers.searchModelsAria")}
 							className="w-full rounded-md border border-border bg-surface-alt py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted"
 						/>
 					</div>
@@ -1476,7 +1508,7 @@ export default function ProviderDetail({
 					<div className="max-h-80 overflow-y-auto rounded-md border border-border">
 						{modelGroups.length === 0 ? (
 							<p className="px-3 py-8 text-center text-sm text-text-muted">
-								No matching models
+								{t("providers.noMatchingModels")}
 							</p>
 						) : (
 							modelGroups.map(([group, models]) => (
@@ -1508,7 +1540,7 @@ export default function ProviderDetail({
 												{(model.type === "embedding" ||
 													model.capabilities?.includes("embedding")) && (
 													<span className="rounded bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-600 dark:text-fuchsia-300">
-														Embedding only
+														{t("providers.embeddingOnly")}
 													</span>
 												)}
 												{(model.capabilities ?? [])
@@ -1533,8 +1565,10 @@ export default function ProviderDetail({
 													}));
 													setDiscoveryReview(null);
 												}}
-												aria-label={`Remove model ${model.id}`}
-												title="Remove model"
+												aria-label={t("providers.removeModelNamed", {
+													id: model.id,
+												})}
+												title={t("providers.removeModel")}
 												className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-danger-bg hover:text-danger"
 											>
 												<Trash2 className="h-3.5 w-3.5" />
@@ -1555,7 +1589,8 @@ export default function ProviderDetail({
 			)}
 			<footer className="flex min-h-16 items-center justify-between gap-3 border-t border-border bg-surface px-5 py-3 max-[700px]:justify-end max-[700px]:px-4">
 				<p className="min-w-0 truncate text-xs text-text-muted max-[700px]:hidden">
-					{validationError ?? (dirty ? "Unsaved changes" : "All changes saved")}
+					{validationError ??
+						(dirty ? t("common.unsavedChanges") : t("common.allChangesSaved"))}
 				</p>
 				<div className="flex shrink-0 items-center gap-2">
 					<button
@@ -1564,7 +1599,7 @@ export default function ProviderDetail({
 						disabled={!dirty || saving}
 						className="rounded-md border border-border px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-35"
 					>
-						Discard
+						{t("common.discard")}
 					</button>
 					<button
 						type="button"
@@ -1578,10 +1613,10 @@ export default function ProviderDetail({
 							<Save className="h-4 w-4" />
 						)}
 						{saving
-							? "Saving..."
+							? t("common.saving")
 							: isDraft
-								? "Create provider"
-								: "Save changes"}
+								? t("providers.createProvider")
+								: t("common.saveChanges")}
 					</button>
 				</div>
 			</footer>

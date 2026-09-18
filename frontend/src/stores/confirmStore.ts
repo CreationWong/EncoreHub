@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { t } from "../i18n";
 
 export type ConfirmResult = "confirm" | "discard" | "cancel";
 
@@ -30,22 +31,15 @@ export const useConfirmStore = create<ConfirmState>((set, get) => ({
 	cancelLabel: "Cancel",
 	discardLabel: null,
 	resolve: null,
-	show: ({
-		title,
-		message,
-		danger,
-		confirmLabel = "Confirm",
-		cancelLabel = "Cancel",
-		discardLabel,
-	}) =>
+	show: ({ title, message, danger, confirmLabel, cancelLabel, discardLabel }) =>
 		new Promise<ConfirmResult>((resolve) => {
 			set({
 				open: true,
 				title,
 				message,
 				danger: danger ?? false,
-				confirmLabel,
-				cancelLabel,
+				confirmLabel: confirmLabel ?? t("common.confirm"),
+				cancelLabel: cancelLabel ?? t("common.cancel"),
 				discardLabel: discardLabel ?? null,
 				resolve,
 			});

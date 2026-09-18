@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { Suspense, lazy } from "react";
+import { useT } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import ChatView from "../chat/ChatView";
 import Sidebar from "../sidebar/Sidebar";
@@ -8,9 +9,10 @@ const SettingsWorkspace = lazy(() => import("../settings/SettingsModal"));
 const WorkspaceLauncher = lazy(() => import("./WorkspaceLauncher"));
 
 function WorkspaceLoading() {
+	const t = useT();
 	return (
 		<output
-			aria-label="Loading workspace"
+			aria-label={t("workspace.loading")}
 			className="flex h-full items-center justify-center text-text-muted"
 		>
 			<Loader2 className="h-5 w-5 animate-spin" />

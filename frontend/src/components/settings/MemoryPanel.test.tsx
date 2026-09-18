@@ -162,7 +162,7 @@ describe("MemoryPanel", () => {
 		await waitFor(() => {
 			expect(screen.getByText(/EncoreHub uses Tauri/)).toBeDefined();
 			expect(screen.getAllByText("fact").length).toBeGreaterThan(0);
-			expect(screen.getAllByText("long_term").length).toBeGreaterThan(0);
+			expect(screen.getAllByText("Long-term").length).toBeGreaterThan(0);
 		});
 		expect(container.firstElementChild?.className).toContain("h-full");
 		expect(container.firstElementChild?.className).toContain("bg-surface");

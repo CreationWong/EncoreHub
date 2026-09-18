@@ -1,5 +1,8 @@
+// Editable catalog of stored model-metadata records for one provider.
 import { Check, Database, Pencil, Save, Search } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { t, useT } from "../../i18n";
+import type { MessageKey } from "../../i18n";
 import type { NormalizedModelMetadata } from "../../services/modelMetadata";
 import { toast } from "../../stores/toastStore";
 
@@ -20,62 +23,87 @@ type EditableMetadataField =
 
 interface Column {
 	field: EditableMetadataField;
-	label: string;
+	labelKey: MessageKey;
 	width: string;
 	kind: "text" | "number" | "list" | "json";
 }
 
 const COLUMNS: Column[] = [
-	{ field: "id", label: "Model ID", width: "min-w-56", kind: "text" },
-	{ field: "name", label: "Name", width: "min-w-48", kind: "text" },
-	{ field: "ownedBy", label: "Owned by", width: "min-w-32", kind: "text" },
+	{
+		field: "id",
+		labelKey: "metadata.fields.id",
+		width: "min-w-56",
+		kind: "text",
+	},
+	{
+		field: "name",
+		labelKey: "metadata.fields.name",
+		width: "min-w-48",
+		kind: "text",
+	},
+	{
+		field: "ownedBy",
+		labelKey: "metadata.fields.ownedBy",
+		width: "min-w-32",
+		kind: "text",
+	},
 	{
 		field: "contextWindow",
-		label: "Context",
+		labelKey: "metadata.colContext",
 		width: "min-w-28",
 		kind: "number",
 	},
 	{
 		field: "maxOutputTokens",
-		label: "Max output",
+		labelKey: "metadata.colMaxOutput",
 		width: "min-w-28",
 		kind: "number",
 	},
 	{
 		field: "capabilities",
-		label: "Capabilities",
+		labelKey: "metadata.fields.capabilities",
 		width: "min-w-56",
 		kind: "list",
 	},
 	{
 		field: "inputModalities",
-		label: "Input",
+		labelKey: "metadata.colInput",
 		width: "min-w-36",
 		kind: "list",
 	},
 	{
 		field: "outputModalities",
-		label: "Output",
+		labelKey: "metadata.colOutput",
 		width: "min-w-36",
 		kind: "list",
 	},
 	{
 		field: "apiEndpoints",
-		label: "API endpoints",
+		labelKey: "metadata.fields.apiEndpoints",
 		width: "min-w-56",
 		kind: "list",
 	},
 	{
 		field: "documentationUrl",
-		label: "Documentation",
+		labelKey: "metadata.colDocumentation",
 		width: "min-w-64",
 		kind: "text",
 	},
-	{ field: "sourceUrl", label: "Source", width: "min-w-64", kind: "text" },
-	{ field: "pricing", label: "Pricing JSON", width: "min-w-72", kind: "json" },
+	{
+		field: "sourceUrl",
+		labelKey: "metadata.colSource",
+		width: "min-w-64",
+		kind: "text",
+	},
+	{
+		field: "pricing",
+		labelKey: "metadata.colPricing",
+		width: "min-w-72",
+		kind: "json",
+	},
 	{
 		field: "description",
-		label: "Description",
+		labelKey: "metadata.fields.description",
 		width: "min-w-80",
 		kind: "text",
 	},
@@ -115,7 +143,7 @@ function parsedValue(column: Column, value: string): unknown {
 	if (column.kind === "number") {
 		const number = Number(trimmed);
 		if (!Number.isFinite(number) || number < 0) {
-			throw new Error(`${column.label} must be a non-negative number`);
+			throw new Error(t("metadata.nonNegative", { field: t(column.labelKey) }));
 		}
 		return Math.trunc(number);
 	}
@@ -128,7 +156,7 @@ function parsedValue(column: Column, value: string): unknown {
 	if (column.kind === "json") {
 		const parsed = JSON.parse(trimmed) as unknown;
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			throw new Error("Pricing must be a JSON object");
+			throw new Error(t("metadata.pricingJsonObject"));
 		}
 		return parsed;
 	}
@@ -140,6 +168,7 @@ export default function ModelMetadataTable({
 	providerName,
 	onSave,
 }: Props) {
+	const translate = useT();
 	const [draft, setDraft] = useState(records);
 	const [query, setQuery] = useState("");
 	const [editing, setEditing] = useState<{
@@ -192,7 +221,9 @@ export default function ModelMetadataTable({
 			setEditing(null);
 		} catch (reason) {
 			toast.error(
-				reason instanceof Error ? reason.message : "Invalid metadata value",
+				reason instanceof Error
+					? reason.message
+					: translate("metadata.invalidValue"),
 			);
 		}
 	};
@@ -217,15 +248,15 @@ export default function ModelMetadataTable({
 		if (editing) commitCell();
 		const ids = draft.map((record) => record.id.trim());
 		if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
-			toast.error("Model IDs must be present and unique");
+			toast.error(t("toast.modelIdsUnique"));
 			return;
 		}
 		setSaving(true);
 		try {
 			await onSave(draft);
-			toast.success("Model metadata saved");
+			toast.success(t("toast.modelMetadataSaved"));
 		} catch {
-			toast.error("Failed to save model metadata");
+			toast.error(t("toast.modelMetadataSaveFailed"));
 		} finally {
 			setSaving(false);
 		}
@@ -234,17 +265,18 @@ export default function ModelMetadataTable({
 	return (
 		<section
 			className="flex min-h-0 flex-1 flex-col"
-			aria-label="Metadata records"
+			aria-label={translate("metadata.recordsAria")}
 		>
 			<header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
 				<div className="min-w-0">
 					<h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
 						<Database className="h-4 w-4 text-accent" />
-						{providerName} data
+						{translate("metadata.providerData", { name: providerName })}
 					</h4>
 					<p className="mt-0.5 text-xs text-text-muted">
-						{draft.length.toLocaleString()} stored records. Double-click a cell
-						to edit it.
+						{translate("metadata.storedRecordsHelp", {
+							count: draft.length.toLocaleString(),
+						})}
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
@@ -254,8 +286,8 @@ export default function ModelMetadataTable({
 							autoComplete="off"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Filter records"
-							aria-label="Filter metadata records"
+							placeholder={translate("metadata.filterRecords")}
+							aria-label={translate("metadata.filterAria")}
 							className="h-8 w-52 rounded-md border border-border bg-surface-alt pl-8 pr-2 text-xs text-text-primary placeholder:text-text-muted"
 						/>
 					</div>
@@ -270,7 +302,7 @@ export default function ModelMetadataTable({
 						) : (
 							<Save className="h-3.5 w-3.5" />
 						)}
-						{saving ? "Saving" : "Save changes"}
+						{saving ? t("common.saving") : t("common.saveChanges")}
 					</button>
 				</div>
 			</header>
@@ -286,7 +318,7 @@ export default function ModelMetadataTable({
 										index === 0 ? "sticky left-0 z-30 bg-surface-alt" : ""
 									}`}
 								>
-									{column.label}
+									{translate(column.labelKey)}
 								</th>
 							))}
 						</tr>
@@ -317,7 +349,10 @@ export default function ModelMetadataTable({
 														onChange={(event) => setEditor(event.target.value)}
 														onBlur={commitCell}
 														onKeyDown={handleEditorKey}
-														aria-label={`Edit ${column.label} for ${record.id}`}
+														aria-label={translate("metadata.editCell", {
+															field: translate(column.labelKey),
+															id: record.id,
+														})}
 														// biome-ignore lint/a11y/noAutofocus: editing begins from an explicit cell action
 														autoFocus
 														className="h-24 w-full resize-none rounded border border-accent bg-surface px-2 py-1 font-mono text-[11px] text-text-primary"
@@ -329,7 +364,10 @@ export default function ModelMetadataTable({
 														onChange={(event) => setEditor(event.target.value)}
 														onBlur={commitCell}
 														onKeyDown={handleEditorKey}
-														aria-label={`Edit ${column.label} for ${record.id}`}
+														aria-label={translate("metadata.editCell", {
+															field: translate(column.labelKey),
+															id: record.id,
+														})}
 														// biome-ignore lint/a11y/noAutofocus: editing begins from an explicit cell action
 														autoFocus
 														className="h-7 w-full rounded border border-accent bg-surface px-2 text-xs text-text-primary"
@@ -343,7 +381,7 @@ export default function ModelMetadataTable({
 														if (event.key === "Enter")
 															beginEdit(rowIndex, column);
 													}}
-													title="Double-click to edit"
+													title={translate("metadata.doubleClick")}
 													className="group flex w-full min-w-0 items-center gap-1.5 text-left"
 												>
 													<span className="block max-w-[24rem] truncate">
@@ -362,8 +400,8 @@ export default function ModelMetadataTable({
 				{visibleRows.length === 0 && (
 					<p className="px-4 py-12 text-center text-sm text-text-muted">
 						{draft.length === 0
-							? "Fetch this provider to store metadata records."
-							: "No records match this filter."}
+							? translate("metadata.fetchToStore")
+							: translate("metadata.noMatch")}
 					</p>
 				)}
 			</div>

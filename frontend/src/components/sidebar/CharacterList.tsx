@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
+import { useT } from "../../i18n";
 import {
 	type CharacterProfile,
 	DEFAULT_CHARACTER_ID,
@@ -58,6 +59,7 @@ function characterModel(
 }
 
 export default function CharacterList() {
+	const t = useT();
 	const characters = useCharacterStore((state) => state.characters);
 	const loading = useCharacterStore((state) => state.loading);
 	const loaded = useCharacterStore((state) => state.loaded);
@@ -104,18 +106,19 @@ export default function CharacterList() {
 	};
 
 	return (
-		<section className="flex h-full min-h-0 flex-col" aria-label="Characters">
+		<section
+			className="flex h-full min-h-0 flex-col"
+			aria-label={t("sidebar.characters")}
+		>
 			<header className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
 				<span className="text-[11px] font-medium text-text-muted">
-					{characters.length === 1
-						? "1 character"
-						: `${characters.length} characters`}
+					{t("character.count", { count: characters.length })}
 				</span>
 				<button
 					type="button"
 					onClick={createCharacter}
-					aria-label="Add character"
-					title="Add character"
+					aria-label={t("character.add")}
+					title={t("character.add")}
 					className="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary hover:bg-control hover:text-text-primary"
 				>
 					<Plus className="h-4 w-4" />
@@ -125,7 +128,7 @@ export default function CharacterList() {
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				{loading && characters.length === 0 && (
 					<output
-						aria-label="Loading characters"
+						aria-label={t("character.loading")}
 						className="flex h-28 items-center justify-center"
 					>
 						<Loader2 className="h-4 w-4 animate-spin text-text-muted" />
@@ -136,7 +139,7 @@ export default function CharacterList() {
 					<div className="px-4 py-8 text-center">
 						<AlertTriangle className="mx-auto h-5 w-5 text-danger" />
 						<p className="mt-2 text-xs text-danger">
-							Unable to load characters.
+							{t("character.unableToLoad")}
 						</p>
 						<button
 							type="button"
@@ -144,20 +147,20 @@ export default function CharacterList() {
 							className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs text-text-secondary hover:bg-control hover:text-text-primary"
 						>
 							<RefreshCw className="h-3.5 w-3.5" />
-							Retry
+							{t("common.retry")}
 						</button>
 					</div>
 				)}
 
 				{!loading && !error && characters.length === 0 && (
 					<div className="px-4 py-10 text-center">
-						<p className="text-sm text-text-secondary">No characters yet.</p>
+						<p className="text-sm text-text-secondary">{t("character.none")}</p>
 						<button
 							type="button"
 							onClick={createCharacter}
 							className="mt-3 h-8 rounded-md bg-accent px-3 text-xs font-medium text-white hover:bg-accent-hover"
 						>
-							Add character
+							{t("character.add")}
 						</button>
 					</div>
 				)}
@@ -165,11 +168,13 @@ export default function CharacterList() {
 				{error && characters.length > 0 && (
 					<div className="mb-2 flex items-center gap-2 rounded-md border border-warning-border bg-warning-bg px-2 py-2 text-[11px] text-warning">
 						<AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-						<span className="min-w-0 flex-1 truncate">Refresh failed</span>
+						<span className="min-w-0 flex-1 truncate">
+							{t("character.refreshFailed")}
+						</span>
 						<button
 							type="button"
 							onClick={() => void load()}
-							aria-label="Retry loading characters"
+							aria-label={t("character.retryLoading")}
 							className="flex h-6 w-6 items-center justify-center rounded hover:bg-warning-bg"
 						>
 							<RefreshCw className="h-3 w-3" />
@@ -192,8 +197,8 @@ export default function CharacterList() {
 							selection.provider && selection.model
 								? available && provider
 									? `${provider.name} · ${modelName(provider, selection.model)}`
-									: "Model unavailable"
-								: "No model selected";
+									: t("character.modelUnavailable")
+								: t("character.noModel");
 
 						return (
 							<div
@@ -234,7 +239,7 @@ export default function CharacterList() {
 									type="button"
 									onClick={() => openCharacter(character.id)}
 									aria-label={`Edit ${character.name}`}
-									title="Edit character"
+									title={t("character.edit")}
 									className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted opacity-0 hover:bg-surface-hover hover:text-text-primary focus:opacity-100 group-hover:opacity-100"
 								>
 									<Pencil className="h-3.5 w-3.5" />

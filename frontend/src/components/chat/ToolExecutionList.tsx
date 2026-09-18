@@ -6,12 +6,13 @@ import {
 	Wrench,
 } from "lucide-react";
 import { useId, useState } from "react";
+import { t, useT } from "../../i18n";
 import type { ToolCall } from "../../services/conversation";
 
 function toolState(status: ToolCall["status"]) {
 	if (status === "success") {
 		return {
-			label: "Completed",
+			label: t("common.completed"),
 			Icon: CheckCircle2,
 			className: "text-success",
 			animate: false,
@@ -19,14 +20,14 @@ function toolState(status: ToolCall["status"]) {
 	}
 	if (status === "error") {
 		return {
-			label: "Failed",
+			label: t("common.failed"),
 			Icon: CircleX,
 			className: "text-danger",
 			animate: false,
 		};
 	}
 	return {
-		label: "Pending",
+		label: t("common.pending"),
 		Icon: LoaderCircle,
 		className: "text-text-muted",
 		animate: true,
@@ -96,12 +97,13 @@ export default function ToolExecutionList({
 }: {
 	calls?: ToolCall[] | null;
 }) {
+	const translate = useT();
 	const toolCalls = calls ?? [];
 	if (toolCalls.length === 0) return null;
 
 	return (
 		<section
-			aria-label="Tool executions"
+			aria-label={translate("chat.toolExecutions")}
 			className="my-3 flex w-fit max-w-fit max-w-full flex-col items-start gap-1.5"
 		>
 			{toolCalls.map((call) => (

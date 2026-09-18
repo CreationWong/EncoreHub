@@ -21,6 +21,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+	type MessageKey,
+	intlLocale,
+	t,
+	useActiveLocaleId,
+	useT,
+} from "../../i18n";
+import {
 	type CharacterProfile,
 	listCharacters,
 } from "../../services/characters";
@@ -39,17 +46,18 @@ import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
-const MODE_OPTIONS: Array<{ id: MemoryMode; label: string }> = [
-	{ id: "simple", label: "Simple" },
-	{ id: "rag", label: "RAG" },
-	{ id: "rag_enhanced", label: "RAG enhanced" },
-	{ id: "realistic", label: "Realistic" },
+/** Mode picker; labels resolve at render time so locale switches update. */
+const MODE_OPTIONS: Array<{ id: MemoryMode; labelKey: MessageKey }> = [
+	{ id: "simple", labelKey: "character.memoryPolicy.simple" },
+	{ id: "rag", labelKey: "character.memoryPolicy.rag" },
+	{ id: "rag_enhanced", labelKey: "character.memoryPolicy.ragEnhanced" },
+	{ id: "realistic", labelKey: "character.memoryPolicy.realistic" },
 ];
 
-const GROUP_TYPE_LABELS: Record<MemoryGroup["group_type"], string> = {
-	character: "Character",
-	global: "Global",
-	custom: "Custom",
+const GROUP_TYPE_KEYS: Record<MemoryGroup["group_type"], MessageKey> = {
+	character: "memory.groupTypeCharacter",
+	global: "memory.groupTypeGlobal",
+	custom: "memory.groupTypeCustom",
 };
 
 const STATE_OPTIONS: MemoryState[] = [
@@ -61,6 +69,15 @@ const STATE_OPTIONS: MemoryState[] = [
 	"forgotten",
 ];
 
+const STATE_LABEL_KEYS: Record<MemoryState, MessageKey> = {
+	transient: "memory.transient",
+	short_term: "memory.shortTerm",
+	long_term: "memory.longTerm",
+	permanent_candidate: "memory.candidate",
+	permanent: "memory.permanent",
+	forgotten: "memory.forgotten",
+};
+
 const KIND_OPTIONS: MemoryKind[] = [
 	"fact",
 	"preference",
@@ -69,12 +86,20 @@ const KIND_OPTIONS: MemoryKind[] = [
 	"summary",
 ];
 
+const KIND_LABEL_KEYS: Record<MemoryKind, MessageKey> = {
+	fact: "memory.kindFact",
+	preference: "memory.kindPreference",
+	event: "memory.kindEvent",
+	instruction: "memory.kindInstruction",
+	summary: "memory.kindSummary",
+};
+
 type MemorySort = "recent" | "importance" | "created";
 
-const SORT_OPTIONS: { id: MemorySort; label: string }[] = [
-	{ id: "recent", label: "Recent" },
-	{ id: "importance", label: "Importance" },
-	{ id: "created", label: "Created" },
+const SORT_OPTIONS: { id: MemorySort; labelKey: MessageKey }[] = [
+	{ id: "recent", labelKey: "memory.recent" },
+	{ id: "importance", labelKey: "memory.importance" },
+	{ id: "created", labelKey: "memory.created" },
 ];
 
 function policySignature(
@@ -88,10 +113,10 @@ function policySignature(
 	});
 }
 
-function fmtDate(value: string): string {
+function fmtDate(value: string, locale: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return "";
-	return new Intl.DateTimeFormat(undefined, {
+	return new Intl.DateTimeFormat(locale, {
 		month: "short",
 		day: "numeric",
 	}).format(date);
@@ -104,6 +129,8 @@ function GroupIcon({ type }: { type: MemoryGroup["group_type"] }) {
 }
 
 export default function MemoryPanel() {
+	const translate = useT();
+	const locale = intlLocale(useActiveLocaleId());
 	const [items, setItems] = useState<Memory[]>([]);
 	const [groups, setGroups] = useState<MemoryGroup[]>([]);
 	const [characters, setCharacters] = useState<CharacterProfile[]>([]);
@@ -169,7 +196,9 @@ export default function MemoryPanel() {
 				}
 			} catch (error) {
 				toast.error(
-					error instanceof Error ? error.message : "Failed to load memories",
+					error instanceof Error
+						? error.message
+						: t("toast.loadMemoriesFailed"),
 				);
 			} finally {
 				setLoading(false);
@@ -184,7 +213,7 @@ export default function MemoryPanel() {
 			setGroups(response.groups);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to load memory groups",
+				error instanceof Error ? error.message : t("toast.loadGroupsFailed"),
 			);
 		}
 	}, []);
@@ -210,7 +239,7 @@ export default function MemoryPanel() {
 					toast.error(
 						error instanceof Error
 							? error.message
-							: "Failed to load memory groups",
+							: t("toast.loadGroupsFailed"),
 					);
 			});
 		return () => {
@@ -243,7 +272,7 @@ export default function MemoryPanel() {
 					toast.error(
 						error instanceof Error
 							? error.message
-							: "Failed to load character memory settings",
+							: t("toast.loadMemorySettingsFailed"),
 					);
 			});
 		return () => {
@@ -303,10 +332,10 @@ export default function MemoryPanel() {
 			);
 			setPolicy(response);
 			setSavedPolicySignature(policySignature(response));
-			toast.success("Character memory settings saved");
+			toast.success(t("character.memorySaved"));
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to save settings",
+				error instanceof Error ? error.message : t("toast.saveSettingsFailed"),
 			);
 		} finally {
 			setSaving(false);
@@ -316,8 +345,10 @@ export default function MemoryPanel() {
 	const onDelete = async (memory: Memory) => {
 		if (
 			!(await confirm.ask(
-				"Delete memory",
-				`Delete this memory? This cannot be undone.\n\n${memory.content.slice(0, 160)}`,
+				t("memory.deleteMemoryTitle"),
+				t("memory.deleteMemoryMessage", {
+					preview: memory.content.slice(0, 160),
+				}),
 				true,
 			))
 		)
@@ -326,7 +357,9 @@ export default function MemoryPanel() {
 			await memoriesApi.delete(memory.id);
 			setItems((current) => current.filter((item) => item.id !== memory.id));
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Delete failed");
+			toast.error(
+				error instanceof Error ? error.message : t("toast.deleteFailed"),
+			);
 		}
 	};
 
@@ -342,9 +375,11 @@ export default function MemoryPanel() {
 				current.map((item) => (item.id === updated.id ? updated : item)),
 			);
 			setEditingMemoryId(null);
-			toast.success("Memory updated");
+			toast.success(t("toast.memoryUpdated"));
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Update failed");
+			toast.error(
+				error instanceof Error ? error.message : t("toast.updateFailed"),
+			);
 		}
 	};
 
@@ -376,13 +411,18 @@ export default function MemoryPanel() {
 			setGroupNameDraft("");
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to save group",
+				error instanceof Error ? error.message : t("toast.saveGroupFailed"),
 			);
 		}
 	};
 
 	const archiveGroup = async (group: MemoryGroup) => {
-		if (!(await confirm.ask("Archive memory group", `Archive ${group.name}?`)))
+		if (
+			!(await confirm.ask(
+				t("memory.archiveTitle"),
+				t("memory.archiveMessage", { name: group.name }),
+			))
+		)
 			return;
 		try {
 			await memoriesApi.updateGroup(group.id, { archived: true });
@@ -390,7 +430,7 @@ export default function MemoryPanel() {
 			if (selectedGroupId === group.id) setSelectedGroupId("");
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to archive group",
+				error instanceof Error ? error.message : t("toast.archiveGroupFailed"),
 			);
 		}
 	};
@@ -401,7 +441,7 @@ export default function MemoryPanel() {
 			await loadGroups(showArchived);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to restore group",
+				error instanceof Error ? error.message : t("toast.restoreGroupFailed"),
 			);
 		}
 	};
@@ -409,8 +449,8 @@ export default function MemoryPanel() {
 	const deleteGroup = async (group: MemoryGroup) => {
 		if (
 			!(await confirm.ask(
-				"Delete memory group",
-				`Delete ${group.name} and all memories in it? This cannot be undone.`,
+				t("memory.deleteGroupTitle"),
+				t("memory.deleteGroupMessage", { name: group.name }),
 				true,
 			))
 		)
@@ -424,7 +464,7 @@ export default function MemoryPanel() {
 			if (selectedGroupId === group.id) setSelectedGroupId("");
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to delete group",
+				error instanceof Error ? error.message : t("toast.deleteGroupFailed"),
 			);
 		}
 	};
@@ -467,21 +507,21 @@ export default function MemoryPanel() {
 			<aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface-alt max-[900px]:w-48 max-[700px]:max-h-52 max-[700px]:w-full max-[700px]:border-b max-[700px]:border-r-0">
 				<div className="min-h-0 flex-1 overflow-y-auto p-2">
 					<GroupSection
-						label="By character"
+						label={translate("memory.byCharacter")}
 						groups={characterGroups}
 						selectedId={selectedGroupId}
 						onSelect={setSelectedGroupId}
 						characterNames={characterNames}
 					/>
 					<GroupSection
-						label="Global"
+						label={translate("memory.groupTypeGlobal")}
 						groups={globalGroups}
 						selectedId={selectedGroupId}
 						onSelect={setSelectedGroupId}
 						characterNames={characterNames}
 					/>
 					<GroupSection
-						label="Custom"
+						label={translate("memory.groupTypeCustom")}
 						groups={customGroups}
 						selectedId={selectedGroupId}
 						onSelect={setSelectedGroupId}
@@ -515,7 +555,11 @@ export default function MemoryPanel() {
 								aria-pressed={showArchived}
 								className="mb-1.5 flex w-full items-center justify-between px-2 text-[10px] font-semibold uppercase text-text-muted hover:text-text-primary"
 							>
-								<span>Archived ({archivedGroups.length})</span>
+								<span>
+									{translate("memory.archivedCount", {
+										count: archivedGroups.length,
+									})}
+								</span>
 								<ArchiveRestore className="h-3 w-3" />
 							</button>
 							{showArchived &&
@@ -531,8 +575,10 @@ export default function MemoryPanel() {
 										<button
 											type="button"
 											onClick={() => void restoreGroup(group)}
-											aria-label={`Restore ${group.name}`}
-											title="Restore group"
+											aria-label={translate("memory.restoreNamed", {
+												name: group.name,
+											})}
+											title={translate("memory.restoreGroup")}
 											className="hover:text-success"
 										>
 											<ArchiveRestore className="h-3.5 w-3.5" />
@@ -540,8 +586,10 @@ export default function MemoryPanel() {
 										<button
 											type="button"
 											onClick={() => void deleteGroup(group)}
-											aria-label={`Delete ${group.name}`}
-											title="Delete group"
+											aria-label={translate("memory.deleteNamed", {
+												name: group.name,
+											})}
+											title={translate("memory.deleteGroup")}
 											className="hover:text-danger"
 										>
 											<Trash2 className="h-3.5 w-3.5" />
@@ -555,11 +603,11 @@ export default function MemoryPanel() {
 					<button
 						type="button"
 						onClick={beginCreateGroup}
-						title="Create group"
+						title={translate("memory.createGroup")}
 						className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary"
 					>
 						<Plus className="h-4 w-4" />
-						Add memory group
+						{translate("memory.addGroup")}
 					</button>
 				</div>
 			</aside>
@@ -567,15 +615,15 @@ export default function MemoryPanel() {
 			<main className="flex min-w-0 flex-1 flex-col">
 				<section
 					className="shrink-0 border-b border-border px-5 py-4"
-					aria-label="Character memory settings"
+					aria-label={translate("memory.policy")}
 				>
 					<h3 className="mb-3 text-sm font-semibold text-text-primary">
-						Character memory policy
+						{translate("memory.policyTitle")}
 					</h3>
 					<div className="grid gap-4 sm:grid-cols-2">
 						<label className="min-w-0">
 							<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-								Character
+								{translate("memory.groupTypeCharacter")}
 							</span>
 							<select
 								value={policyCharacterId}
@@ -591,7 +639,7 @@ export default function MemoryPanel() {
 						</label>
 						<label className="min-w-0">
 							<span className="mb-1.5 block text-xs font-medium text-text-secondary">
-								Default mode
+								{translate("character.memoryPolicy.defaultMode")}
 							</span>
 							<select
 								value={policy?.settings.default_mode ?? "simple"}
@@ -608,7 +656,7 @@ export default function MemoryPanel() {
 							>
 								{MODE_OPTIONS.map((mode) => (
 									<option key={mode.id} value={mode.id}>
-										{mode.label}
+										{translate(mode.labelKey)}
 									</option>
 								))}
 							</select>
@@ -617,18 +665,17 @@ export default function MemoryPanel() {
 					<div className="mt-3 flex items-center justify-between gap-4 border-t border-border pt-3">
 						<div className="min-w-0">
 							<p className="text-xs font-medium text-text-primary">
-								Realistic memory
+								{translate("memory.realisticMemory")}
 							</p>
 							<p className="mt-0.5 text-[11px] leading-4 text-text-muted">
-								Store new memories as transient instead of long-term. Required
-								by the Realistic mode.
+								{translate("memory.realisticHelp")}
 							</p>
 						</div>
 						<button
 							type="button"
 							role="switch"
 							aria-checked={policy?.settings.realistic_enabled ?? false}
-							aria-label="Realistic memory"
+							aria-label={translate("memory.realisticMemory")}
 							onClick={() =>
 								updatePolicy((current) => ({
 									...current,
@@ -676,7 +723,9 @@ export default function MemoryPanel() {
 										</span>
 										{entry && (
 											<select
-												aria-label={`${group.name} access`}
+												aria-label={translate("character.memoryPolicy.access", {
+													name: group.name,
+												})}
 												value={entry.access_mode}
 												onChange={(event) =>
 													setInheritedAccess(
@@ -687,8 +736,12 @@ export default function MemoryPanel() {
 												}
 												className="h-7 rounded-md border border-border bg-control px-2 text-[11px] text-text-primary"
 											>
-												<option value="read">Read</option>
-												<option value="read_write">Read/write</option>
+												<option value="read">
+													{translate("character.memoryPolicy.read")}
+												</option>
+												<option value="read_write">
+													{translate("character.memoryPolicy.readWrite")}
+												</option>
 											</select>
 										)}
 									</div>
@@ -702,13 +755,16 @@ export default function MemoryPanel() {
 					<div className="flex items-center gap-3">
 						<div className="min-w-0 flex-1">
 							<h3 className="truncate text-base font-semibold text-text-primary">
-								{selectedGroup?.name ?? "All memories"}
+								{selectedGroup?.name ?? translate("memory.allMemories")}
 							</h3>
 							<p className="text-xs text-text-muted">
 								{selectedGroup
-									? GROUP_TYPE_LABELS[selectedGroup.group_type]
-									: "All groups"}{" "}
-								· {sortedItems.length} memories
+									? translate(GROUP_TYPE_KEYS[selectedGroup.group_type])
+									: translate("memory.allGroupsName")}{" "}
+								·{" "}
+								{translate("memory.memoriesCount", {
+									count: sortedItems.length,
+								})}
 							</p>
 						</div>
 						<div className="relative w-64 max-w-[45%] shrink-0">
@@ -735,8 +791,8 @@ export default function MemoryPanel() {
 										);
 									}
 								}}
-								placeholder="Search memories"
-								aria-label="Search memories"
+								placeholder={translate("memory.searchPlaceholder")}
+								aria-label={translate("memory.search")}
 								className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-8 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
 							/>
 							{query && (
@@ -751,8 +807,8 @@ export default function MemoryPanel() {
 											kindFilter,
 										);
 									}}
-									aria-label="Clear memory search"
-									title="Clear search"
+									aria-label={translate("memory.clearSearch")}
+									title={translate("memory.clearSearch")}
 									className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
 								>
 									<X className="h-3.5 w-3.5" />
@@ -762,52 +818,52 @@ export default function MemoryPanel() {
 					</div>
 					<div className="flex flex-wrap items-center gap-2 text-xs">
 						<label className="flex items-center gap-1.5 text-text-muted">
-							State
+							{translate("memory.state")}
 							<select
 								value={stateFilter}
 								onChange={(event) =>
 									setStateFilter(event.target.value as MemoryState | "")
 								}
-								aria-label="Filter by state"
+								aria-label={translate("memory.filterState")}
 								className="h-7 rounded-md border border-border bg-control px-2 text-[11px] text-text-primary"
 							>
-								<option value="">All</option>
+								<option value="">{translate("common.all")}</option>
 								{STATE_OPTIONS.map((state) => (
 									<option key={state} value={state}>
-										{state}
+										{translate(STATE_LABEL_KEYS[state])}
 									</option>
 								))}
 							</select>
 						</label>
 						<label className="flex items-center gap-1.5 text-text-muted">
-							Kind
+							{translate("memory.kind")}
 							<select
 								value={kindFilter}
 								onChange={(event) =>
 									setKindFilter(event.target.value as MemoryKind | "")
 								}
-								aria-label="Filter by kind"
+								aria-label={translate("memory.filterKind")}
 								className="h-7 rounded-md border border-border bg-control px-2 text-[11px] text-text-primary"
 							>
-								<option value="">All</option>
+								<option value="">{translate("common.all")}</option>
 								{KIND_OPTIONS.map((kind) => (
 									<option key={kind} value={kind}>
-										{kind}
+										{translate(KIND_LABEL_KEYS[kind])}
 									</option>
 								))}
 							</select>
 						</label>
 						<label className="ml-auto flex items-center gap-1.5 text-text-muted">
-							Sort
+							{translate("memory.sort")}
 							<select
 								value={sort}
 								onChange={(event) => setSort(event.target.value as MemorySort)}
-								aria-label="Sort memories"
+								aria-label={translate("memory.sort")}
 								className="h-7 rounded-md border border-border bg-control px-2 text-[11px] text-text-primary"
 							>
 								{SORT_OPTIONS.map((option) => (
 									<option key={option.id} value={option.id}>
-										{option.label}
+										{translate(option.labelKey)}
 									</option>
 								))}
 							</select>
@@ -823,8 +879,8 @@ export default function MemoryPanel() {
 					) : sortedItems.length === 0 ? (
 						<p className="flex min-h-48 items-center justify-center text-sm text-text-muted">
 							{query.trim() || stateFilter || kindFilter
-								? "No memories match the current filters."
-								: "No memories in this group."}
+								? translate("memory.noneMatchFilters")
+								: translate("memory.noneInGroup")}
 						</p>
 					) : (
 						<ul className="divide-y divide-border">
@@ -836,10 +892,10 @@ export default function MemoryPanel() {
 									<div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-text-muted">
 										<span className="flex min-w-0 items-center gap-1.5">
 											<span className="rounded border border-border px-1.5 py-0.5 uppercase">
-												{memory.kind}
+												{translate(KIND_LABEL_KEYS[memory.kind])}
 											</span>
 											<span className="rounded border border-border px-1.5 py-0.5">
-												{memory.state}
+												{translate(STATE_LABEL_KEYS[memory.state])}
 											</span>
 											<span className="truncate">
 												{groups.find((group) => group.id === memory.group_id)
@@ -853,8 +909,8 @@ export default function MemoryPanel() {
 													appendDraft(`> [memory] ${memory.content}`);
 													closeSettings();
 												}}
-												aria-label="Quote into chat input"
-												title="Quote into chat input"
+												aria-label={translate("memory.quoteIntoChat")}
+												title={translate("memory.quoteIntoChat")}
 												className="text-text-muted hover:text-accent"
 											>
 												<Quote className="h-3.5 w-3.5" />
@@ -865,8 +921,8 @@ export default function MemoryPanel() {
 													setEditingMemoryId(memory.id);
 													setMemoryDraft(memory.content);
 												}}
-												aria-label="Edit memory"
-												title="Edit"
+												aria-label={translate("common.edit")}
+												title={translate("common.edit")}
 												className="text-text-muted hover:text-accent"
 											>
 												<Pencil className="h-3.5 w-3.5" />
@@ -874,8 +930,8 @@ export default function MemoryPanel() {
 											<button
 												type="button"
 												onClick={() => void onDelete(memory)}
-												aria-label="Delete memory"
-												title="Delete"
+												aria-label={translate("memory.delete")}
+												title={translate("common.delete")}
 												className="text-text-muted hover:text-danger"
 											>
 												<Trash2 className="h-3.5 w-3.5" />
@@ -895,7 +951,7 @@ export default function MemoryPanel() {
 													}
 													if (event.key === "Escape") setEditingMemoryId(null);
 												}}
-												aria-label="Memory content"
+												aria-label={translate("memory.content")}
 												rows={3}
 												className="w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 											/>
@@ -905,14 +961,14 @@ export default function MemoryPanel() {
 													onClick={() => setEditingMemoryId(null)}
 													className="rounded-md px-2 py-1 text-[11px] text-text-muted hover:text-text-primary"
 												>
-													Cancel
+													{translate("common.cancel")}
 												</button>
 												<button
 													type="button"
 													onClick={() => void saveMemory(memory)}
 													className="rounded-md bg-accent px-2 py-1 text-[11px] text-white hover:bg-accent-hover"
 												>
-													Save memory
+													{translate("memory.saveMemory")}
 												</button>
 											</div>
 										</div>
@@ -923,13 +979,19 @@ export default function MemoryPanel() {
 											</p>
 											<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
 												<span>
-													Importance {Math.round(memory.importance * 100)}%
+													{translate("memory.importance")}{" "}
+													{Math.round(memory.importance * 100)}%
 												</span>
 												<span>
-													Confidence {Math.round(memory.confidence * 100)}%
+													{translate("memory.confidence")}{" "}
+													{Math.round(memory.confidence * 100)}%
 												</span>
 												{memory.created_at && (
-													<span>Added {fmtDate(memory.created_at)}</span>
+													<span>
+														{translate("memory.addedOn", {
+															date: fmtDate(memory.created_at, locale),
+														})}
+													</span>
 												)}
 												{memory.reason && (
 													<span
@@ -949,7 +1011,9 @@ export default function MemoryPanel() {
 				</div>
 				<footer className="flex h-14 shrink-0 items-center justify-between gap-3 border-t border-border bg-surface px-5">
 					<span className="text-xs text-text-muted">
-						{policyDirty ? "Unsaved memory settings" : "All changes saved"}
+						{policyDirty
+							? translate("memory.unsavedSettings")
+							: translate("common.allChangesSaved")}
 					</span>
 					<button
 						type="button"
@@ -962,7 +1026,7 @@ export default function MemoryPanel() {
 						) : (
 							<Save className="h-3.5 w-3.5" />
 						)}
-						Save changes
+						{translate("common.saveChanges")}
 					</button>
 				</footer>
 			</main>
@@ -999,6 +1063,7 @@ function GroupSection({
 	onArchive?: (group: MemoryGroup) => void;
 	onDelete?: (group: MemoryGroup) => void;
 }) {
+	const translate = useT();
 	return (
 		<div className="mb-4">
 			<div className="mb-1.5 px-2 text-[10px] font-semibold uppercase text-text-muted">
@@ -1029,7 +1094,7 @@ function GroupSection({
 										: group.name}
 								</span>
 								<span className="block text-[10px] capitalize text-text-muted">
-									{GROUP_TYPE_LABELS[group.group_type]}
+									{translate(GROUP_TYPE_KEYS[group.group_type])}
 								</span>
 							</span>
 						</button>
@@ -1041,8 +1106,10 @@ function GroupSection({
 										event.stopPropagation();
 										onRename(group);
 									}}
-									aria-label={`Rename ${group.name}`}
-									title="Rename group"
+									aria-label={translate("memory.renameNamed", {
+										name: group.name,
+									})}
+									title={translate("memory.renameGroup")}
 									className="text-text-muted hover:text-accent"
 								>
 									<Pencil className="h-3 w-3" />
@@ -1053,8 +1120,10 @@ function GroupSection({
 										event.stopPropagation();
 										onArchive(group);
 									}}
-									aria-label={`Archive ${group.name}`}
-									title="Archive group"
+									aria-label={translate("memory.archiveNamed", {
+										name: group.name,
+									})}
+									title={translate("memory.archiveGroup")}
 									className="text-text-muted hover:text-warning"
 								>
 									<Folder className="h-3 w-3" />
@@ -1065,8 +1134,10 @@ function GroupSection({
 										event.stopPropagation();
 										onDelete(group);
 									}}
-									aria-label={`Delete ${group.name}`}
-									title="Delete group"
+									aria-label={translate("memory.deleteNamed", {
+										name: group.name,
+									})}
+									title={translate("memory.deleteGroup")}
 									className="text-text-muted hover:text-danger"
 								>
 									<Trash2 className="h-3 w-3" />
@@ -1103,6 +1174,7 @@ function GroupNameEditor({
 	onSave: () => void;
 	onCancel: () => void;
 }) {
+	const translate = useT();
 	return (
 		<div className="mb-3 flex items-center gap-1 px-1">
 			<input
@@ -1113,14 +1185,14 @@ function GroupNameEditor({
 					if (event.key === "Enter") onSave();
 					if (event.key === "Escape") onCancel();
 				}}
-				aria-label="Memory group name"
+				aria-label={translate("memory.groupName")}
 				className="h-8 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-xs text-text-primary outline-none focus:border-accent"
 			/>
 			<button
 				type="button"
 				onClick={onSave}
-				aria-label="Save group name"
-				title="Save"
+				aria-label={translate("memory.saveGroupName")}
+				title={translate("common.save")}
 				className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-surface-hover"
 			>
 				<Check className="h-3.5 w-3.5 text-success" />
@@ -1128,8 +1200,8 @@ function GroupNameEditor({
 			<button
 				type="button"
 				onClick={onCancel}
-				aria-label="Cancel group edit"
-				title="Cancel"
+				aria-label={translate("memory.cancelGroupEdit")}
+				title={translate("common.cancel")}
 				className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-surface-hover"
 			>
 				<X className="h-3.5 w-3.5 text-text-muted" />

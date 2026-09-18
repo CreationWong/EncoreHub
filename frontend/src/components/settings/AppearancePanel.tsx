@@ -1,4 +1,5 @@
 import { Check, Monitor, Moon, Sigma, Sun } from "lucide-react";
+import { SYSTEM_LOCALE, listLocales, useT } from "../../i18n";
 import { getRuntimePlatform } from "../../services/runtimePlatform";
 import {
 	type MathRenderer,
@@ -6,31 +7,43 @@ import {
 	useSettingsStore,
 } from "../../stores/settingsStore";
 
-const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
-	{ id: "light", label: "Light", icon: Sun },
-	{ id: "dark", label: "Dark", icon: Moon },
-	{ id: "system", label: "System", icon: Monitor },
+const THEMES: {
+	id: Theme;
+	labelKey: "common.light" | "common.dark" | "common.system";
+	icon: typeof Sun;
+}[] = [
+	{ id: "light", labelKey: "common.light", icon: Sun },
+	{ id: "dark", labelKey: "common.dark", icon: Moon },
+	{ id: "system", labelKey: "common.system", icon: Monitor },
 ];
 
-const MATH_RENDERERS: { id: MathRenderer; label: string; detail: string }[] = [
+const MATH_RENDERERS: {
+	id: MathRenderer;
+	labelKey: "context.katex" | "context.mathjax" | "context.mathOff";
+	detailKey:
+		| "context.katexDetail"
+		| "context.mathjaxDetail"
+		| "context.mathOffDetail";
+}[] = [
 	{
 		id: "katex",
-		label: "KaTeX",
-		detail: "Fast server-style typesetting with bundled fonts.",
+		labelKey: "context.katex",
+		detailKey: "context.katexDetail",
 	},
 	{
 		id: "mathjax",
-		label: "MathJax",
-		detail: "Self-contained SVG output with broader TeX coverage.",
+		labelKey: "context.mathjax",
+		detailKey: "context.mathjaxDetail",
 	},
 	{
 		id: "off",
-		label: "Off",
-		detail: "Leave LaTeX delimiters as plain text.",
+		labelKey: "context.mathOff",
+		detailKey: "context.mathOffDetail",
 	},
 ];
 
 export default function AppearancePanel() {
+	const t = useT();
 	const theme = useSettingsStore((state) => state.theme);
 	const setTheme = useSettingsStore((state) => state.setTheme);
 	const trafficLights = useSettingsStore(
@@ -41,24 +54,79 @@ export default function AppearancePanel() {
 	);
 	const mathRenderer = useSettingsStore((state) => state.mathRenderer);
 	const setMathRenderer = useSettingsStore((state) => state.setMathRenderer);
+	const locale = useSettingsStore((state) => state.locale);
+	const setLocale = useSettingsStore((state) => state.setLocale);
 	const platform = getRuntimePlatform();
+	const languageOptions = [
+		{ id: SYSTEM_LOCALE, label: t("language.system") },
+		...listLocales().map((pack) => ({ id: pack.id, label: pack.nativeName })),
+	];
 
 	return (
 		<div className="mx-auto max-w-3xl space-y-8">
+			<section aria-labelledby="appearance-language-heading">
+				<div className="mb-3">
+					<h3
+						id="appearance-language-heading"
+						className="text-sm font-semibold text-text-primary"
+					>
+						{t("language.label")}
+					</h3>
+					<p className="mt-1 text-xs text-text-muted">
+						{t("language.description")}
+					</p>
+				</div>
+				<div
+					aria-label={t("language.group")}
+					className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-alt/40"
+				>
+					{languageOptions.map((option) => {
+						const selected = locale === option.id;
+						return (
+							<button
+								key={option.id}
+								type="button"
+								aria-pressed={selected}
+								onClick={() => setLocale(option.id)}
+								className={`flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+									selected ? "bg-selected" : "hover:bg-control"
+								}`}
+							>
+								<span
+									className={`min-w-0 flex-1 text-sm ${
+										selected
+											? "font-medium text-text-primary"
+											: "text-text-secondary"
+									}`}
+								>
+									{option.label}
+								</span>
+								<Check
+									aria-hidden="true"
+									className={`h-3.5 w-3.5 shrink-0 ${
+										selected ? "opacity-100" : "opacity-0"
+									}`}
+								/>
+							</button>
+						);
+					})}
+				</div>
+			</section>
+
 			<section aria-labelledby="appearance-theme-heading">
 				<div className="mb-3">
 					<h3
 						id="appearance-theme-heading"
 						className="text-sm font-semibold text-text-primary"
 					>
-						Theme
+						{t("appearance.theme")}
 					</h3>
 					<p className="mt-1 text-xs text-text-muted">
-						Choose how application surfaces and content are rendered.
+						{t("appearance.themeHelp")}
 					</p>
 				</div>
 				<div
-					aria-label="Application theme"
+					aria-label={t("appearance.themeGroup")}
 					className="grid grid-cols-3 overflow-hidden rounded-md border border-border bg-surface-alt/40"
 				>
 					{THEMES.map((option, index) => {
@@ -78,7 +146,7 @@ export default function AppearancePanel() {
 								}`}
 							>
 								<option.icon className="h-4 w-4 shrink-0" />
-								<span className="truncate">{option.label}</span>
+								<span className="truncate">{t(option.labelKey)}</span>
 								<Check
 									aria-hidden="true"
 									className={`h-3.5 w-3.5 shrink-0 ${
@@ -97,14 +165,14 @@ export default function AppearancePanel() {
 						id="math-renderer-heading"
 						className="text-sm font-semibold text-text-primary"
 					>
-						Math rendering
+						{t("appearance.math")}
 					</h3>
 					<p className="mt-1 text-xs text-text-muted">
-						Choose the engine that typesets LaTeX math in chat responses.
+						{t("appearance.mathHelp")}
 					</p>
 				</div>
 				<div
-					aria-label="Math rendering engine"
+					aria-label={t("appearance.mathGroup")}
 					className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-alt/40"
 				>
 					{MATH_RENDERERS.map((option) => {
@@ -128,10 +196,10 @@ export default function AppearancePanel() {
 												: "text-text-secondary"
 										}`}
 									>
-										{option.label}
+										{t(option.labelKey)}
 									</span>
 									<span className="mt-0.5 block text-xs text-text-muted">
-										{option.detail}
+										{t(option.detailKey)}
 									</span>
 								</span>
 								<Check
@@ -153,10 +221,10 @@ export default function AppearancePanel() {
 							id="window-style-heading"
 							className="text-sm font-semibold text-text-primary"
 						>
-							Window controls
+							{t("appearance.windowControls")}
 						</h3>
 						<p className="mt-1 text-xs text-text-muted">
-							Customize the controls in the EncoreHub titlebar.
+							{t("appearance.windowHelp")}
 						</p>
 					</div>
 					<div className="flex min-h-16 items-center gap-4 border-y border-border py-3">
@@ -170,17 +238,17 @@ export default function AppearancePanel() {
 						</div>
 						<div className="min-w-0 flex-1">
 							<p className="text-sm font-medium text-text-primary">
-								Traffic-light colors
+								{t("appearance.trafficLights")}
 							</p>
 							<p className="mt-0.5 text-xs text-text-muted">
-								Use yellow, green, and red hover colors for window actions.
+								{t("appearance.trafficLightsHelp")}
 							</p>
 						</div>
 						<button
 							type="button"
 							role="switch"
 							aria-checked={trafficLights}
-							aria-label="Use traffic-light window controls"
+							aria-label={t("appearance.trafficLightsSwitch")}
 							onClick={() => setTrafficLights(!trafficLights)}
 							className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
 								trafficLights ? "bg-accent" : "bg-surface-hover"

@@ -8,6 +8,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { t, useT } from "../../i18n";
 import type { Conversation } from "../../services/conversation";
 import { confirm } from "../../stores/confirmStore";
 import { useConversationStore } from "../../stores/conversationStore";
@@ -31,6 +32,7 @@ function ConversationActions({
 	contextMenuPosition,
 	onContextMenuClose,
 }: ConversationActionsProps) {
+	const translate = useT();
 	const deleteConversation = useConversationStore(
 		(state) => state.deleteConversation,
 	);
@@ -94,8 +96,8 @@ function ConversationActions({
 	const remove = async () => {
 		closeMenu();
 		const accepted = await confirm.ask(
-			"Delete Conversation",
-			`Delete "${conversation.title}"? This cannot be undone.`,
+			t("conversation.deleteTitle"),
+			t("conversation.deleteMessage", { title: conversation.title }),
 			true,
 		);
 		if (accepted) await deleteConversation(conversation.id);
@@ -116,10 +118,12 @@ function ConversationActions({
 					}
 					setOpen((value) => !value);
 				}}
-				aria-label={`Actions for ${conversation.title}`}
+				aria-label={translate("conversation.actionsFor", {
+					title: conversation.title,
+				})}
 				aria-haspopup="menu"
 				aria-expanded={menuOpen}
-				title="Conversation actions"
+				title={translate("conversation.actions")}
 				className={`flex h-7 w-7 items-center justify-center rounded text-text-muted transition-opacity hover:bg-control hover:text-text-primary focus:opacity-100 ${
 					active || menuOpen
 						? "opacity-100"
@@ -133,7 +137,9 @@ function ConversationActions({
 				<div
 					ref={menuRef}
 					role="menu"
-					aria-label={`Actions for ${conversation.title}`}
+					aria-label={translate("conversation.actionsFor", {
+						title: conversation.title,
+					})}
 					className={`w-44 rounded-md border border-border bg-workspace p-1 shadow-lg ${
 						contextMenuPosition
 							? "fixed z-[110]"
@@ -157,7 +163,7 @@ function ConversationActions({
 						className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
 					>
 						<Pencil className="h-3.5 w-3.5" />
-						Rename
+						{translate("conversation.rename")}
 					</button>
 					<button
 						type="button"
@@ -169,7 +175,7 @@ function ConversationActions({
 						className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
 					>
 						<RefreshCw className="h-3.5 w-3.5" />
-						Regenerate title
+						{translate("conversation.regenerateTitle")}
 					</button>
 					<div className="my-1 border-t border-border" />
 					<button
@@ -179,7 +185,7 @@ function ConversationActions({
 						className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-danger hover:bg-danger-bg"
 					>
 						<Trash2 className="h-3.5 w-3.5" />
-						Delete
+						{translate("conversation.delete")}
 					</button>
 				</div>
 			)}
@@ -188,8 +194,12 @@ function ConversationActions({
 }
 
 function LoadingList() {
+	const translate = useT();
 	return (
-		<output aria-label="Loading conversations" className="block space-y-2 p-2">
+		<output
+			aria-label={translate("conversation.loading")}
+			className="block space-y-2 p-2"
+		>
 			{[0, 1, 2, 3].map((item) => (
 				<span
 					key={item}
@@ -201,6 +211,7 @@ function LoadingList() {
 }
 
 export default function ConversationList() {
+	const translate = useT();
 	const conversations = useConversationStore((state) => state.conversations);
 	const activeId = useConversationStore((state) => state.activeId);
 	const listLoading = useConversationStore((state) => state.listLoading);
@@ -312,7 +323,7 @@ export default function ConversationList() {
 					className="flex h-10 w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium text-text-primary hover:bg-control"
 				>
 					<Plus className="h-4 w-4" />
-					<span>New chat</span>
+					<span>{translate("conversation.newChat")}</span>
 				</button>
 			</div>
 
@@ -336,7 +347,7 @@ export default function ConversationList() {
 				)}
 				{!listLoading && !listError && conversations.length === 0 && (
 					<p className="px-5 py-10 text-center text-xs text-text-muted">
-						No conversations yet.
+						{translate("conversation.noConversations")}
 					</p>
 				)}
 
@@ -415,7 +426,8 @@ export default function ConversationList() {
 														{conversation.title}
 													</span>
 													<span className="mt-0.5 block truncate text-[11px] text-text-muted">
-														{conversation.model || "Default model"}
+														{conversation.model ||
+															translate("conversation.defaultModel")}
 													</span>
 												</span>
 											</button>

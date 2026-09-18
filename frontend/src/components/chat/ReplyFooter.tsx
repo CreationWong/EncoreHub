@@ -1,4 +1,6 @@
 import { CircleStop, CircleX, LoaderCircle } from "lucide-react";
+import { t } from "../../i18n";
+import { useT } from "../../i18n";
 import type { Message } from "../../services/conversation";
 import CopyButton from "./CopyButton";
 
@@ -18,7 +20,9 @@ function boundedNumber(
 }
 
 export function formatTokenCount(count: number): string {
-	return `${Math.trunc(count).toLocaleString("en-US")} tokens`;
+	return t("reply.tokensCount", {
+		count: Math.trunc(count).toLocaleString("en-US"),
+	});
 }
 
 export function formatTokenBreakdown(input: number, output: number): string {
@@ -51,7 +55,7 @@ function formatTokenRate(outputTokens: number, durationMs: number): string {
 function replyState(status: Message["status"], streaming: boolean) {
 	if (status === "failed") {
 		return {
-			label: "Failed",
+			label: t("common.failed"),
 			Icon: CircleX,
 			className: "bg-danger-bg text-danger",
 			animate: false,
@@ -59,7 +63,7 @@ function replyState(status: Message["status"], streaming: boolean) {
 	}
 	if (status === "stopped") {
 		return {
-			label: "Stopped",
+			label: t("common.stopped"),
 			Icon: CircleStop,
 			className: "bg-warning-bg text-warning",
 			animate: false,
@@ -67,7 +71,7 @@ function replyState(status: Message["status"], streaming: boolean) {
 	}
 	if (status === "pending") {
 		return {
-			label: streaming ? "Generating" : "Pending",
+			label: streaming ? t("common.generating") : t("common.pending"),
 			Icon: LoaderCircle,
 			className: "bg-control text-text-muted",
 			animate: streaming,
@@ -79,21 +83,30 @@ function replyState(status: Message["status"], streaming: boolean) {
 function finishState(reason: string) {
 	const normalized = reason.toLowerCase();
 	if (normalized === "stop" || normalized === "end_turn") {
-		return { label: "Complete", className: "bg-control text-text-muted" };
+		return {
+			label: t("reply.complete"),
+			className: "bg-control text-text-muted",
+		};
 	}
 	if (normalized === "length" || normalized === "max_tokens") {
-		return { label: "Limit", className: "bg-warning-bg text-warning" };
+		return { label: t("reply.limit"), className: "bg-warning-bg text-warning" };
 	}
 	if (normalized === "tool_calls" || normalized === "tool_use") {
-		return { label: "Tool", className: "bg-accent/10 text-accent" };
+		return { label: t("reply.tool"), className: "bg-accent/10 text-accent" };
 	}
 	if (normalized === "cancelled") {
-		return { label: "Cancelled", className: "bg-warning-bg text-warning" };
+		return {
+			label: t("reply.cancelled"),
+			className: "bg-warning-bg text-warning",
+		};
 	}
 	if (normalized === "error") {
-		return { label: "Error", className: "bg-danger-bg text-danger" };
+		return { label: t("reply.error"), className: "bg-danger-bg text-danger" };
 	}
-	return { label: "Finished", className: "bg-control text-text-muted" };
+	return {
+		label: t("reply.finished"),
+		className: "bg-control text-text-muted",
+	};
 }
 
 interface ReplyFooterProps {
@@ -117,6 +130,7 @@ export default function ReplyFooter({
 	finishReason,
 	streaming = false,
 }: ReplyFooterProps) {
+	const translate = useT();
 	const state = replyState(status, streaming);
 	const input = boundedNumber(inputTokens, MAX_TOKEN_COUNT);
 	const output = boundedNumber(outputTokens, MAX_TOKEN_COUNT);
@@ -156,12 +170,12 @@ export default function ReplyFooter({
 
 	return (
 		<footer
-			aria-label="Reply actions and status"
+			aria-label={translate("reply.actions")}
 			className="mt-3 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1.5"
 		>
 			{canCopy && (
 				<div className="flex shrink-0 items-center">
-					<CopyButton text={content} label="Copy reply" />
+					<CopyButton text={content} label={translate("chat.copyReply")} />
 				</div>
 			)}
 			<div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">

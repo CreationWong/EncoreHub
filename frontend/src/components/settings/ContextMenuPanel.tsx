@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n";
 import {
 	type GlobalContextMenuItemId,
 	useSettingsStore,
@@ -15,6 +16,7 @@ function itemIdAtPoint(x: number, y: number): GlobalContextMenuItemId | null {
 }
 
 export default function ContextMenuPanel() {
+	const t = useT();
 	const items = useSettingsStore((state) => state.globalContextMenuItems);
 	const setVisible = useSettingsStore(
 		(state) => state.setGlobalContextMenuItemVisible,
@@ -69,7 +71,7 @@ export default function ContextMenuPanel() {
 	return (
 		<div className="mx-auto max-w-3xl">
 			<ul
-				aria-label="Global context menu items"
+				aria-label={t("contextMenu.items")}
 				className="list-none divide-y divide-border border-y border-border p-0"
 			>
 				{items.map((item, index) => {
@@ -97,7 +99,7 @@ export default function ContextMenuPanel() {
 									setDraggedId(item.id);
 								}}
 								aria-label={`Drag ${definition.label}`}
-								title="Drag to reorder"
+								title={t("common.dragToReorder")}
 								className="flex h-7 w-7 touch-none items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary active:cursor-grabbing"
 							>
 								<GripVertical className="h-4 w-4 cursor-grab" />
@@ -114,7 +116,9 @@ export default function ContextMenuPanel() {
 									onChange={(event) =>
 										setVisible(item.id, event.target.checked)
 									}
-									aria-label={`Show ${definition.label}`}
+									aria-label={t("contextMenu.showItem", {
+										name: definition.label,
+									})}
 									className="h-4 w-4 accent-accent"
 								/>
 							</label>
@@ -122,8 +126,8 @@ export default function ContextMenuPanel() {
 								type="button"
 								disabled={index === 0}
 								onClick={() => moveBy(item.id, -1)}
-								aria-label={`Move ${definition.label} up`}
-								title="Move up"
+								aria-label={`${t("common.moveUp")}: ${definition.label}`}
+								title={t("common.moveUp")}
 								className="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 							>
 								<ChevronUp className="h-3.5 w-3.5" />
@@ -132,8 +136,8 @@ export default function ContextMenuPanel() {
 								type="button"
 								disabled={index === items.length - 1}
 								onClick={() => moveBy(item.id, 1)}
-								aria-label={`Move ${definition.label} down`}
-								title="Move down"
+								aria-label={`${t("common.moveDown")}: ${definition.label}`}
+								title={t("common.moveDown")}
 								className="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-control hover:text-text-primary disabled:opacity-30"
 							>
 								<ChevronDown className="h-3.5 w-3.5" />

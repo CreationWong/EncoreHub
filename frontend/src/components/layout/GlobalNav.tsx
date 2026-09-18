@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCustomTitlebar } from "../../hooks/useCustomTitlebar";
+import { useT } from "../../i18n";
 import { toggleCurrentWindowMaximize } from "../../services/windowControls";
 import { type Theme, useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
@@ -24,20 +25,20 @@ import WindowControls from "./WindowControls";
 
 const THEME_OPTIONS: {
 	value: Theme;
-	label: string;
+	labelKey: "common.light" | "common.dark" | "common.system";
 	icon: typeof Sun;
 }[] = [
-	{ value: "light", label: "Light", icon: Sun },
-	{ value: "dark", label: "Dark", icon: Moon },
-	{ value: "system", label: "System", icon: Monitor },
+	{ value: "light", labelKey: "common.light", icon: Sun },
+	{ value: "dark", labelKey: "common.dark", icon: Moon },
+	{ value: "system", labelKey: "common.system", icon: Monitor },
 ];
 
 const WORKSPACE_TABS: Record<
 	Exclude<WorkspaceTabId, "home">,
-	{ label: string; icon: typeof Settings }
+	{ labelKey: "nav.workbench" | "nav.settings"; icon: typeof Settings }
 > = {
-	workbench: { label: "Workbench", icon: LayoutGrid },
-	settings: { label: "Settings", icon: Settings },
+	workbench: { labelKey: "nav.workbench", icon: LayoutGrid },
+	settings: { labelKey: "nav.settings", icon: Settings },
 };
 
 function currentThemeIcon(theme: Theme) {
@@ -47,6 +48,7 @@ function currentThemeIcon(theme: Theme) {
 }
 
 export default function GlobalNav() {
+	const t = useT();
 	const theme = useSettingsStore((state) => state.theme);
 	const setTheme = useSettingsStore((state) => state.setTheme);
 	const openSettings = useSettingsStore((state) => state.openSettings);
@@ -69,7 +71,7 @@ export default function GlobalNav() {
 	const toggleTitlebarMaximize = () => {
 		if (!windowsTitleBar) return;
 		void toggleCurrentWindowMaximize().catch(() => {
-			toast.error("Unable to maximize or restore the application window.");
+			toast.error(t("nav.maximizeError"));
 		});
 	};
 	const switchAppearance = () => {
@@ -137,7 +139,7 @@ export default function GlobalNav() {
 			}`}
 		>
 			<nav
-				aria-label="Global navigation"
+				aria-label={t("nav.global")}
 				className="flex min-w-0 max-w-[calc(100vw-12rem)] items-center gap-1"
 			>
 				<div className="workspace-tab-strip flex min-w-0 items-center gap-1 overflow-x-auto py-1">
@@ -152,12 +154,13 @@ export default function GlobalNav() {
 						}`}
 					>
 						<Home className="h-4 w-4" />
-						<span>Home</span>
+						<span>{t("nav.home")}</span>
 					</button>
 
 					{dynamicTabs.map((tab) => {
 						const definition = WORKSPACE_TABS[tab];
 						const Icon = definition.icon;
+						const label = t(definition.labelKey);
 						const selected = activeTab === tab;
 						return (
 							<div
@@ -176,13 +179,13 @@ export default function GlobalNav() {
 									className="flex min-w-0 max-w-36 items-center gap-2 pl-3 pr-1 text-sm font-medium"
 								>
 									<Icon className="h-4 w-4 shrink-0" />
-									<span className="truncate">{definition.label}</span>
+									<span className="truncate">{label}</span>
 								</button>
 								<button
 									type="button"
 									onClick={() => closeWorkspaceTab(tab)}
-									aria-label={`Close ${definition.label} tab`}
-									title={`Close ${definition.label}`}
+									aria-label={t("nav.closeTab", { name: label })}
+									title={t("nav.closeTabTitle", { name: label })}
 									className="flex w-7 items-center justify-center text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
 								>
 									<X className="h-3.5 w-3.5" />
@@ -195,8 +198,8 @@ export default function GlobalNav() {
 				<button
 					type="button"
 					onClick={launchWorkbench}
-					aria-label="Open workbench"
-					title="Open workbench"
+					aria-label={t("nav.openWorkbench")}
+					title={t("nav.openWorkbench")}
 					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
 				>
 					<Plus className="h-4 w-4" />
@@ -214,12 +217,12 @@ export default function GlobalNav() {
 			<div className="flex h-full shrink-0 items-center gap-1">
 				<div ref={appearanceRef} className="relative">
 					<fieldset className="m-0 flex border-0 p-0">
-						<legend className="sr-only">Appearance controls</legend>
+						<legend className="sr-only">{t("nav.appearanceControls")}</legend>
 						<button
 							type="button"
 							onClick={switchAppearance}
-							aria-label="Switch appearance"
-							title="Switch light or dark appearance"
+							aria-label={t("nav.switchAppearance")}
+							title={t("nav.switchAppearanceTitle")}
 							className="flex h-8 w-8 items-center justify-center rounded-l-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
 						>
 							<ThemeIcon className="h-4 w-4" />
@@ -238,10 +241,10 @@ export default function GlobalNav() {
 									focusThemeOption(event.key === "ArrowDown" ? 0 : -1);
 								});
 							}}
-							aria-label="Open appearance menu"
+							aria-label={t("nav.openAppearanceMenu")}
 							aria-haspopup="menu"
 							aria-expanded={appearanceOpen}
-							title="Appearance options"
+							title={t("nav.appearanceOptions")}
 							className="flex h-8 w-6 items-center justify-center rounded-r-md text-text-secondary transition-colors hover:bg-control hover:text-text-primary"
 						>
 							<ChevronDown className="h-3 w-3" />
@@ -251,11 +254,11 @@ export default function GlobalNav() {
 					{appearanceOpen && (
 						<div
 							role="menu"
-							aria-label="Appearance"
+							aria-label={t("nav.appearanceMenu")}
 							className="absolute right-0 top-full z-50 mt-1 w-40 rounded-md border border-border bg-workspace p-1 shadow-lg"
 						>
 							<p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">
-								Appearance
+								{t("nav.appearanceMenu")}
 							</p>
 							{THEME_OPTIONS.map((option, index) => (
 								<button
@@ -289,7 +292,7 @@ export default function GlobalNav() {
 									className="flex h-8 w-full items-center gap-2 rounded px-2 text-sm text-text-secondary hover:bg-control hover:text-text-primary"
 								>
 									<option.icon className="h-4 w-4" />
-									<span>{option.label}</span>
+									<span>{t(option.labelKey)}</span>
 									<Check
 										className={`ml-auto h-3.5 w-3.5 ${
 											theme === option.value ? "opacity-100" : "opacity-0"
@@ -304,8 +307,8 @@ export default function GlobalNav() {
 				<button
 					type="button"
 					onClick={() => openSettings()}
-					aria-label="Settings"
-					title="Settings (Ctrl+,)"
+					aria-label={t("nav.settings")}
+					title={t("nav.settingsShortcut")}
 					className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
 						activeTab === "settings"
 							? "bg-control text-text-primary"
