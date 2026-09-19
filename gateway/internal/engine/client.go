@@ -129,9 +129,26 @@ type Conversation struct {
 	CharacterSnapshot CharacterSnapshot         `json:"character_snapshot"`
 	ReplyMode         string                    `json:"reply_mode"`
 	Participants      []ConversationParticipant `json:"participants"`
+	GroupSettings     GroupChatSettings         `json:"group_settings"`
 	MessageCount      int                       `json:"message_count"`
 	CreatedAt         string                    `json:"created_at"`
 	UpdatedAt         string                    `json:"updated_at"`
+}
+
+// GroupChatSettings mirrors the Engine's per-group autonomy settings.
+type GroupChatSettings struct {
+	AutoChatEnabled  bool             `json:"auto_chat_enabled"`
+	MaxAutoTurns     *uint32          `json:"max_auto_turns"`
+	AllowBotMentions bool             `json:"allow_bot_mentions"`
+	Paused           bool             `json:"paused"`
+	UserPersona      ConversationUser `json:"user_persona"`
+}
+
+// ConversationUser is the human participant identity inside one group.
+type ConversationUser struct {
+	Name        string `json:"name"`
+	Avatar      string `json:"avatar"`
+	Description string `json:"description"`
 }
 
 // ConversationParticipant is one AI member of a group conversation.
@@ -172,6 +189,7 @@ type ConversationDetail struct {
 	CharacterSnapshot CharacterSnapshot         `json:"character_snapshot"`
 	ReplyMode         string                    `json:"reply_mode"`
 	Participants      []ConversationParticipant `json:"participants"`
+	GroupSettings     GroupChatSettings         `json:"group_settings"`
 	Messages          []Message                 `json:"messages"`
 	Summary           *string                   `json:"summary"`
 	CreatedAt         string                    `json:"created_at"`
@@ -283,12 +301,76 @@ func (c *Client) CreateGroupConversation(ctx context.Context, title, replyMode s
 	return &conv, nil
 }
 
+// QueueItem is one persisted group turn awaiting the background runner.
+type QueueItem struct {
+	ID                string  `json:"id"`
+	ConversationID    string  `json:"conversation_id"`
+	Source            string  `json:"source"`
+	Priority          int     `json:"priority"`
+	SenderCharacterID *string `json:"sender_character_id"`
+	TargetCharacterID *string `json:"target_character_id"`
+	Content           string  `json:"content"`
+	Status            string  `json:"status"`
+	CreatedAt         string  `json:"created_at"`
+	ClaimedAt         *string `json:"claimed_at"`
+}
+
+// EnqueueQueueItem appends one pending group turn to the Engine queue.
+func (c *Client) EnqueueQueueItem(ctx context.Context, convID string, item QueueItem) (*QueueItem, error) {
+	var stored QueueItem
+	path := "/api/conversations/" + url.PathEscape(convID) + "/queue"
+	if err := c.doJSON(ctx, http.MethodPost, path, item, &stored); err != nil {
+		return nil, err
+	}
+	return &stored, nil
+}
+
+// ClaimQueueItem atomically takes the highest-priority pending item.
+func (c *Client) ClaimQueueItem(ctx context.Context, convID string) (*QueueItem, error) {
+	var item *QueueItem
+	path := "/api/conversations/" + url.PathEscape(convID) + "/queue/claim"
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// CompleteQueueItem marks one claimed item as processed.
+func (c *Client) CompleteQueueItem(ctx context.Context, convID, itemID string) error {
+	path := "/api/conversations/" + url.PathEscape(convID) + "/queue/" +
+		url.PathEscape(itemID) + "/complete"
+	return c.doJSON(ctx, http.MethodPost, path, nil, nil)
+}
+
+// ClearQueue cancels every non-terminal item and reports how many were dropped.
+func (c *Client) ClearQueue(ctx context.Context, convID string) (int, error) {
+	var response struct {
+		Cancelled int `json:"cancelled"`
+	}
+	path := "/api/conversations/" + url.PathEscape(convID) + "/queue/clear"
+	if err := c.doJSON(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return 0, err
+	}
+	return response.Cancelled, nil
+}
+
+// ListQueueItems returns pending and claimed items in claim order.
+func (c *Client) ListQueueItems(ctx context.Context, convID string) ([]QueueItem, error) {
+	var items []QueueItem
+	path := "/api/conversations/" + url.PathEscape(convID) + "/queue"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // ConversationUpdate changes selected authoritative conversation metadata.
 type ConversationUpdate struct {
-	Title     *string `json:"title,omitempty"`
-	Provider  *string `json:"provider,omitempty"`
-	Model     *string `json:"model,omitempty"`
-	ReplyMode *string `json:"reply_mode,omitempty"`
+	Title         *string            `json:"title,omitempty"`
+	Provider      *string            `json:"provider,omitempty"`
+	Model         *string            `json:"model,omitempty"`
+	ReplyMode     *string            `json:"reply_mode,omitempty"`
+	GroupSettings *GroupChatSettings `json:"group_settings,omitempty"`
 }
 
 // UpdateConversation updates authoritative metadata for an existing conversation.

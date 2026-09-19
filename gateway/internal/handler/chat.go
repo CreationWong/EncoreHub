@@ -31,10 +31,11 @@ func devMockEnabled() bool {
 }
 
 type ChatHandler struct {
-	registry  *provider.Registry
-	engine    *engine.Client
-	titleMu   sync.Mutex
-	titleJobs map[string]*titleJob
+	registry    *provider.Registry
+	engine      *engine.Client
+	titleMu     sync.Mutex
+	titleJobs   map[string]*titleJob
+	groupRunner *GroupRunnerManager
 }
 
 type titleResult struct {
@@ -49,11 +50,15 @@ type titleJob struct {
 }
 
 func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *ChatHandler {
-	return &ChatHandler{
+	handler := &ChatHandler{
 		registry:  registry,
 		engine:    engineClient,
 		titleJobs: make(map[string]*titleJob),
 	}
+	// The runner reuses the handler for provider resolution and Engine access,
+	// so it is created once the handler itself exists.
+	handler.groupRunner = NewGroupRunnerManager(handler)
+	return handler
 }
 
 type SendMessageRequest struct {

@@ -80,6 +80,9 @@ func Setup(cfg Config) *gin.Engine {
 			conv.POST("/:id/chat", chatHandler.SendMessage)
 			// Multi-AI group chat: one message fans out to the member roster.
 			conv.POST("/:id/group-chat", chatHandler.GroupChat)
+			// Async group turns: persist + queue, then stream live runner events.
+			conv.POST("/:id/group-messages", chatHandler.GroupEnqueue)
+			conv.GET("/:id/group-events", chatHandler.GroupEvents)
 			// AI-powered title generation
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
 			// Tool-based title update (proxied to engine)

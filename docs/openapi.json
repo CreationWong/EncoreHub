@@ -211,6 +211,57 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/group-messages": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "enqueueGroupMessage",
+        "description": "Persist a user message and queue its answers for the background group runner. Content starting with / is handled as a user-only command (stop, pause, resume) and returns command instead of a queued message.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GroupMessageRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Message persisted and queued, or command applied",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GroupMessageAccepted" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/group-events": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "get": {
+        "tags": ["Conversations"],
+        "operationId": "streamGroupEvents",
+        "description": "SSE stream of live runner events: runner_state, queue_updated, message_appended, participant_started/delta/reasoning/usage/participant_done/participant_skipped/participant_error.",
+        "responses": {
+          "200": {
+            "description": "Server-sent event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/attachments": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" }
@@ -1788,6 +1839,26 @@
           "character_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
           "provider": { "type": "string" },
           "model": { "type": "string" }
+        }
+      },
+      "GroupMessageRequest": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "mentions": {
+            "type": "array",
+            "description": "Participant character ids explicitly addressed by the composer.",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "GroupMessageAccepted": {
+        "type": "object",
+        "properties": {
+          "user_message": { "$ref": "#/components/schemas/Message" },
+          "queued": { "type": "integer", "minimum": 0 },
+          "command": { "type": ["string", "null"] }
         }
       },
       "GroupChatRequest": {

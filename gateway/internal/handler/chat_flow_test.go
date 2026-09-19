@@ -62,6 +62,9 @@ type chatEngineStub struct {
 	finalizeRequests      []engine.FinalizeTurnRequest
 	rememberRequests      []engine.RememberMemoryRequest
 	conversationMessages  []engine.Message
+	appendedMessages      []engine.Message
+	queueItems            []engine.QueueItem
+	patchedSettings       *engine.GroupChatSettings
 	participants          []engine.ConversationParticipant
 	replyMode             string
 	searchConfig          string
@@ -254,13 +257,64 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeTestJSON(w, http.StatusCreated, engine.RememberedMemory{
 			ID: "memory-1", GroupID: "character:character-default", State: "long_term", Kind: request.Kind, Created: true,
 		})
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/messages/append":
+		var request engine.AppendMessageRequest
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		message := engine.Message{
+			ID:                "appended-" + request.Role,
+			Role:              request.Role,
+			Content:           request.Content,
+			SenderCharacterID: pointerOrNil(request.SenderCharacterID),
+			Status:            "completed",
+			CreatedAt:         "2026-07-16T00:00:02Z",
+		}
+		s.mu.Lock()
+		s.appendedMessages = append(s.appendedMessages, message)
+		s.conversationMessages = append(s.conversationMessages, message)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, message)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/queue":
+		var request engine.QueueItem
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		request.ID = fmt.Sprintf("queue-%d", len(s.queueItems)+1)
+		s.mu.Lock()
+		s.queueItems = append(s.queueItems, request)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, request)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/queue/claim":
+		s.mu.Lock()
+		var claimed *engine.QueueItem
+		if len(s.queueItems) > 0 {
+			item := s.queueItems[0]
+			s.queueItems = s.queueItems[1:]
+			claimed = &item
+		}
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, claimed)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/complete"):
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/queue/clear":
+		s.mu.Lock()
+		cancelled := len(s.queueItems)
+		s.queueItems = nil
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
+	case r.Method == http.MethodGet && r.URL.Path == "/api/conversations/c1/queue":
+		s.mu.Lock()
+		items := append([]engine.QueueItem(nil), s.queueItems...)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, items)
 	case r.Method == http.MethodPatch && r.URL.Path == "/api/conversations/c1":
 		var request struct {
-			Title string `json:"title"`
+			Title         string                    `json:"title"`
+			GroupSettings *engine.GroupChatSettings `json:"group_settings"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		s.mu.Lock()
 		s.conversationTitle = request.Title
+		if request.GroupSettings != nil {
+			s.patchedSettings = request.GroupSettings
+		}
 		s.mu.Unlock()
 		writeTestJSON(w, http.StatusOK, engine.Conversation{ID: "c1", Title: request.Title})
 	default:
@@ -465,6 +519,14 @@ func (s *chatEngineStub) remembered() []engine.RememberMemoryRequest {
 	return append([]engine.RememberMemoryRequest(nil), s.rememberRequests...)
 }
 
+// pointerOrNil keeps optional string fields nil when the request omitted them.
+func pointerOrNil(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 func (s *chatEngineStub) memoryQueries() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -492,6 +554,8 @@ func newChatTestRouter(adapter provider.Adapter, stub *chatEngineStub) (*gin.Eng
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/chat", handler.SendMessage)
 	router.POST("/api/v1/conversations/:id/group-chat", handler.GroupChat)
+	router.POST("/api/v1/conversations/:id/group-messages", handler.GroupEnqueue)
+	router.GET("/api/v1/conversations/:id/group-events", handler.GroupEvents)
 	return router, engineServer
 }
 
@@ -652,6 +716,128 @@ func performStreamRequest(t *testing.T, router http.Handler, ctx context.Context
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func TestGroupEnqueueRunsTheAsyncRunnerForEveryMember(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("ENCOREHUB_DEV_MOCK", "1")
+	stub := &chatEngineStub{
+		participants: []engine.ConversationParticipant{
+			{
+				CharacterID:       "char-a",
+				CharacterVersion:  1,
+				Position:          0,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "建模bot"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+			{
+				CharacterID:       "char-b",
+				CharacterVersion:  1,
+				Position:          1,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "论文挑刺"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+		},
+	}
+	router, engineServer := newChatTestRouter(&scriptedAdapter{}, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-messages",
+		bytes.NewBufferString(`{"content":"大家先自我介绍一下"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	// The runner works in the background; both members must answer.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		stub.mu.Lock()
+		assistants := 0
+		for _, message := range stub.appendedMessages {
+			if message.Role == "assistant" {
+				assistants++
+			}
+		}
+		stub.mu.Unlock()
+		if assistants >= 2 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	t.Fatalf("runner did not answer with every member: %+v", stub.appendedMessages)
+}
+
+func TestGroupCommandStopClearsQueueAndPauses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{
+		participants: []engine.ConversationParticipant{
+			{
+				CharacterID:       "char-a",
+				CharacterVersion:  1,
+				Position:          0,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "建模bot"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+			{
+				CharacterID:       "char-b",
+				CharacterVersion:  1,
+				Position:          1,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "论文挑刺"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+		},
+		queueItems: []engine.QueueItem{{ID: "queue-1", Source: "user", Content: "还没处理"}},
+	}
+	router, engineServer := newChatTestRouter(&scriptedAdapter{}, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-messages",
+		bytes.NewBufferString(`{"content":"/stop"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var accepted struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &accepted); err != nil || accepted.Command != "stop" {
+		t.Fatalf("unexpected command response: %s", recorder.Body.String())
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.queueItems) != 0 {
+		t.Fatalf("stop must clear the queue: %+v", stub.queueItems)
+	}
+	if stub.patchedSettings == nil || !stub.patchedSettings.Paused {
+		t.Fatalf("stop must pause the group: %+v", stub.patchedSettings)
+	}
+	foundStopNote := false
+	for _, message := range stub.appendedMessages {
+		if message.Role == "system" && message.Content == "/stop" {
+			foundStopNote = true
+		}
+	}
+	if !foundStopNote {
+		t.Fatalf("stop must leave a system note: %+v", stub.appendedMessages)
+	}
 }
 
 func TestGroupChat_StreamsEveryMemberAndAttributesSenders(t *testing.T) {

@@ -117,7 +117,9 @@ func (h *ChatHandler) GroupChat(c *gin.Context) {
 		return
 	}
 
-	responders, err := h.resolveGroupResponders(ctx, c, selected)
+	responders, err := h.resolveGroupResponders(ctx, selected, func(provider string) string {
+		return c.GetHeader("X-" + provider + "-Key")
+	})
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -155,7 +157,10 @@ func selectGroupParticipants(conv *engine.ConversationDetail, req GroupChatReque
 		}
 	}
 	if len(mentioned) == 0 {
-		mentioned = mentionIDsFromContent(conv.Participants, req.Content)
+		ordered, _ := parseMentionTargets(conv.Participants, "", req.Content)
+		for _, participant := range ordered {
+			mentioned[participant.CharacterID] = struct{}{}
+		}
 	}
 
 	selected := make([]engine.ConversationParticipant, 0, len(conv.Participants))
@@ -177,9 +182,11 @@ func selectGroupParticipants(conv *engine.ConversationDetail, req GroupChatReque
 	return selected, nil
 }
 
-// mentionIDsFromContent matches "@<name>" for every roster name. Longer names
-// are checked first so "@审题拆解 bot" cannot shadow "@审题拆解".
-func mentionIDsFromContent(participants []engine.ConversationParticipant, content string) map[string]struct{} {
+// parseMentionTargets matches "@<name>" for every roster name and the user
+// persona. Longer names are checked first so "@审题拆解 bot" cannot shadow
+// "@审题拆解". Matched members keep roster order and the boolean reports
+// whether the user was addressed.
+func parseMentionTargets(participants []engine.ConversationParticipant, personaName, content string) ([]engine.ConversationParticipant, bool) {
 	type named struct {
 		id   string
 		name string
@@ -199,16 +206,31 @@ func mentionIDsFromContent(participants []engine.ConversationParticipant, conten
 			matched[entry.id] = struct{}{}
 		}
 	}
-	return matched
+	ordered := make([]engine.ConversationParticipant, 0, len(matched))
+	for _, participant := range participants {
+		if _, ok := matched[participant.CharacterID]; ok {
+			ordered = append(ordered, participant)
+		}
+	}
+	userMentioned := false
+	if name := strings.TrimSpace(personaName); name != "" {
+		userMentioned = strings.Contains(content, "@"+name)
+	}
+	return ordered, userMentioned
 }
 
 // resolveGroupResponders resolves each member's provider adapter and API key.
 // A missing key fails the whole request before any turn is created, matching
-// single-chat behavior; keys are never logged.
-func (h *ChatHandler) resolveGroupResponders(ctx context.Context, c *gin.Context, participants []engine.ConversationParticipant) ([]groupResponder, error) {
+// single-chat behavior; keys are never logged. headerKey reads per-provider
+// session headers for HTTP turns; the background runner passes nil to use the
+// Engine vault only.
+func (h *ChatHandler) resolveGroupResponders(ctx context.Context, participants []engine.ConversationParticipant, headerKey func(provider string) string) ([]groupResponder, error) {
 	responders := make([]groupResponder, 0, len(participants))
 	for _, participant := range participants {
-		apiKey := c.GetHeader("X-" + participant.Provider + "-Key")
+		apiKey := ""
+		if headerKey != nil {
+			apiKey = headerKey(participant.Provider)
+		}
 		if apiKey == "" {
 			if k, found, err := h.engine.GetSecret(ctx, participant.Provider); err == nil && found {
 				apiKey = k
@@ -264,7 +286,7 @@ func (h *ChatHandler) groupStream(ctx context.Context, c *gin.Context, conv *eng
 	var totalUsage provider.UsageEvent
 
 	for _, responder := range responders {
-		reply, ok := h.streamGroupReply(ctx, c, conv, responder, knowledgeContext, userMessage.Content, history, writeFrame)
+		reply, ok := h.streamGroupReply(ctx, conv, responder, knowledgeContext, userMessage.Content, history, writeFrame)
 		if !ok {
 			continue
 		}
@@ -324,7 +346,7 @@ func (h *ChatHandler) groupStream(ctx context.Context, c *gin.Context, conv *eng
 
 // streamGroupReply runs one member's provider call, emitting participant frames.
 // It returns ok=false when the member failed, skipped, or produced nothing.
-func (h *ChatHandler) streamGroupReply(ctx context.Context, c *gin.Context, conv *engine.ConversationDetail,
+func (h *ChatHandler) streamGroupReply(ctx context.Context, conv *engine.ConversationDetail,
 	responder groupResponder, knowledgeContext, userContent string, history []engine.Message,
 	writeFrame func(string, any)) (groupReply, bool) {
 
