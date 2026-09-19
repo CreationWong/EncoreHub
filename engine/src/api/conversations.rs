@@ -7,10 +7,10 @@ use axum::{
     Json,
 };
 use encorehub_core::{
-    CharacterSnapshot, CharacterUpgradePreview, Conversation, Message, MessageStatus, Role,
-    ToolCall, DEFAULT_CHARACTER_ID,
+    CharacterSnapshot, CharacterUpgradePreview, Conversation, ConversationParticipant, Message,
+    MessageStatus, ReplyMode, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
-use encorehub_storage::{AttachmentRecord, BlobStore, Database};
+use encorehub_storage::{AssistantTurn, AttachmentRecord, BlobStore, Database};
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -25,6 +25,21 @@ pub struct CreateConversationRequest {
     pub model: String,
     #[serde(default)]
     pub character_id: Option<String>,
+    /// Group members, in speaking order. Empty for a single-character chat.
+    #[serde(default)]
+    pub participants: Vec<CreateParticipantRequest>,
+    /// Group reply routing: `sequential` (default) or `smart`.
+    #[serde(default)]
+    pub reply_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateParticipantRequest {
+    pub character_id: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
 }
 
 fn default_title() -> String {
@@ -36,6 +51,29 @@ pub struct SendMessageRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ParticipantResponse {
+    pub character_id: String,
+    pub character_version: i64,
+    pub position: i64,
+    pub character_snapshot: CharacterSnapshot,
+    pub provider: String,
+    pub model: String,
+}
+
+impl From<ConversationParticipant> for ParticipantResponse {
+    fn from(value: ConversationParticipant) -> Self {
+        Self {
+            character_id: value.character_id,
+            character_version: value.character_version,
+            position: value.position,
+            character_snapshot: value.character_snapshot,
+            provider: value.provider,
+            model: value.model,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct ConversationResponse {
     pub id: String,
     pub title: String,
@@ -44,6 +82,8 @@ pub struct ConversationResponse {
     pub character_id: String,
     pub character_version: i64,
     pub character_snapshot: CharacterSnapshot,
+    pub reply_mode: String,
+    pub participants: Vec<ParticipantResponse>,
     pub message_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -58,13 +98,15 @@ pub struct ConversationDetail {
     pub character_id: String,
     pub character_version: i64,
     pub character_snapshot: CharacterSnapshot,
+    pub reply_mode: String,
+    pub participants: Vec<ParticipantResponse>,
     pub messages: Vec<MessageResponse>,
     pub summary: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MessageResponse {
     pub id: String,
     pub role: String,
@@ -72,6 +114,8 @@ pub struct MessageResponse {
     #[serde(default)]
     pub reasoning: String,
     pub parent_id: Option<String>,
+    /// Group member that produced this assistant message; null for other roles.
+    pub sender_character_id: Option<String>,
     pub tool_calls: Vec<ToolCallResponse>,
     pub attachments: Vec<AttachmentSummary>,
     pub token_count: i32,
@@ -87,7 +131,7 @@ pub struct MessageResponse {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AttachmentSummary {
     pub id: String,
     pub conversation_id: String,
@@ -116,7 +160,7 @@ impl From<AttachmentRecord> for AttachmentSummary {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ToolCallResponse {
     pub id: String,
     pub name: String,
@@ -148,6 +192,45 @@ pub async fn create(
     State(state): State<SharedState>,
     Json(req): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let title = req.title.trim();
+    let title = if title.is_empty() { "New Chat" } else { title };
+    let reply_mode = match req.reply_mode.as_deref().map(str::trim) {
+        None | Some("") => ReplyMode::Sequential,
+        Some(value) => ReplyMode::from_str(value)
+            .ok_or_else(|| bad_request("unsupported reply_mode; expected sequential or smart"))?,
+    };
+
+    // A participant roster turns this into a group conversation; the
+    // single-character path below stays byte-compatible for existing clients.
+    if !req.participants.is_empty() {
+        let mut selections: Vec<(String, Option<(String, String)>)> =
+            Vec::with_capacity(req.participants.len());
+        for participant in &req.participants {
+            let character_id = participant.character_id.trim();
+            if character_id.is_empty() {
+                return Err(bad_request("participant character_id is required"));
+            }
+            let provider = participant.provider.trim();
+            let model = participant.model.trim();
+            if provider.is_empty() != model.is_empty() {
+                return Err(bad_request(
+                    "participant provider and model must be set together",
+                ));
+            }
+            let selection = if provider.is_empty() {
+                None
+            } else {
+                Some((provider.to_string(), model.to_string()))
+            };
+            selections.push((character_id.to_string(), selection));
+        }
+        let conv = state
+            .db
+            .create_group_conversation(title, reply_mode, &selections)
+            .map_err(domain_error)?;
+        return Ok(Json(build_conversation_response(conv, 0)));
+    }
+
     let provider = req.provider.trim();
     let model = req.model.trim();
     if provider.is_empty() != model.is_empty() {
@@ -163,8 +246,6 @@ pub async fn create(
     } else {
         Some((provider, model))
     };
-    let title = req.title.trim();
-    let title = if title.is_empty() { "New Chat" } else { title };
     let character_id = req
         .character_id
         .as_deref()
@@ -221,42 +302,9 @@ pub async fn get_one(
 
     let message_responses: Vec<MessageResponse> = messages
         .into_iter()
-        .map(|m| {
-            let attachments = attachment_summaries(&state.db, &m.id);
-            let tool_calls = state
-                .db
-                .get_tool_calls(&m.id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|tc| ToolCallResponse {
-                    id: tc.id,
-                    name: tc.name,
-                    arguments: tc.arguments,
-                    result: tc.result,
-                    status: tc.status,
-                })
-                .collect();
-
-            MessageResponse {
-                id: m.id,
-                role: m.role.as_str().to_string(),
-                content: m.content,
-                reasoning: m.reasoning,
-                parent_id: m.parent_id,
-                tool_calls,
-                attachments,
-                token_count: m.token_count,
-                input_tokens: m.input_tokens,
-                output_tokens: m.output_tokens,
-                cache_creation_input_tokens: m.cache_creation_input_tokens,
-                cache_read_input_tokens: m.cache_read_input_tokens,
-                context_input_tokens: m.context_input_tokens,
-                context_output_tokens: m.context_output_tokens,
-                duration_ms: m.duration_ms,
-                finish_reason: m.finish_reason,
-                status: m.status.as_str().to_string(),
-                created_at: m.created_at.to_rfc3339(),
-            }
+        .map(|message| {
+            let tool_calls = state.db.get_tool_calls(&message.id).unwrap_or_default();
+            build_msg_response(&state.db, &message, &tool_calls)
         })
         .collect();
 
@@ -268,6 +316,12 @@ pub async fn get_one(
         character_id: conv.character_id,
         character_version: conv.character_version,
         character_snapshot: conv.character_snapshot,
+        reply_mode: conv.reply_mode.as_str().to_string(),
+        participants: conv
+            .participants
+            .into_iter()
+            .map(ParticipantResponse::from)
+            .collect(),
         messages: message_responses,
         summary,
         created_at: conv.created_at.to_rfc3339(),
@@ -292,6 +346,8 @@ pub struct UpdateRequest {
     pub title: Option<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
+    /// Group reply routing; ignored by single-character conversations.
+    pub reply_mode: Option<String>,
 }
 
 pub async fn update(
@@ -299,7 +355,11 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<UpdateRequest>,
 ) -> Result<Json<ConversationResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if req.title.is_none() && req.provider.is_none() && req.model.is_none() {
+    if req.title.is_none()
+        && req.provider.is_none()
+        && req.model.is_none()
+        && req.reply_mode.is_none()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -314,6 +374,15 @@ pub async fn update(
                 error: "provider and model must be updated together".into(),
             }),
         ));
+    }
+
+    if req.title.is_some() || req.provider.is_some() {
+        let existing = state.db.get_conversation(&id).map_err(not_found)?;
+        if existing.is_group() && (req.provider.is_some() || req.model.is_some()) {
+            return Err(bad_request(
+                "group members keep their own provider and model",
+            ));
+        }
     }
 
     if let Some(title) = req.title.as_deref() {
@@ -348,6 +417,16 @@ pub async fn update(
             .update_conversation_model(&id, provider, model)
             .map_err(internal_error)?;
     }
+
+    if let Some(raw) = req.reply_mode.as_deref() {
+        let reply_mode = ReplyMode::from_str(raw.trim())
+            .ok_or_else(|| bad_request("unsupported reply_mode; expected sequential or smart"))?;
+        state
+            .db
+            .set_conversation_reply_mode(&id, reply_mode)
+            .map_err(domain_error)?;
+    }
+
     let conv = state.db.get_conversation(&id).map_err(not_found)?;
     Ok(Json(build_conversation_response(conv, 0)))
 }
@@ -442,42 +521,9 @@ pub async fn get_messages(
 
     let responses: Vec<MessageResponse> = messages
         .into_iter()
-        .map(|m| {
-            let attachments = attachment_summaries(&state.db, &m.id);
-            let tool_calls = state
-                .db
-                .get_tool_calls(&m.id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|tc| ToolCallResponse {
-                    id: tc.id,
-                    name: tc.name,
-                    arguments: tc.arguments,
-                    result: tc.result,
-                    status: tc.status,
-                })
-                .collect();
-
-            MessageResponse {
-                id: m.id,
-                role: m.role.as_str().to_string(),
-                content: m.content,
-                reasoning: m.reasoning,
-                parent_id: m.parent_id,
-                tool_calls,
-                attachments,
-                token_count: m.token_count,
-                input_tokens: m.input_tokens,
-                output_tokens: m.output_tokens,
-                cache_creation_input_tokens: m.cache_creation_input_tokens,
-                cache_read_input_tokens: m.cache_read_input_tokens,
-                context_input_tokens: m.context_input_tokens,
-                context_output_tokens: m.context_output_tokens,
-                duration_ms: m.duration_ms,
-                finish_reason: m.finish_reason,
-                status: m.status.as_str().to_string(),
-                created_at: m.created_at.to_rfc3339(),
-            }
+        .map(|message| {
+            let tool_calls = state.db.get_tool_calls(&message.id).unwrap_or_default();
+            build_msg_response(&state.db, &message, &tool_calls)
         })
         .collect();
 
@@ -501,6 +547,9 @@ pub struct AddMessageRequest {
     pub role: String,
     #[serde(default)]
     pub parent_id: Option<String>,
+    /// Optional group member attribution for assistant messages.
+    #[serde(default)]
+    pub sender_character_id: Option<String>,
     #[serde(default)]
     pub reasoning: String,
     #[serde(default)]
@@ -552,8 +601,12 @@ pub struct BeginTurnRequest {
 #[derive(Debug, Deserialize)]
 pub struct FinalizeTurnRequest {
     pub status: String,
+    /// Single-reply compatibility field used by single-character chats.
     #[serde(default)]
     pub assistant: Option<FinalizeAssistantRequest>,
+    /// Group replies, one per member that produced a message this turn.
+    #[serde(default)]
+    pub assistants: Vec<FinalizeAssistantRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -561,6 +614,9 @@ pub struct FinalizeAssistantRequest {
     pub content: String,
     #[serde(default)]
     pub reasoning: String,
+    /// Group member that produced this reply.
+    #[serde(default)]
+    pub sender_character_id: Option<String>,
     #[serde(default)]
     pub token_count: i32,
     #[serde(default)]
@@ -589,6 +645,54 @@ pub struct FinalizeAssistantRequest {
 pub struct FinalizeTurnResponse {
     pub user_message: MessageResponse,
     pub assistant_message: Option<MessageResponse>,
+    /// Every assistant reply committed with the turn, in speaking order.
+    pub assistant_messages: Vec<MessageResponse>,
+}
+
+/// Materialize one assistant request into a persistable message + tool calls.
+fn build_assistant_turn(
+    conv_id: &str,
+    turn_id: &str,
+    status: MessageStatus,
+    input: FinalizeAssistantRequest,
+) -> AssistantTurn {
+    let mut message = Message::new(
+        conv_id,
+        Role::Assistant,
+        input.content,
+        Some(turn_id.to_string()),
+    )
+    .with_reasoning(input.reasoning);
+    message.sender_character_id = input
+        .sender_character_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    message.token_count = input.token_count;
+    message.input_tokens = input.input_tokens;
+    message.output_tokens = input.output_tokens;
+    message.cache_creation_input_tokens = input.cache_creation_input_tokens;
+    message.cache_read_input_tokens = input.cache_read_input_tokens;
+    message.context_input_tokens = input.context_input_tokens;
+    message.context_output_tokens = input.context_output_tokens;
+    message.duration_ms = input.duration_ms;
+    message.finish_reason = input.finish_reason;
+    message.status = status;
+    let tool_calls = input
+        .tool_calls
+        .into_iter()
+        .map(|input| {
+            let mut call = ToolCall::new(&message.id, input.name, input.arguments);
+            if !input.id.is_empty() {
+                call.id = input.id;
+            }
+            call.result = input.result;
+            if let Some(status) = input.status {
+                call.status = status;
+            }
+            call
+        })
+        .collect::<Vec<_>>();
+    AssistantTurn::new(message, tool_calls)
 }
 
 pub async fn begin_turn(
@@ -649,62 +753,39 @@ pub async fn finalize_turn(
             )
         })?;
 
-    let (assistant, tool_calls) = if let Some(input) = req.assistant {
-        let mut message = Message::new(
-            &conv_id,
-            Role::Assistant,
-            input.content,
-            Some(turn_id.clone()),
-        )
-        .with_reasoning(input.reasoning);
-        message.token_count = input.token_count;
-        message.input_tokens = input.input_tokens;
-        message.output_tokens = input.output_tokens;
-        message.cache_creation_input_tokens = input.cache_creation_input_tokens;
-        message.cache_read_input_tokens = input.cache_read_input_tokens;
-        message.context_input_tokens = input.context_input_tokens;
-        message.context_output_tokens = input.context_output_tokens;
-        message.duration_ms = input.duration_ms;
-        message.finish_reason = input.finish_reason;
-        message.status = status;
-        let calls = input
-            .tool_calls
-            .into_iter()
-            .map(|input| {
-                let mut call = ToolCall::new(&message.id, input.name, input.arguments);
-                if !input.id.is_empty() {
-                    call.id = input.id;
-                }
-                call.result = input.result;
-                if let Some(status) = input.status {
-                    call.status = status;
-                }
-                call
-            })
-            .collect::<Vec<_>>();
-        (Some(message), calls)
-    } else {
-        (None, Vec::new())
-    };
+    let mut turns: Vec<AssistantTurn> = req
+        .assistants
+        .into_iter()
+        .map(|input| build_assistant_turn(&conv_id, &turn_id, status, input))
+        .collect();
+    if let Some(input) = req.assistant {
+        turns.push(build_assistant_turn(&conv_id, &turn_id, status, input));
+    }
 
     state
         .db
-        .finalize_chat_turn(&conv_id, &turn_id, status, assistant.as_ref(), &tool_calls)
+        .finalize_chat_turn(&conv_id, &turn_id, status, &turns)
         .map_err(internal_error)?;
     let user = state.db.get_message(&turn_id).map_err(internal_error)?;
-    let assistant_message = if let Some(message) = assistant {
-        let stored = state.db.get_message(&message.id).map_err(internal_error)?;
+
+    let mut assistant_messages = Vec::with_capacity(turns.len());
+    for turn in &turns {
+        let stored = state
+            .db
+            .get_message(&turn.message.id)
+            .map_err(internal_error)?;
         let stored_calls = state
             .db
             .get_tool_calls(&stored.id)
             .map_err(internal_error)?;
-        Some(build_msg_response(&state.db, &stored, &stored_calls))
-    } else {
-        None
-    };
+        assistant_messages.push(build_msg_response(&state.db, &stored, &stored_calls));
+    }
+    let assistant_message = assistant_messages.last().cloned();
+
     Ok(Json(FinalizeTurnResponse {
         user_message: build_msg_response(&state.db, &user, &[]),
         assistant_message,
+        assistant_messages,
     }))
 }
 
@@ -719,6 +800,10 @@ pub async fn add_message(
     let role = Role::from_str(&req.role).unwrap_or(Role::User);
     let mut msg =
         Message::new(&conv_id, role, &req.content, req.parent_id).with_reasoning(&req.reasoning);
+    msg.sender_character_id = req
+        .sender_character_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
     msg.token_count = req.token_count;
     msg.input_tokens = req.input_tokens;
     msg.output_tokens = req.output_tokens;
@@ -900,6 +985,7 @@ fn build_msg_response(db: &Database, msg: &Message, tool_calls: &[ToolCall]) -> 
         content: msg.content.clone(),
         reasoning: msg.reasoning.clone(),
         parent_id: msg.parent_id.clone(),
+        sender_character_id: msg.sender_character_id.clone(),
         tool_calls: tool_calls
             .iter()
             .map(|tc| ToolCallResponse {
@@ -937,6 +1023,12 @@ fn build_conversation_response(
         character_id: conversation.character_id,
         character_version: conversation.character_version,
         character_snapshot: conversation.character_snapshot,
+        reply_mode: conversation.reply_mode.as_str().to_string(),
+        participants: conversation
+            .participants
+            .into_iter()
+            .map(ParticipantResponse::from)
+            .collect(),
         message_count,
         created_at: conversation.created_at.to_rfc3339(),
         updated_at: conversation.updated_at.to_rfc3339(),
@@ -944,6 +1036,15 @@ fn build_conversation_response(
 }
 
 // ===== Error helpers =====
+
+fn bad_request(message: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            error: message.into(),
+        }),
+    )
+}
 
 fn not_found(e: encorehub_core::EngineError) -> (StatusCode, Json<ErrorResponse>) {
     let msg = match &e {

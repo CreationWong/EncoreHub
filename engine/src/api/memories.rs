@@ -735,14 +735,27 @@ pub async fn update_character_settings(
     character_settings(State(state), Path(character_id)).await
 }
 
+/// Optional group member whose memory mode should be resolved.
+#[derive(Debug, Deserialize)]
+pub struct ResolveModeQuery {
+    #[serde(default)]
+    pub character_id: Option<String>,
+}
+
 /// Resolve the monotonic memory mode used by the current conversation.
 pub async fn resolve_conversation_mode(
     State(state): State<SharedState>,
     Path(conversation_id): Path<String>,
+    Query(query): Query<ResolveModeQuery>,
 ) -> Result<Json<ConversationMemoryModeResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    let character_id = query
+        .character_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
     let (character_id, mode) = state
         .db
-        .resolve_conversation_memory_mode(&conversation_id)
+        .resolve_conversation_memory_mode(&conversation_id, character_id)
         .map_err(|error| {
             (
                 StatusCode::NOT_FOUND,

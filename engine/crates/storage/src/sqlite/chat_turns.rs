@@ -2,6 +2,25 @@ use super::{now_ms, Database, Result};
 use encorehub_core::{EngineError, Message, MessageStatus, Role, ToolCall};
 use rusqlite::{params, Transaction};
 
+/// One assistant reply committed with the turn, plus its executed tool calls.
+///
+/// A single-character turn carries exactly one entry; a group turn carries one
+/// per member that produced a reply.
+pub struct AssistantTurn {
+    pub message: Message,
+    pub tool_calls: Vec<ToolCall>,
+}
+
+impl AssistantTurn {
+    /// Pair a finished assistant message with the tool calls it executed.
+    pub fn new(message: Message, tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            message,
+            tool_calls,
+        }
+    }
+}
+
 impl Database {
     /// Persist a pending user message as the root of a new chat turn.
     pub fn begin_chat_turn(&self, user_message: &Message) -> Result<()> {
@@ -69,39 +88,37 @@ impl Database {
         Ok(())
     }
 
-    /// Atomically finish a pending chat turn. The optional assistant and all
-    /// of its tool calls commit together with the user terminal status.
+    /// Atomically finish a pending chat turn. Every assistant reply and its
+    /// tool calls commit together with the user terminal status.
     pub fn finalize_chat_turn(
         &self,
         conversation_id: &str,
         user_message_id: &str,
         terminal_status: MessageStatus,
-        assistant: Option<&Message>,
-        tool_calls: &[ToolCall],
+        assistants: &[AssistantTurn],
     ) -> Result<()> {
         if !terminal_status.is_terminal() {
             return Err(invalid_turn("final status must be terminal"));
         }
-        match assistant {
-            Some(message) => {
-                if message.role != Role::Assistant
-                    || message.conversation_id != conversation_id
-                    || message.parent_id.as_deref() != Some(user_message_id)
-                    || message.status != terminal_status
-                {
-                    return Err(invalid_turn("assistant does not belong to the turn"));
-                }
-                if tool_calls.iter().any(|call| call.message_id != message.id) {
-                    return Err(invalid_turn("tool call does not belong to the assistant"));
-                }
+        if terminal_status == MessageStatus::Completed && assistants.is_empty() {
+            return Err(invalid_turn("completed turns require an assistant message"));
+        }
+        for assistant in assistants {
+            let message = &assistant.message;
+            if message.role != Role::Assistant
+                || message.conversation_id != conversation_id
+                || message.parent_id.as_deref() != Some(user_message_id)
+                || message.status != terminal_status
+            {
+                return Err(invalid_turn("assistant does not belong to the turn"));
             }
-            None if !tool_calls.is_empty() => {
-                return Err(invalid_turn("tool calls require an assistant message"));
+            if assistant
+                .tool_calls
+                .iter()
+                .any(|call| call.message_id != message.id)
+            {
+                return Err(invalid_turn("tool call does not belong to the assistant"));
             }
-            None if terminal_status == MessageStatus::Completed => {
-                return Err(invalid_turn("completed turns require an assistant message"));
-            }
-            None => {}
         }
 
         let mut conn = self.conn.lock().unwrap();
@@ -132,9 +149,9 @@ impl Database {
             return Err(invalid_turn("turn root is not pending"));
         }
 
-        if let Some(message) = assistant {
-            insert_message(&tx, message)?;
-            for call in tool_calls {
+        for assistant in assistants {
+            insert_message(&tx, &assistant.message)?;
+            for call in &assistant.tool_calls {
                 tx.execute(
                     "INSERT INTO tool_calls
                      (id, message_id, name, arguments, result, status)
@@ -203,8 +220,9 @@ fn insert_message(tx: &Transaction<'_>, message: &Message) -> Result<()> {
         "INSERT INTO messages
          (id, conversation_id, role, content, reasoning, parent_id, token_count,
           input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-          context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+          context_input_tokens, context_output_tokens, duration_ms, finish_reason,
+          sender_character_id, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             message.id,
             message.conversation_id,
@@ -221,6 +239,7 @@ fn insert_message(tx: &Transaction<'_>, message: &Message) -> Result<()> {
             message.context_output_tokens,
             message.duration_ms,
             message.finish_reason,
+            message.sender_character_id,
             message.status.as_str(),
             message.created_at.timestamp_millis(),
         ],

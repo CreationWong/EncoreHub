@@ -5,7 +5,7 @@ use super::{
 };
 use encorehub_core::{
     CharacterBranch, CharacterHistory, CharacterProfile, CharacterUpgradePreview, CharacterVersion,
-    Conversation, EngineError, DEFAULT_CHARACTER_ID,
+    Conversation, ConversationParticipant, EngineError, ReplyMode, DEFAULT_CHARACTER_ID,
 };
 use rusqlite::{params, Connection, ErrorCode, Row};
 
@@ -612,6 +612,126 @@ impl Database {
                 conversation.created_at.timestamp_millis(),
             ],
         )?;
+        transaction.commit()?;
+        Ok(conversation)
+    }
+
+    /// Create a group conversation from an ordered participant selection.
+    ///
+    /// Each selection is `(character_id, provider/model override)`. The first
+    /// member also fills the conversation's legacy single-character columns so
+    /// memory-mode resolution and history rendering keep their existing paths.
+    pub fn create_group_conversation(
+        &self,
+        title: &str,
+        reply_mode: ReplyMode,
+        selections: &[(String, Option<(String, String)>)],
+    ) -> Result<Conversation> {
+        if selections.len() < 2 {
+            return Err(EngineError::InvalidArgument(
+                "a group conversation needs at least two members".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for (character_id, _) in selections {
+            if !seen.insert(character_id.trim().to_string()) {
+                return Err(EngineError::InvalidArgument(format!(
+                    "duplicate group member: {character_id}"
+                )));
+            }
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        let transaction = conn.transaction()?;
+        let mut resolved = Vec::with_capacity(selections.len());
+        for (character_id, selection) in selections {
+            let profile = get_character_from_connection(&transaction, character_id.trim(), false)?;
+            let selection = selection
+                .as_ref()
+                .map(|(provider, model)| (provider.as_str(), model.as_str()));
+            let (provider, model) = resolved_model(&profile, selection);
+            resolved.push((profile, provider, model));
+        }
+
+        let first = &resolved[0];
+        let mut conversation = Conversation::new(title, first.1.clone(), first.2.clone())
+            .with_character(&first.0.id, first.0.version, first.0.snapshot());
+        conversation.reply_mode = reply_mode;
+        let tags_json = serde_json::to_string(&conversation.character_snapshot.tags)?;
+        transaction.execute(
+            "INSERT INTO conversations
+             (id, title, provider, model, character_id, character_version,
+              character_name_snapshot, character_avatar_snapshot,
+              character_description_snapshot, character_prompt_snapshot,
+              character_opening_snapshot, character_tags_snapshot,
+              reply_mode, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                conversation.id,
+                conversation.title,
+                conversation.provider,
+                conversation.model,
+                conversation.character_id,
+                conversation.character_version,
+                conversation.character_snapshot.name,
+                conversation.character_snapshot.avatar,
+                conversation.character_snapshot.description,
+                conversation.character_snapshot.system_prompt,
+                conversation.character_snapshot.opening_message,
+                tags_json,
+                conversation.reply_mode.as_str(),
+                conversation.created_at.timestamp_millis(),
+                conversation.updated_at.timestamp_millis(),
+            ],
+        )?;
+
+        for (position, (profile, provider, model)) in resolved.iter().enumerate() {
+            let snapshot = profile.snapshot();
+            let tags_json = serde_json::to_string(&snapshot.tags)?;
+            transaction.execute(
+                "INSERT INTO conversation_participants
+                 (conversation_id, character_id, character_version, position,
+                  name, avatar, description, system_prompt, opening_message, tags_json,
+                  provider, model, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    conversation.id,
+                    profile.id,
+                    profile.version,
+                    position as i64,
+                    snapshot.name,
+                    snapshot.avatar,
+                    snapshot.description,
+                    snapshot.system_prompt,
+                    snapshot.opening_message,
+                    tags_json,
+                    provider,
+                    model,
+                    conversation.created_at.timestamp_millis(),
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO conversation_character_memory_modes
+                    (conversation_id, character_id, mode_floor, updated_at)
+                 SELECT ?1, ?2, default_mode, ?3
+                   FROM character_memory_settings WHERE character_id = ?2",
+                params![
+                    conversation.id,
+                    profile.id,
+                    conversation.created_at.timestamp_millis(),
+                ],
+            )?;
+            conversation.participants.push(ConversationParticipant {
+                conversation_id: conversation.id.clone(),
+                character_id: profile.id.clone(),
+                character_version: profile.version,
+                position: position as i64,
+                character_snapshot: snapshot,
+                provider: provider.clone(),
+                model: model.clone(),
+            });
+        }
+
         transaction.commit()?;
         Ok(conversation)
     }

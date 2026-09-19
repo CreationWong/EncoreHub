@@ -5,9 +5,9 @@ pub mod sqlite;
 pub use blob::{BlobStore, StagedBlobDeletion};
 pub use lancedb::{ChunkEmbeddingResult, LanceDbConfig, LanceDbStore};
 pub use sqlite::{
-    decode_hex, encode_hex, AttachmentRecord, CacheCleanup, ConversationCleanup, DataConversation,
-    DataDomain, DataOverview, Database, ImportSummary, MemoryFilter, UserDataBackup, VectorBackend,
-    VectorSearchHit,
+    decode_hex, encode_hex, AssistantTurn, AttachmentRecord, CacheCleanup, ConversationCleanup,
+    DataConversation, DataDomain, DataOverview, Database, ImportSummary, MemoryFilter,
+    UserDataBackup, VectorBackend, VectorSearchHit,
 };
 
 /// Convenience result type for storage operations.

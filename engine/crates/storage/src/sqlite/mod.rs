@@ -12,6 +12,7 @@ mod secret_transactions;
 mod vectors;
 
 pub use attachments::AttachmentRecord;
+pub use chat_turns::AssistantTurn;
 pub use data_management::{
     decode_hex, encode_hex, CacheCleanup, ConversationCleanup, DataConversation, DataDomain,
     DataOverview, ImportSummary, UserDataBackup,
@@ -20,10 +21,10 @@ pub(crate) use vectors::local_embedding;
 pub use vectors::{VectorBackend, VectorSearchHit, EMBEDDING_DIMENSIONS};
 
 use encorehub_core::{
-    CharacterMemorySettings, CharacterSnapshot, ConfigEntry, Conversation, ConversationSummary,
-    CryptoMeta, Document, DocumentChunk, EngineError, Memory, MemoryGroup, MemoryGroupInheritance,
-    MemoryGroupType, MemoryKind, MemoryMode, MemoryScope, MemoryState, MemoryType, Message,
-    PinnedMessage, Role, SearchCacheEntry, SecretRow, ToolCall,
+    CharacterMemorySettings, CharacterSnapshot, ConfigEntry, Conversation, ConversationParticipant,
+    ConversationSummary, CryptoMeta, Document, DocumentChunk, EngineError, Memory, MemoryGroup,
+    MemoryGroupInheritance, MemoryGroupType, MemoryKind, MemoryMode, MemoryScope, MemoryState,
+    MemoryType, Message, PinnedMessage, ReplyMode, Role, SearchCacheEntry, SecretRow, ToolCall,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashSet;
@@ -47,7 +48,11 @@ const CONVERSATION_COLUMNS: &str = "id, title, provider, model, character_id, ch
      character_name_snapshot, character_avatar_snapshot,
      character_description_snapshot, character_prompt_snapshot,
      character_opening_snapshot, character_tags_snapshot,
-     created_at, updated_at";
+     reply_mode, created_at, updated_at";
+
+const PARTICIPANT_COLUMNS: &str = "conversation_id, character_id, character_version, position,
+     name, avatar, description, system_prompt, opening_message, tags_json,
+     provider, model";
 
 fn parse_tags_json(value: String) -> Vec<String> {
     serde_json::from_str(&value).unwrap_or_default()
@@ -69,9 +74,51 @@ fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
             opening_message: row.get(10)?,
             tags: parse_tags_json(row.get(11)?),
         },
-        created_at: ts_to_dt(row.get::<_, i64>(12)?),
-        updated_at: ts_to_dt(row.get::<_, i64>(13)?),
+        reply_mode: ReplyMode::from_str(&row.get::<_, String>(12)?).unwrap_or_default(),
+        // Participants are loaded separately so list queries stay one round trip.
+        participants: Vec::new(),
+        created_at: ts_to_dt(row.get::<_, i64>(13)?),
+        updated_at: ts_to_dt(row.get::<_, i64>(14)?),
     })
+}
+
+fn participant_from_row(row: &Row<'_>) -> rusqlite::Result<ConversationParticipant> {
+    Ok(ConversationParticipant {
+        conversation_id: row.get(0)?,
+        character_id: row.get(1)?,
+        character_version: row.get(2)?,
+        position: row.get(3)?,
+        character_snapshot: CharacterSnapshot {
+            name: row.get(4)?,
+            avatar: row.get(5)?,
+            description: row.get(6)?,
+            system_prompt: row.get(7)?,
+            opening_message: row.get(8)?,
+            tags: parse_tags_json(row.get(9)?),
+        },
+        provider: row.get(10)?,
+        model: row.get(11)?,
+    })
+}
+
+/// Load one conversation's ordered participant roster.
+fn load_participants(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Vec<ConversationParticipant>> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT {PARTICIPANT_COLUMNS} FROM conversation_participants
+         WHERE conversation_id = ?1 ORDER BY position ASC"
+    ))?;
+    let rows = statement.query_map(params![conversation_id], participant_from_row)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+/// Fill in the roster for one conversation loaded without its participants.
+fn attach_participants(conn: &Connection, conversation: &mut Conversation) -> Result<()> {
+    conversation.participants = load_participants(conn, &conversation.id)?;
+    Ok(())
 }
 
 /// Optional relational filters applied to memory list queries.
@@ -177,8 +224,8 @@ impl Database {
               character_name_snapshot, character_avatar_snapshot,
               character_description_snapshot, character_prompt_snapshot,
               character_opening_snapshot, character_tags_snapshot,
-              created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+              reply_mode, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 conv.id,
                 conv.title,
@@ -192,6 +239,7 @@ impl Database {
                 conv.character_snapshot.system_prompt,
                 conv.character_snapshot.opening_message,
                 tags_json,
+                conv.reply_mode.as_str(),
                 conv.created_at.timestamp_millis(),
                 conv.updated_at.timestamp_millis(),
             ],
@@ -212,18 +260,21 @@ impl Database {
 
     pub fn get_conversation(&self, id: &str) -> Result<Conversation> {
         let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
-            params![id],
-            conversation_from_row,
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
-                resource: "conversation".into(),
-                id: id.into(),
-            },
-            other => other.into(),
-        })
+        let mut conversation = conn
+            .query_row(
+                &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
+                params![id],
+                conversation_from_row,
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => EngineError::NotFound {
+                    resource: "conversation".into(),
+                    id: id.into(),
+                },
+                other => other.into(),
+            })?;
+        attach_participants(&conn, &mut conversation)?;
+        Ok(conversation)
     }
 
     pub fn list_conversations(&self, limit: i64, offset: i64) -> Result<Vec<Conversation>> {
@@ -233,8 +284,28 @@ impl Database {
              FROM conversations ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2"
         ))?;
         let rows = stmt.query_map(params![limit, offset], conversation_from_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+        let mut conversations = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        for conversation in &mut conversations {
+            attach_participants(&conn, conversation)?;
+        }
+        Ok(conversations)
+    }
+
+    /// Persist the group reply-routing mode. Single-character conversations
+    /// accept the value too so the same update path stays usable everywhere.
+    pub fn set_conversation_reply_mode(&self, id: &str, reply_mode: ReplyMode) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE conversations SET reply_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            params![reply_mode.as_str(), now_ms(), id],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::NotFound {
+                resource: "conversation".into(),
+                id: id.into(),
+            });
+        }
+        Ok(())
     }
 
     pub fn update_conversation_title(&self, id: &str, title: &str) -> Result<()> {
@@ -300,8 +371,9 @@ impl Database {
             "INSERT INTO messages
              (id, conversation_id, role, content, reasoning, parent_id, token_count,
               input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-              context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+              context_input_tokens, context_output_tokens, duration_ms, finish_reason,
+              sender_character_id, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 msg.id,
                 msg.conversation_id,
@@ -318,6 +390,7 @@ impl Database {
                 msg.context_output_tokens,
                 msg.duration_ms,
                 msg.finish_reason,
+                msg.sender_character_id,
                 msg.status.as_str(),
                 msg.created_at.timestamp_millis(),
             ],
@@ -334,7 +407,8 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
                     input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-                    context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at
+                    context_input_tokens, context_output_tokens, duration_ms, finish_reason,
+                    sender_character_id, status, created_at
              FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], |row| {
@@ -354,9 +428,10 @@ impl Database {
                 context_output_tokens: row.get(12)?,
                 duration_ms: row.get(13)?,
                 finish_reason: row.get(14)?,
-                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(15)?)
+                sender_character_id: row.get(15)?,
+                status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(16)?)
                     .unwrap_or_default(),
-                created_at: ts_to_dt(row.get::<_, i64>(16)?),
+                created_at: ts_to_dt(row.get::<_, i64>(17)?),
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -403,7 +478,8 @@ impl Database {
         conn.query_row(
             "SELECT id, conversation_id, role, content, reasoning, parent_id, token_count,
                     input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-                    context_input_tokens, context_output_tokens, duration_ms, finish_reason, status, created_at
+                    context_input_tokens, context_output_tokens, duration_ms, finish_reason,
+                    sender_character_id, status, created_at
              FROM messages WHERE id = ?1",
             params![id],
             |row| {
@@ -423,9 +499,10 @@ impl Database {
                     context_output_tokens: row.get(12)?,
                     duration_ms: row.get(13)?,
                     finish_reason: row.get(14)?,
-                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(15)?)
+                    sender_character_id: row.get(15)?,
+                    status: encorehub_core::MessageStatus::from_str(&row.get::<_, String>(16)?)
                         .unwrap_or_default(),
-                    created_at: ts_to_dt(row.get::<_, i64>(16)?),
+                    created_at: ts_to_dt(row.get::<_, i64>(17)?),
                 })
             },
         )
@@ -1380,22 +1457,29 @@ impl Database {
     }
 
     /// Resolve and persist the effective mode for one conversation + character pair.
+    ///
+    /// `character_id` selects a group member; `None` uses the conversation's
+    /// single-character column so existing callers keep their behavior.
     pub fn resolve_conversation_memory_mode(
         &self,
         conversation_id: &str,
+        character_id: Option<&str>,
     ) -> Result<(String, MemoryMode)> {
         let mut conn = self.conn.lock().unwrap();
         let transaction = conn.transaction()?;
         let (character_id, default_mode, floor_mode) = transaction
             .query_row(
-                "SELECT c.character_id, s.default_mode,
-                        COALESCE(m.mode_floor, s.default_mode)
+                "SELECT COALESCE(?2, c.character_id),
+                        COALESCE(s.default_mode, 'simple'),
+                        COALESCE(m.mode_floor, s.default_mode, 'simple')
                    FROM conversations c
-                   JOIN character_memory_settings s ON s.character_id = c.character_id
+                   LEFT JOIN character_memory_settings s
+                     ON s.character_id = COALESCE(?2, c.character_id)
                    LEFT JOIN conversation_character_memory_modes m
-                     ON m.conversation_id = c.id AND m.character_id = c.character_id
+                     ON m.conversation_id = c.id
+                    AND m.character_id = COALESCE(?2, c.character_id)
                   WHERE c.id = ?1",
-                params![conversation_id],
+                params![conversation_id, character_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,

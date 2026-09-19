@@ -6,9 +6,10 @@
 //! parent-dir handling differs across platforms).
 
 use encorehub_core::{
-    CryptoMeta, Memory, MemoryScope, MemoryType, Message, MessageStatus, Role, SecretRow,
+    CharacterProfile, CryptoMeta, Memory, MemoryScope, MemoryType, Message, MessageStatus,
+    ReplyMode, Role, SecretRow,
 };
-use encorehub_storage::Database;
+use encorehub_storage::{AssistantTurn, Database};
 use tempfile::TempDir;
 
 fn fresh_db() -> (TempDir, Database) {
@@ -323,8 +324,17 @@ fn memory_fts_repair_migration_reindexes_authoritative_content() {
         .unwrap();
     // Migration replay is forward-only from the highest recorded version.
     // Remove the FTS repair and every later marker so they rerun in order.
+    // Schema objects added by later migrations are dropped first, so the
+    // replay sees the same shape the original forward run saw.
     connection
-        .execute("DELETE FROM _migrations WHERE version >= 18", [])
+        .execute_batch(
+            "DROP INDEX IF EXISTS idx_messages_sender;
+             ALTER TABLE messages DROP COLUMN sender_character_id;
+             DROP INDEX IF EXISTS idx_conversation_participants_character;
+             DROP TABLE IF EXISTS conversation_participants;
+             ALTER TABLE conversations DROP COLUMN reply_mode;
+             DELETE FROM _migrations WHERE version >= 18;",
+        )
         .unwrap();
     drop(connection);
 
@@ -565,4 +575,87 @@ fn disable_secret_encryption_rolls_back_each_write_step() {
         );
         assert_failed_transition_survives_restart(dir, db, db_path, &before);
     }
+}
+
+#[test]
+fn group_conversation_keeps_roster_and_multi_assistant_turn() {
+    let (_dir, db, _path) = fresh_db_with_path();
+    let plan = CharacterProfile::new("建模bot");
+    let review = CharacterProfile::new("论文挑刺");
+    db.create_character_profile(&plan).unwrap();
+    db.create_character_profile(&review).unwrap();
+
+    let conversation = db
+        .create_group_conversation(
+            "小队",
+            ReplyMode::Sequential,
+            &[
+                (plan.id.clone(), None),
+                (
+                    review.id.clone(),
+                    Some(("openai".into(), "gpt-test".into())),
+                ),
+            ],
+        )
+        .unwrap();
+    assert_eq!(conversation.participants.len(), 2);
+    assert_eq!(conversation.participants[0].position, 0);
+    assert_eq!(conversation.participants[1].provider, "openai");
+    assert_eq!(conversation.participants[1].model, "gpt-test");
+
+    let mut user = Message::new(&conversation.id, Role::User, "开始", None);
+    user.status = MessageStatus::Pending;
+    db.begin_chat_turn(&user).unwrap();
+
+    let first = Message::new(
+        &conversation.id,
+        Role::Assistant,
+        "收到，我先拆题。",
+        Some(user.id.clone()),
+    )
+    .with_sender(&plan.id);
+    let second = Message::new(
+        &conversation.id,
+        Role::Assistant,
+        "成稿我来挑刺。",
+        Some(user.id.clone()),
+    )
+    .with_sender(&review.id);
+    db.finalize_chat_turn(
+        &conversation.id,
+        &user.id,
+        MessageStatus::Completed,
+        &[
+            AssistantTurn::new(first, vec![]),
+            AssistantTurn::new(second, vec![]),
+        ],
+    )
+    .unwrap();
+
+    let messages = db.get_messages(&conversation.id).unwrap();
+    let assistants: Vec<_> = messages
+        .iter()
+        .filter(|message| message.role == Role::Assistant)
+        .collect();
+    assert_eq!(assistants.len(), 2);
+    assert_eq!(
+        assistants[0].sender_character_id.as_deref(),
+        Some(plan.id.as_str())
+    );
+    assert_eq!(
+        assistants[1].sender_character_id.as_deref(),
+        Some(review.id.as_str())
+    );
+
+    // Reloading keeps the roster and speaker attribution intact.
+    let reloaded = db.get_conversation(&conversation.id).unwrap();
+    assert_eq!(reloaded.participants.len(), 2);
+    assert_eq!(reloaded.participants[1].character_snapshot.name, "论文挑刺");
+
+    db.set_conversation_reply_mode(&conversation.id, ReplyMode::Smart)
+        .unwrap();
+    assert_eq!(
+        db.get_conversation(&conversation.id).unwrap().reply_mode,
+        ReplyMode::Smart
+    );
 }

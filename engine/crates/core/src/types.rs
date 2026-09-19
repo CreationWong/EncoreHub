@@ -137,6 +137,54 @@ pub struct CharacterUpgradePreview {
 
 // ===== Conversation =====
 
+/// How a group conversation routes an ordinary user message to its members.
+///
+/// `Sequential` asks every member to answer in position order; `Smart` lets a
+/// member skip the turn when it has nothing to add. An explicit @mention always
+/// overrides the mode and selects only the mentioned members.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplyMode {
+    #[default]
+    Sequential,
+    Smart,
+}
+
+impl ReplyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sequential => "sequential",
+            Self::Smart => "smart",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "sequential" => Some(Self::Sequential),
+            "smart" => Some(Self::Smart),
+            _ => None,
+        }
+    }
+}
+
+/// One AI member of a group conversation.
+///
+/// The snapshot is frozen when the group is created so later character edits
+/// cannot rewrite an existing group's prompts, matching the single-character
+/// conversation snapshot policy in ADR-0005.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationParticipant {
+    pub conversation_id: String,
+    pub character_id: String,
+    pub character_version: i64,
+    /// Zero-based speaking order inside the group.
+    pub position: i64,
+    pub character_snapshot: CharacterSnapshot,
+    pub provider: String,
+    pub model: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: String,
@@ -146,6 +194,13 @@ pub struct Conversation {
     pub character_id: String,
     pub character_version: i64,
     pub character_snapshot: CharacterSnapshot,
+    /// Group reply routing; single-character conversations stay `Sequential`
+    /// and ignore it.
+    #[serde(default)]
+    pub reply_mode: ReplyMode,
+    /// Group members in speaking order. Empty for single-character chats.
+    #[serde(default)]
+    pub participants: Vec<ConversationParticipant>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -165,6 +220,8 @@ impl Conversation {
             character_id: DEFAULT_CHARACTER_ID.into(),
             character_version: 1,
             character_snapshot: CharacterSnapshot::default_character(),
+            reply_mode: ReplyMode::Sequential,
+            participants: Vec::new(),
             created_at: now,
             updated_at: now,
         }
@@ -180,6 +237,18 @@ impl Conversation {
         self.character_version = character_version;
         self.character_snapshot = character_snapshot;
         self
+    }
+
+    /// Report whether this conversation has more than one AI member.
+    pub fn is_group(&self) -> bool {
+        self.participants.len() > 1
+    }
+
+    /// Return one group member by character id.
+    pub fn participant(&self, character_id: &str) -> Option<&ConversationParticipant> {
+        self.participants
+            .iter()
+            .find(|participant| participant.character_id == character_id)
     }
 }
 
@@ -216,6 +285,10 @@ pub struct Message {
     pub duration_ms: Option<i64>,
     /// Raw provider finish reason (for example `stop`, `length`, `tool_use`).
     pub finish_reason: Option<String>,
+    /// Group-chat member that produced this assistant message. None for user,
+    /// system, and tool messages, and for single-character conversations.
+    #[serde(default)]
+    pub sender_character_id: Option<String>,
     #[serde(default)]
     pub status: MessageStatus,
     pub created_at: DateTime<Utc>,
@@ -244,6 +317,7 @@ impl Message {
             context_output_tokens: None,
             duration_ms: None,
             finish_reason: None,
+            sender_character_id: None,
             status: MessageStatus::Completed,
             created_at: Utc::now(),
         }
@@ -252,6 +326,12 @@ impl Message {
     /// Attach reasoning (chain-of-thought) to a message, builder-style.
     pub fn with_reasoning(mut self, reasoning: impl Into<String>) -> Self {
         self.reasoning = reasoning.into();
+        self
+    }
+
+    /// Attribute the message to one group member, builder-style.
+    pub fn with_sender(mut self, character_id: impl Into<String>) -> Self {
+        self.sender_character_id = Some(character_id.into());
         self
     }
 }

@@ -536,6 +536,40 @@ const MIGRATIONS: &[&str] = &[
     END;
     PRAGMA legacy_alter_table = OFF;
     ",
+    // 020: Group conversations.
+    //
+    // Single-character conversations keep their existing columns and simply
+    // have no roster rows. A group stores an ordered, frozen participant
+    // roster and attributes every assistant message to the member that
+    // produced it, so the transcript survives reloads and character edits.
+    "
+    ALTER TABLE conversations ADD COLUMN reply_mode TEXT NOT NULL DEFAULT 'sequential';
+
+    CREATE TABLE conversation_participants (
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        character_id TEXT NOT NULL REFERENCES character_profiles(id) ON DELETE CASCADE,
+        character_version INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        avatar TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        system_prompt TEXT NOT NULL DEFAULT '',
+        opening_message TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, position)
+    );
+
+    CREATE INDEX idx_conversation_participants_character
+        ON conversation_participants(character_id);
+
+    ALTER TABLE messages ADD COLUMN sender_character_id TEXT;
+
+    CREATE INDEX idx_messages_sender
+        ON messages(conversation_id, sender_character_id);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -756,7 +790,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // The legacy row must advance through conversation mode high-water marks.
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
     }
 
     #[test]
@@ -818,7 +852,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Legacy rows advance through conversation mode high-water marks.
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
     }
 
     #[test]
