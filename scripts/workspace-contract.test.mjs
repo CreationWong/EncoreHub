@@ -199,6 +199,7 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 	const [
 		app,
 		workspaceSurface,
+		multiChatWorkspace,
 		settingsModal,
 		markdownRenderer,
 		markdownShared,
@@ -208,6 +209,7 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 	] = await Promise.all([
 		read("frontend/src/App.tsx"),
 		read("frontend/src/components/workspace/WorkspaceSurface.tsx"),
+		read("frontend/src/components/multichat/MultiChatWorkspace.tsx"),
 		read("frontend/src/components/settings/SettingsModal.tsx"),
 		read("frontend/src/components/chat/MarkdownRenderer.tsx"),
 		read("frontend/src/components/chat/markdownShared.tsx"),
@@ -234,6 +236,10 @@ test("Frontend keeps non-critical features outside the initial module graph", as
 	assert.match(workspaceSurface, /hidden=\{activeTab !== "settings"\}/);
 	assert.doesNotMatch(workspaceSurface, /^import SettingsModal/m);
 	assert.doesNotMatch(workspaceSurface, /^import WorkspaceLauncher/m);
+	assert.doesNotMatch(workspaceSurface, /^import MultiChatWorkspace/m);
+	// The group workspace must stay out of the initial graph, like Settings.
+	assert.doesNotMatch(app, /^import MultiChatWorkspace/m);
+	assert.match(app, /^import WorkspaceSurface from /m);
 	assert.match(settingsModal, /lazy\(\(\) => import\("\.\/DeveloperPanel"\)\)/);
 	assert.doesNotMatch(settingsModal, /^import DeveloperPanel/m);
 	assert.match(

@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	Home,
 	LayoutGrid,
+	MessagesSquare,
 	Monitor,
 	Moon,
 	Plus,
@@ -35,9 +36,13 @@ const THEME_OPTIONS: {
 
 const WORKSPACE_TABS: Record<
 	Exclude<WorkspaceTabId, "home">,
-	{ labelKey: "nav.workbench" | "nav.settings"; icon: typeof Settings }
+	{
+		labelKey: "nav.workbench" | "nav.settings" | "nav.multiChat";
+		icon: typeof Settings;
+	}
 > = {
 	workbench: { labelKey: "nav.workbench", icon: LayoutGrid },
+	"multi-chat": { labelKey: "nav.multiChat", icon: MessagesSquare },
 	settings: { labelKey: "nav.settings", icon: Settings },
 };
 

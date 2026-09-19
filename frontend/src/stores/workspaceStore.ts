@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type WorkspaceTabId = "home" | "workbench" | "settings";
+export type WorkspaceTabId = "home" | "workbench" | "settings" | "multi-chat";
 
 interface WorkspaceState {
 	activeTab: WorkspaceTabId;

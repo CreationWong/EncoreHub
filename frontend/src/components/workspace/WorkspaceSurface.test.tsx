@@ -14,6 +14,9 @@ vi.mock("../settings/SettingsModal", () => ({
 vi.mock("./WorkspaceLauncher", () => ({
 	default: () => <div>Workbench workspace</div>,
 }));
+vi.mock("../multichat/MultiChatWorkspace", () => ({
+	default: () => <div>Multi-chat workspace</div>,
+}));
 
 import WorkspaceSurface from "./WorkspaceSurface";
 
@@ -60,6 +63,20 @@ describe("WorkspaceSurface", () => {
 		expect(
 			document
 				.querySelector('[data-workspace-tab="settings"]')
+				?.hasAttribute("hidden"),
+		).toBe(true);
+
+		useWorkspaceStore.setState({
+			activeTab: "multi-chat",
+			openTabs: ["home", "settings", "workbench", "multi-chat"],
+		});
+		rerender(<WorkspaceSurface />);
+		await waitFor(() =>
+			expect(screen.getByText("Multi-chat workspace")).toBeDefined(),
+		);
+		expect(
+			document
+				.querySelector('[data-workspace-tab="workbench"]')
 				?.hasAttribute("hidden"),
 		).toBe(true);
 	});

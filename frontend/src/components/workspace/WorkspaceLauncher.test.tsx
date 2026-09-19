@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const newConversation = vi.fn();
 const openSettings = vi.fn();
 const activateTab = vi.fn();
+const openTab = vi.fn();
 
 vi.mock("../../stores/conversationStore", () => ({
 	useConversationStore: (
@@ -27,8 +28,11 @@ vi.mock("../../stores/settingsStore", () => ({
 
 vi.mock("../../stores/workspaceStore", () => ({
 	useWorkspaceStore: (
-		selector: (state: { activateTab: typeof activateTab }) => unknown,
-	) => selector({ activateTab }),
+		selector: (state: {
+			activateTab: typeof activateTab;
+			openTab: typeof openTab;
+		}) => unknown,
+	) => selector({ activateTab, openTab }),
 }));
 
 import WorkspaceLauncher from "./WorkspaceLauncher";
@@ -38,6 +42,7 @@ describe("WorkspaceLauncher", () => {
 		newConversation.mockReset().mockResolvedValue("conversation-1");
 		openSettings.mockReset();
 		activateTab.mockReset();
+		openTab.mockReset();
 	});
 
 	afterEach(cleanup);
@@ -49,6 +54,9 @@ describe("WorkspaceLauncher", () => {
 		await waitFor(() => expect(activateTab).toHaveBeenCalledWith("home"));
 
 		expect(screen.queryByRole("button", { name: "Characters" })).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Multi-AI chat" }));
+		expect(openTab).toHaveBeenCalledWith("multi-chat");
 
 		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 		expect(openSettings).toHaveBeenCalledWith();

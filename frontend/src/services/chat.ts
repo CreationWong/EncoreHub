@@ -125,7 +125,7 @@ export interface StreamCallbacks {
 	onError: (error: StreamErrorPayload) => void;
 }
 
-interface ParsedSseEvent {
+export interface ParsedSseEvent {
 	event: string;
 	data: string;
 }
@@ -134,7 +134,7 @@ interface ParsedSseEvent {
  * Parse a complete SSE event block (one or more lines, separated by \n).
  * Per the SSE spec, events are delimited by a blank line in the byte stream.
  */
-function parseEvent(block: string): ParsedSseEvent | null {
+export function parseEvent(block: string): ParsedSseEvent | null {
 	let event = "message";
 	const dataLines: string[] = [];
 	for (const raw of block.split("\n")) {

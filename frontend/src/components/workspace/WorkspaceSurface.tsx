@@ -7,6 +7,9 @@ import Sidebar from "../sidebar/Sidebar";
 
 const SettingsWorkspace = lazy(() => import("../settings/SettingsModal"));
 const WorkspaceLauncher = lazy(() => import("./WorkspaceLauncher"));
+const MultiChatWorkspace = lazy(
+	() => import("../multichat/MultiChatWorkspace"),
+);
 
 function WorkspaceLoading() {
 	const t = useT();
@@ -44,6 +47,18 @@ export default function WorkspaceSurface() {
 				>
 					<Suspense fallback={<WorkspaceLoading />}>
 						<SettingsWorkspace />
+					</Suspense>
+				</main>
+			)}
+
+			{openTabs.includes("multi-chat") && (
+				<main
+					data-workspace-tab="multi-chat"
+					hidden={activeTab !== "multi-chat"}
+					className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-workspace"
+				>
+					<Suspense fallback={<WorkspaceLoading />}>
+						<MultiChatWorkspace />
 					</Suspense>
 				</main>
 			)}

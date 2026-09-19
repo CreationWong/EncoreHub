@@ -2,6 +2,18 @@ import { apiFetch } from "./api";
 import type { Attachment } from "./attachments";
 import type { CharacterSnapshot } from "./characters";
 
+export type ReplyMode = "sequential" | "smart";
+
+/** One AI member of a group conversation with its frozen character snapshot. */
+export interface ConversationParticipant {
+	character_id: string;
+	character_version: number;
+	position: number;
+	character_snapshot: CharacterSnapshot;
+	provider: string;
+	model: string;
+}
+
 export interface Conversation {
 	id: string;
 	title: string;
@@ -11,6 +23,10 @@ export interface Conversation {
 	character_id?: string;
 	character_version?: number;
 	character_snapshot?: CharacterSnapshot;
+	/** Group reply routing; absent for single-character conversations. */
+	reply_mode?: ReplyMode;
+	/** Ordered AI member roster; empty for single-character conversations. */
+	participants?: ConversationParticipant[];
 	message_count: number;
 	created_at: string;
 	updated_at: string;
@@ -23,6 +39,8 @@ export interface Message {
 	/** Model chain-of-thought, shown in a collapsible block. Empty when none. */
 	reasoning?: string;
 	parent_id: string | null;
+	/** Group member that produced this assistant message; null for other roles. */
+	sender_character_id?: string | null;
 	tool_calls: ToolCall[];
 	/** Files bound to the message. Omitted only for local optimistic messages. */
 	attachments?: Attachment[];
@@ -158,6 +176,40 @@ export async function createConversation(
 			model: model || "",
 			...(characterId ? { character_id: characterId } : {}),
 		}),
+	});
+}
+
+/** Optional per-member provider/model override sent while creating a group. */
+export interface GroupMemberSelection {
+	character_id: string;
+	provider?: string;
+	model?: string;
+}
+
+/** Create a multi-AI group conversation with its ordered member roster. */
+export async function createGroupConversation(
+	title: string,
+	replyMode: ReplyMode,
+	members: GroupMemberSelection[],
+): Promise<Conversation> {
+	return apiFetch<Conversation>("/conversations", {
+		method: "POST",
+		body: JSON.stringify({
+			title: title || "New Group",
+			reply_mode: replyMode,
+			participants: members,
+		}),
+	});
+}
+
+/** Persist the group reply routing mode (sequential or smart). */
+export async function updateConversationReplyMode(
+	id: string,
+	replyMode: ReplyMode,
+): Promise<Conversation> {
+	return apiFetch<Conversation>(`/conversations/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify({ reply_mode: replyMode }),
 	});
 }
 

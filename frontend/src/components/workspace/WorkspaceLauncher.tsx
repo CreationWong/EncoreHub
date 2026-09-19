@@ -1,4 +1,9 @@
-import { type LucideIcon, MessageSquarePlus, Settings } from "lucide-react";
+import {
+	type LucideIcon,
+	MessageSquarePlus,
+	MessagesSquare,
+	Settings,
+} from "lucide-react";
 import { useT } from "../../i18n";
 import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -57,6 +62,7 @@ export default function WorkspaceLauncher() {
 	);
 	const openSettings = useSettingsStore((state) => state.openSettings);
 	const activateTab = useWorkspaceStore((state) => state.activateTab);
+	const openTab = useWorkspaceStore((state) => state.openTab);
 
 	const startItems: LauncherItem[] = [
 		{
@@ -71,6 +77,13 @@ export default function WorkspaceLauncher() {
 		},
 	];
 	const toolItems: LauncherItem[] = [
+		{
+			id: "multi-chat",
+			label: t("workspace.multiChat"),
+			icon: MessagesSquare,
+			tone: "bg-[#0ca678]",
+			onOpen: () => openTab("multi-chat"),
+		},
 		{
 			id: "settings",
 			label: t("workspace.settings"),
