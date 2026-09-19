@@ -180,6 +180,37 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/group-chat": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" },
+        { "$ref": "#/components/parameters/ProviderKey" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "sendGroupChatMessage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GroupChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE stream for a multi-AI group turn. Each member segment is framed by participant_started and participant_done, participant_skipped, or participant_error events; delta, reasoning, and usage events carry participant_id. The terminal done event carries the authoritative user message and assistant_messages in speaking order.",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/attachments": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" }
@@ -1615,7 +1646,7 @@
       },
       "Conversation": {
         "type": "object",
-        "required": ["id", "title", "provider", "model", "character_id", "character_version", "character_snapshot", "created_at", "updated_at"],
+        "required": ["id", "title", "provider", "model", "character_id", "character_version", "character_snapshot", "reply_mode", "participants", "created_at", "updated_at"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "title": { "type": "string" },
@@ -1624,6 +1655,12 @@
           "character_id": { "type": "string" },
           "character_version": { "type": "integer", "minimum": 1 },
           "character_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
+          "reply_mode": { "enum": ["sequential", "smart"] },
+          "participants": {
+            "type": "array",
+            "description": "Ordered AI member roster; empty for single-character conversations.",
+            "items": { "$ref": "#/components/schemas/ConversationParticipant" }
+          },
           "message_count": { "type": "integer", "minimum": 0 },
           "created_at": { "type": "string" },
           "updated_at": { "type": "string" }
@@ -1660,6 +1697,7 @@
           "cache_read_input_tokens": { "type": ["integer", "null"], "minimum": 0 },
           "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
           "finish_reason": { "type": ["string", "null"] },
+          "sender_character_id": { "type": ["string", "null"], "description": "Group member that produced this assistant message; null for other roles and single-character chats." },
           "status": { "enum": ["pending", "completed", "failed", "stopped"] },
           "created_at": { "type": "string" }
         }
@@ -1722,8 +1760,50 @@
           "character_id": {
             "type": "string",
             "description": "Defaults to the stable default character. Provider/model inherit from the selected character when omitted together."
+          },
+          "reply_mode": { "enum": ["sequential", "smart"], "description": "Group reply routing; ignored without participants." },
+          "participants": {
+            "type": "array",
+            "description": "Group members in speaking order. At least two members create a group conversation.",
+            "items": { "$ref": "#/components/schemas/CreateConversationParticipant" }
           }
         }
+      },
+      "CreateConversationParticipant": {
+        "type": "object",
+        "required": ["character_id"],
+        "properties": {
+          "character_id": { "type": "string" },
+          "provider": { "type": "string", "description": "Optional provider override; set together with model." },
+          "model": { "type": "string", "description": "Optional model override; set together with provider." }
+        }
+      },
+      "ConversationParticipant": {
+        "type": "object",
+        "required": ["character_id", "character_version", "position", "character_snapshot", "provider", "model"],
+        "properties": {
+          "character_id": { "type": "string" },
+          "character_version": { "type": "integer", "minimum": 1 },
+          "position": { "type": "integer", "minimum": 0 },
+          "character_snapshot": { "$ref": "#/components/schemas/CharacterSnapshot" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      },
+      "GroupChatRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ChatRequest" },
+          {
+            "type": "object",
+            "properties": {
+              "mentions": {
+                "type": "array",
+                "description": "Participant character ids explicitly addressed by the user; overrides the reply mode.",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        ]
       },
       "CharacterSnapshot": {
         "type": "object",

@@ -120,16 +120,33 @@ func ErrorStatus(err error) int {
 
 // Conversation represents a conversation from the engine.
 type Conversation struct {
-	ID                string            `json:"id"`
-	Title             string            `json:"title"`
-	Provider          string            `json:"provider"`
-	Model             string            `json:"model"`
+	ID                string                    `json:"id"`
+	Title             string                    `json:"title"`
+	Provider          string                    `json:"provider"`
+	Model             string                    `json:"model"`
+	CharacterID       string                    `json:"character_id"`
+	CharacterVersion  int64                     `json:"character_version"`
+	CharacterSnapshot CharacterSnapshot         `json:"character_snapshot"`
+	ReplyMode         string                    `json:"reply_mode"`
+	Participants      []ConversationParticipant `json:"participants"`
+	MessageCount      int                       `json:"message_count"`
+	CreatedAt         string                    `json:"created_at"`
+	UpdatedAt         string                    `json:"updated_at"`
+}
+
+// ConversationParticipant is one AI member of a group conversation.
+type ConversationParticipant struct {
 	CharacterID       string            `json:"character_id"`
 	CharacterVersion  int64             `json:"character_version"`
+	Position          int64             `json:"position"`
 	CharacterSnapshot CharacterSnapshot `json:"character_snapshot"`
-	MessageCount      int               `json:"message_count"`
-	CreatedAt         string            `json:"created_at"`
-	UpdatedAt         string            `json:"updated_at"`
+	Provider          string            `json:"provider"`
+	Model             string            `json:"model"`
+}
+
+// IsGroup reports whether the conversation has an AI roster to route to.
+func (c ConversationDetail) IsGroup() bool {
+	return len(c.Participants) > 1
 }
 
 // CharacterSnapshot is the immutable character content attached to a
@@ -146,17 +163,19 @@ type CharacterSnapshot struct {
 
 // ConversationDetail includes messages.
 type ConversationDetail struct {
-	ID                string            `json:"id"`
-	Title             string            `json:"title"`
-	Provider          string            `json:"provider"`
-	Model             string            `json:"model"`
-	CharacterID       string            `json:"character_id"`
-	CharacterVersion  int64             `json:"character_version"`
-	CharacterSnapshot CharacterSnapshot `json:"character_snapshot"`
-	Messages          []Message         `json:"messages"`
-	Summary           *string           `json:"summary"`
-	CreatedAt         string            `json:"created_at"`
-	UpdatedAt         string            `json:"updated_at"`
+	ID                string                    `json:"id"`
+	Title             string                    `json:"title"`
+	Provider          string                    `json:"provider"`
+	Model             string                    `json:"model"`
+	CharacterID       string                    `json:"character_id"`
+	CharacterVersion  int64                     `json:"character_version"`
+	CharacterSnapshot CharacterSnapshot         `json:"character_snapshot"`
+	ReplyMode         string                    `json:"reply_mode"`
+	Participants      []ConversationParticipant `json:"participants"`
+	Messages          []Message                 `json:"messages"`
+	Summary           *string                   `json:"summary"`
+	CreatedAt         string                    `json:"created_at"`
+	UpdatedAt         string                    `json:"updated_at"`
 }
 
 // Message represents a single message.
@@ -179,8 +198,10 @@ type Message struct {
 	ContextOutputTokens *int    `json:"context_output_tokens"`
 	DurationMS          *int64  `json:"duration_ms"`
 	FinishReason        *string `json:"finish_reason"`
-	Status              string  `json:"status"`
-	CreatedAt           string  `json:"created_at"`
+	// SenderCharacterID attributes group-chat assistant messages to a member.
+	SenderCharacterID *string `json:"sender_character_id"`
+	Status            string  `json:"status"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 // ToolCallInput is a tool call the gateway parsed from a provider stream,
@@ -236,11 +257,38 @@ func (c *Client) CreateConversation(ctx context.Context, title, provider, model,
 	return &conv, nil
 }
 
+// GroupMemberInput selects one group member, optionally overriding the
+// character's default provider and model.
+type GroupMemberInput struct {
+	CharacterID string `json:"character_id"`
+	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
+}
+
+// CreateGroupConversation creates a multi-member conversation with reply routing.
+func (c *Client) CreateGroupConversation(ctx context.Context, title, replyMode string, members []GroupMemberInput) (*Conversation, error) {
+	body := struct {
+		Title        string             `json:"title"`
+		ReplyMode    string             `json:"reply_mode,omitempty"`
+		Participants []GroupMemberInput `json:"participants"`
+	}{
+		Title:        title,
+		ReplyMode:    replyMode,
+		Participants: members,
+	}
+	var conv Conversation
+	if err := c.doJSON(ctx, "POST", "/api/conversations", body, &conv); err != nil {
+		return nil, err
+	}
+	return &conv, nil
+}
+
 // ConversationUpdate changes selected authoritative conversation metadata.
 type ConversationUpdate struct {
-	Title    *string `json:"title,omitempty"`
-	Provider *string `json:"provider,omitempty"`
-	Model    *string `json:"model,omitempty"`
+	Title     *string `json:"title,omitempty"`
+	Provider  *string `json:"provider,omitempty"`
+	Model     *string `json:"model,omitempty"`
+	ReplyMode *string `json:"reply_mode,omitempty"`
 }
 
 // UpdateConversation updates authoritative metadata for an existing conversation.
@@ -360,6 +408,7 @@ type AppendMessageRequest struct {
 	Content                  string          `json:"content"`
 	Role                     string          `json:"role"`
 	ParentID                 string          `json:"parent_id,omitempty"`
+	SenderCharacterID        string          `json:"sender_character_id,omitempty"`
 	Reasoning                string          `json:"reasoning,omitempty"`
 	TokenCount               int             `json:"token_count,omitempty"`
 	InputTokens              *int            `json:"input_tokens,omitempty"`
@@ -474,15 +523,19 @@ func readHTTPError(resp *http.Response) error {
 	return &HTTPError{StatusCode: resp.StatusCode, body: string(body)}
 }
 
-// FinalizeTurnRequest atomically applies a terminal status and optional assistant.
+// FinalizeTurnRequest atomically applies a terminal status and assistant replies.
 type FinalizeTurnRequest struct {
-	Status    string             `json:"status"`
-	Assistant *FinalizeAssistant `json:"assistant,omitempty"`
+	Status string `json:"status"`
+	// Assistant is the single-reply compatibility field; Assistants carries one
+	// entry per group member that produced a reply this turn.
+	Assistant  *FinalizeAssistant  `json:"assistant,omitempty"`
+	Assistants []FinalizeAssistant `json:"assistants,omitempty"`
 }
 
 type FinalizeAssistant struct {
 	Content                  string `json:"content"`
 	Reasoning                string `json:"reasoning,omitempty"`
+	SenderCharacterID        string `json:"sender_character_id,omitempty"`
 	TokenCount               int    `json:"token_count,omitempty"`
 	InputTokens              *int   `json:"input_tokens,omitempty"`
 	OutputTokens             *int   `json:"output_tokens,omitempty"`
@@ -500,6 +553,8 @@ type FinalizeAssistant struct {
 type FinalizeTurnResponse struct {
 	UserMessage      Message  `json:"user_message"`
 	AssistantMessage *Message `json:"assistant_message"`
+	// AssistantMessages lists every reply committed with the turn in order.
+	AssistantMessages []Message `json:"assistant_messages,omitempty"`
 }
 
 // FinalizeTurn persists the terminal turn state in one Engine transaction.
@@ -563,10 +618,14 @@ func (c *Client) RememberMemory(ctx context.Context, request RememberMemoryReque
 }
 
 // ResolveConversationMemoryMode advances, but never lowers, the conversation's
-// role-scoped mode floor.
-func (c *Client) ResolveConversationMemoryMode(ctx context.Context, conversationID string) (*ConversationMemoryMode, error) {
+// role-scoped mode floor. An empty characterID resolves the conversation's
+// single-character association; a group passes each member's id.
+func (c *Client) ResolveConversationMemoryMode(ctx context.Context, conversationID, characterID string) (*ConversationMemoryMode, error) {
 	var response ConversationMemoryMode
 	path := "/api/conversations/" + url.PathEscape(conversationID) + "/memory-mode/resolve"
+	if member := strings.TrimSpace(characterID); member != "" {
+		path += "?character_id=" + url.QueryEscape(member)
+	}
 	if err := c.doJSON(ctx, http.MethodPost, path, nil, &response); err != nil {
 		return nil, err
 	}

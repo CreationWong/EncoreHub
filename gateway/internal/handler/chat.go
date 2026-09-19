@@ -353,7 +353,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 	var memoryContext string
 	memoryMode := "simple"
-	if resolved, resolveErr := h.engine.ResolveConversationMemoryMode(ctx, convID); resolveErr != nil {
+	if resolved, resolveErr := h.engine.ResolveConversationMemoryMode(ctx, convID, ""); resolveErr != nil {
 		log.Debug().Err(resolveErr).Msg("conversation memory mode resolution failed (using Simple)")
 	} else {
 		memoryMode = resolved.Mode

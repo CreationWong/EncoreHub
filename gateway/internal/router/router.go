@@ -78,6 +78,8 @@ func Setup(cfg Config) *gin.Engine {
 
 			// Chat endpoint (gateway handles AI provider calls)
 			conv.POST("/:id/chat", chatHandler.SendMessage)
+			// Multi-AI group chat: one message fans out to the member roster.
+			conv.POST("/:id/group-chat", chatHandler.GroupChat)
 			// AI-powered title generation
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
 			// Tool-based title update (proxied to engine)
@@ -152,16 +154,39 @@ var allowedOrigins = func() map[string]struct{} {
 	return m
 }()
 
+// defaultAllowedHeaders are the fixed request headers every frontend call may
+// use. Provider credentials beyond these are reflected per preflight request.
+const defaultAllowedHeaders = "Content-Type, Authorization, X-Provider-Key, X-OpenAI-Key, X-Anthropic-Key"
+
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
+		originAllowed := false
+		vary := ""
 		if _, ok := allowedOrigins[origin]; ok {
+			originAllowed = true
 			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Vary", "Origin")
 			c.Header("Access-Control-Allow-Credentials", "true")
+			vary = "Origin"
+		}
+		allowedHeaders := defaultAllowedHeaders
+		if originAllowed {
+			// A group turn calls one provider per member, so it sends
+			// X-<Provider>-Key headers that cannot be enumerated up front.
+			// Reflect the app's own preflight list, admitting only X- custom
+			// headers so the allow-list never widens beyond provider keys.
+			if requested := c.GetHeader("Access-Control-Request-Headers"); requested != "" {
+				if reflected, ok := reflectProviderKeyHeaders(requested); ok {
+					allowedHeaders = reflected
+					vary = "Origin, Access-Control-Request-Headers"
+				}
+			}
+		}
+		if vary != "" {
+			c.Header("Vary", vary)
 		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Provider-Key, X-OpenAI-Key, X-Anthropic-Key")
+		c.Header("Access-Control-Allow-Headers", allowedHeaders)
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == http.MethodOptions {
@@ -171,6 +196,46 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// reflectProviderKeyHeaders appends the requested X-<Provider>-Key headers to
+// the static allow-list. Anything that is not a simple X- header token is
+// ignored, so an allowed origin cannot negotiate arbitrary request headers.
+func reflectProviderKeyHeaders(requested string) (string, bool) {
+	extra := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(requested, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" || len(name) > 64 || !strings.HasPrefix(strings.ToLower(name), "x-") {
+			continue
+		}
+		if !isHeaderNameToken(name) {
+			continue
+		}
+		lower := strings.ToLower(name)
+		if _, duplicate := seen[lower]; duplicate {
+			continue
+		}
+		seen[lower] = struct{}{}
+		extra = append(extra, name)
+	}
+	if len(extra) == 0 {
+		return "", false
+	}
+	return defaultAllowedHeaders + ", " + strings.Join(extra, ", "), true
+}
+
+// isHeaderNameToken accepts the RFC 7230 token characters used by header names.
+func isHeaderNameToken(name string) bool {
+	for _, char := range name {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z',
+			char >= '0' && char <= '9', char == '-', char == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // authMiddleware enforces a bearer token when ENCOREHUB_AUTH_TOKEN is set.

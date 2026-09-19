@@ -20,10 +20,12 @@ func NewConversationHandler(engineClient *engine.Client) *ConversationHandler {
 }
 
 type createConvReq struct {
-	Title       string `json:"title"`
-	Provider    string `json:"provider"`
-	Model       string `json:"model"`
-	CharacterID string `json:"character_id"`
+	Title        string                    `json:"title"`
+	Provider     string                    `json:"provider"`
+	Model        string                    `json:"model"`
+	CharacterID  string                    `json:"character_id"`
+	ReplyMode    string                    `json:"reply_mode"`
+	Participants []engine.GroupMemberInput `json:"participants"`
 }
 
 func (h *ConversationHandler) Create(c *gin.Context) {
@@ -33,9 +35,19 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	conv, err := h.engine.CreateConversation(
-		c.Request.Context(), req.Title, req.Provider, req.Model, req.CharacterID,
+	var (
+		conv *engine.Conversation
+		err  error
 	)
+	if len(req.Participants) > 0 {
+		conv, err = h.engine.CreateGroupConversation(
+			c.Request.Context(), req.Title, req.ReplyMode, req.Participants,
+		)
+	} else {
+		conv, err = h.engine.CreateConversation(
+			c.Request.Context(), req.Title, req.Provider, req.Model, req.CharacterID,
+		)
+	}
 	if err != nil {
 		engineStatus := engine.ErrorStatus(err)
 		status := http.StatusBadGateway
@@ -83,9 +95,10 @@ func (h *ConversationHandler) Delete(c *gin.Context) {
 }
 
 type updateConvReq struct {
-	Title    *string `json:"title"`
-	Provider *string `json:"provider"`
-	Model    *string `json:"model"`
+	Title     *string `json:"title"`
+	Provider  *string `json:"provider"`
+	Model     *string `json:"model"`
+	ReplyMode *string `json:"reply_mode"`
 }
 
 // Rename handles PATCH updates to title or authoritative provider/model metadata.
@@ -96,7 +109,7 @@ func (h *ConversationHandler) Rename(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Title == nil && req.Provider == nil && req.Model == nil {
+	if req.Title == nil && req.Provider == nil && req.Model == nil && req.ReplyMode == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one field is required"})
 		return
 	}
@@ -124,9 +137,10 @@ func (h *ConversationHandler) Rename(c *gin.Context) {
 	}
 
 	conv, err := h.engine.UpdateConversation(c.Request.Context(), id, engine.ConversationUpdate{
-		Title:    req.Title,
-		Provider: req.Provider,
-		Model:    req.Model,
+		Title:     req.Title,
+		Provider:  req.Provider,
+		Model:     req.Model,
+		ReplyMode: req.ReplyMode,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("engine conversation update failed")

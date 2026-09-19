@@ -196,6 +196,49 @@ func TestCorsUnknownOriginNotEchoed(t *testing.T) {
 	}
 }
 
+func TestCorsReflectsProviderKeyHeadersForAllowedOrigin(t *testing.T) {
+	r := newRouter()
+	rec := do(t, r, http.MethodOptions, "/api/v1/conversations/c1/group-chat", map[string]string{
+		"Origin":                         "http://localhost:1420",
+		"Access-Control-Request-Method":  "POST",
+		"Access-Control-Request-Headers": "content-type,x-deepseek-key,x-test-key",
+	})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d", rec.Code)
+	}
+	allowed := rec.Header().Get("Access-Control-Allow-Headers")
+	for _, name := range []string{"X-Provider-Key", "x-deepseek-key", "x-test-key"} {
+		if !strings.Contains(allowed, name) {
+			t.Fatalf("allow-headers %q missing %q", allowed, name)
+		}
+	}
+}
+
+func TestCorsDoesNotReflectUnknownHeadersOrOrigins(t *testing.T) {
+	r := newRouter()
+	rec := do(t, r, http.MethodOptions, "/api/v1/conversations/c1/group-chat", map[string]string{
+		"Origin":                         "https://evil.example.com",
+		"Access-Control-Request-Method":  "POST",
+		"Access-Control-Request-Headers": "x-secret-key",
+	})
+	allowed := rec.Header().Get("Access-Control-Allow-Headers")
+	if strings.Contains(allowed, "x-secret-key") {
+		t.Fatalf("unknown origin must not reflect headers: %q", allowed)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unknown origin must not be echoed, got %q", got)
+	}
+
+	rec = do(t, r, http.MethodOptions, "/api/v1/conversations/c1/group-chat", map[string]string{
+		"Origin":                         "http://localhost:1420",
+		"Access-Control-Request-Method":  "POST",
+		"Access-Control-Request-Headers": "cookie",
+	})
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); strings.Contains(got, "cookie") {
+		t.Fatalf("non X- headers must not be reflected: %q", got)
+	}
+}
+
 func TestMetricsEndpointPublic(t *testing.T) {
 	t.Setenv("ENCOREHUB_AUTH_TOKEN", "secret-xyz")
 	r := newRouter()

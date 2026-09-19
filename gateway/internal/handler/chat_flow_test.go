@@ -62,6 +62,8 @@ type chatEngineStub struct {
 	finalizeRequests      []engine.FinalizeTurnRequest
 	rememberRequests      []engine.RememberMemoryRequest
 	conversationMessages  []engine.Message
+	participants          []engine.ConversationParticipant
+	replyMode             string
 	searchConfig          string
 	memoryMode            string
 	memoryResults         []engine.MemoryHit
@@ -79,14 +81,21 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			title = "Existing"
 		}
 		messages := append([]engine.Message(nil), s.conversationMessages...)
+		participants := append([]engine.ConversationParticipant(nil), s.participants...)
+		replyMode := s.replyMode
 		s.mu.Unlock()
+		if replyMode == "" {
+			replyMode = "sequential"
+		}
 		writeTestJSON(w, http.StatusOK, engine.ConversationDetail{
-			ID:          "c1",
-			Title:       title,
-			Provider:    "test",
-			Model:       "model-test",
-			CharacterID: "character-default",
-			Messages:    messages,
+			ID:           "c1",
+			Title:        title,
+			Provider:     "test",
+			Model:        "model-test",
+			CharacterID:  "character-default",
+			Participants: participants,
+			ReplyMode:    replyMode,
+			Messages:     messages,
 		})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/memories/search":
 		s.mu.Lock()
@@ -215,9 +224,26 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:                "2026-07-16T00:00:01Z",
 			}
 		}
+		assistantMessages := make([]engine.Message, 0, len(request.Assistants))
+		for index, input := range request.Assistants {
+			parentID := user.ID
+			sender := input.SenderCharacterID
+			assistantMessages = append(assistantMessages, engine.Message{
+				ID:                fmt.Sprintf("assistant-%d", index),
+				Role:              "assistant",
+				Content:           input.Content,
+				ParentID:          &parentID,
+				SenderCharacterID: &sender,
+				InputTokens:       input.InputTokens,
+				OutputTokens:      input.OutputTokens,
+				Status:            request.Status,
+				CreatedAt:         "2026-07-16T00:00:01Z",
+			})
+		}
 		writeTestJSON(w, http.StatusOK, engine.FinalizeTurnResponse{
-			UserMessage:      user,
-			AssistantMessage: assistant,
+			UserMessage:       user,
+			AssistantMessage:  assistant,
+			AssistantMessages: assistantMessages,
 		})
 	case r.Method == http.MethodPost && r.URL.Path == "/api/memories":
 		var request engine.RememberMemoryRequest
@@ -465,6 +491,7 @@ func newChatTestRouter(adapter provider.Adapter, stub *chatEngineStub) (*gin.Eng
 	handler := NewChatHandler(provider.NewRegistry(adapter), engine.NewClient(engineServer.URL, "test-token"))
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/chat", handler.SendMessage)
+	router.POST("/api/v1/conversations/:id/group-chat", handler.GroupChat)
 	return router, engineServer
 }
 
@@ -625,6 +652,158 @@ func performStreamRequest(t *testing.T, router http.Handler, ctx context.Context
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func TestGroupChat_StreamsEveryMemberAndAttributesSenders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adapter := &scriptedAdapter{streamFn: func(_ context.Context, req *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+		// Each member answers in its own voice; the prompt must carry the
+		// group framing section and no tools.
+		if !strings.Contains(req.SystemPrompt, "You are participating in a group conversation") {
+			return nil, fmt.Errorf("member prompt missing group framing: %s", req.SystemPrompt)
+		}
+		if len(req.Tools) != 0 {
+			return nil, fmt.Errorf("group v1 must not register tools")
+		}
+		content := fmt.Sprintf("member-%d", call)
+		return streamOf(
+			provider.StreamEvent{Delta: &provider.DeltaEvent{Content: content}},
+			provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 3, OutputTokens: 2}},
+		), nil
+	}}
+	stub := &chatEngineStub{
+		replyMode: "sequential",
+		participants: []engine.ConversationParticipant{
+			{
+				CharacterID:       "char-a",
+				CharacterVersion:  1,
+				Position:          0,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "建模bot"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+			{
+				CharacterID:       "char-b",
+				CharacterVersion:  1,
+				Position:          1,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "论文挑刺"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-chat",
+		bytes.NewBufferString(`{"content":"开始讨论","stream":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-test-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, event := range []string{
+		"turn_started",
+		"participant_started",
+		"delta",
+		"usage",
+		"participant_done",
+		"done",
+	} {
+		if !strings.Contains(body, "event: "+event+"\n") {
+			t.Fatalf("missing %q in stream: %s", event, body)
+		}
+	}
+
+	var done struct {
+		UserMessage       engine.Message   `json:"user_message"`
+		AssistantMessages []engine.Message `json:"assistant_messages"`
+	}
+	decodeSSEEvent(t, body, "done", &done)
+	if done.UserMessage.ID != "turn-1" || len(done.AssistantMessages) != 2 {
+		t.Fatalf("unexpected done payload: %+v", done)
+	}
+	if done.AssistantMessages[0].SenderCharacterID == nil ||
+		*done.AssistantMessages[0].SenderCharacterID != "char-a" ||
+		done.AssistantMessages[1].SenderCharacterID == nil ||
+		*done.AssistantMessages[1].SenderCharacterID != "char-b" {
+		t.Fatalf("assistant senders were not preserved: %+v", done.AssistantMessages)
+	}
+
+	requests := stub.finalizations()
+	if len(requests) != 1 || len(requests[0].Assistants) != 2 {
+		t.Fatalf("expected one group finalization with two replies: %+v", requests)
+	}
+	if requests[0].Assistants[0].SenderCharacterID != "char-a" ||
+		requests[0].Assistants[0].Content != "member-1" ||
+		requests[0].Assistants[1].SenderCharacterID != "char-b" ||
+		requests[0].Assistants[1].Content != "member-2" {
+		t.Fatalf("unexpected assistant payloads: %+v", requests[0].Assistants)
+	}
+}
+
+func TestGroupChatHonorsMentionsAndSkipsTheRest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adapter := &scriptedAdapter{streamFn: func(_ context.Context, _ *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+		return streamOf(
+			provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "only one reply"}},
+		), nil
+	}}
+	stub := &chatEngineStub{
+		participants: []engine.ConversationParticipant{
+			{
+				CharacterID:       "char-a",
+				CharacterVersion:  1,
+				Position:          0,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "建模bot"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+			{
+				CharacterID:       "char-b",
+				CharacterVersion:  1,
+				Position:          1,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "论文挑刺"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-chat",
+		bytes.NewBufferString(`{"content":"@论文挑刺 看看稿子","stream":true,"mentions":["char-b"]}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-test-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, `"participant_id":"char-a"`) {
+		t.Fatalf("unmentioned member must not stream: %s", body)
+	}
+	if !strings.Contains(body, `"participant_id":"char-b"`) {
+		t.Fatalf("mentioned member must stream: %s", body)
+	}
+	requests := stub.finalizations()
+	if len(requests) != 1 || len(requests[0].Assistants) != 1 ||
+		requests[0].Assistants[0].SenderCharacterID != "char-b" {
+		t.Fatalf("unexpected mention finalization: %+v", requests)
+	}
 }
 
 func TestSendMessage_MissingKeyDoesNotCreateTurn(t *testing.T) {
