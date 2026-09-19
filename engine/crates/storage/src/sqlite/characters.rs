@@ -5,7 +5,8 @@ use super::{
 };
 use encorehub_core::{
     CharacterBranch, CharacterHistory, CharacterProfile, CharacterUpgradePreview, CharacterVersion,
-    Conversation, ConversationParticipant, EngineError, ReplyMode, DEFAULT_CHARACTER_ID,
+    Conversation, ConversationParticipant, EngineError, GroupChatSettings, ReplyMode,
+    DEFAULT_CHARACTER_ID,
 };
 use rusqlite::{params, Connection, ErrorCode, Row};
 
@@ -626,6 +627,7 @@ impl Database {
         title: &str,
         reply_mode: ReplyMode,
         selections: &[(String, Option<(String, String)>)],
+        group_settings: GroupChatSettings,
     ) -> Result<Conversation> {
         if selections.len() < 2 {
             return Err(EngineError::InvalidArgument(
@@ -657,6 +659,7 @@ impl Database {
         let mut conversation = Conversation::new(title, first.1.clone(), first.2.clone())
             .with_character(&first.0.id, first.0.version, first.0.snapshot());
         conversation.reply_mode = reply_mode;
+        conversation.group_settings = group_settings;
         let tags_json = serde_json::to_string(&conversation.character_snapshot.tags)?;
         transaction.execute(
             "INSERT INTO conversations
@@ -664,8 +667,8 @@ impl Database {
               character_name_snapshot, character_avatar_snapshot,
               character_description_snapshot, character_prompt_snapshot,
               character_opening_snapshot, character_tags_snapshot,
-              reply_mode, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              reply_mode, group_settings_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 conversation.id,
                 conversation.title,
@@ -680,6 +683,7 @@ impl Database {
                 conversation.character_snapshot.opening_message,
                 tags_json,
                 conversation.reply_mode.as_str(),
+                serde_json::to_string(&conversation.group_settings)?,
                 conversation.created_at.timestamp_millis(),
                 conversation.updated_at.timestamp_millis(),
             ],

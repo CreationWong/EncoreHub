@@ -6,8 +6,8 @@
 //! parent-dir handling differs across platforms).
 
 use encorehub_core::{
-    CharacterProfile, CryptoMeta, Memory, MemoryScope, MemoryType, Message, MessageStatus,
-    ReplyMode, Role, SecretRow,
+    CharacterProfile, CryptoMeta, GroupChatSettings, Memory, MemoryScope, MemoryType, Message,
+    MessageStatus, QueueItem, QueueSource, ReplyMode, Role, SecretRow,
 };
 use encorehub_storage::{AssistantTurn, Database};
 use tempfile::TempDir;
@@ -332,6 +332,9 @@ fn memory_fts_repair_migration_reindexes_authoritative_content() {
              ALTER TABLE messages DROP COLUMN sender_character_id;
              DROP INDEX IF EXISTS idx_conversation_participants_character;
              DROP TABLE IF EXISTS conversation_participants;
+             DROP INDEX IF EXISTS idx_conversation_queue_pending;
+             DROP TABLE IF EXISTS conversation_queue_items;
+             ALTER TABLE conversations DROP COLUMN group_settings_json;
              ALTER TABLE conversations DROP COLUMN reply_mode;
              DELETE FROM _migrations WHERE version >= 18;",
         )
@@ -596,6 +599,7 @@ fn group_conversation_keeps_roster_and_multi_assistant_turn() {
                     Some(("openai".into(), "gpt-test".into())),
                 ),
             ],
+            GroupChatSettings::default(),
         )
         .unwrap();
     assert_eq!(conversation.participants.len(), 2);
@@ -658,4 +662,45 @@ fn group_conversation_keeps_roster_and_multi_assistant_turn() {
         db.get_conversation(&conversation.id).unwrap().reply_mode,
         ReplyMode::Smart
     );
+}
+
+#[test]
+fn group_queue_claims_mentions_first_and_cancels_cleanly() {
+    let (_dir, db, _path) = fresh_db_with_path();
+    let plan = CharacterProfile::new("建模bot");
+    let review = CharacterProfile::new("论文挑刺");
+    db.create_character_profile(&plan).unwrap();
+    db.create_character_profile(&review).unwrap();
+    let conversation = db
+        .create_group_conversation(
+            "小队",
+            ReplyMode::Sequential,
+            &[(plan.id.clone(), None), (review.id.clone(), None)],
+            GroupChatSettings::default(),
+        )
+        .unwrap();
+
+    // Enqueue in reverse priority order to prove the claim order.
+    db.enqueue_item(&QueueItem::new(&conversation.id, QueueSource::Auto, "自发讨论").from_member(&plan.id))
+        .unwrap();
+    db.enqueue_item(&QueueItem::new(&conversation.id, QueueSource::User, "大家介绍一下"))
+        .unwrap();
+    db.enqueue_item(
+        &QueueItem::new(&conversation.id, QueueSource::Mention, "@论文挑刺 看看")
+            .to_member(&review.id),
+    )
+    .unwrap();
+
+    let first = db.claim_next_item(&conversation.id).unwrap().unwrap();
+    assert_eq!(first.source, QueueSource::Mention);
+    assert_eq!(first.target_character_id.as_deref(), Some(review.id.as_str()));
+    db.complete_queue_item(&first.id).unwrap();
+
+    let second = db.claim_next_item(&conversation.id).unwrap().unwrap();
+    assert_eq!(second.source, QueueSource::User);
+
+    // Clearing cancels both the shipped user item and the pending auto item.
+    assert_eq!(db.clear_queue(&conversation.id).unwrap(), 2);
+    assert!(db.list_queue_items(&conversation.id).unwrap().is_empty());
+    assert!(db.claim_next_item(&conversation.id).unwrap().is_none());
 }

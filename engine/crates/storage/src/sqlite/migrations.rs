@@ -570,6 +570,30 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_messages_sender
         ON messages(conversation_id, sender_character_id);
     ",
+    // 021: Async group queue and group settings.
+    //
+    // `group_settings_json` stores a conversation's sparse overrides ({} means
+    // inherit the global group_chat_settings config). The queue persists every
+    // pending group turn so background generation survives restarts.
+    "
+    ALTER TABLE conversations ADD COLUMN group_settings_json TEXT NOT NULL DEFAULT '{}';
+
+    CREATE TABLE conversation_queue_items (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        source TEXT NOT NULL,
+        priority INTEGER NOT NULL,
+        sender_character_id TEXT,
+        target_character_id TEXT,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        claimed_at INTEGER
+    );
+
+    CREATE INDEX idx_conversation_queue_pending
+        ON conversation_queue_items(conversation_id, status, priority, created_at);
+    ",
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {
@@ -790,7 +814,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // The legacy row must advance through conversation mode high-water marks.
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
     }
 
     #[test]
@@ -852,7 +876,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _migrations", [], |row| row.get(0))
             .unwrap();
         // Legacy rows advance through conversation mode high-water marks.
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
     }
 
     #[test]

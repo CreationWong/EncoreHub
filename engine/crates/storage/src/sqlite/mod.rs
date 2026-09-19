@@ -7,6 +7,7 @@ mod attachments;
 mod characters;
 mod chat_turns;
 mod data_management;
+mod queue;
 mod migrations;
 mod secret_transactions;
 mod vectors;
@@ -48,7 +49,7 @@ const CONVERSATION_COLUMNS: &str = "id, title, provider, model, character_id, ch
      character_name_snapshot, character_avatar_snapshot,
      character_description_snapshot, character_prompt_snapshot,
      character_opening_snapshot, character_tags_snapshot,
-     reply_mode, created_at, updated_at";
+     reply_mode, group_settings_json, created_at, updated_at";
 
 const PARTICIPANT_COLUMNS: &str = "conversation_id, character_id, character_version, position,
      name, avatar, description, system_prompt, opening_message, tags_json,
@@ -77,8 +78,11 @@ fn conversation_from_row(row: &Row<'_>) -> rusqlite::Result<Conversation> {
         reply_mode: ReplyMode::from_str(&row.get::<_, String>(12)?).unwrap_or_default(),
         // Participants are loaded separately so list queries stay one round trip.
         participants: Vec::new(),
-        created_at: ts_to_dt(row.get::<_, i64>(13)?),
-        updated_at: ts_to_dt(row.get::<_, i64>(14)?),
+        // The stored JSON is a sparse override; the API layer merges global
+        // defaults before returning it to callers.
+        group_settings: serde_json::from_str(&row.get::<_, String>(13)?).unwrap_or_default(),
+        created_at: ts_to_dt(row.get::<_, i64>(14)?),
+        updated_at: ts_to_dt(row.get::<_, i64>(15)?),
     })
 }
 
@@ -224,8 +228,8 @@ impl Database {
               character_name_snapshot, character_avatar_snapshot,
               character_description_snapshot, character_prompt_snapshot,
               character_opening_snapshot, character_tags_snapshot,
-              reply_mode, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              reply_mode, group_settings_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 conv.id,
                 conv.title,
@@ -240,6 +244,7 @@ impl Database {
                 conv.character_snapshot.opening_message,
                 tags_json,
                 conv.reply_mode.as_str(),
+                serde_json::to_string(&conv.group_settings)?,
                 conv.created_at.timestamp_millis(),
                 conv.updated_at.timestamp_millis(),
             ],
@@ -289,6 +294,22 @@ impl Database {
             attach_participants(&conn, conversation)?;
         }
         Ok(conversations)
+    }
+
+    /// Persist one conversation's sparse group-settings overrides.
+    pub fn set_conversation_group_settings(&self, id: &str, settings_json: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE conversations SET group_settings_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![settings_json, now_ms(), id],
+        )?;
+        if rows == 0 {
+            return Err(EngineError::NotFound {
+                resource: "conversation".into(),
+                id: id.into(),
+            });
+        }
+        Ok(())
     }
 
     /// Persist the group reply-routing mode. Single-character conversations

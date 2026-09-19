@@ -185,6 +185,206 @@ pub struct ConversationParticipant {
     pub model: String,
 }
 
+/// Human participant identity inside one group conversation.
+///
+/// The group prompt uses the name so bots can address the user with
+/// `@<name>`; the avatar and description are display context only.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationPersona {
+    pub name: String,
+    pub avatar: String,
+    pub description: String,
+}
+
+/// Default persona name when the user has not chosen one.
+pub const DEFAULT_PERSONA_NAME: &str = "用户";
+
+/// Runtime and autonomy settings for one group conversation.
+///
+/// New groups inherit the global `group_chat_settings` config value; a
+/// conversation stores only its own overrides (`{}` means inherit) and the
+/// effective settings are resolved at read time by merging the two objects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupChatSettings {
+    /// Bots may keep talking after the user's turn without a new user message.
+    #[serde(default = "default_true")]
+    pub auto_chat_enabled: bool,
+    /// Maximum consecutive bot turns in one chain; `None` means unlimited,
+    /// `Some(0)` means bots only answer the user.
+    #[serde(default = "default_max_auto_turns")]
+    pub max_auto_turns: Option<u32>,
+    /// Bots may address other members or the user with `@name`.
+    #[serde(default = "default_true")]
+    pub allow_bot_mentions: bool,
+    /// A paused group keeps its queue but stops generating until resumed.
+    #[serde(default)]
+    pub paused: bool,
+    /// Human participant identity for this group.
+    #[serde(default)]
+    pub user_persona: ConversationPersona,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_auto_turns() -> Option<u32> {
+    Some(6)
+}
+
+impl Default for GroupChatSettings {
+    fn default() -> Self {
+        Self {
+            auto_chat_enabled: true,
+            max_auto_turns: Some(6),
+            allow_bot_mentions: true,
+            paused: false,
+            user_persona: ConversationPersona::default(),
+        }
+    }
+}
+
+impl GroupChatSettings {
+    /// Effective max auto turns with the default applied once for callers.
+    pub fn auto_turn_limit(&self) -> Option<u32> {
+        if self.auto_chat_enabled {
+            self.max_auto_turns
+        } else {
+            Some(0)
+        }
+    }
+}
+
+// ===== Group queue =====
+
+/// Where a queued group turn came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueSource {
+    /// A user message is the normal group input.
+    User,
+    /// A bot or the user was addressed with `@name`.
+    Mention,
+    /// A bot continues the discussion without being asked.
+    Auto,
+}
+
+impl QueueSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Mention => "mention",
+            Self::Auto => "auto",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "user" => Some(Self::User),
+            "mention" => Some(Self::Mention),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+
+    /// Lower values are processed first: mentions beat user messages, which
+    /// beat voluntary bot continuation.
+    pub fn priority(self) -> i64 {
+        match self {
+            Self::Mention => 0,
+            Self::User => 1,
+            Self::Auto => 2,
+        }
+    }
+}
+
+/// Lifecycle of one queue item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueStatus {
+    Pending,
+    Claimed,
+    Done,
+    Cancelled,
+}
+
+impl QueueStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Claimed => "claimed",
+            Self::Done => "done",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "claimed" => Some(Self::Claimed),
+            "done" => Some(Self::Done),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+/// One persisted group turn waiting for the background runner.
+///
+/// The queue survives restarts: the Gateway claims items, generates replies,
+/// and completes them, so a closed app keeps its pending discussion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueItem {
+    pub id: String,
+    pub conversation_id: String,
+    pub source: QueueSource,
+    pub priority: i64,
+    /// Member that produced a mention/auto item; `None` for user messages.
+    pub sender_character_id: Option<String>,
+    /// Member the item is addressed to (mention items only).
+    pub target_character_id: Option<String>,
+    pub content: String,
+    pub status: QueueStatus,
+    pub created_at: DateTime<Utc>,
+    pub claimed_at: Option<DateTime<Utc>>,
+}
+
+impl QueueItem {
+    /// Build a pending item with the priority derived from its source.
+    pub fn new(
+        conversation_id: impl Into<String>,
+        source: QueueSource,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.into(),
+            source,
+            priority: source.priority(),
+            sender_character_id: None,
+            target_character_id: None,
+            content: content.into(),
+            status: QueueStatus::Pending,
+            created_at: Utc::now(),
+            claimed_at: None,
+        }
+    }
+
+    /// Address the item to one group member, builder-style.
+    pub fn to_member(mut self, character_id: impl Into<String>) -> Self {
+        self.target_character_id = Some(character_id.into());
+        self
+    }
+
+    /// Record which member produced the item, builder-style.
+    pub fn from_member(mut self, character_id: impl Into<String>) -> Self {
+        self.sender_character_id = Some(character_id.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: String,
@@ -201,6 +401,10 @@ pub struct Conversation {
     /// Group members in speaking order. Empty for single-character chats.
     #[serde(default)]
     pub participants: Vec<ConversationParticipant>,
+    /// Effective group autonomy settings (global defaults merged with this
+    /// conversation's overrides).
+    #[serde(default)]
+    pub group_settings: GroupChatSettings,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -222,6 +426,7 @@ impl Conversation {
             character_snapshot: CharacterSnapshot::default_character(),
             reply_mode: ReplyMode::Sequential,
             participants: Vec::new(),
+            group_settings: GroupChatSettings::default(),
             created_at: now,
             updated_at: now,
         }

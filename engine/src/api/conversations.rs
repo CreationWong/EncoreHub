@@ -7,8 +7,9 @@ use axum::{
     Json,
 };
 use encorehub_core::{
-    CharacterSnapshot, CharacterUpgradePreview, Conversation, ConversationParticipant, Message,
-    MessageStatus, ReplyMode, Role, ToolCall, DEFAULT_CHARACTER_ID,
+    CharacterSnapshot, CharacterUpgradePreview, Conversation, ConversationParticipant,
+    GroupChatSettings, Message, MessageStatus, QueueItem, QueueSource, ReplyMode, Role, ToolCall,
+    DEFAULT_CHARACTER_ID,
 };
 use encorehub_storage::{AssistantTurn, AttachmentRecord, BlobStore, Database};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ pub struct CreateConversationRequest {
     /// Group reply routing: `sequential` (default) or `smart`.
     #[serde(default)]
     pub reply_mode: Option<String>,
+    /// Full autonomy settings for a new group (persona, auto chat, mentions).
+    #[serde(default)]
+    pub group_settings: Option<GroupChatSettings>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +88,7 @@ pub struct ConversationResponse {
     pub character_snapshot: CharacterSnapshot,
     pub reply_mode: String,
     pub participants: Vec<ParticipantResponse>,
+    pub group_settings: GroupChatSettings,
     pub message_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -100,6 +105,7 @@ pub struct ConversationDetail {
     pub character_snapshot: CharacterSnapshot,
     pub reply_mode: String,
     pub participants: Vec<ParticipantResponse>,
+    pub group_settings: GroupChatSettings,
     pub messages: Vec<MessageResponse>,
     pub summary: Option<String>,
     pub created_at: String,
@@ -226,7 +232,12 @@ pub async fn create(
         }
         let conv = state
             .db
-            .create_group_conversation(title, reply_mode, &selections)
+            .create_group_conversation(
+                title,
+                reply_mode,
+                &selections,
+                req.group_settings.clone().unwrap_or_default(),
+            )
             .map_err(domain_error)?;
         return Ok(Json(build_conversation_response(conv, 0)));
     }
@@ -322,6 +333,7 @@ pub async fn get_one(
             .into_iter()
             .map(ParticipantResponse::from)
             .collect(),
+        group_settings: conv.group_settings,
         messages: message_responses,
         summary,
         created_at: conv.created_at.to_rfc3339(),
@@ -348,6 +360,8 @@ pub struct UpdateRequest {
     pub model: Option<String>,
     /// Group reply routing; ignored by single-character conversations.
     pub reply_mode: Option<String>,
+    /// Full replacement of the conversation's group autonomy settings.
+    pub group_settings: Option<GroupChatSettings>,
 }
 
 pub async fn update(
@@ -359,6 +373,7 @@ pub async fn update(
         && req.provider.is_none()
         && req.model.is_none()
         && req.reply_mode.is_none()
+        && req.group_settings.is_none()
     {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -424,6 +439,15 @@ pub async fn update(
         state
             .db
             .set_conversation_reply_mode(&id, reply_mode)
+            .map_err(domain_error)?;
+    }
+
+    if let Some(settings) = req.group_settings.as_ref() {
+        let settings_json = serde_json::to_string(settings)
+            .map_err(|error| bad_request(&format!("invalid group_settings: {error}")))?;
+        state
+            .db
+            .set_conversation_group_settings(&id, &settings_json)
             .map_err(domain_error)?;
     }
 
@@ -1029,10 +1053,93 @@ fn build_conversation_response(
             .into_iter()
             .map(ParticipantResponse::from)
             .collect(),
+        group_settings: conversation.group_settings,
         message_count,
         created_at: conversation.created_at.to_rfc3339(),
         updated_at: conversation.updated_at.to_rfc3339(),
     }
+}
+
+// ===== Group queue =====
+
+#[derive(Debug, Deserialize)]
+pub struct EnqueueRequest {
+    /// `user`, `mention`, or `auto`; the priority is derived from the source.
+    pub source: String,
+    pub content: String,
+    #[serde(default)]
+    pub sender_character_id: Option<String>,
+    #[serde(default)]
+    pub target_character_id: Option<String>,
+}
+
+/// POST /api/conversations/:id/queue — append one pending group turn.
+pub async fn enqueue(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+    Json(req): Json<EnqueueRequest>,
+) -> Result<Json<QueueItem>, (StatusCode, Json<ErrorResponse>)> {
+    state.db.get_conversation(&conv_id).map_err(not_found)?;
+    if req.source.trim() == "user" && req.content.trim().is_empty() {
+        return Err(bad_request("queued user messages require content"));
+    }
+    let source = QueueSource::from_str(req.source.trim())
+        .ok_or_else(|| bad_request("unsupported queue source"))?;
+    let mut item = QueueItem::new(&conv_id, source, req.content);
+    item.sender_character_id = req
+        .sender_character_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    item.target_character_id = req
+        .target_character_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    state.db.enqueue_item(&item).map_err(internal_error)?;
+    Ok(Json(item))
+}
+
+/// GET /api/conversations/:id/queue — pending and claimed items in order.
+pub async fn list_queue(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+) -> Result<Json<Vec<QueueItem>>, (StatusCode, Json<ErrorResponse>)> {
+    let items = state.db.list_queue_items(&conv_id).map_err(internal_error)?;
+    Ok(Json(items))
+}
+
+/// POST /api/conversations/:id/queue/claim — claim the next item atomically.
+///
+/// Returns the claimed item, or `null` when the queue is empty, so the
+/// Gateway runner can generate against the exact claimed snapshot.
+pub async fn claim_queue(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+) -> Result<Json<Option<QueueItem>>, (StatusCode, Json<ErrorResponse>)> {
+    state.db.get_conversation(&conv_id).map_err(not_found)?;
+    Ok(Json(
+        state.db.claim_next_item(&conv_id).map_err(internal_error)?,
+    ))
+}
+
+/// POST /api/conversations/:id/queue/:item_id/complete — mark one item done.
+pub async fn complete_queue_item(
+    State(state): State<SharedState>,
+    Path((_conv_id, item_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .db
+        .complete_queue_item(&item_id)
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/conversations/:id/queue/clear — cancel every non-terminal item.
+pub async fn clear_queue(
+    State(state): State<SharedState>,
+    Path(conv_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let cancelled = state.db.clear_queue(&conv_id).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({ "cancelled": cancelled })))
 }
 
 // ===== Error helpers =====
