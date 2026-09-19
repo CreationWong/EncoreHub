@@ -77,10 +77,41 @@ is only available in the terminal `done`/`error` payload, matching ADR-0003.
 - `frontend/src/services/groupChat.ts` — SSE client for the endpoint above;
   `frontend/src/services/conversation.ts` — roster/reply-mode DTOs.
 
+## Asynchronous pipeline (ADR-0012)
+
+Background generation is driven by the Engine queue, not by the request that
+sent the message.
+
+- `POST /api/v1/conversations/:id/group-messages` persists the user message,
+  parses `@mentions` (explicit ids first, then `@<name>`), and enqueues one
+  `mention` item per addressed member or one `user` item for the whole roster.
+  Content starting with `/` is handled as a user-only command instead.
+- `GET /api/v1/conversations/:id/group-events` is the live SSE stream:
+  `runner_state`, `queue_updated`, `message_appended`, and the participant
+  frames listed above. Opening it re-arms the conversation's runner.
+- The Gateway runner claims items by priority (`mention` > `user` > `auto`),
+  appends replies with `parent_id` chaining the transcript, and converts
+  `@mentions` in bot replies into new mention items. Without mentions, a bot may
+  continue the chain while `auto_chat_enabled` and the `max_auto_turns` budget
+  allow it; `null` means unlimited and `0` means bots only answer the user.
+- Commands: `/stop` (cancel generation, clear queue, pause), `/pause`,
+  `/resume`. Only user input is command-parsed; commands leave a system note.
+- Settings: the global `group_chat_settings` config is the template for new
+  groups. Each conversation stores a full `group_settings` object including the
+  user persona (`name`, `avatar`, `description`), so bots can address the user
+  with `@<persona name>`.
+
+The synchronous `POST /group-chat` endpoint remains available until the desktop
+client migrates to the async pipeline.
+
 ## Deferred work
 
+- Frontend migration to the async pipeline: event subscription, slash-command
+  menu, per-group settings and persona editors, and the global defaults panel.
 - Gateway tools (web search, web fetch, memory tools) inside group turns.
 - Editing the roster of an existing group; upgrading snapshots to newer
   character revisions.
+- Persisting the auto-turn counter across runner restarts, and idle-initiated
+  discussion topics.
 - Participant accent colors persisted on the character profile instead of the
   frontend palette.
