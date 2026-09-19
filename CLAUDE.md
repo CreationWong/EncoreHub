@@ -109,7 +109,7 @@ Before completing a code change, verify that every touched code file has a meani
 
 | Module | Language | Role | Status |
 |--------|----------|------|--------|
-| `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, settings/skill/memory/knowledge panels, slash commands, auto-generated conversation titles, token counting display | ✅ Active development |
+| `frontend/` | TypeScript + React 18 + Tauri 2 | Desktop UI, streaming, multi-AI group chat workspace, settings/skill/memory/knowledge panels, slash commands, auto-generated conversation titles, token counting display | ✅ Active development |
 | `gateway/` | Go 1.25 (Gin) | HTTP/SSE entry, multi-provider adapter, auth/rate-limit/CORS, reverse proxy to engine, web search integration | ✅ Complete with provider adapters |
 | `engine/` | Rust (axum + tokio + rusqlite + LanceDB) | Conversations, attachments, native document parsing, Memory/Knowledge retrieval, skills, token counting, encryption, and port negotiation | ✅ Core functionality complete |
 | `proto/` | protobuf | gRPC schema for inter-service communication | ⏳ Schema complete, gRPC not yet enabled |
@@ -279,6 +279,13 @@ When the user toggles search on (globe icon in the input box):
 - Deleted characters are soft-deleted so historical Conversation snapshots remain readable. The migrated `default` character cannot be deleted.
 - Gateway composes provider prompts in this order: application constraints -> validated user system date/time/timezone -> character snapshot -> Skill -> Memory/Knowledge -> tool instructions.
 - Character, Skill, Memory, and Knowledge text is user-controlled context. It cannot register tools or weaken application constraints; tool availability is decided only by Gateway code. See [ADR-0005](docs/adr/0005-character-profile-snapshots.md).
+
+### Multi-AI Group Conversations
+
+- A group is a conversation with an ordered `conversation_participants` roster; `messages.sender_character_id` attributes each assistant reply. Single-character conversations keep their legacy columns and have no roster.
+- The workspace app "多 AI 对话" (`frontend/src/components/multichat/`, tab id `multi-chat`) creates groups from existing characters and streams them through `POST /api/v1/conversations/:id/group-chat`.
+- Routing: explicit `@` mentions win; otherwise `reply_mode` is `sequential` or `smart` (`[[NO_REPLY]]` lets a member skip). One turn commits all replies in a single Engine finalization.
+- Group v1 builds prompts from frozen member snapshots with Gateway tools disabled; per-member memory resolution is still honored. See [ADR-0011](docs/adr/0011-multi-participant-conversations.md) and [docs/dev/multi-ai-group-chat.md](docs/dev/multi-ai-group-chat.md).
 
 ### Frontend State (Zustand)
 
