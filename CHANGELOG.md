@@ -14,18 +14,19 @@
 
 ### Changed
 
+- **组件补丁号改为发布时递增**：移除推送到主线时自动滚动补丁号的工作流；手动发布流程在准备阶段只对自上个发布标签以来有生产代码变更的组件递增补丁号，并改用递增后的提交构建与打标签，避免每次推送都产生机器人提交。
 - **发布构建启用 Thin LTO**：Engine Runtime 与桌面壳的 release profile 由 `lto = false` 改为 `lto = "thin"`，在保留逐 crate 并行代码生成、不引入 fat LTO 单步链接耗时的前提下获得跨 crate 优化；`codegen-units = 16` 保持不变。
 - **依赖精简**：移除未使用的 `http-body-util` 开发依赖；桌面壳 `ureq` 关闭仅用于回环 HTTP 探测的 TLS/gzip 默认特性，`tokio` 只保留 `time` 特性；Engine `quick-xml` 升至 0.42，Gateway `golang.org/x/net` 升至 v0.56。
 - **文档按受众分层**：AI 工作文档迁入根目录 `.agents/`，开发者文档归入 `docs/dev/`，第三方接口快照集中于 `docs/vendor/`；新增 `.agents/skills/docs-placement` 技能，在创建、移动或提交文档时校验归属与链接。
 - **上下文面板更直观**：Context 标签以"已用 token ÷ 上下文上限"的百分比为默认主指标、剩余 token 为副指标展示下一次请求将占满模型窗口的程度，接近上限时提示压缩。设置 → Context panel 可预览该仪表，并调整主显示指标与展示顺序（默认按常见阅读习惯：百分比、剩余、已用/上限、已用）。Auto compact 显示实际触发比例与 token 数；请求构成区标注本次请求纳入的消息数与各分类说明；压缩按钮给出禁用原因，已有摘要时改为 "Re-compress context" 并说明会替换旧摘要；空会话或未选择会话时展示引导文案；Parameters 标签注明参数作用于所有会话。模型未配置上下文窗口时从 Model metadata 目录补全上限，占用百分比与自动压缩使用同一来源。
 
-### Security
-
-- **依赖安全更新**：修复可达的文档与网页解析拒绝服务及 TLS/编码类已知问题——Engine `quick-xml` 0.42、`h2` 0.4.19、`rustls` 0.23.45、`anyhow` 1.0.104；Gateway `golang.org/x/net` v0.56.0、`golang.org/x/text` 0.39.0、`klauspost/compress` 1.20.0；前端通过 pnpm override 将 `@xmldom/xmldom`、`postcss`、`browserslist`、`nanoid` 提升至修复版本。
-
 ### Fixed
 
 - **模型元数据空目录自动重取**：已启用元数据 provider 的缓存存在但记录为空时，启动自动更新与模型配置弹窗现在也会重新拉取，不再等待 24 小时刷新周期。
+
+### Security
+
+- **依赖安全更新**：修复可达的文档与网页解析拒绝服务及 TLS/编码类已知问题——Engine `quick-xml` 0.42、`h2` 0.4.19、`rustls` 0.23.45、`anyhow` 1.0.104；Gateway `golang.org/x/net` v0.56.0、`golang.org/x/text` 0.39.0、`klauspost/compress` 1.20.0；前端通过 pnpm override 将 `@xmldom/xmldom`、`postcss`、`browserslist`、`nanoid` 提升至修复版本。
 
 ## [0.1.10] - 2026-09-15
 

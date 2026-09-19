@@ -106,12 +106,12 @@ test("Root package scripts are canonical, non-recursive, and standalone-aware", 
 	assert.doesNotMatch(readme, /\bmake (dev|build|check|test|lint|fmt)\b/);
 });
 
-test("Independent component versions retain compatibility and mainline roll contracts", async () => {
+test("Independent component versions retain compatibility and release roll contracts", async () => {
 	const [
 		frontend,
 		gateway,
 		engine,
-		workflow,
+		releaseWorkflow,
 		packageText,
 		frontendPackageText,
 		tauriConfigText,
@@ -121,7 +121,7 @@ test("Independent component versions retain compatibility and mainline roll cont
 		read("frontend/version.json"),
 		read("gateway/internal/buildinfo/version.json"),
 		read("engine/version.json"),
-		read(".github/workflows/version-roll.yml"),
+		read(".github/workflows/build.yml"),
 		read("package.json"),
 		read("frontend/package.json"),
 		read("frontend/src-tauri/tauri.conf.json"),
@@ -143,28 +143,28 @@ test("Independent component versions retain compatibility and mainline roll cont
 			);
 		}
 	}
-	assert.match(workflow, /branches: \[master\]/);
-	assert.doesNotMatch(workflow, /branches: \[[^\]]*main/);
-	assert.match(workflow, /paths-ignore:/);
-	for (const ignoredPath of [
-		'"docs/**"',
-		'".github/workflows/**"',
-		'"**/package.json"',
-		'"scripts/**"',
-		'"frontend/scripts/**"',
-		'"**/*.test.*"',
-		'"**/*_test.go"',
-	]) {
-		assert.ok(workflow.includes(ignoredPath), `missing ${ignoredPath}`);
-	}
-	assert.match(workflow, /release-metadata\.mjs check/);
-	assert.match(workflow, /fetch-depth: 0/);
-	assert.match(workflow, /BASE_SHA: \$\{\{ github\.event\.before \}\}/);
+	// Patch tiers advance only while preparing a release: the manual workflow
+	// bumps components changed since the last tag and builds the bumped commit.
+	assert.match(releaseWorkflow, /ref: master/);
+	assert.match(releaseWorkflow, /fetch-depth: 0/);
+	assert.match(releaseWorkflow, /git tag --list 'V\[0-9\]\*' --sort=-version:refname/);
 	assert.match(
-		workflow,
-		/versioning\.mjs auto --base "\$BASE_SHA" --head "\$HEAD_SHA"/,
+		releaseWorkflow,
+		/versioning\.mjs auto --base "\$base" --head HEAD/,
 	);
-	assert.match(workflow, /\[skip version-roll\]/);
+	assert.match(
+		releaseWorkflow,
+		/build_sha: \$\{\{ steps\.bump\.outputs\.sha \}\}/,
+	);
+	assert.match(
+		releaseWorkflow,
+		/ref: \$\{\{ needs\.prepare\.outputs\.build_sha \}\}/,
+	);
+	assert.match(releaseWorkflow, /--target "\$BUILD_SHA"/);
+	assert.match(
+		releaseWorkflow,
+		/git add frontend\/version\.json gateway\/internal\/buildinfo\/version\.json engine\/version\.json/,
+	);
 	const scripts = JSON.parse(packageText).scripts;
 	assert.match(scripts["version:show"], /versioning\.mjs show/);
 	assert.match(scripts["version:bump"], /versioning\.mjs bump/);
