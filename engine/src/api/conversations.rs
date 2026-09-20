@@ -230,13 +230,22 @@ pub async fn create(
             };
             selections.push((character_id.to_string(), selection));
         }
+        // New groups start from the global defaults so an administrator can
+        // change the template without touching every group.
+        let global_settings = state
+            .db
+            .get_config("group_chat_settings")
+            .ok()
+            .flatten()
+            .and_then(|entry| serde_json::from_str::<GroupChatSettings>(&entry.value_json).ok())
+            .unwrap_or_default();
         let conv = state
             .db
             .create_group_conversation(
                 title,
                 reply_mode,
                 &selections,
-                req.group_settings.clone().unwrap_or_default(),
+                req.group_settings.clone().unwrap_or(global_settings),
             )
             .map_err(domain_error)?;
         return Ok(Json(build_conversation_response(conv, 0)));
