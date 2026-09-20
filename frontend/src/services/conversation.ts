@@ -4,6 +4,22 @@ import type { CharacterSnapshot } from "./characters";
 
 export type ReplyMode = "sequential" | "smart";
 
+/** Human participant identity inside one group conversation. */
+export interface ConversationPersona {
+	name: string;
+	avatar: string;
+	description: string;
+}
+
+/** Per-group autonomy settings; null max_auto_turns means unlimited. */
+export interface GroupChatSettings {
+	auto_chat_enabled: boolean;
+	max_auto_turns: number | null;
+	allow_bot_mentions: boolean;
+	paused: boolean;
+	user_persona: ConversationPersona;
+}
+
 /** One AI member of a group conversation with its frozen character snapshot. */
 export interface ConversationParticipant {
 	character_id: string;
@@ -27,6 +43,8 @@ export interface Conversation {
 	reply_mode?: ReplyMode;
 	/** Ordered AI member roster; empty for single-character conversations. */
 	participants?: ConversationParticipant[];
+	/** Effective group autonomy settings. */
+	group_settings?: GroupChatSettings;
 	message_count: number;
 	created_at: string;
 	updated_at: string;
@@ -199,6 +217,17 @@ export async function createGroupConversation(
 			reply_mode: replyMode,
 			participants: members,
 		}),
+	});
+}
+
+/** Persist the conversation's complete group autonomy settings. */
+export async function updateConversationGroupSettings(
+	id: string,
+	groupSettings: GroupChatSettings,
+): Promise<Conversation> {
+	return apiFetch<Conversation>(`/conversations/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify({ group_settings: groupSettings }),
 	});
 }
 

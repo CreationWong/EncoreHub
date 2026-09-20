@@ -6,7 +6,7 @@
 // the only place that knows the group event names, so the store stays a pure
 // state reducer over these callbacks.
 
-import { buildHeaders } from "./api";
+import { apiFetch, buildHeaders } from "./api";
 import { parseEvent } from "./chat";
 import { apiBase } from "./config";
 import {
@@ -267,5 +267,195 @@ export async function sendGroupMessageStream(
 			code: "network_error",
 			message: error instanceof Error ? error.message : "Group chat failed",
 		});
+	}
+}
+
+/** Result of enqueueing a user group message or applying a command. */
+export interface GroupEnqueueResult {
+	user_message?: Message;
+	queued?: number;
+	command?: string | null;
+}
+
+/**
+ * Persist a user message and queue its answers.
+ *
+ * Content starting with `/` is handled by the Gateway as a user-only command
+ * (stop, pause, resume) and returns `command` instead of a queued message.
+ */
+export async function enqueueGroupMessage(
+	convId: string,
+	content: string,
+	mentions: string[],
+): Promise<GroupEnqueueResult> {
+	const payload = await apiFetch<{
+		user_message?: MessagePayload;
+		queued?: number;
+		command?: string | null;
+	}>(`/conversations/${convId}/group-messages`, {
+		method: "POST",
+		body: JSON.stringify({
+			content,
+			...(mentions.length > 0 ? { mentions } : {}),
+		}),
+	});
+	return {
+		user_message: payload.user_message
+			? normalizeMessage(payload.user_message)
+			: undefined,
+		queued: payload.queued ?? 0,
+		command: payload.command ?? null,
+	};
+}
+
+/** Live runner events for one group conversation. */
+export interface GroupEventCallbacks {
+	onRunnerState?: (state: {
+		state: "idle" | "running" | "paused";
+		pending: number;
+	}) => void;
+	onQueueUpdated?: (pending: number) => void;
+	onMessageAppended?: (message: Message) => void;
+	onParticipantStarted?: (participant: GroupParticipantStart) => void;
+	onDelta: (participantId: string, content: string) => void;
+	onReasoning?: (participantId: string, content: string) => void;
+	onUsage?: (participantId: string, input: number, output: number) => void;
+	onParticipantDone?: (
+		participantId: string,
+		content: string,
+		reasoning: string,
+	) => void;
+	onParticipantSkipped?: (participantId: string) => void;
+	onParticipantError?: (participantId: string, message: string) => void;
+	onError?: (message: string) => void;
+}
+
+/**
+ * Subscribe to the conversation's runner events until the signal aborts.
+ *
+ * The first frame is always `runner_state`, so the caller can render queue
+ * depth immediately after (re)connecting.
+ */
+export async function subscribeGroupEvents(
+	convId: string,
+	callbacks: GroupEventCallbacks,
+	signal?: AbortSignal,
+): Promise<void> {
+	try {
+		const res = await diagnosticFetch(
+			`${apiBase()}/conversations/${convId}/group-events`,
+			{ headers: buildHeaders(), signal },
+		);
+		if (!res.ok) {
+			callbacks.onError?.(`Event stream failed (${res.status})`);
+			return;
+		}
+		const reader = res.body?.getReader();
+		if (!reader) {
+			callbacks.onError?.("Gateway returned no event stream");
+			return;
+		}
+		const decoder = new TextDecoder();
+		let buffer = "";
+		const handleEvent = (block: string) => {
+			const ev = parseEvent(block);
+			if (!ev) return;
+			let payload: Record<string, unknown>;
+			try {
+				payload = JSON.parse(ev.data) as Record<string, unknown>;
+			} catch {
+				return;
+			}
+			switch (ev.event) {
+				case "runner_state":
+					callbacks.onRunnerState?.({
+						state: String(payload.state ?? "idle") as
+							| "idle"
+							| "running"
+							| "paused",
+						pending: Number(payload.pending ?? 0),
+					});
+					return;
+				case "queue_updated":
+					callbacks.onQueueUpdated?.(Number(payload.pending ?? 0));
+					return;
+				case "message_appended": {
+					const message = payload.message as MessagePayload | undefined;
+					if (message?.id) {
+						callbacks.onMessageAppended?.(normalizeMessage(message));
+					}
+					return;
+				}
+				case "participant_started":
+					callbacks.onParticipantStarted?.({
+						participant_id: String(payload.participant_id ?? ""),
+						name: String(payload.name ?? ""),
+						avatar: String(payload.avatar ?? ""),
+						provider: String(payload.provider ?? ""),
+						model: String(payload.model ?? ""),
+						position: Number(payload.position ?? 0),
+					});
+					return;
+				case "delta":
+					callbacks.onDelta(
+						String(payload.participant_id ?? ""),
+						String(payload.content ?? ""),
+					);
+					return;
+				case "reasoning":
+					callbacks.onReasoning?.(
+						String(payload.participant_id ?? ""),
+						String(payload.content ?? ""),
+					);
+					return;
+				case "usage":
+					callbacks.onUsage?.(
+						String(payload.participant_id ?? ""),
+						Number(payload.input_tokens ?? 0),
+						Number(payload.output_tokens ?? 0),
+					);
+					return;
+				case "participant_done":
+					callbacks.onParticipantDone?.(
+						String(payload.participant_id ?? ""),
+						String(payload.content ?? ""),
+						String(payload.reasoning ?? ""),
+					);
+					return;
+				case "participant_skipped":
+					callbacks.onParticipantSkipped?.(
+						String(payload.participant_id ?? ""),
+					);
+					return;
+				case "participant_error":
+					callbacks.onParticipantError?.(
+						String(payload.participant_id ?? ""),
+						String(payload.message ?? "Provider request failed"),
+					);
+					return;
+				case "error":
+					callbacks.onError?.(String(payload.message ?? "Group runner failed"));
+					return;
+				default:
+					return;
+			}
+		};
+
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			let separator = buffer.indexOf("\n\n");
+			while (separator >= 0) {
+				handleEvent(buffer.slice(0, separator));
+				buffer = buffer.slice(separator + 2);
+				separator = buffer.indexOf("\n\n");
+			}
+		}
+	} catch (error) {
+		if ((error as Error)?.name === "AbortError") return;
+		callbacks.onError?.(
+			error instanceof Error ? error.message : "Event stream failed",
+		);
 	}
 }

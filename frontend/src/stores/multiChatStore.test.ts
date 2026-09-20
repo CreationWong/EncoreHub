@@ -4,7 +4,7 @@ import type {
 	ConversationParticipant,
 	Message,
 } from "../services/conversation";
-import type { GroupStreamCallbacks } from "../services/groupChat";
+import type { GroupEventCallbacks } from "../services/groupChat";
 
 vi.mock("../services/conversation", async (importOriginal) => {
 	const actual =
@@ -15,28 +15,36 @@ vi.mock("../services/conversation", async (importOriginal) => {
 		getConversation: vi.fn(),
 		createGroupConversation: vi.fn(),
 		updateConversationReplyMode: vi.fn(),
+		updateConversationGroupSettings: vi.fn(),
 		deleteConversation: vi.fn(),
 	};
 });
 
 vi.mock("../services/groupChat", () => ({
-	sendGroupMessageStream: vi.fn(),
+	enqueueGroupMessage: vi.fn(),
+	subscribeGroupEvents: vi.fn(),
 }));
 
 import {
 	createGroupConversation,
 	getConversation,
 	listConversations,
+	updateConversationGroupSettings,
 	updateConversationReplyMode,
 } from "../services/conversation";
-import { sendGroupMessageStream } from "../services/groupChat";
+import {
+	enqueueGroupMessage,
+	subscribeGroupEvents,
+} from "../services/groupChat";
 import { useMultiChatStore } from "./multiChatStore";
 
 const listMock = vi.mocked(listConversations);
 const getMock = vi.mocked(getConversation);
 const createMock = vi.mocked(createGroupConversation);
 const updateModeMock = vi.mocked(updateConversationReplyMode);
-const streamMock = vi.mocked(sendGroupMessageStream);
+const updateSettingsMock = vi.mocked(updateConversationGroupSettings);
+const enqueueMock = vi.mocked(enqueueGroupMessage);
+const subscribeMock = vi.mocked(subscribeGroupEvents);
 
 function participant(
 	id: string,
@@ -96,17 +104,19 @@ function message(overrides: Partial<Message>): Message {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	subscribeMock.mockImplementation(async () => new Promise<void>(() => {}));
 	useMultiChatStore.setState({
 		conversations: [],
 		listLoading: false,
 		activeId: null,
 		participants: [],
 		replyMode: "sequential",
+		groupSettings: null,
 		messages: [],
 		segments: [],
-		streaming: false,
-		loadingConversation: false,
-		abortController: null,
+		runnerState: "idle",
+		pending: 0,
+		eventsController: null,
 	});
 });
 
@@ -127,95 +137,81 @@ describe("multiChatStore", () => {
 		);
 	});
 
-	it("streams one message to every member segment then reloads the transcript", async () => {
-		const streaming = conversation("group-1");
-		getMock
-			.mockResolvedValueOnce({
-				...streaming,
-				messages: [],
-				summary: null,
-			})
-			.mockResolvedValueOnce({
-				...streaming,
-				summary: null,
-				messages: [
-					message({
-						id: "turn-1",
-						role: "user",
-						content: "开始",
-						sender_character_id: null,
-					}),
-					message({
-						id: "assistant-a",
-						content: "A 收到",
-						sender_character_id: "char-a",
-					}),
-					message({
-						id: "assistant-b",
-						content: "B 补充",
-						sender_character_id: "char-b",
-					}),
-				],
-			});
-		listMock.mockResolvedValue({ conversations: [streaming], total: 1 });
-		streamMock.mockImplementation(
-			async (
-				_convId,
-				_content,
-				_keys,
-				_mentions,
-				callbacks: GroupStreamCallbacks,
-			) => {
-				callbacks.onTurnStarted?.(
-					message({ id: "turn-1", role: "user", content: "开始" }),
-				);
-				callbacks.onParticipantStarted?.({
-					participant_id: "char-a",
-					name: "A",
-					avatar: "",
-					provider: "openai",
-					model: "gpt-test",
-					position: 0,
-				});
-				callbacks.onDelta("char-a", "A 收到");
-				callbacks.onParticipantDone?.("char-a", "A 收到", "");
-				callbacks.onParticipantStarted?.({
-					participant_id: "char-b",
-					name: "B",
-					avatar: "",
-					provider: "openai",
-					model: "gpt-test",
-					position: 1,
-				});
-				callbacks.onDelta("char-b", "B 补充");
-				callbacks.onParticipantDone?.("char-b", "B 补充", "");
-				callbacks.onDone({
-					user_message: message({ id: "turn-1", role: "user" }),
-					assistant_messages: [],
-					usage: { input_tokens: 1, output_tokens: 1 },
-				});
+	it("enqueues a user message and folds runner events into the transcript", async () => {
+		const streaming = conversation("group-1", {
+			group_settings: {
+				auto_chat_enabled: true,
+				max_auto_turns: 6,
+				allow_bot_mentions: true,
+				paused: false,
+				user_persona: { name: "我", avatar: "", description: "" },
 			},
-		);
+		});
+		getMock.mockResolvedValue({
+			...streaming,
+			messages: [],
+			summary: null,
+		});
+		enqueueMock.mockResolvedValue({
+			user_message: message({
+				id: "turn-1",
+				role: "user",
+				content: "开始",
+			}),
+			queued: 1,
+			command: null,
+		});
 
 		await useMultiChatStore.getState().openConversation("group-1");
-		await useMultiChatStore.getState().sendMessage("开始", ["char-a"]);
-
-		expect(streamMock).toHaveBeenCalledWith(
+		expect(subscribeMock).toHaveBeenCalledWith(
 			"group-1",
-			"开始",
-			{},
-			["char-a"],
 			expect.any(Object),
 			expect.any(AbortSignal),
 		);
-		const state = useMultiChatStore.getState();
-		expect(state.streaming).toBe(false);
-		expect(state.segments).toEqual([]);
+		const callbacks = subscribeMock.mock.calls[0][1] as GroupEventCallbacks;
+
+		await useMultiChatStore.getState().sendMessage("开始", ["char-a"]);
+		expect(enqueueMock).toHaveBeenCalledWith("group-1", "开始", ["char-a"]);
+		let state = useMultiChatStore.getState();
+		expect(state.messages.map((item) => item.id)).toEqual(["turn-1"]);
+		expect(state.runnerState).toBe("running");
+
+		callbacks.onRunnerState?.({ state: "running", pending: 1 });
+		callbacks.onParticipantStarted?.({
+			participant_id: "char-a",
+			name: "A",
+			avatar: "",
+			provider: "openai",
+			model: "gpt-test",
+			position: 0,
+		});
+		callbacks.onDelta("char-a", "A 收到");
+		callbacks.onParticipantDone?.("char-a", "A 收到", "");
+		callbacks.onMessageAppended?.(
+			message({
+				id: "assistant-a",
+				content: "A 收到",
+				sender_character_id: "char-a",
+			}),
+		);
+		callbacks.onRunnerState?.({ state: "idle", pending: 0 });
+
+		state = useMultiChatStore.getState();
 		expect(state.messages.map((item) => item.id)).toEqual([
 			"turn-1",
 			"assistant-a",
-			"assistant-b",
 		]);
+		expect(state.segments).toEqual([]);
+		expect(state.runnerState).toBe("idle");
+	});
+
+	it("sends the user-only stop command through the enqueue endpoint", async () => {
+		useMultiChatStore.setState({ activeId: "group-1" });
+		enqueueMock.mockResolvedValue({ command: "stop", queued: 0 });
+
+		await useMultiChatStore.getState().stopStreaming();
+
+		expect(enqueueMock).toHaveBeenCalledWith("group-1", "/stop", []);
 	});
 
 	it("rolls the reply mode back when the Engine rejects the update", async () => {
@@ -248,6 +244,7 @@ describe("multiChatStore", () => {
 			{ character_id: "char-a" },
 			{ character_id: "char-b", provider: "openai", model: "gpt-test" },
 		]);
+		expect(updateSettingsMock).not.toHaveBeenCalled();
 		expect(useMultiChatStore.getState().activeId).toBe("group-new");
 	});
 });

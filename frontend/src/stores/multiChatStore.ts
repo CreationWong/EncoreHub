@@ -1,14 +1,16 @@
 // State for the multi-AI group chat workspace app.
 //
-// The store owns the group conversation list, the active transcript, and the
-// per-member streaming segments. It intentionally does not reuse
-// conversationStore: that store models exactly one streaming assistant and
-// would need invasive changes to represent several speakers at once.
+// The Gateway now schedules group turns asynchronously: sending only enqueues a
+// user message, and a background runner streams its work over the group events
+// SSE endpoint. This store therefore owns a live subscription instead of a
+// request-scoped stream, and renders committed messages plus per-member
+// generation segments.
 
 import { create } from "zustand";
 import {
 	type Conversation,
 	type ConversationParticipant,
+	type GroupChatSettings,
 	type GroupMemberSelection,
 	type Message,
 	type ReplyMode,
@@ -16,16 +18,17 @@ import {
 	deleteConversation as deleteConversationRequest,
 	getConversation,
 	listConversations,
+	updateConversationGroupSettings,
 	updateConversationReplyMode,
 } from "../services/conversation";
 import {
 	type GroupParticipantStart,
-	sendGroupMessageStream,
+	enqueueGroupMessage,
+	subscribeGroupEvents,
 } from "../services/groupChat";
-import { useSettingsStore } from "./settingsStore";
 import { toast } from "./toastStore";
 
-/** One member's live reply while the group turn is streaming. */
+/** One member's live reply while the runner generates it. */
 export interface GroupSegment {
 	participantId: string;
 	name: string;
@@ -39,6 +42,9 @@ export interface GroupSegment {
 	error?: string;
 }
 
+/** Runner lifecycle reported by the Gateway. */
+export type GroupRunnerState = "idle" | "running" | "paused";
+
 /** A group is a conversation with an ordered roster of at least two members. */
 export function isGroupConversation(conversation: Conversation): boolean {
 	return (conversation.participants?.length ?? 0) > 1;
@@ -50,24 +56,35 @@ interface MultiChatState {
 	activeId: string | null;
 	participants: ConversationParticipant[];
 	replyMode: ReplyMode;
+	groupSettings: GroupChatSettings | null;
 	messages: Message[];
 	segments: GroupSegment[];
-	streaming: boolean;
-	loadingConversation: boolean;
-	abortController: AbortController | null;
+	runnerState: GroupRunnerState;
+	pending: number;
+	eventsController: AbortController | null;
 	loadConversations: () => Promise<void>;
 	openConversation: (id: string) => Promise<void>;
 	createGroup: (
 		title: string,
 		replyMode: ReplyMode,
 		members: GroupMemberSelection[],
+		groupSettings?: GroupChatSettings,
 	) => Promise<string>;
 	removeConversation: (id: string) => Promise<void>;
 	setReplyMode: (replyMode: ReplyMode) => Promise<void>;
+	saveGroupSettings: (settings: GroupChatSettings) => Promise<void>;
+	subscribe: (id: string) => void;
 	sendMessage: (content: string, mentions: string[]) => Promise<void>;
-	stopStreaming: () => void;
-	/** Close the active conversation and drop its transcript. */
+	stopStreaming: () => Promise<void>;
 	closeConversation: () => void;
+}
+
+function upsertById(messages: Message[], message: Message): Message[] {
+	const index = messages.findIndex((item) => item.id === message.id);
+	if (index < 0) return [...messages, message];
+	return messages.map((item, position) =>
+		position === index ? message : item,
+	);
 }
 
 function upsertSegment(
@@ -112,11 +129,12 @@ export const useMultiChatStore = create<MultiChatState>((set, get) => ({
 	activeId: null,
 	participants: [],
 	replyMode: "sequential",
+	groupSettings: null,
 	messages: [],
 	segments: [],
-	streaming: false,
-	loadingConversation: false,
-	abortController: null,
+	runnerState: "idle",
+	pending: 0,
+	eventsController: null,
 
 	loadConversations: async () => {
 		set({ listLoading: true });
@@ -133,45 +151,41 @@ export const useMultiChatStore = create<MultiChatState>((set, get) => ({
 	},
 
 	openConversation: async (id) => {
-		if (get().streaming) get().stopStreaming();
-		set({ loadingConversation: true, activeId: id, segments: [] });
+		get().eventsController?.abort();
+		set({ activeId: id, segments: [], eventsController: null });
 		try {
 			const detail = await getConversation(id);
 			set({
 				activeId: id,
 				participants: detail.participants ?? [],
 				replyMode: detail.reply_mode ?? "sequential",
+				groupSettings: detail.group_settings ?? null,
 				messages: detail.messages,
 				segments: [],
-				loadingConversation: false,
 			});
+			get().subscribe(id);
 		} catch (error) {
-			set({ loadingConversation: false });
 			toast.error(
 				error instanceof Error ? error.message : "Failed to open group",
 			);
 		}
 	},
 
-	createGroup: async (title, replyMode, members) => {
+	createGroup: async (title, replyMode, members, groupSettings) => {
 		const created = await createGroupConversation(title, replyMode, members);
+		if (groupSettings) {
+			await updateConversationGroupSettings(created.id, groupSettings);
+		}
 		await get().loadConversations();
 		await get().openConversation(created.id);
 		return created.id;
 	},
 
 	removeConversation: async (id) => {
+		if (get().activeId === id) get().closeConversation();
 		await deleteConversationRequest(id);
 		set((state) => ({
 			conversations: state.conversations.filter((item) => item.id !== id),
-			...(state.activeId === id
-				? {
-						activeId: null,
-						participants: [],
-						messages: [],
-						segments: [],
-					}
-				: {}),
 		}));
 	},
 
@@ -191,170 +205,189 @@ export const useMultiChatStore = create<MultiChatState>((set, get) => ({
 		}
 	},
 
-	sendMessage: async (content, mentions) => {
-		const { activeId, streaming } = get();
-		if (!activeId || streaming) return;
-		const trimmed = content.trim();
-		if (!trimmed) return;
-
-		const optimisticUser: Message = {
-			id: `local-user-${Date.now()}`,
-			role: "user",
-			content: trimmed,
-			parent_id: null,
-			tool_calls: [],
-			status: "completed",
-			created_at: new Date().toISOString(),
-		};
-		set((state) => ({
-			messages: [...state.messages, optimisticUser],
-			segments: [],
-			streaming: true,
-		}));
-
-		const controller = new AbortController();
-		set({ abortController: controller });
-
-		// Session keys are sent as X-<Provider>-Key per member; the Gateway
-		// falls back to the Engine vault when a header is absent.
-		const apiKeys = useSettingsStore.getState().apiKeys;
-		const providerKeys: Record<string, string> = {};
-		for (const participant of get().participants) {
-			const key = apiKeys[participant.provider];
-			if (key) providerKeys[participant.provider] = key;
+	saveGroupSettings: async (settings) => {
+		const activeId = get().activeId;
+		if (!activeId) return;
+		const previous = get().groupSettings;
+		set({ groupSettings: settings });
+		try {
+			const updated = await updateConversationGroupSettings(activeId, settings);
+			set({ groupSettings: updated.group_settings ?? settings });
+		} catch (error) {
+			set({ groupSettings: previous });
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to save group settings",
+			);
 		}
-
-		const reload = async () => {
-			try {
-				const detail = await getConversation(activeId);
-				set({
-					participants: detail.participants ?? get().participants,
-					replyMode: detail.reply_mode ?? get().replyMode,
-					messages: detail.messages,
-					segments: [],
-				});
-			} catch {
-				/* the transcript stays as streamed if reload fails */
-			}
-		};
-
-		await sendGroupMessageStream(
-			activeId,
-			trimmed,
-			providerKeys,
-			mentions,
-			{
-				onTurnStarted: (userMessage) => {
-					set((state) => ({
-						messages: state.messages.map((message) =>
-							message.id === optimisticUser.id ? userMessage : message,
-						),
-					}));
-				},
-				onParticipantStarted: (participant) => {
-					set((state) => ({
-						segments: upsertSegment(state.segments, participant),
-					}));
-				},
-				onDelta: (participantId, delta) => {
-					set((state) => ({
-						segments: updateSegment(
-							state.segments,
-							participantId,
-							(segment) => ({
-								...segment,
-								content: segment.content + delta,
-							}),
-						),
-					}));
-				},
-				onReasoning: (participantId, reasoning) => {
-					set((state) => ({
-						segments: updateSegment(
-							state.segments,
-							participantId,
-							(segment) => ({
-								...segment,
-								reasoning: segment.reasoning + reasoning,
-							}),
-						),
-					}));
-				},
-				onParticipantDone: (participantId) => {
-					set((state) => ({
-						segments: updateSegment(
-							state.segments,
-							participantId,
-							(segment) => ({
-								...segment,
-								status: "done",
-							}),
-						),
-					}));
-				},
-				onParticipantSkipped: (participantId) => {
-					set((state) => ({
-						segments: updateSegment(
-							state.segments,
-							participantId,
-							(segment) => ({
-								...segment,
-								status: "skipped",
-								content: "",
-							}),
-						),
-					}));
-				},
-				onParticipantError: (participantId, message) => {
-					set((state) => ({
-						segments: updateSegment(
-							state.segments,
-							participantId,
-							(segment) => ({
-								...segment,
-								status: "error",
-								error: message,
-							}),
-						),
-					}));
-				},
-				onDone: async () => {
-					await reload();
-					await get().loadConversations();
-				},
-				onError: async (error) => {
-					if (error.user_message || error.assistant_messages?.length) {
-						await reload();
-					}
-					toast.error(error.message);
-				},
-			},
-			controller.signal,
-		);
-
-		set({ streaming: false, abortController: null });
 	},
 
-	stopStreaming: () => {
-		get().abortController?.abort();
-		set({ streaming: false, abortController: null, segments: [] });
+	/**
+	 * Subscribe to the conversation's runner events.
+	 *
+	 * A dropped stream (app or Gateway restart) reconnects on a short delay so
+	 * a reopened group keeps showing live discussion without user action.
+	 */
+	subscribe: (id) => {
+		get().eventsController?.abort();
+		const controller = new AbortController();
+		set({ eventsController: controller });
+
+		const connect = async () => {
+			if (controller.signal.aborted) return;
+			await subscribeGroupEvents(
+				id,
+				{
+					onRunnerState: (state) => {
+						set({
+							runnerState: state.state,
+							pending: state.pending,
+							...(state.state === "idle" ? { segments: [] } : {}),
+						});
+					},
+					onQueueUpdated: (pending) => set({ pending }),
+					onMessageAppended: (message) => {
+						set((state) => ({
+							messages: upsertById(state.messages, message),
+							segments: message.sender_character_id
+								? state.segments.filter(
+										(segment) =>
+											segment.participantId !== message.sender_character_id,
+									)
+								: state.segments,
+						}));
+					},
+					onParticipantStarted: (participant) => {
+						set((state) => ({
+							segments: upsertSegment(state.segments, participant),
+						}));
+					},
+					onDelta: (participantId, delta) => {
+						set((state) => ({
+							segments: updateSegment(
+								state.segments,
+								participantId,
+								(segment) => ({
+									...segment,
+									content: segment.content + delta,
+								}),
+							),
+						}));
+					},
+					onReasoning: (participantId, reasoning) => {
+						set((state) => ({
+							segments: updateSegment(
+								state.segments,
+								participantId,
+								(segment) => ({
+									...segment,
+									reasoning: segment.reasoning + reasoning,
+								}),
+							),
+						}));
+					},
+					onParticipantDone: (participantId) => {
+						set((state) => ({
+							segments: updateSegment(
+								state.segments,
+								participantId,
+								(segment) => ({ ...segment, status: "done" }),
+							),
+						}));
+					},
+					onParticipantSkipped: (participantId) => {
+						set((state) => ({
+							segments: updateSegment(
+								state.segments,
+								participantId,
+								(segment) => ({
+									...segment,
+									status: "skipped",
+									content: "",
+								}),
+							),
+						}));
+					},
+					onParticipantError: (participantId, message) => {
+						set((state) => ({
+							segments: updateSegment(
+								state.segments,
+								participantId,
+								(segment) => ({
+									...segment,
+									status: "error",
+									error: message,
+								}),
+							),
+						}));
+					},
+					onError: (message) => {
+						toast.error(message);
+					},
+				},
+				controller.signal,
+			);
+			if (!controller.signal.aborted) {
+				setTimeout(() => {
+					if (!controller.signal.aborted && get().activeId === id) {
+						void connect();
+					}
+				}, 2000);
+			}
+		};
+		void connect();
+	},
+
+	sendMessage: async (content, mentions) => {
 		const activeId = get().activeId;
-		if (activeId) {
-			// The Gateway finalizes the turn asynchronously after the client
-			// disconnects; reload shortly after so any committed partials show.
-			setTimeout(() => {
-				void get().openConversation(activeId);
-			}, 600);
+		if (!activeId) return;
+		const trimmed = content.trim();
+		if (!trimmed) return;
+		try {
+			const result = await enqueueGroupMessage(activeId, trimmed, mentions);
+			if (result.command) {
+				// Commands are acknowledged by the runner state event; the
+				// system note arrives through message_appended.
+				return;
+			}
+			if (result.user_message) {
+				set((state) => ({
+					messages: upsertById(state.messages, result.user_message as Message),
+					pending: result.queued ?? state.pending,
+					runnerState: "running",
+				}));
+			}
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to send message",
+			);
+		}
+	},
+
+	stopStreaming: async () => {
+		const activeId = get().activeId;
+		if (!activeId) return;
+		try {
+			await enqueueGroupMessage(activeId, "/stop", []);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to stop the group",
+			);
 		}
 	},
 
 	closeConversation: () => {
-		if (get().streaming) get().stopStreaming();
+		get().eventsController?.abort();
 		set({
 			activeId: null,
 			participants: [],
+			groupSettings: null,
 			messages: [],
 			segments: [],
+			runnerState: "idle",
+			pending: 0,
+			eventsController: null,
 		});
 	},
 }));

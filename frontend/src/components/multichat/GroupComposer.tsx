@@ -9,6 +9,13 @@ import { useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import type { ConversationParticipant } from "../../services/conversation";
 
+/** User-only group commands. The Gateway rejects them from AI output. */
+const GROUP_COMMANDS = [
+	{ command: "/stop", helpKey: "multiChat.commandStopHelp" },
+	{ command: "/pause", helpKey: "multiChat.commandPauseHelp" },
+	{ command: "/resume", helpKey: "multiChat.commandResumeHelp" },
+] as const;
+
 export interface GroupComposerProps {
 	participants: ConversationParticipant[];
 	streaming: boolean;
@@ -51,6 +58,7 @@ export default function GroupComposer({
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [value, setValue] = useState("");
 	const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+	const [commandQuery, setCommandQuery] = useState<string | null>(null);
 
 	const matches = useMemo(() => {
 		if (mentionQuery == null) return [];
@@ -63,6 +71,21 @@ export default function GroupComposer({
 	const syncMentionMenu = (next: string, caret: number | null) => {
 		const position = caret ?? next.length;
 		setMentionQuery(activeMentionQuery(next, position));
+		const commandMatch = /^\/(\S*)$/.exec(next.trimStart());
+		setCommandQuery(commandMatch ? commandMatch[1].toLowerCase() : null);
+	};
+
+	const matchingCommands = GROUP_COMMANDS.filter((entry) =>
+		commandQuery == null
+			? false
+			: entry.command.slice(1).startsWith(commandQuery),
+	);
+
+	const insertCommand = (command: string) => {
+		setValue("");
+		setCommandQuery(null);
+		setMentionQuery(null);
+		onSend(command, []);
 	};
 
 	const insertMention = (participant: ConversationParticipant) => {
@@ -95,7 +118,28 @@ export default function GroupComposer({
 	return (
 		<div className="border-t border-border bg-surface px-3 py-3">
 			<div className="relative mx-auto w-full max-w-3xl">
-				{mentionQuery != null && matches.length > 0 && (
+				{commandQuery != null && matchingCommands.length > 0 && (
+					<ul
+						aria-label={t("multiChat.commands")}
+						className="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-md border border-border bg-workspace py-1 shadow-xl"
+					>
+						{matchingCommands.map((entry) => (
+							<li key={entry.command}>
+								<button
+									type="button"
+									onClick={() => insertCommand(entry.command)}
+									className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs text-text-primary hover:bg-control"
+								>
+									<span className="font-mono font-medium">{entry.command}</span>
+									<span className="min-w-0 flex-1 truncate text-[11px] text-text-muted">
+										{t(entry.helpKey)}
+									</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+				{commandQuery == null && mentionQuery != null && matches.length > 0 && (
 					<ul
 						aria-label={t("multiChat.mentionMenu")}
 						className="absolute bottom-full left-3 mb-2 max-h-56 w-64 overflow-y-auto rounded-md border border-border bg-workspace py-1 shadow-xl"

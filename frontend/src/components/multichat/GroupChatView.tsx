@@ -4,8 +4,8 @@
 // streaming reply visually becomes its persisted message. The transcript marks
 // the sender of every assistant row; user rows stay right-aligned bubbles.
 
-import { Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Settings2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import type {
 	ConversationParticipant,
@@ -16,6 +16,7 @@ import { useMultiChatStore } from "../../stores/multiChatStore";
 import CharacterAvatar from "../character/CharacterAvatar";
 import GroupComposer from "./GroupComposer";
 import GroupMessageBubble from "./GroupMessageBubble";
+import GroupSettingsPanel from "./GroupSettingsPanel";
 import { participantAccent } from "./participantAccent";
 
 export default function GroupChatView() {
@@ -27,7 +28,8 @@ export default function GroupChatView() {
 	const participants = useMultiChatStore((state) => state.participants);
 	const messages = useMultiChatStore((state) => state.messages);
 	const segments = useMultiChatStore((state) => state.segments);
-	const streaming = useMultiChatStore((state) => state.streaming);
+	const runnerState = useMultiChatStore((state) => state.runnerState);
+	const pending = useMultiChatStore((state) => state.pending);
 	const replyMode = useMultiChatStore((state) => state.replyMode);
 	const setReplyMode = useMultiChatStore((state) => state.setReplyMode);
 	const sendMessage = useMultiChatStore((state) => state.sendMessage);
@@ -35,6 +37,8 @@ export default function GroupChatView() {
 	const removeConversation = useMultiChatStore(
 		(state) => state.removeConversation,
 	);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const streaming = runnerState === "running";
 
 	const byId = useMemo(() => {
 		const map = new Map<string, ConversationParticipant>();
@@ -83,6 +87,16 @@ export default function GroupChatView() {
 				<h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">
 					{conversation.title}
 				</h2>
+				{pending > 0 && (
+					<span className="shrink-0 rounded-full bg-control px-2 py-0.5 text-[10px] tabular-nums text-text-muted">
+						{t("multiChat.queuePending", { count: pending })}
+					</span>
+				)}
+				{runnerState === "paused" && (
+					<span className="shrink-0 rounded-full bg-warning-bg px-2 py-0.5 text-[10px] text-warning">
+						{t("multiChat.runnerPaused")}
+					</span>
+				)}
 				<label className="flex shrink-0 items-center gap-1.5 text-[11px] text-text-muted">
 					{t("multiChat.replyMode")}
 					<select
@@ -99,6 +113,15 @@ export default function GroupChatView() {
 						<option value="smart">{t("multiChat.replyModeSmart")}</option>
 					</select>
 				</label>
+				<button
+					type="button"
+					onClick={() => setSettingsOpen(true)}
+					aria-label={t("multiChat.settingsTitle")}
+					title={t("multiChat.settingsTitle")}
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-control hover:text-text-primary"
+				>
+					<Settings2 className="h-4 w-4" />
+				</button>
 				<button
 					type="button"
 					aria-label={t("multiChat.delete")}
@@ -177,7 +200,12 @@ export default function GroupChatView() {
 				participants={participants}
 				streaming={streaming}
 				onSend={(content, mentions) => void sendMessage(content, mentions)}
-				onStop={stopStreaming}
+				onStop={() => void stopStreaming()}
+			/>
+
+			<GroupSettingsPanel
+				open={settingsOpen}
+				onClose={() => setSettingsOpen(false)}
 			/>
 		</div>
 	);
