@@ -4,8 +4,8 @@
 // streaming reply visually becomes its persisted message. The transcript marks
 // the sender of every assistant row; user rows stay right-aligned bubbles.
 
-import { Settings2, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDownToLine, Settings2, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import type {
 	ConversationParticipant,
@@ -48,11 +48,45 @@ export default function GroupChatView() {
 		return map;
 	}, [participants]);
 
-	const bottomRef = useRef<HTMLDivElement | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the transcript ref must follow every appended message or streamed segment
+	const scrollerRef = useRef<HTMLDivElement | null>(null);
+	// Follow new content only while the reader is already at the bottom;
+	// the background runner appends messages and tokens continuously, so an
+	// unconditional scroll would yank the history out from under the reader.
+	const followingRef = useRef(true);
+	const [showBackToLatest, setShowBackToLatest] = useState(false);
+
+	const scrollToLatest = useCallback(() => {
+		const element = scrollerRef.current;
+		if (!element) return;
+		element.scrollTop = Math.max(
+			0,
+			element.scrollHeight - element.clientHeight,
+		);
+		followingRef.current = true;
+		setShowBackToLatest(false);
+	}, []);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: transcript growth triggers the follow check
 	useEffect(() => {
-		bottomRef.current?.scrollIntoView({ block: "end" });
-	}, [messages, segments]);
+		if (followingRef.current) scrollToLatest();
+	}, [messages, segments, scrollToLatest]);
+
+	useEffect(() => {
+		if (!activeId) return;
+		followingRef.current = true;
+		setShowBackToLatest(false);
+		requestAnimationFrame(scrollToLatest);
+	}, [activeId, scrollToLatest]);
+
+	const handleScroll = () => {
+		const element = scrollerRef.current;
+		if (!element) return;
+		const distance =
+			element.scrollHeight - element.scrollTop - element.clientHeight;
+		const nearBottom = distance <= 80;
+		followingRef.current = nearBottom;
+		setShowBackToLatest(!nearBottom);
+	};
 
 	if (!activeId || !conversation) {
 		return (
@@ -63,7 +97,7 @@ export default function GroupChatView() {
 	}
 
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div className="relative flex h-full min-h-0 flex-col">
 			<header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
 				<div className="flex -space-x-1.5">
 					{participants.slice(0, 5).map((participant) => (
@@ -143,7 +177,12 @@ export default function GroupChatView() {
 				</button>
 			</header>
 
-			<div className="min-h-0 flex-1 overflow-y-auto py-2">
+			<div
+				ref={scrollerRef}
+				onScroll={handleScroll}
+				data-testid="group-transcript-scroller"
+				className="min-h-0 flex-1 overflow-y-auto py-2"
+			>
 				<div className="mx-auto w-full max-w-[1080px]">
 					{messages.map((message) => {
 						if (message.role === "user") {
@@ -192,9 +231,20 @@ export default function GroupChatView() {
 							{t("multiChat.thinking")}
 						</p>
 					)}
-					<div ref={bottomRef} />
 				</div>
 			</div>
+
+			{showBackToLatest && (
+				<button
+					type="button"
+					onClick={scrollToLatest}
+					aria-label={t("multiChat.scrollToBottom")}
+					title={t("multiChat.scrollToBottom")}
+					className="absolute bottom-28 right-6 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface shadow-lg hover:bg-control"
+				>
+					<ArrowDownToLine className="h-4 w-4" />
+				</button>
+			)}
 
 			<GroupComposer
 				participants={participants}
