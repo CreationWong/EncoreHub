@@ -2713,3 +2713,102 @@ async fn chat_turn_finalize_failure_keeps_pending_root_without_assistant() {
     assert_eq!(conversation["messages"][0]["id"], turn_id);
     assert_eq!(conversation["messages"][0]["status"], "pending");
 }
+
+/// The async group pipeline depends on these routes existing; a missing queue
+/// mount silently queued nothing before this coverage existed.
+#[tokio::test]
+async fn group_queue_routes_enqueue_claim_and_clear() {
+    let (_dir, app) = make_app();
+
+    let mut ids = Vec::new();
+    for name in ["建模bot", "论文挑刺"] {
+        let created = app
+            .clone()
+            .oneshot(json_post("POST", "/api/characters", json!({"name": name})))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        ids.push(body_json(created).await["id"].as_str().unwrap().to_string());
+    }
+
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({
+                "title": "小队",
+                "participants": [
+                    {"character_id": ids[0]},
+                    {"character_id": ids[1]},
+                ],
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(conversation.status(), StatusCode::OK);
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let queued = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/queue"),
+            json!({"source": "user", "content": "大家先介绍一下"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(queued.status(), StatusCode::OK);
+    let queued = body_json(queued).await;
+    assert_eq!(queued["priority"], 1);
+    assert_eq!(queued["status"], "pending");
+
+    let claimed = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/queue/claim"),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(body_json(claimed).await["source"], "user");
+
+    let cleared = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{conversation_id}/queue/clear"),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cleared.status(), StatusCode::OK);
+    assert_eq!(body_json(cleared).await["cancelled"], 1);
+
+    let settings = app
+        .clone()
+        .oneshot(json_post(
+            "PATCH",
+            &format!("/api/conversations/{conversation_id}"),
+            json!({
+                "group_settings": {
+                    "auto_chat_enabled": false,
+                    "max_auto_turns": 3,
+                    "allow_bot_mentions": true,
+                    "paused": true,
+                    "user_persona": {"name": "我", "avatar": "", "description": ""},
+                },
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(settings.status(), StatusCode::OK);
+    let applied = body_json(settings).await;
+    assert_eq!(applied["group_settings"]["paused"], true);
+    assert_eq!(applied["group_settings"]["user_persona"]["name"], "我");
+}

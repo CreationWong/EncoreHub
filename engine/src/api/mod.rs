@@ -250,6 +250,23 @@ pub fn build_router_with(
             "/api/conversations/:id/turns/:turn_id/finalize",
             post(conversations::finalize_turn),
         )
+        // Async group queue: claim order is mention > user > auto.
+        .route(
+            "/api/conversations/:id/queue",
+            get(conversations::list_queue).post(conversations::enqueue),
+        )
+        .route(
+            "/api/conversations/:id/queue/claim",
+            post(conversations::claim_queue),
+        )
+        .route(
+            "/api/conversations/:id/queue/clear",
+            post(conversations::clear_queue),
+        )
+        .route(
+            "/api/conversations/:id/queue/:item_id/complete",
+            post(conversations::complete_queue_item),
+        )
         .route(
             "/api/conversations/:id/character-upgrade",
             get(conversations::preview_character_upgrade).post(conversations::upgrade_character),
