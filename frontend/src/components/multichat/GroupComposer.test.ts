@@ -28,7 +28,14 @@ describe("group composer mentions", () => {
 	it("detects a mention query only while the caret sits inside the token", () => {
 		expect(activeMentionQuery("hello @建模", 9)).toBe("建模");
 		expect(activeMentionQuery("hello @建模 继续", 11)).toBeNull();
-		expect(activeMentionQuery("mail@example.com", 16)).toBeNull();
+		expect(activeMentionQuery("mail@example.com", 16)).toBe("example.com");
+	});
+
+	it("opens the menu for CJK text typed directly before @", () => {
+		// Chinese input has no spaces, so the boundary cannot require one.
+		expect(activeMentionQuery("测试@", 3)).toBe("");
+		expect(activeMentionQuery("测试@论", 4)).toBe("论");
+		expect(activeMentionQuery("先停一下@建模", 7)).toBe("建模");
 	});
 
 	it("resolves mentioned members from the final draft text", () => {

@@ -198,6 +198,25 @@ pre {
 		animation: startup-content-in 180ms ease-out both;
 	}
 
+	/* Keyboard-highlighted row in the group composer menus. `bg-selected` is
+	   the light-theme surface itself, so the selection needs its own tint. */
+	.group-menu-active {
+		background: var(--color-control-surface);
+		background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+		color: var(--color-accent);
+		font-weight: 500;
+	}
+
+	/* Inline @mention token inside the group composer's highlight mirror.
+	   Semantic colors are raw CSS variables, so Tailwind opacity modifiers do
+	   not apply here; color-mix keeps the tint theme-aware. */
+	.group-mention-token {
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+		color: var(--color-accent);
+		font-weight: 500;
+	}
+
 	.startup-brand-mark {
 		display: grid;
 		width: 48px;
