@@ -145,6 +145,36 @@ func TestDelete_UsesAuthenticatedEngineClient(t *testing.T) {
 	}
 }
 
+func TestRename_ForwardsGroupSettingsPatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := io.ReadAll(r.Body)
+		body = string(payload)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c1","group_settings":{"paused":true}}`)
+	}))
+	defer server.Close()
+
+	router := renameRouter(server.URL)
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/conversations/c1",
+		strings.NewReader(`{"group_settings":{"auto_chat_enabled":false,"max_auto_turns":3,"allow_bot_mentions":true,"paused":true,"user_persona":{"name":"我","avatar":"","description":""}}}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(body, `"group_settings"`) || !strings.Contains(body, `"paused":true`) {
+		t.Fatalf("engine did not receive group settings: %s", body)
+	}
+}
+
 func TestRename_ForwardsPatchBodyAndReturnsEngineJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

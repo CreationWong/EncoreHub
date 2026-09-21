@@ -681,9 +681,14 @@ func (h *ChatHandler) GroupEnqueue(c *gin.Context) {
 	}
 	if len(mentioned) == 0 {
 		item := engine.QueueItem{Source: "user", Content: content}
-		if err := h.enqueueGroupItem(ctx, convID, item); err == nil {
-			queued = 1
+		if err := h.enqueueGroupItem(ctx, convID, item); err != nil {
+			// Never report a queued message the runner cannot see: a missing
+			// queue surfaces as a Gateway error instead of silence.
+			log.Warn().Err(err).Str("conv_id", convID).Msg("group enqueue failed")
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to queue message"})
+			return
 		}
+		queued = 1
 	} else {
 		for _, participant := range mentioned {
 			item := engine.QueueItem{
@@ -691,9 +696,12 @@ func (h *ChatHandler) GroupEnqueue(c *gin.Context) {
 				Content:           content,
 				TargetCharacterID: stringPtr(participant.CharacterID),
 			}
-			if err := h.enqueueGroupItem(ctx, convID, item); err == nil {
-				queued++
+			if err := h.enqueueGroupItem(ctx, convID, item); err != nil {
+				log.Warn().Err(err).Str("conv_id", convID).Msg("group enqueue failed")
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to queue message"})
+				return
 			}
+			queued++
 		}
 	}
 

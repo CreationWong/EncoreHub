@@ -777,6 +777,45 @@ func TestGroupEnqueueRunsTheAsyncRunnerForEveryMember(t *testing.T) {
 	t.Fatalf("runner did not answer with every member: %+v", stub.appendedMessages)
 }
 
+func TestGroupEnqueueFailsLoudlyWhenTheQueueIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// A stub without queue routes simulates an older Engine build; the
+	// endpoint must surface a Gateway error instead of reporting success.
+	engineServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/conversations/c1":
+			writeTestJSON(w, http.StatusOK, engine.ConversationDetail{
+				ID: "c1",
+				Participants: []engine.ConversationParticipant{
+					{CharacterID: "char-a", Position: 0, CharacterSnapshot: engine.CharacterSnapshot{Name: "A"}, Provider: "test"},
+					{CharacterID: "char-b", Position: 1, CharacterSnapshot: engine.CharacterSnapshot{Name: "B"}, Provider: "test"},
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/messages/append":
+			writeTestJSON(w, http.StatusOK, engine.Message{ID: "appended-user", Role: "user", Content: "hello"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer engineServer.Close()
+	handler := NewChatHandler(provider.NewRegistry(&scriptedAdapter{}), engine.NewClient(engineServer.URL, "test-token"))
+	router := gin.New()
+	router.POST("/api/v1/conversations/:id/group-messages", handler.GroupEnqueue)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-messages",
+		bytes.NewBufferString(`{"content":"hello"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestGroupCommandStopClearsQueueAndPauses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &chatEngineStub{

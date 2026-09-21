@@ -95,10 +95,11 @@ func (h *ConversationHandler) Delete(c *gin.Context) {
 }
 
 type updateConvReq struct {
-	Title     *string `json:"title"`
-	Provider  *string `json:"provider"`
-	Model     *string `json:"model"`
-	ReplyMode *string `json:"reply_mode"`
+	Title         *string                   `json:"title"`
+	Provider      *string                   `json:"provider"`
+	Model         *string                   `json:"model"`
+	ReplyMode     *string                   `json:"reply_mode"`
+	GroupSettings *engine.GroupChatSettings `json:"group_settings"`
 }
 
 // Rename handles PATCH updates to title or authoritative provider/model metadata.
@@ -109,7 +110,8 @@ func (h *ConversationHandler) Rename(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Title == nil && req.Provider == nil && req.Model == nil && req.ReplyMode == nil {
+	if req.Title == nil && req.Provider == nil && req.Model == nil &&
+		req.ReplyMode == nil && req.GroupSettings == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one field is required"})
 		return
 	}
@@ -137,10 +139,11 @@ func (h *ConversationHandler) Rename(c *gin.Context) {
 	}
 
 	conv, err := h.engine.UpdateConversation(c.Request.Context(), id, engine.ConversationUpdate{
-		Title:     req.Title,
-		Provider:  req.Provider,
-		Model:     req.Model,
-		ReplyMode: req.ReplyMode,
+		Title:         req.Title,
+		Provider:      req.Provider,
+		Model:         req.Model,
+		ReplyMode:     req.ReplyMode,
+		GroupSettings: req.GroupSettings,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("engine conversation update failed")
