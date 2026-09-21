@@ -10,6 +10,7 @@ import { apiFetch, buildHeaders } from "./api";
 import { parseEvent } from "./chat";
 import { apiBase } from "./config";
 import {
+	type GroupChatSettings,
 	type Message,
 	type MessagePayload,
 	normalizeMessage,
@@ -459,3 +460,40 @@ export async function subscribeGroupEvents(
 		);
 	}
 }
+
+/** Global group-chat defaults stored under the `group_chat_settings` config. */
+export const GROUP_CHAT_SETTINGS_KEY = "group_chat_settings";
+
+/** Fill missing fields so a partial or legacy config still renders. */
+export function normalizeGlobalGroupChatSettings(
+	value: Partial<GroupChatSettings> | null | undefined,
+): GroupChatSettings {
+	return {
+		auto_chat_enabled: value?.auto_chat_enabled ?? true,
+		max_auto_turns: value?.max_auto_turns ?? 6,
+		allow_bot_mentions: value?.allow_bot_mentions ?? true,
+		paused: false,
+		user_persona: {
+			name: value?.user_persona?.name ?? "",
+			avatar: value?.user_persona?.avatar ?? "",
+			description: value?.user_persona?.description ?? "",
+		},
+	};
+}
+
+export const groupChatSettingsApi = {
+	/** Read the global defaults; a missing config returns the built-in defaults. */
+	async load(): Promise<GroupChatSettings> {
+		const value = await apiFetch<Partial<GroupChatSettings> | null>(
+			`/config/${GROUP_CHAT_SETTINGS_KEY}`,
+		);
+		return normalizeGlobalGroupChatSettings(value);
+	},
+	/** Persist the global defaults used by newly created groups. */
+	async save(settings: GroupChatSettings): Promise<void> {
+		await apiFetch<void>(`/config/${GROUP_CHAT_SETTINGS_KEY}`, {
+			method: "PUT",
+			body: JSON.stringify({ ...settings, paused: false }),
+		});
+	},
+};

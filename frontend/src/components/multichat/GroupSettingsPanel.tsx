@@ -55,6 +55,9 @@ export default function GroupSettingsPanel({
 			await saveGroupSettings(draft);
 			toast.success(t("multiChat.settingsSaved"));
 			onClose();
+		} catch {
+			// The store already surfaced the failure and rolled back; the panel
+			// must stay open instead of claiming a saved state.
 		} finally {
 			setSaving(false);
 		}

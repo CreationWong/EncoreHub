@@ -70,6 +70,7 @@ export type SettingsTab =
 	| "appearance"
 	| "context-panel"
 	| "context-menu"
+	| "group-chat"
 	| "security"
 	| "about"
 	| "developer"

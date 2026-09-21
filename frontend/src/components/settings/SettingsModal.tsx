@@ -8,6 +8,7 @@ import {
 	Gauge,
 	Info,
 	Loader2,
+	MessagesSquare,
 	MousePointer2,
 	Palette,
 	ScrollText,
@@ -29,6 +30,7 @@ import AppearancePanel from "./AppearancePanel";
 import ContextMenuPanel from "./ContextMenuPanel";
 import ContextPanelSettings from "./ContextPanelSettings";
 import DataPanel from "./DataPanel";
+import GroupChatSettingsPanel from "./GroupChatSettingsPanel";
 import KnowledgePanel from "./KnowledgePanel";
 import MemoryPanel from "./MemoryPanel";
 import ModelMetadataPanel from "./ModelMetadataPanel";
@@ -80,6 +82,11 @@ const TAB_GROUPS: TabGroup[] = [
 				icon: Tags,
 			},
 			{ id: "search", labelKey: "settings.webSearch", icon: Search },
+			{
+				id: "group-chat",
+				labelKey: "settings.groupChat",
+				icon: MessagesSquare,
+			},
 			{ id: "skills", labelKey: "settings.skills", icon: Sparkles },
 			{ id: "usage", labelKey: "settings.usage", icon: ChartNoAxesColumn },
 		],
@@ -212,6 +219,7 @@ export default function SettingsModal() {
 					{tab === "model-metadata" && <ModelMetadataPanel />}
 					{tab === "skills" && <SkillsPanel />}
 					{tab === "usage" && <UsagePanel />}
+					{tab === "group-chat" && <GroupChatSettingsPanel />}
 					{tab === "search" && (
 						<Suspense
 							fallback={<LoadingPanel label={t("settings.loadingSearch")} />}

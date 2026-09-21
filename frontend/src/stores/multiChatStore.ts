@@ -220,6 +220,8 @@ export const useMultiChatStore = create<MultiChatState>((set, get) => ({
 					? error.message
 					: "Failed to save group settings",
 			);
+			// Rethrow so callers never report success for a rejected save.
+			throw error;
 		}
 	},
 

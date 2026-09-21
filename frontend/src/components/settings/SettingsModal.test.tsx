@@ -135,6 +135,7 @@ describe("Settings workspace information architecture", () => {
 			"Providers",
 			"Model metadata",
 			"Web search",
+			"Group chat",
 			"Skills",
 			"Usage",
 		]);
