@@ -68,5 +68,5 @@ tab stops the group, and two clients cannot observe the same conversation.
   budget. Persisting it is deliberate future work.
 - Provider failures surface as `participant_error` events without stopping the
   remaining members; a fully failed item is completed rather than retried.
-- The synchronous endpoint and the async pipeline coexist until the frontend
-  switches; the sync path remains the compatibility surface.
+- The desktop client now drives groups through the async pipeline; the
+  synchronous endpoint remains as a compatibility surface.

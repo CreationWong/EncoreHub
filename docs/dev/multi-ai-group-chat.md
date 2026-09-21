@@ -101,13 +101,13 @@ sent the message.
   user persona (`name`, `avatar`, `description`), so bots can address the user
   with `@<persona name>`.
 
-The synchronous `POST /group-chat` endpoint remains available until the desktop
-client migrates to the async pipeline.
+The desktop client uses the async pipeline (event subscription, command menu,
+per-group settings panel). The synchronous `POST /group-chat` endpoint remains
+available for compatibility, and the global defaults are edited in
+Settings → Group chat (`group_chat_settings`).
 
 ## Deferred work
 
-- Frontend migration to the async pipeline: event subscription, slash-command
-  menu, per-group settings and persona editors, and the global defaults panel.
 - Gateway tools (web search, web fetch, memory tools) inside group turns.
 - Editing the roster of an existing group; upgrading snapshots to newer
   character revisions.
