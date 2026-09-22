@@ -192,6 +192,8 @@ type ConversationDetail struct {
 	GroupSettings     GroupChatSettings         `json:"group_settings"`
 	Messages          []Message                 `json:"messages"`
 	Summary           *string                   `json:"summary"`
+	// SummaryStartMessageID is the first message covered by Summary.
+	SummaryStartMessageID *string `json:"summary_start_message_id"`
 	// SummaryEndMessageID is the last message covered by Summary; clients
 	// derive the retained recent tail from its position.
 	SummaryEndMessageID *string `json:"summary_end_message_id"`
@@ -437,6 +439,18 @@ func (c *Client) BuildConversationContext(
 		return nil, err
 	}
 	return &selection, nil
+}
+
+// SaveConversationSummaryRequest persists one summary covering a message range.
+type SaveConversationSummaryRequest struct {
+	Summary        string `json:"summary"`
+	StartMessageID string `json:"start_message_id"`
+	EndMessageID   string `json:"end_message_id"`
+}
+
+// SaveConversationSummary replaces the stored summary with the given range.
+func (c *Client) SaveConversationSummary(ctx context.Context, id string, request SaveConversationSummaryRequest) error {
+	return c.doJSON(ctx, "POST", "/api/conversations/"+id+"/summary", request, nil)
 }
 
 // ListConversations lists all conversations.

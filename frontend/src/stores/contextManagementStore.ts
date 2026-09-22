@@ -66,6 +66,8 @@ export interface CompactionState {
 	keepRecent: number;
 	sourceTokens: number;
 	createdAt: string;
+	/** `local` is the instant transcript preview; `summary` is model-written. */
+	source?: "local" | "summary";
 }
 
 export interface ContextBreakdown {
@@ -595,6 +597,16 @@ interface ContextManagementState {
 	) => CompactionState | null;
 	clearCompaction: (conversationId: string) => void;
 	/**
+	 * Replace the session compaction with a model-written summary returned by
+	 * the Gateway; that summary is already persisted server-side.
+	 */
+	setSummarizedCompaction: (
+		conversationId: string,
+		summary: string,
+		keepRecent: number,
+		messages: Message[],
+	) => void;
+	/**
 	 * Restore the summary persisted by Engine after a conversation detail
 	 * loads; a compaction created in this session always wins over it.
 	 */
@@ -663,7 +675,10 @@ export const useContextManagementStore = create<ContextManagementState>(
 			const result = buildCompactionSummary(messages);
 			if (!result) return null;
 			set((state) => ({
-				compactions: { ...state.compactions, [conversationId]: result },
+				compactions: {
+					...state.compactions,
+					[conversationId]: { ...result, source: "local" },
+				},
 			}));
 			const archived =
 				result.keepRecent > 0
@@ -690,6 +705,36 @@ export const useContextManagementStore = create<ContextManagementState>(
 				delete compactions[conversationId];
 				return { compactions };
 			});
+		},
+		setSummarizedCompaction: (
+			conversationId,
+			summary,
+			keepRecent,
+			messages,
+		) => {
+			const boundedKeepRecent = Math.max(
+				0,
+				Math.min(keepRecent, messages.length),
+			);
+			const archived =
+				boundedKeepRecent > 0
+					? messages.slice(0, -boundedKeepRecent)
+					: messages;
+			set((state) => ({
+				compactions: {
+					...state.compactions,
+					[conversationId]: {
+						summary,
+						keepRecent: boundedKeepRecent,
+						sourceTokens: archived.reduce(
+							(sum, message) => sum + estimateTokens(message.content),
+							0,
+						),
+						createdAt: new Date().toISOString(),
+						source: "summary",
+					},
+				},
+			}));
 		},
 		restoreCompaction: (conversationId, summary, endMessageId, messages) => {
 			if (!summary) return;

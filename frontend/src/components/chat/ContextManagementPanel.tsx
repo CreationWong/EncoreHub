@@ -633,7 +633,11 @@ export default function ContextManagementPanel() {
 						<button
 							type="button"
 							onClick={() => {
-								if (activeId) compactConversation(activeId, messages);
+								if (!activeId) return;
+								compactConversation(activeId, messages);
+								// Upgrade the instant local preview to a model-written
+								// summary once the model responds.
+								void useConversationStore.getState().summarizeContext(activeId);
 							}}
 							disabled={!activeId || messages.length < 4}
 							title={

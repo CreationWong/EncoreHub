@@ -75,6 +75,10 @@ type chatEngineStub struct {
 	networkFetch          func(string) engine.NetworkFetchResponse
 	contextRequests       []engine.ConversationContextRequest
 	contextSelection      *engine.ConversationContextSelection
+	savedSummaries        []engine.SaveConversationSummaryRequest
+	summary               *string
+	summaryStartMessageID *string
+	summaryEndMessageID   *string
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -88,19 +92,25 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		messages := append([]engine.Message(nil), s.conversationMessages...)
 		participants := append([]engine.ConversationParticipant(nil), s.participants...)
 		replyMode := s.replyMode
+		summary := s.summary
+		summaryStartMessageID := s.summaryStartMessageID
+		summaryEndMessageID := s.summaryEndMessageID
 		s.mu.Unlock()
 		if replyMode == "" {
 			replyMode = "sequential"
 		}
 		writeTestJSON(w, http.StatusOK, engine.ConversationDetail{
-			ID:           "c1",
-			Title:        title,
-			Provider:     "test",
-			Model:        "model-test",
-			CharacterID:  "character-default",
-			Participants: participants,
-			ReplyMode:    replyMode,
-			Messages:     messages,
+			ID:                    "c1",
+			Title:                 title,
+			Provider:              "test",
+			Model:                 "model-test",
+			CharacterID:           "character-default",
+			Participants:          participants,
+			ReplyMode:             replyMode,
+			Messages:              messages,
+			Summary:               summary,
+			SummaryStartMessageID: summaryStartMessageID,
+			SummaryEndMessageID:   summaryEndMessageID,
 		})
 	case r.Method == http.MethodGet && r.URL.Path == "/api/memories/search":
 		s.mu.Lock()
@@ -275,6 +285,13 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.conversationMessages = append(s.conversationMessages, message)
 		s.mu.Unlock()
 		writeTestJSON(w, http.StatusOK, message)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/summary":
+		var request engine.SaveConversationSummaryRequest
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.mu.Lock()
+		s.savedSummaries = append(s.savedSummaries, request)
+		s.mu.Unlock()
+		writeTestJSON(w, http.StatusOK, map[string]any{"id": "summary-1"})
 	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/context":
 		var request engine.ConversationContextRequest
 		_ = json.NewDecoder(r.Body).Decode(&request)
@@ -427,6 +444,120 @@ func TestSendMessage_SelectsHistoryByTokenBudgetWhenWindowDeclared(t *testing.T)
 		providerMessages[1].Content != "recent answer" ||
 		providerMessages[2].Content != "next" {
 		t.Fatalf("provider history = %#v", providerMessages)
+	}
+}
+
+func TestSummarizeContext_FoldsPreviousSummaryAndPersistsRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	messages := make([]engine.Message, 8)
+	for index := range messages {
+		role := "user"
+		if index%2 == 1 {
+			role = "assistant"
+		}
+		messages[index] = engine.Message{
+			ID:      fmt.Sprintf("m%d", index),
+			Role:    role,
+			Content: fmt.Sprintf("message %d", index),
+		}
+	}
+	previousSummary := "Old context"
+	previousStart := "m0"
+	previousEnd := "m3"
+	stub := &chatEngineStub{
+		conversationMessages:  messages,
+		summary:               &previousSummary,
+		summaryStartMessageID: &previousStart,
+		summaryEndMessageID:   &previousEnd,
+	}
+	var prompt string
+	adapter := &scriptedAdapter{
+		chatFn: func(_ context.Context, request *provider.ChatRequest) (*provider.ChatResponse, error) {
+			prompt = request.Messages[0].Content
+			return &provider.ChatResponse{
+				Content:      "  Model summary.  ",
+				InputTokens:  120,
+				OutputTokens: 30,
+			}, nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/summarize-context",
+		bytes.NewBufferString(`{"keep_recent":2}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	// The stored summary is folded in; already-summarized messages are not resent.
+	if !strings.Contains(prompt, "Summary so far:\nOld context") ||
+		!strings.Contains(prompt, "message 4") ||
+		!strings.Contains(prompt, "message 5") ||
+		strings.Contains(prompt, "message 0") ||
+		strings.Contains(prompt, "message 3") {
+		t.Fatalf("summarization prompt = %q", prompt)
+	}
+	stub.mu.Lock()
+	saved := append([]engine.SaveConversationSummaryRequest(nil), stub.savedSummaries...)
+	stub.mu.Unlock()
+	if len(saved) != 1 ||
+		saved[0].Summary != "Model summary." ||
+		saved[0].StartMessageID != "m0" ||
+		saved[0].EndMessageID != "m5" {
+		t.Fatalf("saved summary = %#v", saved)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"summary":"Model summary."`) ||
+		!strings.Contains(body, `"end_message_id":"m5"`) ||
+		!strings.Contains(body, `"keep_recent":2`) {
+		t.Fatalf("response = %s", body)
+	}
+}
+
+func TestSummarizeContext_RejectsShortConversationsAndMissingKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{conversationMessages: []engine.Message{
+		{ID: "m0", Role: "user", Content: "one"},
+		{ID: "m1", Role: "assistant", Content: "two"},
+		{ID: "m2", Role: "user", Content: "three"},
+	}}
+	adapter := &scriptedAdapter{}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/summarize-context",
+		bytes.NewBufferString(`{"keep_recent":1}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("short conversation status = %d", recorder.Code)
+	}
+
+	stub.conversationMessages = append(stub.conversationMessages,
+		engine.Message{ID: "m3", Role: "assistant", Content: "four"})
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/summarize-context",
+		bytes.NewBufferString(`{"keep_recent":2}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("missing key status = %d", recorder.Code)
 	}
 }
 
@@ -622,6 +753,7 @@ func newChatTestRouter(adapter provider.Adapter, stub *chatEngineStub) (*gin.Eng
 	router.POST("/api/v1/conversations/:id/group-chat", handler.GroupChat)
 	router.POST("/api/v1/conversations/:id/group-messages", handler.GroupEnqueue)
 	router.GET("/api/v1/conversations/:id/group-events", handler.GroupEvents)
+	router.POST("/api/v1/conversations/:id/summarize-context", handler.SummarizeContext)
 	return router, engineServer
 }
 

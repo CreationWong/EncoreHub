@@ -425,6 +425,31 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/summarize-context": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "summarizeConversationContext",
+        "description": "Generate a model-written rolling summary of the archived conversation range with the conversation's own provider and model, then store it. A previous summary is folded into the new one and keeps its original start.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SummarizeContextRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/SummarizeContext" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/title": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" }
@@ -1660,6 +1685,14 @@
           }
         }
       },
+      "SummarizeContext": {
+        "description": "Model-written summary and its archived message range",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/SummarizeContextResponse" }
+          }
+        }
+      },
       "Attachment": {
         "description": "Conversation-owned attachment metadata. storage_path is relative to the Engine data directory; original bytes are stored outside SQLite.",
         "content": {
@@ -1864,6 +1897,30 @@
           "start_message_id": { "type": "string", "format": "uuid" },
           "end_message_id": { "type": "string", "format": "uuid" },
           "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SummarizeContextRequest": {
+        "type": "object",
+        "properties": {
+          "keep_recent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50,
+            "description": "Newest messages left outside the summary; defaults to 6 and is clamped to 1-50"
+          }
+        }
+      },
+      "SummarizeContextResponse": {
+        "type": "object",
+        "required": ["summary", "start_message_id", "end_message_id", "keep_recent", "provider", "model"],
+        "properties": {
+          "summary": { "type": "string" },
+          "start_message_id": { "type": "string" },
+          "end_message_id": { "type": "string" },
+          "keep_recent": { "type": "integer", "minimum": 1 },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "usage": { "$ref": "#/components/schemas/Usage" }
         }
       },
       "CreateConversationRequest": {

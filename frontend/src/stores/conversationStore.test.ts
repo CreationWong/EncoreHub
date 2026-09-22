@@ -25,6 +25,7 @@ const createConversationApi = vi.fn();
 const updateConversationModelApi = vi.fn();
 const upgradeConversationCharacterApi = vi.fn();
 const deleteMessageApi = vi.fn();
+const summarizeContextApi = vi.fn();
 vi.mock("../services/conversation", () => ({
 	listConversations: (...args: unknown[]) => listConversationsApi(...args),
 	createConversation: (...args: unknown[]) => createConversationApi(...args),
@@ -37,6 +38,8 @@ vi.mock("../services/conversation", () => ({
 	generateTitle: (...args: unknown[]) => generateTitleApi(...args),
 	saveConversationSummary: vi.fn().mockResolvedValue(undefined),
 	deleteConversationSummary: vi.fn().mockResolvedValue(undefined),
+	summarizeConversationContext: (...args: unknown[]) =>
+		summarizeContextApi(...args),
 }));
 vi.mock("../services/characters", () => ({
 	upgradeConversationCharacter: (...args: unknown[]) =>
@@ -103,6 +106,15 @@ beforeEach(() => {
 			messages: [],
 		}),
 	);
+	summarizeContextApi.mockReset();
+	summarizeContextApi.mockResolvedValue({
+		summary: "model summary",
+		start_message_id: "m0",
+		end_message_id: "m2",
+		keep_recent: 2,
+		provider: "openai",
+		model: "gpt-4o",
+	});
 	listConversationsApi.mockReset();
 	listConversationsApi.mockResolvedValue({ conversations: [] });
 	createConversationApi.mockReset();
@@ -339,6 +351,40 @@ describe("stored compaction", () => {
 		const compaction = useContextManagementStore.getState().compactions.c1;
 		expect(compaction?.summary).toBe("stored summary");
 		expect(compaction?.keepRecent).toBe(2);
+	});
+});
+
+describe("summarizeContext", () => {
+	it("replaces the session compaction with the model-written summary", async () => {
+		const messages = Array.from({ length: 4 }, (_, index) =>
+			serverMessage({ id: `m${index}`, content: `message ${index}` }),
+		);
+		seedConversation("c1", "Chat", messages);
+		useConversationStore.setState({ activeId: "c1", messages });
+		useContextManagementStore.getState().compactConversation("c1", messages);
+
+		await useConversationStore.getState().summarizeContext("c1");
+
+		expect(summarizeContextApi).toHaveBeenCalledWith("c1", "openai-key", 2);
+		const compaction = useContextManagementStore.getState().compactions.c1;
+		expect(compaction?.summary).toBe("model summary");
+		expect(compaction?.keepRecent).toBe(2);
+		expect(compaction?.source).toBe("summary");
+	});
+
+	it("keeps the local compaction when summarization fails", async () => {
+		const messages = Array.from({ length: 4 }, (_, index) =>
+			serverMessage({ id: `m${index}`, content: `message ${index}` }),
+		);
+		seedConversation("c1", "Chat", messages);
+		useConversationStore.setState({ activeId: "c1", messages });
+		useContextManagementStore.getState().compactConversation("c1", messages);
+		const local = useContextManagementStore.getState().compactions.c1;
+		summarizeContextApi.mockRejectedValueOnce(new Error("provider down"));
+
+		await useConversationStore.getState().summarizeContext("c1");
+
+		expect(useContextManagementStore.getState().compactions.c1).toEqual(local);
 	});
 });
 

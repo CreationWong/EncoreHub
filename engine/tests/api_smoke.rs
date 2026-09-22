@@ -402,6 +402,7 @@ async fn conversation_summary_roundtrips_replaces_and_validates() {
         .unwrap();
     let one = body_json(resp).await;
     assert_eq!(one["summary"], "Earlier context");
+    assert_eq!(one["summary_start_message_id"], message_ids[0]);
     assert_eq!(one["summary_end_message_id"], message_ids[1]);
 
     // A second save replaces the previous range instead of accumulating rows.

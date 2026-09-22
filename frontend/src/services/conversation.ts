@@ -281,6 +281,37 @@ export async function deleteConversationSummary(id: string): Promise<void> {
 	await apiFetch<void>(`/conversations/${id}/summary`, { method: "DELETE" });
 }
 
+/** Model-written rolling summary returned by the Gateway. */
+export interface SummarizeContextResult {
+	summary: string;
+	start_message_id: string;
+	end_message_id: string;
+	keep_recent: number;
+	provider: string;
+	model: string;
+}
+
+/**
+ * Ask the Gateway to summarize the archived range with the conversation's own
+ * model and store it; the client replaces its local summary with the result.
+ */
+export async function summarizeConversationContext(
+	id: string,
+	providerKey: string | undefined,
+	keepRecent: number,
+): Promise<SummarizeContextResult> {
+	const headers: Record<string, string> = {};
+	if (providerKey) headers["X-Provider-Key"] = providerKey;
+	return apiFetch<SummarizeContextResult>(
+		`/conversations/${id}/summarize-context`,
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify({ keep_recent: keepRecent }),
+		},
+	);
+}
+
 export async function deleteConversation(id: string): Promise<void> {
 	await apiFetch<void>(`/conversations/${id}`, { method: "DELETE" });
 }

@@ -111,6 +111,8 @@ pub struct ConversationDetail {
     pub group_settings: GroupChatSettings,
     pub messages: Vec<MessageResponse>,
     pub summary: Option<String>,
+    /// First message covered by `summary`; keeps rolling summaries auditable.
+    pub summary_start_message_id: Option<String>,
     /// Last message covered by `summary`; clients derive the retained recent
     /// tail (`keepRecent`) from its position in `messages`.
     pub summary_end_message_id: Option<String>,
@@ -403,6 +405,7 @@ pub async fn get_one(
         group_settings: conv.group_settings,
         messages: message_responses,
         summary: summary.as_ref().map(|s| s.summary_text.clone()),
+        summary_start_message_id: summary.as_ref().map(|s| s.start_message_id.clone()),
         summary_end_message_id: summary.as_ref().map(|s| s.end_message_id.clone()),
         created_at: conv.created_at.to_rfc3339(),
         updated_at: conv.updated_at.to_rfc3339(),

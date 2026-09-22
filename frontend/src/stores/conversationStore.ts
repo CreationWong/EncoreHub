@@ -35,6 +35,8 @@ export const NEW_CONVERSATION_DRAFT_KEY = "__new_conversation__";
 
 const conversationLoads = new Map<string, Promise<ConversationDetail>>();
 const transientPrefetchClaims = new Set<string>();
+/** Conversations with a Gateway summarization already in flight. */
+const summarizingConversations = new Set<string>();
 function loadConversationDetail(id: string): Promise<ConversationDetail> {
 	const existing = conversationLoads.get(id);
 	if (existing) return existing;
@@ -243,6 +245,11 @@ interface ConversationState {
 		expectedVersion: number,
 	) => Promise<Conversation>;
 	sendMessage: (content: string, options?: ChatTurnOptions) => Promise<void>;
+	/**
+	 * Upgrade the session compaction to a model-written rolling summary; the
+	 * Gateway stores it so reloads and future requests share it.
+	 */
+	summarizeContext: (conversationId: string) => Promise<void>;
 	stopStreaming: () => void;
 	pushSystemMessage: (content: string) => void;
 	setDraft: (content: string) => void;
@@ -349,6 +356,45 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 			delete prefetchedConversationIds[id];
 			return { convCache, prefetchedConversationIds };
 		});
+	},
+
+	summarizeContext: async (conversationId) => {
+		if (summarizingConversations.has(conversationId)) return;
+		const state = get();
+		const conversation = state.conversations.find(
+			(item) => item.id === conversationId,
+		);
+		const messages =
+			state.convCache[conversationId]?.messages ?? state.messages;
+		if (!conversation || messages.length < 4) return;
+		const provider =
+			conversation.provider || useSettingsStore.getState().provider;
+		const providerKey = useSettingsStore.getState().apiKeys[provider];
+		const keepRecent =
+			useContextManagementStore.getState().compactions[conversationId]
+				?.keepRecent ?? 6;
+		summarizingConversations.add(conversationId);
+		try {
+			const result = await convApi.summarizeConversationContext(
+				conversationId,
+				providerKey,
+				keepRecent,
+			);
+			useContextManagementStore
+				.getState()
+				.setSummarizedCompaction(
+					conversationId,
+					result.summary,
+					result.keep_recent,
+					messages,
+				);
+		} catch (error) {
+			// The instant local summary (if any) remains usable; chat already
+			// falls back to token-budget selection without a summary.
+			logStoreError("Context summarization failed", error);
+		} finally {
+			summarizingConversations.delete(conversationId);
+		}
 	},
 
 	selectConversation: async (id: string) => {
@@ -996,6 +1042,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 							contextSummary,
 							conversation?.character_snapshot,
 						);
+					// Near the window limit, upgrade the instant local preview to a
+					// model-written summary for the next turn.
+					const existingCompaction =
+						useContextManagementStore.getState().compactions[convId];
+					if (
+						contextLimit &&
+						contextManagement.autoCompact &&
+						(!existingCompaction || existingCompaction.source !== "summary") &&
+						contextUsage.contextTokens >=
+							autoCompactThreshold(
+								contextLimit,
+								contextManagement.advanced.maxCompletionTokens,
+							)
+					) {
+						void get().summarizeContext(convId);
+					}
 				},
 				onError(error) {
 					recordTurnUsage(error.code === "stopped" ? "stopped" : "failed");

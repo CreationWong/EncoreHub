@@ -9,6 +9,7 @@
 
 ### Added
 
+- **模型生成的滚动压缩摘要**：上下文压缩不再只截取历史消息片段。达到自动压缩阈值或点击「压缩上下文」时，网关用会话自身的服务商与模型把较早消息压缩成摘要并写入 `conversation_summaries`；已有摘要会折叠进新摘要并保留原始起始消息，形成滚动摘要。摘要生成失败时保留本地摘要，聊天继续按 token 预算回退。新增 `POST /api/v1/conversations/:id/summarize-context`，`GET /api/v1/conversations/:id` 增加 `summary_start_message_id`。
 - **长对话按 token 预算选择上下文**：聊天请求声明模型窗口（`context_window`）后，Engine 依据 token 预算选择要发送的历史消息——保留从新到旧可容纳的连续消息序列，压缩摘要与历史共享同一预算；预算不足时更早的消息不再发送，避免长对话触发供应商上下文上限。未声明窗口、Engine 不可用以及（当前）群聊回合仍保持原有的按消息条数截断行为。
 - **压缩摘要持久化**：上下文压缩摘要改由 Engine 持久化，重新打开会话或重启应用后自动恢复，继续参与 token 预算、自动压缩判定与上下文面板展示；面板的「清除压缩」会同时删除已存储的摘要。新增 `POST/DELETE /api/v1/conversations/:id/summary` 管理摘要，`GET /api/v1/conversations/:id` 增加 `summary_end_message_id`，客户端据此还原保留的最近消息范围。
 - **Google Gemini 支持**：新增原生 Gemini 适配器（Google Interactions API，`/v1beta/interactions`），支持流式输出、思考过程（reasoning）、多模态输入、工具声明与函数调用回合、用量统计；内置 Gemini 3.5 Flash / 3.5 Flash-Lite / 3.1 Pro Preview / 2.5 Pro / 2.5 Flash 模型及上下文窗口配置。已安装的用户在下次启动时自动获得该服务商（不覆盖已有服务商的修改）。

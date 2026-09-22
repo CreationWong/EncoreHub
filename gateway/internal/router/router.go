@@ -85,6 +85,8 @@ func Setup(cfg Config) *gin.Engine {
 			conv.GET("/:id/group-events", chatHandler.GroupEvents)
 			// AI-powered title generation
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
+			// Model-written rolling summary for long-context compaction
+			conv.POST("/:id/summarize-context", chatHandler.SummarizeContext)
 			// Tool-based title update (proxied to engine)
 			conv.PATCH("/:id/title", engineProxy.Forward)
 			// Compaction summary persistence (proxied to engine)
