@@ -536,6 +536,8 @@ export const en = {
 		needsMessages: "Needs at least 4 messages",
 		compressTitle: "Summarizes older messages and keeps the most recent ones",
 		recompressNote: "Compressing again replaces the saved summary.",
+		compactionSaveFailed: "Failed to store the compaction summary",
+		compactionClearFailed: "Failed to clear the stored compaction summary",
 		earlierContext: "Earlier conversation context",
 		parametersNote:
 			"Sampling parameters apply to requests in every conversation.",

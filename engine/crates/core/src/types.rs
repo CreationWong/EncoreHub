@@ -657,6 +657,26 @@ pub struct ConversationSummary {
     pub created_at: DateTime<Utc>,
 }
 
+impl ConversationSummary {
+    /// Create a summary covering the archived range from `start_message_id`
+    /// through `end_message_id`; the range is what makes it auditable.
+    pub fn new(
+        conversation_id: impl Into<String>,
+        summary_text: impl Into<String>,
+        start_message_id: impl Into<String>,
+        end_message_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.into(),
+            summary_text: summary_text.into(),
+            start_message_id: start_message_id.into(),
+            end_message_id: end_message_id.into(),
+            created_at: Utc::now(),
+        }
+    }
+}
+
 // ===== Pinned Message =====
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

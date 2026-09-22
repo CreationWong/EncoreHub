@@ -87,6 +87,9 @@ func Setup(cfg Config) *gin.Engine {
 			conv.POST("/:id/generate-title", chatHandler.GenerateTitle)
 			// Tool-based title update (proxied to engine)
 			conv.PATCH("/:id/title", engineProxy.Forward)
+			// Compaction summary persistence (proxied to engine)
+			conv.POST("/:id/summary", engineProxy.Forward)
+			conv.DELETE("/:id/summary", engineProxy.Forward)
 			// Character upgrades are previewed and applied by the authoritative Engine.
 			conv.GET("/:id/character-upgrade", engineProxy.Forward)
 			conv.POST("/:id/character-upgrade", engineProxy.Forward)

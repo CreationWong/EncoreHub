@@ -8,8 +8,8 @@ use axum::{
 };
 use encorehub_core::{
     CharacterSnapshot, CharacterUpgradePreview, Conversation, ConversationParticipant,
-    GroupChatSettings, Message, MessageStatus, QueueItem, QueueSource, ReplyMode, Role, ToolCall,
-    DEFAULT_CHARACTER_ID,
+    ConversationSummary, GroupChatSettings, Message, MessageStatus, QueueItem, QueueSource,
+    ReplyMode, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
 use encorehub_storage::{AssistantTurn, AttachmentRecord, BlobStore, Database};
 use serde::{Deserialize, Serialize};
@@ -108,8 +108,43 @@ pub struct ConversationDetail {
     pub group_settings: GroupChatSettings,
     pub messages: Vec<MessageResponse>,
     pub summary: Option<String>,
+    /// Last message covered by `summary`; clients derive the retained recent
+    /// tail (`keepRecent`) from its position in `messages`.
+    pub summary_end_message_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Body of `POST /api/conversations/:id/summary`.
+#[derive(Debug, Deserialize)]
+pub struct SaveSummaryRequest {
+    pub summary: String,
+    pub start_message_id: String,
+    pub end_message_id: String,
+}
+
+/// Persisted compaction summary returned after a save.
+#[derive(Debug, Serialize)]
+pub struct SummaryResponse {
+    pub id: String,
+    pub conversation_id: String,
+    pub summary_text: String,
+    pub start_message_id: String,
+    pub end_message_id: String,
+    pub created_at: String,
+}
+
+impl From<ConversationSummary> for SummaryResponse {
+    fn from(value: ConversationSummary) -> Self {
+        Self {
+            id: value.id,
+            conversation_id: value.conversation_id,
+            summary_text: value.summary_text,
+            start_message_id: value.start_message_id,
+            end_message_id: value.end_message_id,
+            created_at: value.created_at.to_rfc3339(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -314,11 +349,7 @@ pub async fn get_one(
 ) -> Result<Json<ConversationDetail>, (StatusCode, Json<ErrorResponse>)> {
     let conv = state.db.get_conversation(&id).map_err(not_found)?;
     let messages = state.db.get_messages(&id).map_err(internal_error)?;
-    let summary = state
-        .db
-        .get_latest_summary(&id)
-        .map_err(internal_error)?
-        .map(|s| s.summary_text);
+    let summary = state.db.get_latest_summary(&id).map_err(internal_error)?;
 
     let message_responses: Vec<MessageResponse> = messages
         .into_iter()
@@ -344,7 +375,8 @@ pub async fn get_one(
             .collect(),
         group_settings: conv.group_settings,
         messages: message_responses,
-        summary,
+        summary: summary.as_ref().map(|s| s.summary_text.clone()),
+        summary_end_message_id: summary.as_ref().map(|s| s.end_message_id.clone()),
         created_at: conv.created_at.to_rfc3339(),
         updated_at: conv.updated_at.to_rfc3339(),
     }))
@@ -359,6 +391,50 @@ pub async fn delete(
     for sha256 in unreferenced {
         store.delete(&sha256).map_err(internal_error)?;
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Persist the conversation's compaction summary, replacing any previous one.
+///
+/// The archived range is validated against the stored transcript so the
+/// summary stays auditable and clients can reconstruct their retained tail.
+pub async fn save_summary(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(req): Json<SaveSummaryRequest>,
+) -> Result<Json<SummaryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let summary_text = req.summary.trim();
+    let start_message_id = req.start_message_id.trim();
+    let end_message_id = req.end_message_id.trim();
+    if summary_text.is_empty() {
+        return Err(bad_request("summary must not be empty"));
+    }
+    if start_message_id.is_empty() || end_message_id.is_empty() {
+        return Err(bad_request("summary requires start and end message ids"));
+    }
+    state.db.get_conversation(&id).map_err(not_found)?;
+    let messages = state.db.get_messages(&id).map_err(internal_error)?;
+    let is_message_of_conversation = |message_id: &str| messages.iter().any(|m| m.id == message_id);
+    if !is_message_of_conversation(start_message_id) || !is_message_of_conversation(end_message_id)
+    {
+        return Err(bad_request(
+            "summary range must reference messages of this conversation",
+        ));
+    }
+    // Replace semantics: one summary row per conversation, newest range wins.
+    state.db.delete_summaries(&id).map_err(internal_error)?;
+    let summary = ConversationSummary::new(id, summary_text, start_message_id, end_message_id);
+    state.db.save_summary(&summary).map_err(internal_error)?;
+    Ok(Json(SummaryResponse::from(summary)))
+}
+
+/// Delete every persisted summary of one conversation.
+pub async fn delete_summary(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    state.db.get_conversation(&id).map_err(not_found)?;
+    state.db.delete_summaries(&id).map_err(internal_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

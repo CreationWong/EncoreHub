@@ -643,6 +643,17 @@ impl Database {
         }
     }
 
+    /// Remove every stored summary of one conversation; callers replace the
+    /// latest summary by deleting first and inserting the new range.
+    pub fn delete_summaries(&self, conversation_id: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute(
+            "DELETE FROM conversation_summaries WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        Ok(deleted)
+    }
+
     // ===== Pinned Messages =====
 
     pub fn pin_message(&self, pinned: &PinnedMessage) -> Result<()> {

@@ -1,5 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../services/conversation";
+
+const saveConversationSummaryMock = vi.fn();
+const deleteConversationSummaryMock = vi.fn();
+vi.mock("../services/conversation", () => ({
+	saveConversationSummary: (...args: unknown[]) =>
+		saveConversationSummaryMock(...args),
+	deleteConversationSummary: (...args: unknown[]) =>
+		deleteConversationSummaryMock(...args),
+}));
+
 import {
 	DEFAULT_ADVANCED_PARAMETERS,
 	autoCompactThreshold,
@@ -41,6 +51,8 @@ function measuredAssistant(
 
 beforeEach(() => {
 	localStorage.clear();
+	saveConversationSummaryMock.mockReset().mockResolvedValue(undefined);
+	deleteConversationSummaryMock.mockReset().mockResolvedValue(undefined);
 	useContextManagementStore.setState({
 		records: [],
 		autoCompact: true,
@@ -245,5 +257,70 @@ describe("context management calculations", () => {
 			"Earlier conversation context (4 messages)",
 		);
 		expect(result?.summary).toContain("User: message 0");
+	});
+});
+
+describe("compaction persistence", () => {
+	it("stores the archived range when a conversation is compacted", () => {
+		const messages = Array.from({ length: 6 }, (_, index) =>
+			message(
+				String(index),
+				index % 2 ? "assistant" : "user",
+				`message ${index}`,
+			),
+		);
+
+		const result = useContextManagementStore
+			.getState()
+			.compactConversation("c1", messages);
+
+		expect(result?.keepRecent).toBe(2);
+		expect(saveConversationSummaryMock).toHaveBeenCalledWith(
+			"c1",
+			result?.summary,
+			"0",
+			"3",
+		);
+	});
+
+	it("restores a stored summary and derives the retained tail", () => {
+		const messages = Array.from({ length: 5 }, (_, index) =>
+			message(String(index), "user", "x".repeat(40)),
+		);
+
+		useContextManagementStore
+			.getState()
+			.restoreCompaction("c1", "stored summary", "2", messages);
+
+		const compaction = useContextManagementStore.getState().compactions.c1;
+		expect(compaction?.summary).toBe("stored summary");
+		expect(compaction?.keepRecent).toBe(2);
+		expect(compaction?.sourceTokens).toBeGreaterThan(0);
+	});
+
+	it("keeps a session compaction over the stored one", () => {
+		const messages = Array.from({ length: 4 }, (_, index) =>
+			message(String(index), "user", "hello"),
+		);
+		useContextManagementStore.getState().compactConversation("c1", messages);
+		const local = useContextManagementStore.getState().compactions.c1;
+
+		useContextManagementStore
+			.getState()
+			.restoreCompaction("c1", "older stored summary", null, messages);
+
+		expect(useContextManagementStore.getState().compactions.c1).toEqual(local);
+	});
+
+	it("clears the stored summary together with the session state", () => {
+		const messages = Array.from({ length: 4 }, (_, index) =>
+			message(String(index), "user", "hello"),
+		);
+		useContextManagementStore.getState().compactConversation("c1", messages);
+
+		useContextManagementStore.getState().clearCompaction("c1");
+
+		expect(deleteConversationSummaryMock).toHaveBeenCalledWith("c1");
+		expect(useContextManagementStore.getState().compactions.c1).toBeUndefined();
 	});
 });

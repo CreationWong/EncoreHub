@@ -192,8 +192,11 @@ type ConversationDetail struct {
 	GroupSettings     GroupChatSettings         `json:"group_settings"`
 	Messages          []Message                 `json:"messages"`
 	Summary           *string                   `json:"summary"`
-	CreatedAt         string                    `json:"created_at"`
-	UpdatedAt         string                    `json:"updated_at"`
+	// SummaryEndMessageID is the last message covered by Summary; clients
+	// derive the retained recent tail from its position.
+	SummaryEndMessageID *string `json:"summary_end_message_id"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 // Message represents a single message.

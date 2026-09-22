@@ -162,13 +162,19 @@ export function normalizeMessage(message: MessagePayload): Message {
 	};
 }
 
-type ConversationDetailPayload = Omit<ConversationDetail, "messages"> & {
+type ConversationDetailPayload = Omit<
+	ConversationDetail,
+	"messages" | "summary_end_message_id"
+> & {
 	messages: MessagePayload[];
+	summary_end_message_id?: string | null;
 };
 
 export interface ConversationDetail extends Conversation {
 	messages: Message[];
 	summary: string | null;
+	/** Last message covered by `summary`; null when no summary is stored. */
+	summary_end_message_id: string | null;
 }
 
 export interface ListResponse {
@@ -248,8 +254,31 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
 	);
 	return {
 		...detail,
+		summary_end_message_id: detail.summary_end_message_id ?? null,
 		messages: (detail.messages ?? []).map(normalizeMessage),
 	};
+}
+
+/** Persist the conversation's compaction summary, replacing any previous one. */
+export async function saveConversationSummary(
+	id: string,
+	summary: string,
+	startMessageId: string,
+	endMessageId: string,
+): Promise<void> {
+	await apiFetch<void>(`/conversations/${id}/summary`, {
+		method: "POST",
+		body: JSON.stringify({
+			summary,
+			start_message_id: startMessageId,
+			end_message_id: endMessageId,
+		}),
+	});
+}
+
+/** Remove the persisted compaction summary of one conversation. */
+export async function deleteConversationSummary(id: string): Promise<void> {
+	await apiFetch<void>(`/conversations/${id}/summary`, { method: "DELETE" });
 }
 
 export async function deleteConversation(id: string): Promise<void> {

@@ -517,6 +517,8 @@ const zhCNMessages: DeepPartialMessages<typeof en> = {
 		needsMessages: "至少需要 4 条消息",
 		compressTitle: "汇总较早消息并保留最近内容",
 		recompressNote: "再次压缩会替换已保存的摘要。",
+		compactionSaveFailed: "压缩摘要保存失败",
+		compactionClearFailed: "清除已保存的压缩摘要失败",
 		earlierContext: "较早的对话上下文",
 		parametersNote: "采样参数会应用于所有会话的请求。",
 		system: "系统提示",

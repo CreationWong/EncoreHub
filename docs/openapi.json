@@ -146,6 +146,37 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/summary": {
+      "parameters": [
+        { "$ref": "#/components/parameters/ConversationId" }
+      ],
+      "post": {
+        "tags": ["Conversations"],
+        "operationId": "saveConversationSummary",
+        "description": "Persist the compaction summary covering an archived message range, replacing any previous summary of this conversation. Both range endpoints must reference messages of the conversation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SaveConversationSummaryRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/ConversationSummary" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Conversations"],
+        "operationId": "deleteConversationSummary",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/conversations/{id}/chat": {
       "parameters": [
         { "$ref": "#/components/parameters/ConversationId" },
@@ -1621,6 +1652,14 @@
           }
         }
       },
+      "ConversationSummary": {
+        "description": "Persisted compaction summary",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ConversationSummary" }
+          }
+        }
+      },
       "Attachment": {
         "description": "Conversation-owned attachment metadata. storage_path is relative to the Engine data directory; original bytes are stored outside SQLite.",
         "content": {
@@ -1786,7 +1825,11 @@
                 "type": "array",
                 "items": { "$ref": "#/components/schemas/Message" }
               },
-              "summary": { "type": ["string", "null"] }
+              "summary": { "type": ["string", "null"] },
+              "summary_end_message_id": {
+                "type": ["string", "null"],
+                "description": "Last message covered by summary; clients keep the messages after it as the recent tail."
+              }
             }
           }
         ]
@@ -1800,6 +1843,27 @@
             "items": { "$ref": "#/components/schemas/Conversation" }
           },
           "total": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "SaveConversationSummaryRequest": {
+        "type": "object",
+        "required": ["summary", "start_message_id", "end_message_id"],
+        "properties": {
+          "summary": { "type": "string", "minLength": 1, "description": "Compacted text stored as the conversation summary" },
+          "start_message_id": { "type": "string", "format": "uuid", "description": "First archived message covered by the summary" },
+          "end_message_id": { "type": "string", "format": "uuid", "description": "Last archived message covered by the summary" }
+        }
+      },
+      "ConversationSummary": {
+        "type": "object",
+        "required": ["id", "conversation_id", "summary_text", "start_message_id", "end_message_id", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "conversation_id": { "type": "string", "format": "uuid" },
+          "summary_text": { "type": "string" },
+          "start_message_id": { "type": "string", "format": "uuid" },
+          "end_message_id": { "type": "string", "format": "uuid" },
+          "created_at": { "type": "string", "format": "date-time" }
         }
       },
       "CreateConversationRequest": {

@@ -7,8 +7,13 @@
 // provider-reported snapshot after each completed turn.
 
 import { create } from "zustand";
+import { t } from "../i18n";
 import type { CharacterSnapshot } from "../services/characters";
-import type { Message } from "../services/conversation";
+import {
+	type Message,
+	deleteConversationSummary,
+	saveConversationSummary,
+} from "../services/conversation";
 import type {
 	ProviderModelConfig,
 	ProviderModelPrice,
@@ -26,6 +31,7 @@ import {
 	recordSample,
 	splitOutputTokens,
 } from "../services/tokenModel";
+import { toast } from "./toastStore";
 
 export interface UsageRecord {
 	id: string;
@@ -106,6 +112,8 @@ const MAX_USAGE_RECORDS = 500;
 const MAX_COMPACTION_OUTPUT_RESERVE = 20_000;
 const AUTO_COMPACT_BUFFER_TOKENS = 13_000;
 export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000;
+/** Gateway default when a restored summary has no locatable range end. */
+const DEFAULT_KEEP_RECENT = 6;
 
 export function autoCompactReserve(maxCompletionTokens: number): number {
 	// Claude Code reserves bounded summary output plus a fixed safety margin;
@@ -586,6 +594,16 @@ interface ContextManagementState {
 		messages: Message[],
 	) => CompactionState | null;
 	clearCompaction: (conversationId: string) => void;
+	/**
+	 * Restore the summary persisted by Engine after a conversation detail
+	 * loads; a compaction created in this session always wins over it.
+	 */
+	restoreCompaction: (
+		conversationId: string,
+		summary: string | null,
+		endMessageId: string | null,
+		messages: Message[],
+	) => void;
 	setContextPanelOpen: (open: boolean) => void;
 	setContextPanelTab: (tab: ContextPanelTab) => void;
 	/**
@@ -647,14 +665,61 @@ export const useContextManagementStore = create<ContextManagementState>(
 			set((state) => ({
 				compactions: { ...state.compactions, [conversationId]: result },
 			}));
+			const archived =
+				result.keepRecent > 0
+					? messages.slice(0, -result.keepRecent)
+					: messages;
+			const startMessageId = archived[0]?.id;
+			const endMessageId = archived.at(-1)?.id;
+			if (startMessageId && endMessageId) {
+				void saveConversationSummary(
+					conversationId,
+					result.summary,
+					startMessageId,
+					endMessageId,
+				).catch(() => toast.error(t("context.compactionSaveFailed")));
+			}
 			return result;
 		},
-		clearCompaction: (conversationId) =>
+		clearCompaction: (conversationId) => {
+			void deleteConversationSummary(conversationId).catch(() =>
+				toast.error(t("context.compactionClearFailed")),
+			);
 			set((state) => {
 				const compactions = { ...state.compactions };
 				delete compactions[conversationId];
 				return { compactions };
-			}),
+			});
+		},
+		restoreCompaction: (conversationId, summary, endMessageId, messages) => {
+			if (!summary) return;
+			set((state) => {
+				if (state.compactions[conversationId]) return {};
+				const endIndex = endMessageId
+					? messages.findIndex((message) => message.id === endMessageId)
+					: -1;
+				const keepRecent =
+					endIndex >= 0
+						? Math.max(0, messages.length - endIndex - 1)
+						: DEFAULT_KEEP_RECENT;
+				const archived =
+					keepRecent > 0 ? messages.slice(0, -keepRecent) : messages;
+				return {
+					compactions: {
+						...state.compactions,
+						[conversationId]: {
+							summary,
+							keepRecent,
+							sourceTokens: archived.reduce(
+								(sum, message) => sum + estimateTokens(message.content),
+								0,
+							),
+							createdAt: new Date().toISOString(),
+						},
+					},
+				};
+			});
+		},
 		setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
 		setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
 		learnFromSnapshot: (modelKey, messages, compaction, character) => {

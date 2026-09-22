@@ -283,6 +283,10 @@ pub fn build_router_with(
             patch(conversations::update_title),
         )
         .route(
+            "/api/conversations/:id/summary",
+            post(conversations::save_summary).delete(conversations::delete_summary),
+        )
+        .route(
             "/api/conversations",
             get(conversations::list).post(conversations::create),
         )

@@ -36,6 +36,11 @@ describe("getCustomTitlebarEnabled", () => {
 			window as unknown as { __TAURI_INTERNALS__?: object }
 		).__TAURI_INTERNALS__ = {};
 		vi.spyOn(window.navigator, "platform", "get").mockReturnValue("Win32");
+		// jsdom derives userAgent from the host OS; on macOS it contains
+		// "Macintosh" and would override the stubbed platform below.
+		vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		);
 	});
 
 	it("uses the desktop rollback decision", async () => {

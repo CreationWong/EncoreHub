@@ -38,9 +38,24 @@ const transientPrefetchClaims = new Set<string>();
 function loadConversationDetail(id: string): Promise<ConversationDetail> {
 	const existing = conversationLoads.get(id);
 	if (existing) return existing;
-	const request = convApi.getConversation(id).finally(() => {
-		conversationLoads.delete(id);
-	});
+	const request = convApi
+		.getConversation(id)
+		.then((detail) => {
+			// Restore the persisted compaction so a reload sends the same
+			// compacted provider input instead of the full transcript.
+			useContextManagementStore
+				.getState()
+				.restoreCompaction(
+					id,
+					detail.summary,
+					detail.summary_end_message_id,
+					detail.messages,
+				);
+			return detail;
+		})
+		.finally(() => {
+			conversationLoads.delete(id);
+		});
 	conversationLoads.set(id, request);
 	return request;
 }

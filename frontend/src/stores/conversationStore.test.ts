@@ -35,6 +35,8 @@ vi.mock("../services/conversation", () => ({
 	updateConversationModel: (...args: unknown[]) =>
 		updateConversationModelApi(...args),
 	generateTitle: (...args: unknown[]) => generateTitleApi(...args),
+	saveConversationSummary: vi.fn().mockResolvedValue(undefined),
+	deleteConversationSummary: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../services/characters", () => ({
 	upgradeConversationCharacter: (...args: unknown[]) =>
@@ -318,6 +320,25 @@ describe("conversation prefetch", () => {
 		await useConversationStore.getState().selectConversation("selected");
 		useConversationStore.getState().releaseConversationPrefetch("selected");
 		expect(useConversationStore.getState().convCache.selected).toBeDefined();
+	});
+});
+
+describe("stored compaction", () => {
+	it("restores a persisted summary when a conversation is loaded", async () => {
+		const messages = Array.from({ length: 5 }, (_, index) =>
+			serverMessage({ id: `m${index}` }),
+		);
+		getConversationApi.mockResolvedValueOnce({
+			messages,
+			summary: "stored summary",
+			summary_end_message_id: "m2",
+		});
+
+		await useConversationStore.getState().selectConversation("c1");
+
+		const compaction = useContextManagementStore.getState().compactions.c1;
+		expect(compaction?.summary).toBe("stored summary");
+		expect(compaction?.keepRecent).toBe(2);
 	});
 });
 

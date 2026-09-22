@@ -36,6 +36,38 @@ func createRouter(target string) *gin.Engine {
 	return r
 }
 
+func getRouter(target string) *gin.Engine {
+	r := gin.New()
+	h := handler.NewConversationHandler(engine.NewClient(target, "test-engine-token"))
+	r.GET("/api/v1/conversations/:id", h.Get)
+	return r
+}
+
+func TestGet_ForwardsSummaryRangeToClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c1","title":"Chat","messages":[],"summary":"earlier context","summary_end_message_id":"m2"}`)
+	}))
+	defer server.Close()
+
+	router := getRouter(server.URL)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/conversations/c1", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{`"summary":"earlier context"`, `"summary_end_message_id":"m2"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("summary range missing from response: %s", body)
+		}
+	}
+}
+
 func TestCreate_ForwardsCharacterAssociationToEngine(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

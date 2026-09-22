@@ -151,6 +151,7 @@ describe("multiChatStore", () => {
 			...streaming,
 			messages: [],
 			summary: null,
+			summary_end_message_id: null,
 		});
 		enqueueMock.mockResolvedValue({
 			user_message: message({
@@ -230,7 +231,12 @@ describe("multiChatStore", () => {
 		const created = conversation("group-new");
 		createMock.mockResolvedValue(created);
 		listMock.mockResolvedValue({ conversations: [created], total: 1 });
-		getMock.mockResolvedValue({ ...created, messages: [], summary: null });
+		getMock.mockResolvedValue({
+			...created,
+			messages: [],
+			summary: null,
+			summary_end_message_id: null,
+		});
 
 		const id = await useMultiChatStore
 			.getState()

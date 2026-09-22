@@ -342,6 +342,156 @@ async fn create_then_list_then_get_then_rename_then_delete() {
 }
 
 #[tokio::test]
+async fn conversation_summary_roundtrips_replaces_and_validates() {
+    let (_dir, app) = make_app();
+
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"summary","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+    let mut message_ids = Vec::new();
+    for content in ["m1", "m2", "m3", "m4"] {
+        let resp = app
+            .clone()
+            .oneshot(json_post(
+                "POST",
+                &format!("/api/conversations/{id}/messages/append"),
+                json!({"role":"user","content":content}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        message_ids.push(body_json(resp).await["id"].as_str().unwrap().to_string());
+    }
+
+    // Save a summary over the first two messages.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/summary"),
+            json!({
+                "summary": "Earlier context",
+                "start_message_id": message_ids[0],
+                "end_message_id": message_ids[1],
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let saved = body_json(resp).await;
+    assert_eq!(saved["summary_text"], "Earlier context");
+    assert_eq!(saved["end_message_id"], message_ids[1]);
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let one = body_json(resp).await;
+    assert_eq!(one["summary"], "Earlier context");
+    assert_eq!(one["summary_end_message_id"], message_ids[1]);
+
+    // A second save replaces the previous range instead of accumulating rows.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/summary"),
+            json!({
+                "summary": "Wider context",
+                "start_message_id": message_ids[0],
+                "end_message_id": message_ids[2],
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let one = body_json(resp).await;
+    assert_eq!(one["summary"], "Wider context");
+    assert_eq!(one["summary_end_message_id"], message_ids[2]);
+
+    // Ranges outside this conversation and empty text are rejected.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/summary"),
+            json!({
+                "summary": "Bad range",
+                "start_message_id": message_ids[0],
+                "end_message_id": "not-a-message",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/summary"),
+            json!({
+                "summary": "   ",
+                "start_message_id": message_ids[0],
+                "end_message_id": message_ids[1],
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // Clearing removes the summary without touching the transcript.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/conversations/{id}/summary"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/conversations/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let one = body_json(resp).await;
+    assert!(one["summary"].is_null());
+    assert!(one["summary_end_message_id"].is_null());
+    assert_eq!(one["messages"].as_array().unwrap().len(), 4);
+}
+
+#[tokio::test]
 async fn attachment_upload_accepts_files_above_axums_default_body_limit() {
     let (_dir, app) = make_app();
     let response = app

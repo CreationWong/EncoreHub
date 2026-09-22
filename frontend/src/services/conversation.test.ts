@@ -6,10 +6,12 @@ vi.mock("./api", () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 import {
 	createConversation,
 	deleteConversation,
+	deleteConversationSummary,
 	generateTitle,
 	getConversation,
 	listConversations,
 	renameConversation,
+	saveConversationSummary,
 	updateConversationModel,
 } from "./conversation";
 
@@ -261,5 +263,30 @@ describe("conversation service", () => {
 		await generateTitle("c1");
 		const [, opts] = apiFetch.mock.calls[0];
 		expect(JSON.parse(opts.body)).toEqual({ force: false });
+	});
+
+	it("saveConversationSummary -> POST with the archived range", async () => {
+		await saveConversationSummary("c1", "earlier context", "m1", "m2");
+		const [path, opts] = apiFetch.mock.calls[0];
+		expect(path).toBe("/conversations/c1/summary");
+		expect(opts.method).toBe("POST");
+		expect(JSON.parse(opts.body)).toEqual({
+			summary: "earlier context",
+			start_message_id: "m1",
+			end_message_id: "m2",
+		});
+	});
+
+	it("deleteConversationSummary -> DELETE /conversations/:id/summary", async () => {
+		await deleteConversationSummary("c1");
+		expect(apiFetch).toHaveBeenCalledWith("/conversations/c1/summary", {
+			method: "DELETE",
+		});
+	});
+
+	it("getConversation defaults a missing summary range to null", async () => {
+		apiFetch.mockResolvedValueOnce({ messages: [] });
+		const detail = await getConversation("c1");
+		expect(detail.summary_end_message_id).toBeNull();
 	});
 });
