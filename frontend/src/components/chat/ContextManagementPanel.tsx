@@ -239,6 +239,21 @@ export default function ContextManagementPanel() {
 		(item) => item.id === modelId,
 	);
 	const compaction = activeId ? compactions[activeId] : undefined;
+	// Covered message count from the stored range ids; compactions restored
+	// without a range (older sessions) simply omit the line.
+	const coveredMessageCount = (() => {
+		if (!compaction?.startMessageId) return null;
+		const startIndex = messages.findIndex(
+			(message) => message.id === compaction.startMessageId,
+		);
+		if (startIndex < 0) return null;
+		const endIndex = compaction.endMessageId
+			? messages.findIndex((message) => message.id === compaction.endMessageId)
+			: -1;
+		if (endIndex >= startIndex) return endIndex - startIndex + 1;
+		const covered = messages.length - compaction.keepRecent - startIndex;
+		return covered > 0 ? covered : null;
+	})();
 	const metadataProviders = useModelMetadataStore((state) => state.providers);
 	const metadataRecords = useModelMetadataStore(
 		(state) => state.recordsByProvider,
@@ -715,6 +730,13 @@ export default function ContextManagementPanel() {
 										count: compaction.keepRecent,
 									})}
 								</p>
+								{coveredMessageCount !== null && (
+									<p className="mt-0.5 text-[10px] tabular-nums text-text-muted">
+										{t("context.compactionCovers", {
+											count: coveredMessageCount,
+										})}
+									</p>
+								)}
 							</div>
 						) : (
 							<p className="mt-3 text-[11px] leading-5 text-text-muted">

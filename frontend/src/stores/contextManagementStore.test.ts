@@ -290,7 +290,7 @@ describe("compaction persistence", () => {
 
 		useContextManagementStore
 			.getState()
-			.restoreCompaction("c1", "stored summary", "2", messages);
+			.restoreCompaction("c1", "stored summary", "0", "2", messages);
 
 		const compaction = useContextManagementStore.getState().compactions.c1;
 		expect(compaction?.summary).toBe("stored summary");
@@ -307,7 +307,7 @@ describe("compaction persistence", () => {
 
 		useContextManagementStore
 			.getState()
-			.restoreCompaction("c1", "older stored summary", null, messages);
+			.restoreCompaction("c1", "older stored summary", null, null, messages);
 
 		expect(useContextManagementStore.getState().compactions.c1).toEqual(local);
 	});

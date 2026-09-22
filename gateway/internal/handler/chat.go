@@ -33,6 +33,7 @@ func devMockEnabled() bool {
 type ChatHandler struct {
 	registry    *provider.Registry
 	engine      *engine.Client
+	profiles    *ProfileStore
 	titleMu     sync.Mutex
 	titleJobs   map[string]*titleJob
 	groupRunner *GroupRunnerManager
@@ -49,10 +50,14 @@ type titleJob struct {
 	err    error
 }
 
-func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *ChatHandler {
+// NewChatHandler wires the chat handler. The profile store supplies model
+// context windows for server-side turns (group members) that cannot receive a
+// client-declared window; it may be nil in tests that do not exercise them.
+func NewChatHandler(registry *provider.Registry, engineClient *engine.Client, profiles *ProfileStore) *ChatHandler {
 	handler := &ChatHandler{
 		registry:  registry,
 		engine:    engineClient,
+		profiles:  profiles,
 		titleJobs: make(map[string]*titleJob),
 	}
 	// The runner reuses the handler for provider resolution and Engine access,

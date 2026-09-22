@@ -164,15 +164,18 @@ export function normalizeMessage(message: MessagePayload): Message {
 
 type ConversationDetailPayload = Omit<
 	ConversationDetail,
-	"messages" | "summary_end_message_id"
+	"messages" | "summary_start_message_id" | "summary_end_message_id"
 > & {
 	messages: MessagePayload[];
+	summary_start_message_id?: string | null;
 	summary_end_message_id?: string | null;
 };
 
 export interface ConversationDetail extends Conversation {
 	messages: Message[];
 	summary: string | null;
+	/** First message covered by `summary`; null when no summary is stored. */
+	summary_start_message_id: string | null;
 	/** Last message covered by `summary`; null when no summary is stored. */
 	summary_end_message_id: string | null;
 }
@@ -254,6 +257,7 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
 	);
 	return {
 		...detail,
+		summary_start_message_id: detail.summary_start_message_id ?? null,
 		summary_end_message_id: detail.summary_end_message_id ?? null,
 		messages: (detail.messages ?? []).map(normalizeMessage),
 	};

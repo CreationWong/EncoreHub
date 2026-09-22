@@ -550,6 +550,10 @@ const zhCNMessages: DeepPartialMessages<typeof en> = {
 		showLess: "收起",
 		showMore: "展开",
 		sourceKeeping: "{source} 源 tokens · 保留最近 {count} 条消息",
+		compactionCovers: {
+			one: "覆盖最早的 {count} 条消息",
+			other: "覆盖最早的 {count} 条消息",
+		},
 		noCompacted: "此对话没有压缩上下文。",
 		logprobs: "对数概率",
 		logprobsHelp: "仅适用于 OpenAI 兼容服务商。",

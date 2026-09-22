@@ -151,6 +151,7 @@ describe("multiChatStore", () => {
 			...streaming,
 			messages: [],
 			summary: null,
+			summary_start_message_id: null,
 			summary_end_message_id: null,
 		});
 		enqueueMock.mockResolvedValue({
@@ -235,6 +236,7 @@ describe("multiChatStore", () => {
 			...created,
 			messages: [],
 			summary: null,
+			summary_start_message_id: null,
 			summary_end_message_id: null,
 		});
 

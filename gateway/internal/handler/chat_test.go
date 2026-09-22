@@ -333,7 +333,7 @@ func TestPrepareAttachments_KeepsOCROutOfPersistedContent(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	handler := NewChatHandler(provider.NewRegistry(), engine.NewClient(server.URL, "test-token"))
+	handler := NewChatHandler(provider.NewRegistry(), engine.NewClient(server.URL, "test-token"), nil)
 	req := SendMessageRequest{
 		Content:       "describe this",
 		AttachmentIDs: []string{"attachment-1"},

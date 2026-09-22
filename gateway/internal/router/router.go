@@ -46,7 +46,7 @@ func Setup(cfg Config) *gin.Engine {
 
 	// Handlers
 	convHandler := handler.NewConversationHandler(cfg.Engine)
-	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine)
+	chatHandler := handler.NewChatHandler(cfg.Registry, cfg.Engine, cfg.ProfileStore)
 	providerHandler := handler.NewProviderHandler(cfg.Registry, cfg.ProfileStore)
 	searchHandler := handler.NewSearchHandler(cfg.Engine)
 	engineProxy := handler.NewEngineProxy(cfg.Engine)

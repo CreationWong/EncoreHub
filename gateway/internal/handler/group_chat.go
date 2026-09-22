@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 
 	"com.0d000721.encorehub/gateway/internal/engine"
 	"com.0d000721.encorehub/gateway/internal/provider"
@@ -400,10 +401,25 @@ func (h *ChatHandler) streamGroupReply(ctx context.Context, conv *engine.Convers
 		Model:    participant.Model,
 		Stream:   false,
 	}
-	chatReq := buildChatRequest(&builderConv, memberReq, promptContext{
+	promptCtx := promptContext{
 		Memory:    memoryContext,
 		Knowledge: knowledgeContext,
-	}, nil, nil)
+	}
+	chatReq := buildChatRequest(&builderConv, memberReq, promptCtx, nil, nil)
+	// Server-side turns have no client-declared window, so the member model's
+	// configured window drives token-budget history selection when known. An
+	// empty selection is ignored here: the current user turn lives only in the
+	// live history and must reach the model.
+	if budget := historyTokenBudget(h.profiles.ContextWindow(participant.Provider, participant.Model), "", chatReq); budget > 0 {
+		selection, selectionErr := h.engine.BuildConversationContext(ctx, conv.ID, engine.ConversationContextRequest{Budget: budget})
+		if selectionErr != nil {
+			log.Debug().Err(selectionErr).Msg("group context selection failed (using full history)")
+		} else if selection.StartMessageID != nil {
+			if memberHistory, mapped := selectHistory(history, selection); mapped {
+				chatReq = buildChatRequestWithHistory(&builderConv, memberReq, promptCtx, nil, nil, memberHistory)
+			}
+		}
+	}
 	// Group v1 answers from the transcript only: no Gateway tool rounds.
 	chatReq.Tools = nil
 	chatReq.Stream = true

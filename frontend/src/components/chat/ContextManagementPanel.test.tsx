@@ -202,6 +202,7 @@ describe("ContextManagementPanel", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Compress context" }));
 		expect(screen.getByText(/Earlier conversation context/)).toBeDefined();
+		expect(screen.getByText("Covers the earliest 2 messages")).toBeDefined();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Parameters" }));
 		expect(

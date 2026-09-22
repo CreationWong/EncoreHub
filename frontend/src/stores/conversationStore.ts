@@ -50,6 +50,7 @@ function loadConversationDetail(id: string): Promise<ConversationDetail> {
 				.restoreCompaction(
 					id,
 					detail.summary,
+					detail.summary_start_message_id,
 					detail.summary_end_message_id,
 					detail.messages,
 				);
@@ -380,14 +381,16 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				providerKey,
 				keepRecent,
 			);
-			useContextManagementStore
-				.getState()
-				.setSummarizedCompaction(
-					conversationId,
-					result.summary,
-					result.keep_recent,
-					messages,
-				);
+			useContextManagementStore.getState().setSummarizedCompaction(
+				conversationId,
+				{
+					text: result.summary,
+					keepRecent: result.keep_recent,
+					startMessageId: result.start_message_id,
+					endMessageId: result.end_message_id,
+				},
+				messages,
+			);
 		} catch (error) {
 			// The instant local summary (if any) remains usable; chat already
 			// falls back to token-budget selection without a summary.

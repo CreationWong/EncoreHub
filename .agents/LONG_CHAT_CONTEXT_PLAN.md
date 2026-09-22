@@ -1,6 +1,6 @@
 # 长对话上下文上下文工程实施计划（P1）
 
-> 状态：Phase 1–4 核心已完成（2026-09-22）；剩余：面板展示摘要区间、群聊接入预算选择。对应 `.agents/REMAINING_WORK.md` §3（Conversation Context And Long-Chat Intelligence）。
+> 状态：Phase 1–4 已完成（2026-09-22）；剩余：真实供应商的 50+ 轮验证。对应 `.agents/REMAINING_WORK.md` §3（Conversation Context And Long-Chat Intelligence）。
 > 本文是 AI 工作文档，完成后将结果回填到 `REMAINING_WORK.md` 与 `CHANGELOG.md`。
 
 ## 目标
@@ -47,13 +47,12 @@
 
 Phase 3 说明：验收标准中的"50+ 轮不再触发供应商上限"由"选中历史估算恒 ≤ 预算"保证（`build_context` 的严格预算行为），未做真实供应商压测。
 
-### Phase 4 · 自动滚动摘要（进行中：核心已完成 2026-09-22）
+### Phase 4 · 自动滚动摘要（✅ 2026-09-22）
 
 - [x] 网关新增 `POST /api/v1/conversations/:id/summarize-context`：用会话自身的服务商/模型生成摘要并落库；已有摘要会折叠进新摘要并保留原起始消息，实现滚动。
 - [x] 前端在自动压缩阈值触发与手动「压缩上下文」时调用该端点，用模型摘要替换本地预览；失败时保留本地摘要，聊天继续按 token 预算回退。
-- [x] 摘要区间（start/end message id）随 `GET /api/v1/conversations/{id}` 返回，可审计。
-- [ ] 上下文面板展示摘要覆盖的消息区间（当前只展示摘要文本与来源 token 数）。
-- [ ] 群聊回合接入同一预算选择。
+- [x] 摘要区间（start/end message id）随 `GET /api/v1/conversations/{id}` 返回，上下文面板展示摘要覆盖的消息条数。
+- [x] 群聊回合接入同一预算选择：成员模型在服务商配置中声明了上下文窗口时按 token 预算裁剪历史；未配置窗口、Engine 调用失败或选择结果为空时回退完整历史（当前用户消息只存在于运行中的历史里，必须送达模型）。
 
 ## 契约要点（Phase 1）
 

@@ -66,6 +66,10 @@ export interface CompactionState {
 	keepRecent: number;
 	sourceTokens: number;
 	createdAt: string;
+	/** First summarized message; absent for compactions restored without a range. */
+	startMessageId?: string;
+	/** Last summarized message; absent for compactions restored without a range. */
+	endMessageId?: string;
 	/** `local` is the instant transcript preview; `summary` is model-written. */
 	source?: "local" | "summary";
 }
@@ -602,8 +606,12 @@ interface ContextManagementState {
 	 */
 	setSummarizedCompaction: (
 		conversationId: string,
-		summary: string,
-		keepRecent: number,
+		summary: {
+			text: string;
+			keepRecent: number;
+			startMessageId: string;
+			endMessageId: string;
+		},
 		messages: Message[],
 	) => void;
 	/**
@@ -613,6 +621,7 @@ interface ContextManagementState {
 	restoreCompaction: (
 		conversationId: string,
 		summary: string | null,
+		startMessageId: string | null,
 		endMessageId: string | null,
 		messages: Message[],
 	) => void;
@@ -674,18 +683,23 @@ export const useContextManagementStore = create<ContextManagementState>(
 		compactConversation: (conversationId, messages) => {
 			const result = buildCompactionSummary(messages);
 			if (!result) return null;
-			set((state) => ({
-				compactions: {
-					...state.compactions,
-					[conversationId]: { ...result, source: "local" },
-				},
-			}));
 			const archived =
 				result.keepRecent > 0
 					? messages.slice(0, -result.keepRecent)
 					: messages;
 			const startMessageId = archived[0]?.id;
 			const endMessageId = archived.at(-1)?.id;
+			set((state) => ({
+				compactions: {
+					...state.compactions,
+					[conversationId]: {
+						...result,
+						startMessageId,
+						endMessageId,
+						source: "local",
+					},
+				},
+			}));
 			if (startMessageId && endMessageId) {
 				void saveConversationSummary(
 					conversationId,
@@ -706,15 +720,10 @@ export const useContextManagementStore = create<ContextManagementState>(
 				return { compactions };
 			});
 		},
-		setSummarizedCompaction: (
-			conversationId,
-			summary,
-			keepRecent,
-			messages,
-		) => {
+		setSummarizedCompaction: (conversationId, summary, messages) => {
 			const boundedKeepRecent = Math.max(
 				0,
-				Math.min(keepRecent, messages.length),
+				Math.min(summary.keepRecent, messages.length),
 			);
 			const archived =
 				boundedKeepRecent > 0
@@ -724,8 +733,10 @@ export const useContextManagementStore = create<ContextManagementState>(
 				compactions: {
 					...state.compactions,
 					[conversationId]: {
-						summary,
+						summary: summary.text,
 						keepRecent: boundedKeepRecent,
+						startMessageId: summary.startMessageId,
+						endMessageId: summary.endMessageId,
 						sourceTokens: archived.reduce(
 							(sum, message) => sum + estimateTokens(message.content),
 							0,
@@ -736,7 +747,13 @@ export const useContextManagementStore = create<ContextManagementState>(
 				},
 			}));
 		},
-		restoreCompaction: (conversationId, summary, endMessageId, messages) => {
+		restoreCompaction: (
+			conversationId,
+			summary,
+			startMessageId,
+			endMessageId,
+			messages,
+		) => {
 			if (!summary) return;
 			set((state) => {
 				if (state.compactions[conversationId]) return {};
@@ -755,6 +772,8 @@ export const useContextManagementStore = create<ContextManagementState>(
 						[conversationId]: {
 							summary,
 							keepRecent,
+							startMessageId: startMessageId ?? undefined,
+							endMessageId: endMessageId ?? undefined,
 							sourceTokens: archived.reduce(
 								(sum, message) => sum + estimateTokens(message.content),
 								0,

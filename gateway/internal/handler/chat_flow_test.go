@@ -79,6 +79,7 @@ type chatEngineStub struct {
 	summary               *string
 	summaryStartMessageID *string
 	summaryEndMessageID   *string
+	providerProfiles      []provider.ProviderProfile
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -747,7 +748,12 @@ func streamOf(events ...provider.StreamEvent) <-chan provider.StreamEvent {
 
 func newChatTestRouter(adapter provider.Adapter, stub *chatEngineStub) (*gin.Engine, *httptest.Server) {
 	engineServer := httptest.NewServer(stub)
-	handler := NewChatHandler(provider.NewRegistry(adapter), engine.NewClient(engineServer.URL, "test-token"))
+	registry := provider.NewRegistry(adapter)
+	store := &ProfileStore{}
+	if stub.providerProfiles != nil {
+		store.profiles = append([]provider.ProviderProfile(nil), stub.providerProfiles...)
+	}
+	handler := NewChatHandler(registry, engine.NewClient(engineServer.URL, "test-token"), store)
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/chat", handler.SendMessage)
 	router.POST("/api/v1/conversations/:id/group-chat", handler.GroupChat)
@@ -996,7 +1002,7 @@ func TestGroupEnqueueFailsLoudlyWhenTheQueueIsUnavailable(t *testing.T) {
 		}
 	}))
 	defer engineServer.Close()
-	handler := NewChatHandler(provider.NewRegistry(&scriptedAdapter{}), engine.NewClient(engineServer.URL, "test-token"))
+	handler := NewChatHandler(provider.NewRegistry(&scriptedAdapter{}), engine.NewClient(engineServer.URL, "test-token"), nil)
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/group-messages", handler.GroupEnqueue)
 
@@ -1172,6 +1178,97 @@ func TestGroupChat_StreamsEveryMemberAndAttributesSenders(t *testing.T) {
 	}
 }
 
+func TestGroupChat_SelectsHistoryByMemberContextWindow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stored := make([]engine.Message, 6)
+	for index := range stored {
+		stored[index] = engine.Message{
+			ID:      fmt.Sprintf("m%d", index),
+			Role:    "user",
+			Content: fmt.Sprintf("group message %d", index),
+		}
+	}
+	start := "m3"
+	stub := &chatEngineStub{
+		replyMode:            "sequential",
+		conversationMessages: stored,
+		contextSelection: &engine.ConversationContextSelection{
+			StartMessageID:  &start,
+			EstimatedTokens: 100,
+			DroppedMessages: 3,
+		},
+		providerProfiles: []provider.ProviderProfile{{
+			ID:       "test",
+			Name:     "Test",
+			Protocol: provider.ProtocolOpenAI,
+			Models:   []string{"model-test"},
+			ModelConfigs: []provider.ProviderModelConfig{{
+				ID: "model-test", ContextWindow: 8000,
+			}},
+			Enabled: true,
+		}},
+		participants: []engine.ConversationParticipant{
+			{
+				CharacterID:       "char-a",
+				CharacterVersion:  1,
+				Position:          0,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "建模bot"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+			{
+				CharacterID:       "char-b",
+				CharacterVersion:  1,
+				Position:          1,
+				CharacterSnapshot: engine.CharacterSnapshot{Name: "论文挑刺"},
+				Provider:          "test",
+				Model:             "model-test",
+			},
+		},
+	}
+	var memberMessages []provider.Message
+	adapter := &scriptedAdapter{streamFn: func(_ context.Context, req *provider.ChatRequest, call int) (<-chan provider.StreamEvent, error) {
+		if call == 1 {
+			memberMessages = append([]provider.Message(nil), req.Messages...)
+		}
+		return streamOf(
+			provider.StreamEvent{Delta: &provider.DeltaEvent{Content: "reply"}},
+			provider.StreamEvent{Usage: &provider.UsageEvent{InputTokens: 3, OutputTokens: 1}},
+		), nil
+	}}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/group-chat",
+		bytes.NewBufferString(`{"content":"开始讨论","stream":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-test-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	stub.mu.Lock()
+	contextRequests := append([]engine.ConversationContextRequest(nil), stub.contextRequests...)
+	stub.mu.Unlock()
+	if len(contextRequests) != 2 ||
+		contextRequests[0].Budget <= 0 ||
+		contextRequests[1].Budget <= 0 {
+		t.Fatalf("context requests = %#v", contextRequests)
+	}
+	// The member sees the selected suffix plus the live user turn that exists
+	// only in the runner's history.
+	if len(memberMessages) != 4 ||
+		memberMessages[0].Content != "group message 3" ||
+		memberMessages[3].Content != "开始讨论" {
+		t.Fatalf("member history = %#v", memberMessages)
+	}
+}
+
 func TestGroupChatHonorsMentionsAndSkipsTheRest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adapter := &scriptedAdapter{streamFn: func(_ context.Context, _ *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
@@ -1255,7 +1352,7 @@ func TestSendMessage_MissingKeyDoesNotCreateTurn(t *testing.T) {
 	}))
 	defer engineServer.Close()
 
-	handler := NewChatHandler(provider.NewRegistry(), engine.NewClient(engineServer.URL, "test-token"))
+	handler := NewChatHandler(provider.NewRegistry(), engine.NewClient(engineServer.URL, "test-token"), nil)
 	router := gin.New()
 	router.POST("/api/v1/conversations/:id/chat", handler.SendMessage)
 

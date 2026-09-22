@@ -573,6 +573,10 @@ export const en = {
 		showLess: "Show less",
 		showMore: "Show more",
 		sourceKeeping: "{source} source tokens · keeping {count} recent messages",
+		compactionCovers: {
+			one: "Covers the earliest {count} message",
+			other: "Covers the earliest {count} messages",
+		},
 		noCompacted: "No compacted context for this conversation.",
 		logprobs: "Log probabilities",
 		logprobsHelp: "OpenAI-compatible providers only.",

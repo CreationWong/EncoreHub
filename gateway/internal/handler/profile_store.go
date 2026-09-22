@@ -88,6 +88,28 @@ func mergeMissingBuiltins(stored, builtins []provider.ProviderProfile) []provide
 	return merged
 }
 
+// ContextWindow returns the configured context window for a provider/model
+// pair, or 0 when the provider, model, or window is unknown. Used by
+// server-side group turns, which cannot receive a client-declared window.
+func (s *ProfileStore) ContextWindow(providerID, modelID string) int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, profile := range s.profiles {
+		if profile.ID != providerID {
+			continue
+		}
+		config, ok := profile.ModelConfig(modelID)
+		if !ok {
+			return 0
+		}
+		return config.ContextWindow
+	}
+	return 0
+}
+
 // Profiles returns a copy of the current profile list.
 func (s *ProfileStore) Profiles() []provider.ProviderProfile {
 	s.mu.RLock()
