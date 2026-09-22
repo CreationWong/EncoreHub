@@ -62,29 +62,32 @@ func NewChatHandler(registry *provider.Registry, engineClient *engine.Client) *C
 }
 
 type SendMessageRequest struct {
-	Content             string                 `json:"content"`
-	ModelContent        string                 `json:"-"`
-	Provider            string                 `json:"provider"`
-	Model               string                 `json:"model"`
-	Stream              bool                   `json:"stream"`
-	Search              bool                   `json:"search"`
-	SearchProvider      string                 `json:"search_provider"` // "duckduckgo" | "searxng" | "openserp" | "exa"
-	Temperature         float32                `json:"temperature"`
-	TopP                float32                `json:"top_p"`
-	MaxTokens           int                    `json:"max_tokens"`
-	MaxCompletionTokens int                    `json:"max_completion_tokens"`
-	FrequencyPenalty    float32                `json:"frequency_penalty"`
-	PresencePenalty     float32                `json:"presence_penalty"`
-	Stop                []string               `json:"stop"`
-	Seed                *int                   `json:"seed"`
-	Logprobs            bool                   `json:"logprobs"`
-	TopLogprobs         int                    `json:"top_logprobs"`
-	JSONMode            bool                   `json:"json_mode"`
-	ReasoningEffort     string                 `json:"reasoning_effort"`
-	DisableReasoning    bool                   `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
-	ThinkingBudget      int                    `json:"thinking_budget"`
-	ContextSummary      string                 `json:"context_summary"`
-	ContextKeepRecent   int                    `json:"context_keep_recent"`
+	Content             string   `json:"content"`
+	ModelContent        string   `json:"-"`
+	Provider            string   `json:"provider"`
+	Model               string   `json:"model"`
+	Stream              bool     `json:"stream"`
+	Search              bool     `json:"search"`
+	SearchProvider      string   `json:"search_provider"` // "duckduckgo" | "searxng" | "openserp" | "exa"
+	Temperature         float32  `json:"temperature"`
+	TopP                float32  `json:"top_p"`
+	MaxTokens           int      `json:"max_tokens"`
+	MaxCompletionTokens int      `json:"max_completion_tokens"`
+	FrequencyPenalty    float32  `json:"frequency_penalty"`
+	PresencePenalty     float32  `json:"presence_penalty"`
+	Stop                []string `json:"stop"`
+	Seed                *int     `json:"seed"`
+	Logprobs            bool     `json:"logprobs"`
+	TopLogprobs         int      `json:"top_logprobs"`
+	JSONMode            bool     `json:"json_mode"`
+	ReasoningEffort     string   `json:"reasoning_effort"`
+	DisableReasoning    bool     `json:"disable_reasoning"` // Preserves an explicit off state across the Gateway boundary.
+	ThinkingBudget      int      `json:"thinking_budget"`
+	ContextSummary      string   `json:"context_summary"`
+	ContextKeepRecent   int      `json:"context_keep_recent"`
+	// ContextWindow is the client-declared model window; zero means unknown
+	// and keeps the legacy message-count history selection.
+	ContextWindow       int                    `json:"context_window"`
 	ReplaceMessageID    string                 `json:"replace_message_id"`
 	UserSystemContext   *UserSystemContext     `json:"user_system_context"`
 	AttachmentIDs       []string               `json:"attachment_ids"`
@@ -394,11 +397,26 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Step 3: Compose ordered prompt sections from the immutable conversation
 	// snapshot. Skill content is reserved in the contract and remains empty
 	// until the skill service exposes instruction bodies.
-	chatReq := buildChatRequest(convDetail, req, promptContext{
+	promptCtx := promptContext{
 		Memory:      memoryContext,
 		Knowledge:   knowledgeContext,
 		ToolResults: formatPreexecutedToolContext(initialToolCalls),
-	}, searchTool, titleTool)
+	}
+	chatReq := buildChatRequest(convDetail, req, promptCtx, searchTool, titleTool)
+	// When the client declares the model window, Engine selects history by
+	// token budget instead of the legacy message count.
+	if budget := historyTokenBudget(req.ContextWindow, req.ContextSummary, chatReq); budget > 0 {
+		selection, selectionErr := h.engine.BuildConversationContext(ctx, convID, engine.ConversationContextRequest{
+			Budget:     budget,
+			Summary:    strings.TrimSpace(req.ContextSummary),
+			KeepRecent: req.ContextKeepRecent,
+		})
+		if selectionErr != nil {
+			log.Debug().Err(selectionErr).Msg("context selection failed (using legacy history)")
+		} else if history, mapped := selectHistory(convDetail.Messages, selection); mapped {
+			chatReq = buildChatRequestWithHistory(convDetail, req, promptCtx, searchTool, titleTool, history)
+		}
+	}
 	autoTitle := shouldGenerateAutomaticTitle(convDetail, req)
 
 	userMessage, err := h.engine.BeginTurnWithAttachments(
@@ -1886,7 +1904,97 @@ func replaceLastPromptSection(prompt, name, content string) string {
 	return strings.TrimSpace(prompt[:start] + replacement + prompt[end:])
 }
 
+// buildChatRequest composes the provider request with the legacy history
+// selection: the full transcript, or the client's retained tail when a
+// compaction summary is present. The chat handler replaces that selection with
+// a token-budget one through buildChatRequestWithHistory.
 func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, context promptContext, searchTool, titleTool *provider.Tool) *provider.ChatRequest {
+	history := conv.Messages
+	if strings.TrimSpace(req.ContextSummary) != "" {
+		keepRecent := req.ContextKeepRecent
+		if keepRecent == 0 {
+			keepRecent = 6
+		}
+		if len(history) > keepRecent {
+			history = history[len(history)-keepRecent:]
+		}
+	}
+	return buildChatRequestWithHistory(conv, req, context, searchTool, titleTool, history)
+}
+
+// Constants for the client-declared context budget. They mirror the Engine
+// conversation crate rules so prompt and tool overhead are charged once.
+const (
+	// defaultChatMaxTokens matches the output default in buildChatRequestWithHistory.
+	defaultChatMaxTokens = 4096
+	// toolDefinitionTokenEstimate is the per-tool rule of thumb from the
+	// Engine conversation crate (real cost depends on the JSON schema).
+	toolDefinitionTokenEstimate = 200
+	// historySafetyMarginTokens absorbs provider framing and estimator drift.
+	historySafetyMarginTokens = 1024
+)
+
+// historyTokenBudget converts the client-declared model window into the
+// allowance for summary plus history: window minus the output reserve, the
+// composed system prompt, and a safety margin. The compaction summary is part
+// of that prompt but Engine counts it during selection, so it is removed here
+// to avoid charging it twice. Zero means the window is unknown and the caller
+// keeps the legacy message-count selection.
+func historyTokenBudget(contextWindow int, summary string, chatReq *provider.ChatRequest) int {
+	if contextWindow <= 0 {
+		return 0
+	}
+	outputReserve := chatReq.MaxCompletionTokens
+	if chatReq.MaxTokens > outputReserve {
+		outputReserve = chatReq.MaxTokens
+	}
+	if outputReserve <= 0 {
+		outputReserve = defaultChatMaxTokens
+	}
+	promptTokens := roughTokenEstimate(chatReq.SystemPrompt) +
+		len(chatReq.Tools)*toolDefinitionTokenEstimate -
+		roughTokenEstimate(strings.TrimSpace(summary))
+	budget := contextWindow - outputReserve - promptTokens - historySafetyMarginTokens
+	if budget < 0 {
+		return 0
+	}
+	return budget
+}
+
+// roughTokenEstimate mirrors the Engine rough estimator: ASCII bytes at four
+// per token plus one token per non-ASCII code point.
+func roughTokenEstimate(content string) int {
+	asciiBytes := 0
+	nonASCIICodePoints := 0
+	for _, r := range content {
+		if r <= 0x7f {
+			asciiBytes++
+		} else {
+			nonASCIICodePoints++
+		}
+	}
+	return (asciiBytes+3)/4 + nonASCIICodePoints
+}
+
+// selectHistory maps Engine's start marker onto the gateway transcript copy.
+// It reports false when the marker is absent (the transcript changed between
+// fetches), so the caller keeps the legacy selection.
+func selectHistory(messages []engine.Message, selection *engine.ConversationContextSelection) ([]engine.Message, bool) {
+	if selection.StartMessageID == nil {
+		// Nothing fits the budget; an empty history is the valid selection.
+		return nil, true
+	}
+	for index, message := range messages {
+		if message.ID == *selection.StartMessageID {
+			return messages[index:], true
+		}
+	}
+	return nil, false
+}
+
+// buildChatRequestWithHistory composes the provider request from an explicit
+// history sequence; shared by the legacy wrapper and token-budget selection.
+func buildChatRequestWithHistory(conv *engine.ConversationDetail, req SendMessageRequest, context promptContext, searchTool, titleTool *provider.Tool, history []engine.Message) *provider.ChatRequest {
 	cr := &provider.ChatRequest{
 		Model:               req.Model,
 		Stream:              req.Stream,
@@ -1946,17 +2054,6 @@ func buildChatRequest(conv *engine.ConversationDetail, req SendMessageRequest, c
 	}
 	cr.Tools = tools
 
-	history := conv.Messages
-	if context.Compaction != "" {
-		keepRecent := req.ContextKeepRecent
-		if keepRecent == 0 {
-			keepRecent = 6
-		}
-		// Compaction affects only provider input; Engine remains the source of the full transcript.
-		if len(history) > keepRecent {
-			history = history[len(history)-keepRecent:]
-		}
-	}
 	for _, msg := range history {
 		cr.Messages = append(cr.Messages, provider.Message{
 			Role:    msg.Role,

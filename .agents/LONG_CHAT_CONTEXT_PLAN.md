@@ -1,6 +1,6 @@
 # 长对话上下文上下文工程实施计划（P1）
 
-> 状态：Phase 1 已完成（2026-09-22），Phase 2 待开始。对应 `.agents/REMAINING_WORK.md` §3（Conversation Context And Long-Chat Intelligence）。
+> 状态：Phase 1–3 已完成（2026-09-22，Phase 3 不含群聊），Phase 4 待开始。对应 `.agents/REMAINING_WORK.md` §3（Conversation Context And Long-Chat Intelligence）。
 > 本文是 AI 工作文档，完成后将结果回填到 `REMAINING_WORK.md` 与 `CHANGELOG.md`。
 
 ## 目标
@@ -32,22 +32,27 @@
 
 遗留决策：还原时的 `createdAt` 取当前时间，首个回合的 token 校准回退到估算，收到 provider 快照后自动重拟合；如需更精确可在 `ConversationDetail` 暴露 `summary_created_at`。
 
-### Phase 2 · Engine 上下文构造器
+### Phase 2 · Engine 上下文构造器（✅ 2026-09-22）
 
-- [ ] `conversation` crate 增加 `build_context(messages, budget) -> Vec<Message>`：保留最新原始轮次，超出预算的部分由摘要替代，工具调用载荷按预算折叠。
-- [ ] 边界测试：预算为 0、单条超长消息、摘要本身超预算、恰好等于预算。
+- [x] `conversation` crate 新增 `context::build_context`：摘要与历史共享预算，按"从新到旧逐个纳入"选取连续后缀；摘要文本超预算或区间端点缺失时自动忽略摘要，回退为纯历史选择。
+- [x] 边界测试：预算为 0、单条超长消息、摘要本身超预算、恰好等于预算、摘要区间端点缺失（`engine/crates/conversation/src/context.rs`）。
 
-### Phase 3 · 网关接入构造器
+### Phase 3 · 网关接入构造器（✅ 2026-09-22，群聊除外）
 
-- [ ] 网关调用 Engine 构造器（或复用同一实现）替换 `keepRecent` 截断；
-- [ ] 保留 `context_summary`/`context_keep_recent` 兼容旧客户端，新路径以构造器结果为准；
-- [ ] 覆盖 50+ 轮会话的回归用例，断言不再触发供应商 token 上限。
+- [x] 新增 Engine 内部端点 `POST /api/conversations/:id/context`，返回 `start_message_id` 与估算信息；客户端摘要与边界优先，否则使用已存储摘要。
+- [x] 前端在聊天请求中声明模型窗口 `context_window`（取上下文面板同一来源）；网关据此计算预算 = 窗口 − 输出预留 − 系统提示（摘要由 Engine 计费，避免重复扣除）− 安全余量。
+- [x] 网关按 Engine 返回的起点重建历史；Engine 失败或起点找不到时回退旧行为。未声明窗口的旧客户端保持按消息条数截断。
+- [x] 测试：Engine 端点选择用例（预算/摘要/存储摘要）、网关闭环用例（声明窗口后按引擎起点构造请求）、预算与回退单元测试。
+- [ ] 群聊回合（`group-chat`、异步 runner）仍使用旧截断逻辑，待 Phase 4 统一。
 
-### Phase 4 · 自动滚动摘要
+Phase 3 说明：验收标准中的"50+ 轮不再触发供应商上限"由"选中历史估算恒 ≤ 预算"保证（`build_context` 的严格预算行为），未做真实供应商压测。
+
+### Phase 4 · 自动滚动摘要（待开始）
 
 - [ ] 达到阈值时由 Engine 生成摘要（经网关调用用户所选模型），写入 `conversation_summaries`；
 - [ ] 摘要与原始消息区间（start/end message id）可审计，面板展示来源区间；
 - [ ] 手动压缩与自动滚动共用同一落库路径，手动优先。
+- [ ] 群聊回合接入同一预算选择。
 
 ## 契约要点（Phase 1）
 

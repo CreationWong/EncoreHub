@@ -73,6 +73,8 @@ type chatEngineStub struct {
 	memorySearchQueries   []string
 	conversationTitle     string
 	networkFetch          func(string) engine.NetworkFetchResponse
+	contextRequests       []engine.ConversationContextRequest
+	contextSelection      *engine.ConversationContextSelection
 }
 
 func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +275,18 @@ func (s *chatEngineStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.conversationMessages = append(s.conversationMessages, message)
 		s.mu.Unlock()
 		writeTestJSON(w, http.StatusOK, message)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/context":
+		var request engine.ConversationContextRequest
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.mu.Lock()
+		s.contextRequests = append(s.contextRequests, request)
+		selection := s.contextSelection
+		s.mu.Unlock()
+		if selection == nil {
+			http.Error(w, "no context selection configured", http.StatusInternalServerError)
+			return
+		}
+		writeTestJSON(w, http.StatusOK, selection)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/conversations/c1/queue":
 		var request engine.QueueItem
 		_ = json.NewDecoder(r.Body).Decode(&request)
@@ -360,6 +374,58 @@ func TestSendMessage_InlineEditTruncatesProviderHistoryAndReplacesTurn(t *testin
 		t.Fatalf("replace message id = %q", replacedID)
 	}
 	if len(providerMessages) != 3 || providerMessages[0].Content != "first" || providerMessages[1].Content != "first answer" || providerMessages[2].Content != "revised question" {
+		t.Fatalf("provider history = %#v", providerMessages)
+	}
+}
+
+func TestSendMessage_SelectsHistoryByTokenBudgetWhenWindowDeclared(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &chatEngineStub{conversationMessages: []engine.Message{
+		{ID: "m1", Role: "user", Content: "old"},
+		{ID: "m2", Role: "assistant", Content: "old answer"},
+		{ID: "m3", Role: "user", Content: "recent"},
+		{ID: "m4", Role: "assistant", Content: "recent answer"},
+	}}
+	start := "m3"
+	stub.contextSelection = &engine.ConversationContextSelection{
+		StartMessageID:  &start,
+		EstimatedTokens: 42,
+		DroppedMessages: 2,
+	}
+	var providerMessages []provider.Message
+	adapter := &scriptedAdapter{
+		streamFn: func(_ context.Context, request *provider.ChatRequest, _ int) (<-chan provider.StreamEvent, error) {
+			providerMessages = append([]provider.Message(nil), request.Messages...)
+			return streamOf(provider.StreamEvent{Delta: &provider.DeltaEvent{FinishReason: "stop"}}), nil
+		},
+	}
+	router, engineServer := newChatTestRouter(adapter, stub)
+	defer engineServer.Close()
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/conversations/c1/chat",
+		bytes.NewBufferString(`{"content":"next","provider":"test","model":"model-test","stream":true,"context_window":200000}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Provider-Key", "provider-key")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	stub.mu.Lock()
+	contextRequests := append([]engine.ConversationContextRequest(nil), stub.contextRequests...)
+	stub.mu.Unlock()
+	if len(contextRequests) != 1 || contextRequests[0].Budget <= 0 {
+		t.Fatalf("context requests = %#v", contextRequests)
+	}
+	// Engine's marker selects the suffix; the current turn is appended after it.
+	if len(providerMessages) != 3 ||
+		providerMessages[0].Content != "recent" ||
+		providerMessages[1].Content != "recent answer" ||
+		providerMessages[2].Content != "next" {
 		t.Fatalf("provider history = %#v", providerMessages)
 	}
 }

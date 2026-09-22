@@ -5,6 +5,8 @@
 //! - Context window builder (given messages + token budget → optimal message sequence)
 //! - Rolling summarisation (compress old messages when context overflows)
 //!
-//! Status: token counter is implemented; context builder and compressor are next.
+//! Status: token counter and context builder are implemented; automatic
+//! rolling summarisation is next.
 
+pub mod context;
 pub mod token;

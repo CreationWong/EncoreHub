@@ -260,6 +260,51 @@ describe("chatApi.sendMessageStream", () => {
 		expectUserSystemContext(userSystemContext);
 	});
 
+	it("sends the declared context window for token-budget history selection", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			sseResponse([
+				{
+					event: "error",
+					data: { code: "test_end", message: "stop fixture" },
+				},
+			]),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await chatApi.sendMessageStream(
+			"c1",
+			"hello",
+			"key",
+			{
+				onDelta: vi.fn(),
+				onDone: vi.fn(),
+				onError: vi.fn(),
+			},
+			undefined,
+			false,
+			undefined,
+			undefined,
+			{
+				contextSummary: "older context",
+				contextKeepRecent: 4,
+				contextWindow: 128000,
+			},
+		);
+
+		const request = fetchMock.mock.calls[0][1] as RequestInit;
+		const { user_system_context: userSystemContext, ...body } = JSON.parse(
+			String(request.body),
+		);
+		expect(body).toEqual({
+			content: "hello",
+			stream: true,
+			context_summary: "older context",
+			context_keep_recent: 4,
+			context_window: 128000,
+		});
+		expectUserSystemContext(userSystemContext);
+	});
+
 	it("sends the replaced user message id for inline edits", async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			sseResponse([

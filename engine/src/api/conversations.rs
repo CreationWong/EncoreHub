@@ -12,6 +12,9 @@ use encorehub_core::{
     ReplyMode, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
 use encorehub_storage::{AssistantTurn, AttachmentRecord, BlobStore, Database};
+use encorehub_conversation::context::{
+    build_context as select_context, ContextSummary as ContextSummaryRef,
+};
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -121,6 +124,30 @@ pub struct SaveSummaryRequest {
     pub summary: String,
     pub start_message_id: String,
     pub end_message_id: String,
+}
+
+/// Body of `POST /api/conversations/:id/context`.
+#[derive(Debug, Deserialize)]
+pub struct BuildContextRequest {
+    /// Tokens available for summary plus selected history; the caller has
+    /// already reserved system prompt, tools, and output.
+    pub budget: usize,
+    /// Client-supplied summary text. Empty falls back to the stored summary.
+    #[serde(default)]
+    pub summary: String,
+    /// Client boundary: newest messages kept outside the summary.
+    #[serde(default)]
+    pub keep_recent: usize,
+}
+
+/// Provider history selection for one request.
+#[derive(Debug, Serialize)]
+pub struct BuildContextResponse {
+    /// First message to send; null when no history fits the budget.
+    pub start_message_id: Option<String>,
+    pub estimated_tokens: usize,
+    pub dropped_messages: usize,
+    pub summary_included: bool,
 }
 
 /// Persisted compaction summary returned after a save.
@@ -436,6 +463,60 @@ pub async fn delete_summary(
     state.db.get_conversation(&id).map_err(not_found)?;
     state.db.delete_summaries(&id).map_err(internal_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Select the provider message sequence for a request under a token budget.
+///
+/// The client's summary and boundary win when present so a compaction created
+/// in the current session applies immediately; otherwise the stored summary
+/// is authoritative. Selection itself lives in the conversation crate.
+pub async fn build_context_selection(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(req): Json<BuildContextRequest>,
+) -> Result<Json<BuildContextResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.db.get_conversation(&id).map_err(not_found)?;
+    let messages = state.db.get_messages(&id).map_err(internal_error)?;
+
+    let requested_summary = req.summary.trim().to_string();
+    let resolved: Option<(String, String)> = if requested_summary.is_empty() {
+        state
+            .db
+            .get_latest_summary(&id)
+            .map_err(internal_error)?
+            .map(|stored| (stored.summary_text, stored.end_message_id))
+    } else {
+        summary_boundary(&messages, req.keep_recent).map(|end| (requested_summary, end))
+    };
+    let summary = resolved
+        .as_ref()
+        .map(|(text, end_message_id)| ContextSummaryRef {
+            text,
+            end_message_id,
+        });
+
+    let selection = select_context(&messages, req.budget, summary);
+    Ok(Json(BuildContextResponse {
+        start_message_id: selection.messages.first().map(|message| message.id.clone()),
+        estimated_tokens: selection.estimated_tokens,
+        dropped_messages: selection.dropped_messages,
+        summary_included: selection.summary_included,
+    }))
+}
+
+/// Locate the last summarized message for a client-side retained count.
+///
+/// A client sending `keep_recent` (0 means the gateway default of 6, matching
+/// the legacy chat contract) implies that everything older is summarized; the
+/// newest message is the boundary when the whole transcript is archived.
+fn summary_boundary(messages: &[Message], keep_recent: usize) -> Option<String> {
+    let keep_recent = if keep_recent == 0 { 6 } else { keep_recent };
+    let boundary = if messages.len() > keep_recent {
+        messages.get(messages.len() - keep_recent - 1)
+    } else {
+        messages.last()
+    };
+    boundary.map(|message| message.id.clone())
 }
 
 #[derive(Debug, Deserialize)]

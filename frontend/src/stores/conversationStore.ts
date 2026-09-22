@@ -1011,6 +1011,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 				parameters: contextManagement.advanced,
 				contextSummary: contextSummary?.summary,
 				contextKeepRecent: contextSummary?.keepRecent,
+				contextWindow: contextLimit,
 			},
 		);
 

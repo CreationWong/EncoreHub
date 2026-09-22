@@ -43,6 +43,8 @@ export interface ChatTurnOptions {
 	parameters?: AdvancedParameters;
 	contextSummary?: string;
 	contextKeepRecent?: number;
+	/** Model context window declared by the client; enables token-budget history selection. */
+	contextWindow?: number;
 	attachmentIds?: string[];
 	modelSupportsVision?: boolean;
 	imageStrategy?: "direct" | "system_ocr" | "vision_model";
@@ -251,6 +253,9 @@ export const chatApi = {
 							context_summary: turnOptions.contextSummary,
 							context_keep_recent: turnOptions.contextKeepRecent,
 						}),
+						...(turnOptions?.contextWindow
+							? { context_window: turnOptions.contextWindow }
+							: {}),
 					}),
 					signal,
 				},

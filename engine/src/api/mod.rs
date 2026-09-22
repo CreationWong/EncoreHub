@@ -287,6 +287,10 @@ pub fn build_router_with(
             post(conversations::save_summary).delete(conversations::delete_summary),
         )
         .route(
+            "/api/conversations/:id/context",
+            post(conversations::build_context_selection),
+        )
+        .route(
             "/api/conversations",
             get(conversations::list).post(conversations::create),
         )

@@ -2159,6 +2159,11 @@
           "top_p": { "type": "number" },
           "max_tokens": { "type": "integer" },
           "max_completion_tokens": { "type": "integer" },
+          "context_window": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Client-declared model context window; enables token-budget history selection in the Gateway"
+          },
           "frequency_penalty": { "type": "number" },
           "presence_penalty": { "type": "number" },
           "stop": { "type": "array", "items": { "type": "string" } },

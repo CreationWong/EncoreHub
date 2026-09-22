@@ -626,3 +626,52 @@ func TestCleanGeneratedTitle_EnforcesTitleLength(t *testing.T) {
 		t.Fatalf("mixed title rune count = %d, want %d", len([]rune(got)), titleMixedMaxRunes)
 	}
 }
+
+func TestHistoryTokenBudgetReservesOutputPromptAndSummary(t *testing.T) {
+	summary := strings.Repeat("x", 400) // 100 tokens
+	chatReq := &provider.ChatRequest{
+		SystemPrompt: strings.Repeat("s", 4_000), // 1000 tokens
+		MaxTokens:    4096,
+	}
+
+	// The summary is part of the prompt but Engine counts it during selection,
+	// so the budget keeps window - output - (prompt - summary) - margin.
+	if got := historyTokenBudget(16_000, summary, chatReq); got != 16_000-4096-900-1024 {
+		t.Fatalf("budget = %d", got)
+	}
+	if got := historyTokenBudget(0, summary, chatReq); got != 0 {
+		t.Fatalf("unknown window budget = %d", got)
+	}
+	if got := historyTokenBudget(2_000, summary, chatReq); got != 0 {
+		t.Fatalf("tiny window budget = %d", got)
+	}
+}
+
+func TestRoughTokenEstimateCountsCJKPerCodePoint(t *testing.T) {
+	if got := roughTokenEstimate("Hello world"); got != 3 {
+		t.Fatalf("ascii estimate = %d", got)
+	}
+	if got := roughTokenEstimate("你好世界"); got != 4 {
+		t.Fatalf("cjk estimate = %d", got)
+	}
+}
+
+func TestSelectHistoryMapsEngineMarker(t *testing.T) {
+	messages := []engine.Message{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+
+	start := "b"
+	history, ok := selectHistory(messages, &engine.ConversationContextSelection{StartMessageID: &start})
+	if !ok || len(history) != 2 || history[0].ID != "b" {
+		t.Fatalf("mapped history = %#v, ok = %v", history, ok)
+	}
+
+	missing := "missing"
+	if _, ok := selectHistory(messages, &engine.ConversationContextSelection{StartMessageID: &missing}); ok {
+		t.Fatal("missing marker must report a fallback")
+	}
+
+	empty, ok := selectHistory(messages, &engine.ConversationContextSelection{})
+	if !ok || len(empty) != 0 {
+		t.Fatalf("empty selection = %#v, ok = %v", empty, ok)
+	}
+}

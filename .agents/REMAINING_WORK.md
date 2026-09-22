@@ -28,14 +28,14 @@
 
 ## 3. Conversation Context And Long-Chat Intelligence
 
-> Progress: Phase 1 (summary persistence and restore) is complete; see `.agents/LONG_CHAT_CONTEXT_PLAN.md`. Context constructor and rolling summaries remain.
+> Progress: phases 1–3 (summary persistence, token-budget context constructor, gateway wiring) are complete; see `.agents/LONG_CHAT_CONTEXT_PLAN.md`. Automatic rolling summaries, group-turn budget selection, and the real 50+ turn validation remain.
 
-- [ ] Build a context constructor that accepts a conversation plus token budget and returns the provider message sequence.
+- [x] Build a context constructor that accepts a conversation plus token budget and returns the provider message sequence.
 - [ ] Add rolling summaries: compress old turns into a summaries table while preserving the latest raw turns.
-- [ ] Wire gateway chat to use the engine context constructor instead of sending full history.
+- [x] Wire gateway chat to use the engine context constructor instead of sending full history.
 - [ ] Validate more than 50-turn conversations avoid provider token-limit failures.
 - [ ] Make summaries visible and auditable.
-- [ ] Cover token-budget boundaries with conversation crate tests.
+- [x] Cover token-budget boundaries with conversation crate tests.
 
 ## 4. Native Document Processing Follow-up
 

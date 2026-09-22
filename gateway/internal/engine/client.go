@@ -404,6 +404,41 @@ func (c *Client) GetConversation(ctx context.Context, id string) (*ConversationD
 	return &detail, nil
 }
 
+// ConversationContextRequest asks Engine to select history under a budget.
+type ConversationContextRequest struct {
+	// Budget is the token allowance for summary plus selected history; the
+	// caller has already reserved system prompt, tools, and output.
+	Budget int `json:"budget"`
+	// Summary is the client-supplied summary text; empty uses the stored one.
+	Summary string `json:"summary,omitempty"`
+	// KeepRecent is the client boundary of newest messages outside Summary.
+	KeepRecent int `json:"keep_recent,omitempty"`
+}
+
+// ConversationContextSelection is Engine's suffix selection of a transcript.
+type ConversationContextSelection struct {
+	// StartMessageID is the first message to send; nil means no history fits.
+	StartMessageID  *string `json:"start_message_id"`
+	EstimatedTokens int     `json:"estimated_tokens"`
+	DroppedMessages int     `json:"dropped_messages"`
+	SummaryIncluded bool    `json:"summary_included"`
+}
+
+// BuildConversationContext selects the provider history for one request. The
+// caller maps StartMessageID onto its own transcript copy so the selected
+// range and the persisted transcript stay consistent.
+func (c *Client) BuildConversationContext(
+	ctx context.Context,
+	id string,
+	request ConversationContextRequest,
+) (*ConversationContextSelection, error) {
+	var selection ConversationContextSelection
+	if err := c.doJSON(ctx, "POST", "/api/conversations/"+id+"/context", request, &selection); err != nil {
+		return nil, err
+	}
+	return &selection, nil
+}
+
 // ListConversations lists all conversations.
 func (c *Client) ListConversations(ctx context.Context) (*ListResponse, error) {
 	var resp ListResponse

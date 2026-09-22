@@ -492,6 +492,113 @@ async fn conversation_summary_roundtrips_replaces_and_validates() {
 }
 
 #[tokio::test]
+async fn conversation_context_selects_history_by_budget_and_summary() {
+    let (_dir, app) = make_app();
+
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title":"context","provider":"openai","model":"gpt-4o"}),
+        ))
+        .await
+        .unwrap();
+    let id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+    // Every "mN" message costs 1 content token plus 4 framing tokens.
+    let mut message_ids = Vec::new();
+    for index in 0..6 {
+        let resp = app
+            .clone()
+            .oneshot(json_post(
+                "POST",
+                &format!("/api/conversations/{id}/messages/append"),
+                json!({"role":"user","content":format!("m{index}")}),
+            ))
+            .await
+            .unwrap();
+        message_ids.push(body_json(resp).await["id"].as_str().unwrap().to_string());
+    }
+
+    // Budget fits exactly the two newest messages.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/context"),
+            json!({"budget": 10}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let selection = body_json(resp).await;
+    assert_eq!(selection["start_message_id"], message_ids[4]);
+    assert_eq!(selection["dropped_messages"], 4);
+    assert_eq!(selection["estimated_tokens"], 10);
+    assert_eq!(selection["summary_included"], false);
+
+    // A client summary with a two-message tail: 4 summary tokens + 2 messages.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/context"),
+            json!({"budget": 14, "summary": "earlier notes", "keep_recent": 2}),
+        ))
+        .await
+        .unwrap();
+    let selection = body_json(resp).await;
+    assert_eq!(selection["start_message_id"], message_ids[4]);
+    assert_eq!(selection["dropped_messages"], 4);
+    assert_eq!(selection["estimated_tokens"], 14);
+    assert_eq!(selection["summary_included"], true);
+
+    // Zero budget sends no history at all.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/context"),
+            json!({"budget": 0}),
+        ))
+        .await
+        .unwrap();
+    let selection = body_json(resp).await;
+    assert!(selection["start_message_id"].is_null());
+    assert_eq!(selection["dropped_messages"], 6);
+
+    // Without a client summary the stored one applies, and the four summary
+    // tokens leave room for only the newest message.
+    let resp = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/summary"),
+            json!({
+                "summary": "stored context",
+                "start_message_id": message_ids[0],
+                "end_message_id": message_ids[3],
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp = app
+        .oneshot(json_post(
+            "POST",
+            &format!("/api/conversations/{id}/context"),
+            json!({"budget": 10}),
+        ))
+        .await
+        .unwrap();
+    let selection = body_json(resp).await;
+    assert_eq!(selection["start_message_id"], message_ids[5]);
+    assert_eq!(selection["estimated_tokens"], 9);
+    assert_eq!(selection["summary_included"], true);
+}
+
+#[tokio::test]
 async fn attachment_upload_accepts_files_above_axums_default_body_limit() {
     let (_dir, app) = make_app();
     let response = app
