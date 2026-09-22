@@ -34,6 +34,7 @@ function providerInitial(name: string): string {
 function protocolLabel(protocol: ProviderProtocol): string {
 	if (protocol === "anthropic") return t("providers.anthropic");
 	if (protocol === "openai-responses") return t("providers.openaiResponses");
+	if (protocol === "gemini") return t("providers.gemini");
 	return t("providers.openaiCompatible");
 }
 

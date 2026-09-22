@@ -50,7 +50,8 @@ func (h *ProviderHandler) DiscoverModels(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid discovery request"})
 		return
 	}
-	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolOpenAIResponses && request.Protocol != provider.ProtocolAnthropic {
+	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolOpenAIResponses &&
+		request.Protocol != provider.ProtocolAnthropic && request.Protocol != provider.ProtocolGemini {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported API format"})
 		return
 	}
@@ -200,6 +201,13 @@ func (h *ProviderHandler) discoverEndpointModelsWithKey(
 	models, ok := parseDiscoveredModels(body, providerID)
 	if !ok {
 		return nil, "unsupported_response"
+	}
+	if protocol == provider.ProtocolGemini {
+		// Google lists models with a "models/" resource prefix that is not part
+		// of the identifier callers pass back to the Interactions API.
+		for index := range models {
+			models[index].ID = strings.TrimPrefix(models[index].ID, "models/")
+		}
 	}
 	if len(models) == 0 {
 		return nil, "empty_response"

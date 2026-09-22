@@ -12,6 +12,9 @@ const (
 	ProtocolOpenAI          = "openai"
 	ProtocolOpenAIResponses = "openai-responses"
 	ProtocolAnthropic       = "anthropic"
+	// ProtocolGemini speaks Google's native Interactions API instead of the
+	// OpenAI-compatibility endpoint.
+	ProtocolGemini = "gemini"
 
 	RoutingFailover   = "failover"
 	RoutingRoundRobin = "round_robin"
@@ -33,6 +36,13 @@ func ResolveAPIBaseURL(protocol, baseURL string) string {
 		if segment == "v1" {
 			return base
 		}
+	}
+	if protocol == ProtocolGemini {
+		// Gemini's namespace is v1beta and the adapter adds the resource path.
+		if len(segments) > 0 && segments[len(segments)-1] == "v1beta" {
+			return base
+		}
+		return base + "/v1beta"
 	}
 	// Responses uses the official OpenAI /v1 namespace but has a different
 	// request shape from Chat Completions. It must not become /openai-responses/v1.
@@ -145,7 +155,7 @@ func (p ProviderProfile) ModelConfig(modelID string) (ProviderModelConfig, bool)
 type ProviderProfile struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
-	Protocol string   `json:"protocol"` // ProtocolOpenAI | ProtocolOpenAIResponses | ProtocolAnthropic
+	Protocol string   `json:"protocol"` // ProtocolOpenAI | ProtocolOpenAIResponses | ProtocolAnthropic | ProtocolGemini
 	BaseURL  string   `json:"base_url"`
 	Models   []string `json:"models"`
 	// Endpoints supersedes BaseURL when present. Order is significant in

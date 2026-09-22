@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory vector retrieval, file upload, and auto-generated conversation titles are complete; hybrid ranking and the WASM sandbox remain on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
+EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude, Google Gemini), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory vector retrieval, file upload, and auto-generated conversation titles are complete; hybrid ranking and the WASM sandbox remain on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
 
 ```mermaid
 flowchart LR
@@ -227,7 +227,7 @@ All AI providers implement the `provider.Adapter` interface (`gateway/internal/p
 - `ListModels(ctx, apiKey) → []ModelInfo`
 - `ValidateKey(ctx, apiKey) → error`
 
-Concrete adapters live in `gateway/internal/provider/{openai,anthropic,deepseek}/`. The `provider.Registry` maps provider IDs to adapters.
+Concrete adapters live in `gateway/internal/provider/{openaicompat,openairesponses,anthropic,gemini}/`; providers that speak the OpenAI shape (DeepSeek, Gemini's compatibility endpoint, local servers) reuse `openaicompat` with their own base URL and model list, while Gemini and Claude keep native adapters for their own wire protocols. The `provider.Registry` maps provider IDs to adapters.
 
 The unified `ChatRequest` type includes: `Model`, `Messages`, `Stream`, `MaxTokens`, `MaxCompletionTokens`, `Temperature`, `TopP`, `FrequencyPenalty`, `PresencePenalty`, `Stop`, `Seed`, `SystemPrompt`, `JSONMode`, `ReasoningEffort`, `TopK`, `ThinkingBudget`, `Tools` (function tool definitions for model-invokable actions, e.g. `web_search`). Each adapter's `buildRequest()` maps these to provider-native fields.
 

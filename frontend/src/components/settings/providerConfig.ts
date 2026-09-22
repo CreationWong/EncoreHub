@@ -12,6 +12,7 @@ const DEFAULT_BASE_URLS: Record<ProviderProtocol, string> = {
 	openai: "https://api.openai.com/v1",
 	"openai-responses": "https://api.openai.com/v1",
 	anthropic: "https://api.anthropic.com/v1",
+	gemini: "https://generativelanguage.googleapis.com/v1beta",
 };
 
 export function normalizeBaseUrl(value: string): string {
@@ -52,6 +53,12 @@ export function providerApiBaseUrl(
 		if (pathSegments.includes("v1")) {
 			return normalized;
 		}
+		if (protocol === "gemini") {
+			// Gemini's namespace is v1beta; the runtime adds the resource path.
+			return pathSegments.at(-1) === "v1beta"
+				? normalized
+				: `${normalized}/v1beta`;
+		}
 		const pathProtocol = protocol === "openai-responses" ? "openai" : protocol;
 		if (pathSegments.at(-1) === pathProtocol) {
 			return `${normalized}/v1`;
@@ -72,7 +79,9 @@ export function chatRequestPreview(
 			? "messages"
 			: protocol === "openai-responses"
 				? "responses"
-				: "chat/completions",
+				: protocol === "gemini"
+					? "interactions"
+					: "chat/completions",
 	);
 }
 

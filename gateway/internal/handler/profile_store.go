@@ -60,8 +60,32 @@ func (s *ProfileStore) Load(ctx context.Context) error {
 		return nil
 	}
 
-	s.apply(stored)
+	// Existing install: keep shipped providers available even when the stored
+	// list predates them, without touching the user's edits to known entries.
+	merged := mergeMissingBuiltins(stored, profiles.Builtins())
+	s.apply(merged)
+	if len(merged) != len(stored) {
+		if err := s.engine.SetConfig(ctx, profilesConfigKey, merged); err != nil {
+			log.Warn().Err(err).Msg("failed to persist merged builtin profiles")
+		}
+	}
 	return nil
+}
+
+// mergeMissingBuiltins appends builtins whose IDs are absent from the stored
+// list; existing entries stay exactly as the user saved them.
+func mergeMissingBuiltins(stored, builtins []provider.ProviderProfile) []provider.ProviderProfile {
+	present := make(map[string]struct{}, len(stored))
+	for _, profile := range stored {
+		present[profile.ID] = struct{}{}
+	}
+	merged := append([]provider.ProviderProfile(nil), stored...)
+	for _, builtin := range builtins {
+		if _, ok := present[builtin.ID]; !ok {
+			merged = append(merged, builtin)
+		}
+	}
+	return merged
 }
 
 // Profiles returns a copy of the current profile list.
@@ -140,7 +164,8 @@ func validateProfiles(list []provider.ProviderProfile) error {
 			return fmt.Errorf("provider %q: name must not be empty", id)
 		}
 		switch p.Protocol {
-		case provider.ProtocolOpenAI, provider.ProtocolOpenAIResponses, provider.ProtocolAnthropic:
+		case provider.ProtocolOpenAI, provider.ProtocolOpenAIResponses,
+			provider.ProtocolAnthropic, provider.ProtocolGemini:
 		default:
 			return fmt.Errorf("provider %q: unknown protocol %q", id, p.Protocol)
 		}

@@ -1,9 +1,15 @@
 package handler
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
+	"com.0d000721.encorehub/gateway/internal/engine"
 	"com.0d000721.encorehub/gateway/internal/provider"
 	"com.0d000721.encorehub/gateway/internal/provider/profiles"
 )
@@ -236,4 +242,62 @@ func TestSortedProfiles_BuiltinsFirstThenName(t *testing.T) {
 	if out[1].Name != "Alpha" || out[2].Name != "Zeta" {
 		t.Fatalf("non-builtins should sort by name: %q, %q", out[1].Name, out[2].Name)
 	}
+}
+
+func TestProfileStoreLoadMergesMissingBuiltins(t *testing.T) {
+	var persisted []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// An install saved before Gemini shipped.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"id":"custom","name":"Custom","protocol":"openai","base_url":"https://api.example.com/v1","models":["m"],"enabled":true}]`)
+		case http.MethodPut:
+			persisted, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+
+	store := NewProfileStore(engine.NewClient(server.URL, "test-token"), provider.NewRegistry())
+	if err := store.Load(context.Background()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	var hasGemini bool
+	for _, profile := range store.Profiles() {
+		if profile.ID == "gemini" {
+			hasGemini = true
+		}
+		if profile.ID == "custom" && profile.Name != "Custom" {
+			t.Fatalf("stored profile was modified: %+v", profile)
+		}
+	}
+	if !hasGemini {
+		t.Fatal("expected the shipped Gemini provider on an existing install")
+	}
+	if !strings.Contains(string(persisted), `"gemini"`) {
+		t.Fatalf("merged builtins were not persisted: %s", persisted)
+	}
+}
+
+func TestBuiltins_ExposeGeminiOnTheNativeInteractionsAPI(t *testing.T) {
+	for _, profile := range profiles.Builtins() {
+		if profile.ID != "gemini" {
+			continue
+		}
+		if profile.Protocol != provider.ProtocolGemini {
+			t.Fatalf("gemini must use the native adapter: %q", profile.Protocol)
+		}
+		if !strings.HasSuffix(profile.BaseURL, "/v1beta") {
+			t.Fatalf("unexpected Gemini endpoint: %q", profile.BaseURL)
+		}
+		if len(profile.ModelConfigs) == 0 || profile.ModelConfigs[0].ContextWindow == 0 {
+			t.Fatal("gemini models need context windows for the context meter")
+		}
+		return
+	}
+	t.Fatal("gemini builtin missing")
 }

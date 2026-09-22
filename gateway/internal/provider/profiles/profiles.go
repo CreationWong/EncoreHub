@@ -10,6 +10,7 @@ import (
 	// Internal packages use EncoreHub's stable reverse-domain namespace.
 	"com.0d000721.encorehub/gateway/internal/provider"
 	"com.0d000721.encorehub/gateway/internal/provider/anthropic"
+	"com.0d000721.encorehub/gateway/internal/provider/gemini"
 	"com.0d000721.encorehub/gateway/internal/provider/openaicompat"
 	"com.0d000721.encorehub/gateway/internal/provider/openairesponses"
 )
@@ -52,6 +53,42 @@ func Builtins() []provider.ProviderProfile {
 			Enabled:  true,
 			Builtin:  true,
 		},
+		{
+			ID:       "gemini",
+			Name:     "Google Gemini",
+			Protocol: provider.ProtocolGemini,
+			// Native Interactions API namespace; the adapter appends the
+			// resource path and authenticates with x-goog-api-key.
+			BaseURL: "https://generativelanguage.googleapis.com/v1beta",
+			Models: []string{
+				"gemini-3.5-flash", "gemini-3.5-flash-lite",
+				"gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash",
+			},
+			ModelConfigs: []provider.ProviderModelConfig{
+				geminiModel("gemini-3.5-flash", "Gemini 3.5 Flash"),
+				geminiModel("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+				geminiModel("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+				geminiModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
+				geminiModel("gemini-2.5-flash", "Gemini 2.5 Flash"),
+			},
+			Enabled: true,
+			Builtin: true,
+		},
+	}
+}
+
+// geminiModel declares one Gemini chat model with the catalog's context and
+// output limits so the context meter works without a metadata refresh.
+func geminiModel(id, name string) provider.ProviderModelConfig {
+	return provider.ProviderModelConfig{
+		ID:              id,
+		Name:            name,
+		Group:           "Gemini",
+		OwnedBy:         "google",
+		Capabilities:    []string{"reasoning", "tools", "vision"},
+		ContextWindow:   1_048_576,
+		MaxOutputTokens: 65_536,
+		Streaming:       true,
 	}
 }
 
@@ -63,6 +100,8 @@ func singleAdapter(p provider.ProviderProfile) (provider.Adapter, error) {
 		return openairesponses.New(p), nil
 	case provider.ProtocolAnthropic:
 		return anthropic.NewFromProfile(p), nil
+	case provider.ProtocolGemini:
+		return gemini.New(p), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol %q for provider %q", p.Protocol, p.ID)
 	}

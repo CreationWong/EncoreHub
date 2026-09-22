@@ -14,6 +14,8 @@ export function keyHintFor(protocol: ProviderProtocol): string {
 	switch (protocol) {
 		case "anthropic":
 			return "sk-ant-...";
+		case "gemini":
+			return "AIza...";
 		default:
 			return "sk-...";
 	}
@@ -38,6 +40,11 @@ export const API_FORMATS: {
 		value: "anthropic",
 		labelKey: "providers.anthropic",
 		descriptionKey: "providers.anthropicHelp",
+	},
+	{
+		value: "gemini",
+		labelKey: "providers.gemini",
+		descriptionKey: "providers.geminiHelp",
 	},
 ];
 

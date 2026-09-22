@@ -94,6 +94,30 @@ func TestDiscoverEndpointModelsAnthropicUsesAPIKeyHeader(t *testing.T) {
 	}
 }
 
+func TestDiscoverEndpointModelsGeminiUsesAPIKeyHeaderAndStripsResourcePrefix(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("x-goog-api-key"); got != "gemini-key" {
+			t.Fatalf("x-goog-api-key = %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("unexpected authorization header %q", got)
+		}
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-test","displayName":"Gemini Test"}]}`))
+	}))
+	defer server.Close()
+
+	handler := &ProviderHandler{client: server.Client()}
+	models, category := handler.discoverEndpointModels(
+		context.Background(), "gemini", "gemini", server.URL+"/v1beta", []string{"gemini-key"},
+	)
+	if category != "" || len(models) != 1 || models[0].ID != "gemini-test" || models[0].Name != "Gemini Test" {
+		t.Fatalf("models = %#v, category = %q", models, category)
+	}
+}
+
 func TestParseDiscoveredModelsSupportsCommonResponseShapes(t *testing.T) {
 	for name, body := range map[string]string{
 		"models array": `{"models":["model-a",{"model":"model-b"}]}`,

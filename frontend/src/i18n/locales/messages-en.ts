@@ -1240,6 +1240,9 @@ export const en = {
 		openaiResponsesHelp:
 			"OpenAI Responses API with its independent input and event format",
 		anthropicHelp: "Anthropic and gateways implementing the Messages API",
+		gemini: "Google Gemini (Interactions API)",
+		geminiHelp:
+			"Google's native Interactions API at generativelanguage.googleapis.com",
 		loading: "Loading...",
 		addProvider: "Add provider",
 		nameRequired: "Name is required",

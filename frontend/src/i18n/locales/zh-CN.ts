@@ -1193,6 +1193,9 @@ const zhCNMessages: DeepPartialMessages<typeof en> = {
 		openaiChatHelp: "OpenAI、DeepSeek、兼容网关和本地服务",
 		openaiResponsesHelp: "独立输入与事件格式的 OpenAI Responses API",
 		anthropicHelp: "Anthropic 以及实现 Messages API 的网关",
+		gemini: "Google Gemini（Interactions API）",
+		geminiHelp:
+			"Google 原生 Interactions API（generativelanguage.googleapis.com）",
 		loading: "加载中…",
 		addProvider: "添加服务商",
 		nameRequired: "名称为必填项",

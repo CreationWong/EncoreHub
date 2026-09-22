@@ -65,7 +65,8 @@ func (h *ProviderHandler) ValidateKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid validation request"})
 		return
 	}
-	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolOpenAIResponses && request.Protocol != provider.ProtocolAnthropic {
+	if request.Protocol != provider.ProtocolOpenAI && request.Protocol != provider.ProtocolOpenAIResponses &&
+		request.Protocol != provider.ProtocolAnthropic && request.Protocol != provider.ProtocolGemini {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported API format"})
 		return
 	}
@@ -318,6 +319,8 @@ func newProviderModelsRequest(
 	if protocol == provider.ProtocolAnthropic {
 		request.Header.Set("x-api-key", apiKey)
 		request.Header.Set("anthropic-version", "2023-06-01")
+	} else if protocol == provider.ProtocolGemini {
+		request.Header.Set("x-goog-api-key", apiKey)
 	} else {
 		request.Header.Set("Authorization", "Bearer "+apiKey)
 	}
