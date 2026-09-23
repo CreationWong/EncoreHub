@@ -41,15 +41,19 @@ A cross-platform AI chat desktop app that aggregates multiple AI providers — w
 
 ## Features
 
-- **Multi-provider**: Built-in OpenAI / Anthropic / DeepSeek with support for custom providers (base_url / model lists). Provider profiles persist in the engine and are hot-reloaded by the gateway
+- **Multi-provider**: Built-in OpenAI / Anthropic / Google Gemini / DeepSeek with support for custom providers (base_url / model lists). Provider profiles persist in the engine and are hot-reloaded by the gateway
 - **Streaming SSE**: Interruptible (Stop / Esc); reasoning / chain-of-thought is visible and collapsible
+- **Multi-AI group chat**: 2–8 characters converse in one conversation through a persistent async runner; mentions and reply modes decide who speaks
 - **Token counting**: Assistant replies show total input+output tokens; the engine provides rough estimation plus API usage tracking
-- **Local RAG**: Knowledge / Memory local vector retrieval (LanceDB primary index + SQLite-Vec fallback), auto-injected into context (top_k=3)
-- **Web search**: Built-in `web_search` tool with DuckDuckGo / SearXNG / OpenSERP; `web_fetch` page reads are executed by Curl inside the Engine under SSRF policy
+- **Long-chat context management**: Token-budget history selection plus persisted, model-written rolling summaries; the context panel shows window occupancy and summary coverage
+- **Local RAG**: Knowledge / Memory hybrid retrieval (FTS5 + vector, RRF fused; LanceDB primary index + SQLite-Vec fallback), auto-injected into context (top_k=3)
+- **Web search**: Built-in `web_search` tool with DuckDuckGo / SearXNG / OpenSERP / Exa; `web_fetch` page reads are executed by Curl inside the Engine under SSRF policy
+- **MCP server**: Ships with the desktop bundle so external MCP clients can query the local knowledge base and memories ([guide](docs/user/mcp.md))
 - **Character profiles**: Versioned character snapshots; character edits only affect new conversations
 - **Optional secret encryption**: API keys stored AES-256-GCM encrypted (Argon2id-derived master key), kept in memory only
 - **Auto titles**: Conversation titles generated after the first message; `/retitle` supported
 - **Slash tool requests**: `/` opens LLM tool completion; `/web_search <query>` forces a pre-executed search
+- **Bilingual UI**: English and Simplified Chinese, switchable in Settings → Appearance
 - **Developer mode**: Live status for engine / gateway / desktop, real-time logs (filter/search/export), runtime log-level control
 - **Workspace UI**: Home is persistent; Workbench / Settings tabs can be opened and closed; keyboard-first (`Ctrl/Cmd + ,`)
 
@@ -197,16 +201,16 @@ CI configuration lives in `.github/workflows/ci.yml` and covers Docs, Frontend, 
 - [`docs/dev/MEMORY_SYSTEM_DESIGN.md`](docs/dev/MEMORY_SYSTEM_DESIGN.md) — single source of truth for the memory system
 - [`docs/dev/RUST_DATA_PIPELINE.md`](docs/dev/RUST_DATA_PIPELINE.md) — Rust data pipeline and vector storage contract
 - [`docs/dev/conversation-title.md`](docs/dev/conversation-title.md) — conversation title generation rules
+- [`docs/user/mcp.md`](docs/user/mcp.md) — connecting external MCP clients to EncoreHub
 - [`docs/adr/`](docs/adr/) — architecture decision records
 - [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md) — unified backlog and release acceptance checklist
 - [`.agents/DEVELOPMENT_PLAN.md`](.agents/DEVELOPMENT_PLAN.md) — overall blueprint
 
 ## Roadmap
 
-- ✅ Multi-provider chat, streaming SSE, token counting, auto-generated titles
-- ✅ Local Knowledge / Memory vector retrieval, file upload, secret encryption, port negotiation
-- ✅ Web search and page reads, developer mode
-- ✅ Hybrid retrieval (FTS5 + vector, RRF fused)
+- ✅ Multi-provider chat (incl. native Gemini), streaming SSE, token counting, auto-generated titles
+- ✅ Local Knowledge / Memory hybrid retrieval, long-chat context management, file upload, secret encryption, port negotiation
+- ✅ Web search and page reads, multi-AI group chat, MCP server, developer mode
 - ⏳ Plugin WASM sandbox, full gRPC pipeline
 
 > Windows/macOS/Linux all build in CI with no-bundle smoke; each platform is treated as pre-release until its installed-app launch acceptance passes.

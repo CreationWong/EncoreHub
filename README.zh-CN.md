@@ -41,15 +41,19 @@
 
 ## 功能特性
 
-- **多模型供应商 Multi-provider**：内置 OpenAI / Anthropic / DeepSeek，支持自定义供应商（base_url / 模型列表），档案持久化于引擎、网关热加载
+- **多模型供应商 Multi-provider**：内置 OpenAI / Anthropic / Google Gemini / DeepSeek，支持自定义供应商（base_url / 模型列表），档案持久化于引擎、网关热加载
 - **流式 SSE**：可中断（Stop / Esc），reasoning / chain-of-thought 可见可折叠
+- **多 AI 群聊**：2–8 个角色在同一会话中由持久化异步运行器驱动对话，@ 点名与回复模式决定发言顺序
 - **Token 计数**：assistant 回复显示 input+output token 总数；引擎提供近似估算 + API 用量追踪
-- **本地 RAG**：Knowledge / Memory 本地向量检索（LanceDB 主索引 + SQLite-Vec 回退），自动注入上下文（top_k=3）
-- **联网搜索 Web Search**：内置 `web_search` 工具，DuckDuckGo / SearXNG / OpenSERP；`web_fetch` 网页读取由 Engine 内 Curl 执行并受 SSRF 策略约束
+- **长对话上下文管理**：按 token 预算选择历史，压缩摘要由模型生成并持久化、滚动更新；上下文面板展示窗口占用与摘要覆盖范围
+- **本地 RAG**：Knowledge / Memory 混合检索（FTS5 + 向量，RRF 融合；LanceDB 主索引 + SQLite-Vec 回退），自动注入上下文（top_k=3）
+- **联网搜索 Web Search**：内置 `web_search` 工具，DuckDuckGo / SearXNG / OpenSERP / Exa；`web_fetch` 网页读取由 Engine 内 Curl 执行并受 SSRF 策略约束
+- **MCP 服务器**：随桌面安装包发布，外部 MCP 客户端可检索本地知识库与记忆（[接入指南](docs/user/mcp.md)）
 - **角色档案 Character Profiles**：版本化角色快照，角色编辑仅影响新对话
 - **密钥加密（可选）**：API key 以 AES-256-GCM 加密落库（Argon2id 派生主密钥），仅驻内存
 - **自动标题 Auto Titles**：首条消息后自动生成对话标题，支持 `/retitle`
 - **Slash 工具请求**：`/` 打开 LLM 工具补全；`/web_search <query>` 强制预执行搜索
+- **中英界面**：设置 → 外观 可切换 English / 简体中文
 - **开发者模式 Developer Mode**：engine / gateway / desktop 三方存活状态、实时日志（过滤/搜索/导出）、运行时日志等级调整
 - **工作区 UI**：Home 常驻，Workbench / Settings 标签可开关；键盘优先（`Ctrl/Cmd + ,`）
 
@@ -196,16 +200,16 @@ CI 配置见 `.github/workflows/ci.yml`，覆盖 Docs、Frontend、Gateway、Eng
 - [`docs/dev/MEMORY_SYSTEM_DESIGN.md`](docs/dev/MEMORY_SYSTEM_DESIGN.md) — 记忆系统唯一规范
 - [`docs/dev/RUST_DATA_PIPELINE.md`](docs/dev/RUST_DATA_PIPELINE.md) — Rust 数据管线与向量存储契约
 - [`docs/dev/conversation-title.md`](docs/dev/conversation-title.md) — 对话标题生成规则
+- [`docs/user/mcp.md`](docs/user/mcp.md) — 把外部 MCP 客户端接入 EncoreHub
 - [`docs/adr/`](docs/adr/) — 架构决策记录
 - [`.agents/REMAINING_WORK.md`](.agents/REMAINING_WORK.md) — 统一待办与发布验收清单
 - [`.agents/DEVELOPMENT_PLAN.md`](.agents/DEVELOPMENT_PLAN.md) — 总体蓝图
 
 ## 路线图
 
-- ✅ 多供应商聊天、流式 SSE、token 计数、自动标题
-- ✅ 本地 Knowledge / Memory 向量检索、文件上传、密钥加密、端口协商
-- ✅ 联网搜索与网页读取、开发者模式
-- ✅ 混合检索（FTS5 + 向量，RRF 融合）
+- ✅ 多供应商聊天（含原生 Gemini）、流式 SSE、token 计数、自动标题
+- ✅ 本地 Knowledge / Memory 混合检索、长对话上下文管理、文件上传、密钥加密、端口协商
+- ✅ 联网搜索与网页读取、多 AI 群聊、MCP 服务器、开发者模式
 - ⏳ 插件 WASM 沙箱、gRPC 全链路
 
 > Windows/macOS/Linux 均进入 CI 编译与 no-bundle smoke；各平台完成安装后启动验收前视为预发布。
