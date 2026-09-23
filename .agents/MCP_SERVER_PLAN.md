@@ -24,10 +24,12 @@
 - [x] 抽出可测试的 `serve`，补协议测试（9 个：参数解析、initialize、tools/list、tools/call、list_skills、notification、未知方法/工具、坏 JSON 存活）。
 - [x] 文档：ADR-0002 修正、CHANGELOG。
 
-## Phase 2 · 打包为桌面 sidecar
+## Phase 2 · 打包为桌面 sidecar（macOS 已验证，三平台待验）
 
-- [ ] 构建脚本产出并拷贝 `encorehub-mcp`；`tauri.conf.json` externalBin 增加；三平台覆盖（macOS 依赖闭包与签名检查）。
-- [ ] 启动参数由安装布局决定（resource_dir 技能目录、app_data_dir 数据库）。
+- [x] 构建脚本产出并打包 `encorehub-mcp`：`prepare-engine-runtime.mjs` 以 `--features standalone --bin encorehub-mcp` 构建，重定位依赖（macOS `@loader_path` + ad-hoc 签名）并随 `engine-native/` 一起进安装包的 `lib/`，与 libcurl 闭包同目录（不单独走 externalBin，避免二次依赖打包）；manifest `engine-runtime.json` 记录 `mcp` 条目（file/size/sha256）。
+- [x] macOS 实测：产物在 `lib/` 运行 `initialize`/`tools/list` 正常、notification 无回包、`@loader_path` 依赖可加载。
+- [ ] Windows / Linux 构建与安装后验证（含 DLL/SO 闭包）。
+- [ ] 启动参数由安装布局决定（resource_dir 技能目录、app_data_dir 数据库）——留给 Phase 3 的配置导出一并落地。
 
 ## Phase 3 · 用户接入与文档
 

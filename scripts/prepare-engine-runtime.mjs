@@ -65,6 +65,11 @@ function rustScraplingLibraryName(target) {
 	return "libencorehub_rust_scrapling.so";
 }
 
+/** MCP stdio server binary name; packaged next to the runtime libraries. */
+function mcpBinaryName(target) {
+	return target.includes("windows") ? "encorehub-mcp.exe" : "encorehub-mcp";
+}
+
 function dynamicCurlBuildEnv(target) {
 	const env = { ...process.env };
 	if (target.includes("windows-msvc")) {
@@ -439,14 +444,38 @@ function main(argv) {
 	}
 	const fileName = libraryName(target);
 	const rustScraplingFileName = rustScraplingLibraryName(target);
+	const mcpFileName = mcpBinaryName(target);
 	const sourceDir = options.target
 		? path.join(cargoTargetDir, target, profile)
 		: path.join(cargoTargetDir, profile);
 	const source = path.join(sourceDir, fileName);
 	const rustScraplingSource = path.join(sourceDir, rustScraplingFileName);
+	const mcpSource = path.join(sourceDir, mcpFileName);
 	rmSync(source, { force: true });
 	rmSync(rustScraplingSource, { force: true });
+	rmSync(mcpSource, { force: true });
 	run("cargo", cargoArgs, root, {
+		...buildEnv,
+		CARGO_TARGET_DIR: cargoTargetDir,
+		PROTOC: resolveProtoc(root),
+	});
+
+	// The MCP stdio server ships next to the runtime libraries so it resolves
+	// the same libcurl closure instead of a second packaging path.
+	const mcpCargoArgs = [
+		"build",
+		"--manifest-path",
+		path.join(engineDir, "Cargo.toml"),
+		"-p",
+		"encorehub-engine",
+		"--features",
+		"standalone",
+		"--bin",
+		"encorehub-mcp",
+	];
+	if (options.release) mcpCargoArgs.push("--release");
+	if (options.target) mcpCargoArgs.push("--target", target);
+	run("cargo", mcpCargoArgs, root, {
 		...buildEnv,
 		CARGO_TARGET_DIR: cargoTargetDir,
 		PROTOC: resolveProtoc(root),
@@ -464,16 +493,37 @@ function main(argv) {
 		: target.includes("apple-darwin")
 			? macNativeDependencies(source)
 			: unixCurlDependencies(source);
+	// The MCP binary links the same shared curl; relocate it identically so
+	// both artifacts stay loadable from the packaged lib directory.
+	const mcpDependencies = target.includes("windows-msvc")
+		? windowsCurlDependencies(mcpSource, buildEnv)
+		: target.includes("apple-darwin")
+			? macNativeDependencies(mcpSource)
+			: unixCurlDependencies(mcpSource);
 	makeMacDependenciesRelocatable(source, resolvedDependencies, target);
+	makeMacDependenciesRelocatable(mcpSource, mcpDependencies, target);
 	copyFileSync(source, destination);
 	copyFileSync(rustScraplingSource, rustScraplingDestination);
-	const nativeDependencies = copyNativeDependencies(
-		resolvedDependencies,
-		target,
-	);
+	const dependencyUnion = [
+		...new Map(
+			[...resolvedDependencies, ...mcpDependencies].map((item) => [
+				item.name,
+				item,
+			]),
+		).values(),
+	];
+	const nativeDependencies = copyNativeDependencies(dependencyUnion, target);
+	// copyNativeDependencies clears the directory first, so the MCP binary is
+	// placed afterwards and lands beside its dylibs in the packaged lib dir.
+	const mcpDestination = path.join(nativeDependenciesDir, mcpFileName);
+	copyFileSync(mcpSource, mcpDestination);
+	if (target.includes("apple-darwin")) {
+		run("codesign", ["--force", "--sign", "-", mcpDestination]);
+	}
 
 	const bytes = readFileSync(destination);
 	const rustScraplingBytes = readFileSync(rustScraplingDestination);
+	const mcpBytes = readFileSync(mcpDestination);
 	const manifest = {
 		schemaVersion: 1,
 		module: "encorehub-engine-runtime",
@@ -494,13 +544,19 @@ function main(argv) {
 			size: rustScraplingBytes.length,
 			sha256: createHash("sha256").update(rustScraplingBytes).digest("hex"),
 		},
+		mcp: {
+			module: "encorehub-mcp",
+			file: mcpFileName,
+			size: mcpBytes.length,
+			sha256: createHash("sha256").update(mcpBytes).digest("hex"),
+		},
 	};
 	writeFileSync(
 		path.join(binariesDir, "engine-runtime.json"),
 		`${JSON.stringify(manifest, null, 2)}\n`,
 	);
 	console.log(
-		`Prepared ${fileName} with ${nativeDependencies.join(", ")} and ${rustScraplingFileName} (${profile}, ABI 1, ${target}; shared Cargo target ${cargoTargetDir})`,
+		`Prepared ${fileName} with ${nativeDependencies.join(", ")}, ${rustScraplingFileName}, and ${mcpFileName} (${profile}, ABI 1, ${target}; shared Cargo target ${cargoTargetDir})`,
 	);
 }
 
