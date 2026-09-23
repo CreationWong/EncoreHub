@@ -3,6 +3,7 @@
 import {
 	ArrowRight,
 	Bug,
+	Copy,
 	Cpu,
 	Database,
 	MousePointer2,
@@ -10,7 +11,9 @@ import {
 	ShieldCheck,
 } from "lucide-react";
 import { type MessageKey, t, useT } from "../../i18n";
+import { writeClipboardText } from "../../services/clipboard";
 import { devtools, inTauri } from "../../services/devtools";
+import { getMcpConfig } from "../../services/mcp";
 import { type SettingsTab, useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
@@ -63,6 +66,14 @@ export default function DeveloperPanel() {
 					: t("developer.openDevToolsFailed"),
 			);
 		});
+	};
+
+	/** Copy the installation-specific MCP client config to the clipboard. */
+	const copyMcpConfig = () => {
+		void getMcpConfig()
+			.then((config) => writeClipboardText(config))
+			.then(() => toast.success(t("developer.mcpConfigCopied")))
+			.catch(() => toast.error(t("developer.mcpConfigFailed")));
 	};
 
 	return (
@@ -137,6 +148,20 @@ export default function DeveloperPanel() {
 				>
 					{translate("common.utilities")}
 				</h3>
+				<button
+					type="button"
+					onClick={copyMcpConfig}
+					disabled={!tauri}
+					className="flex min-h-12 w-full items-center gap-3 border-y border-border px-1 py-3 text-left text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+				>
+					<Copy className="h-4 w-4" />
+					<span className="flex-1">{translate("developer.copyMcpConfig")}</span>
+					<span className="text-xs text-text-muted">
+						{tauri
+							? translate("developer.copy")
+							: translate("developer.desktopOnly")}
+					</span>
+				</button>
 				<button
 					type="button"
 					onClick={openInspector}
