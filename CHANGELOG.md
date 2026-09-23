@@ -22,6 +22,7 @@
 ### Changed
 
 - **群聊历史按成员模型窗口裁剪**：群聊回合复用单聊的 token 预算选择——成员模型在服务商配置中声明了上下文窗口时，按预算保留最近的连续历史；未配置窗口、Engine 选择失败或结果为空时回退完整历史。
+- **MCP server 能力对齐**：`encorehub-mcp` 的检索改为与 App 一致的混合检索（FTS5 + SQLite-Vec，RRF 融合），`list_skills` 改为读取真实技能目录；新增 `--db` / `--skills-dir` 参数（亦支持 `ENGINE_DB` / `ENCOREHUB_SKILLS_DIR` 环境变量）。协议修正：notification 不再回包、`initialize` 回显客户端协议版本、`serverInfo` 版本携带 Build ID，并补齐 9 个协议测试。
 - **压缩摘要展示覆盖范围**：上下文面板的压缩摘要区显示其覆盖的消息条数，摘要起止消息随会话详情返回，便于核对。
 - **组件补丁号改为发布时递增**：移除推送到主线时自动滚动补丁号的工作流；手动发布流程在准备阶段只对自上个发布标签以来有生产代码变更的组件递增补丁号，并改用递增后的提交构建与打标签，避免每次推送都产生机器人提交。
 - **发布构建启用 Thin LTO**：Engine Runtime 与桌面壳的 release profile 由 `lto = false` 改为 `lto = "thin"`，在保留逐 crate 并行代码生成、不引入 fat LTO 单步链接耗时的前提下获得跨 crate 优化；`codegen-units = 16` 保持不变。

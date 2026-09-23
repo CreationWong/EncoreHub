@@ -39,7 +39,7 @@
 ## 现在的"假状态"清理
 
 - `gateway/go.mod`：已移除 `google.golang.org/grpc` 与 `protobuf`（前一次 `go mod tidy` 清掉了）。
-- `engine/Cargo.toml`：tonic/prost 仍在依赖里，但只编进 `encorehub-mcp` binary 用作 stdio MCP server——不是 gateway↔engine 通道。
+- `engine/Cargo.toml`：`tonic`/`prost` 依赖已移除。`encorehub-mcp` 是 stdio JSON-RPC 2.0 的 MCP server，只用 `serde_json`，与 gateway↔engine 通道无关。
 - 数据处理没有跨进程传输边界；原生管线契约见 [Rust 数据管线](../dev/RUST_DATA_PIPELINE.md)。
 - `docker-compose.yml`：`50051` / `9090` 端口已经从 ports 列表移除（前一次提交修过），只暴露 `3000`/`8080`。
 
