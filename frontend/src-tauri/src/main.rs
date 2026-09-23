@@ -65,6 +65,23 @@ fn use_custom_titlebar() -> bool {
     false
 }
 
+/// Return the MCP client configuration pointing at this installation.
+///
+/// The frontend copies this JSON into an external client's config; paths are
+/// resolved here because only the desktop shell knows the install layout.
+#[tauri::command]
+fn get_mcp_config(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let paths =
+        RuntimePaths::prepare(&app_data_dir, &resource_dir).map_err(|e| e.to_string())?;
+    Ok(runtime_paths::mcp_client_config(
+        &resource_dir,
+        &paths.database,
+        &paths.skills,
+    ))
+}
+
 /// A spawned sidecar plus the metadata the developer panel reports.
 struct ServiceHandle {
     child: CommandChild,
@@ -690,6 +707,7 @@ fn main() {
             get_database_rows,
             open_devtools,
             use_custom_titlebar,
+            get_mcp_config,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

@@ -26,6 +26,38 @@ impl RuntimePaths {
     }
 }
 
+/// File name of the packaged MCP stdio server.
+pub fn mcp_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "encorehub-mcp.exe"
+    } else {
+        "encorehub-mcp"
+    }
+}
+
+/// Build the MCP client configuration that points at this installation.
+///
+/// The server ships under `lib/` beside the Engine runtime libraries; explicit
+/// `--db` and `--skills-dir` keep a copied configuration working no matter
+/// which working directory the external client spawns it from.
+pub fn mcp_client_config(resource_dir: &Path, database: &Path, skills: &Path) -> String {
+    let binary = resource_dir.join("lib").join(mcp_binary_name());
+    serde_json::json!({
+        "mcpServers": {
+            "encorehub": {
+                "command": binary.to_string_lossy(),
+                "args": [
+                    "--db",
+                    database.to_string_lossy(),
+                    "--skills-dir",
+                    skills.to_string_lossy(),
+                ],
+            }
+        }
+    })
+    .to_string()
+}
+
 #[cfg(test)]
 mod path_tests {
     use super::*;
@@ -42,6 +74,38 @@ mod path_tests {
         assert!(paths.logs.is_dir());
         assert_eq!(paths.database, app_data.join("data/encorehub.db"));
         assert!(app_data.join("data").is_dir());
+    }
+
+    #[test]
+    fn mcp_config_points_at_the_packaged_binary_and_explicit_paths() {
+        let resources = Path::new("/opt/encorehub/resources");
+        let config = mcp_client_config(
+            resources,
+            Path::new("/home/user/.local/share/encorehub/data/encorehub.db"),
+            Path::new("/opt/encorehub/resources/skills"),
+        );
+
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let server = &parsed["mcpServers"]["encorehub"];
+        assert_eq!(
+            server["command"],
+            resources.join("lib").join(mcp_binary_name()).to_string_lossy().as_ref()
+        );
+        let args: Vec<&str> = server["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "--db",
+                "/home/user/.local/share/encorehub/data/encorehub.db",
+                "--skills-dir",
+                "/opt/encorehub/resources/skills",
+            ]
+        );
     }
 }
 

@@ -31,9 +31,11 @@
 - [ ] Windows / Linux 构建与安装后验证（含 DLL/SO 闭包）。
 - [ ] 启动参数由安装布局决定（resource_dir 技能目录、app_data_dir 数据库）——留给 Phase 3 的配置导出一并落地。
 
-## Phase 3 · 用户接入与文档
+## Phase 3 · 用户接入与文档（部分完成）
 
-- [ ] 设置页"复制 MCP 配置"（解析后的绝对路径）；`docs/user/mcp.md`；README / CLAUDE.md 更新。
+- [x] `docs/user/mcp.md`：安装位置、客户端配置示例（含各平台数据目录）、故障排查。
+- [x] 桌面壳 `get_mcp_config` 命令：按 resource_dir/app_data_dir 解析二进制、数据库、技能目录并生成客户端配置 JSON（含单元测试）。
+- [ ] 设置面板「复制 MCP 配置」按钮（调用 `get_mcp_config` + 剪贴板 + toast + 中英词条）。
 
 ## Phase 4 · MCP Client（另立项）
 

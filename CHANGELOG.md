@@ -9,6 +9,7 @@
 
 ### Added
 
+- **MCP 接入指南与配置命令**：新增 `docs/user/mcp.md`（首个用户文档），说明 MCP 服务器安装位置、客户端配置与故障排查；桌面壳新增 `get_mcp_config` 命令，按当前安装布局生成含绝对路径的客户端配置 JSON（设置面板的「复制配置」按钮待接入）。
 - **混合检索（FTS5 + 向量）**：Knowledge 与 Memory 搜索默认改为混合检索——FTS5 词面召回与向量语义召回各自排序后用 RRF（k=60）融合并按 id 去重，精确词面与语义近似都能命中；`retrieval=vector|lexical` 仍可显式回退。Knowledge 响应 `backend` 新增 `hybrid`，设置面板显示对应检索来源标签。新增固定语料回归基准，断言融合不会丢失任一路召回。
 
 - **模型生成的滚动压缩摘要**：上下文压缩不再只截取历史消息片段。达到自动压缩阈值或点击「压缩上下文」时，网关用会话自身的服务商与模型把较早消息压缩成摘要并写入 `conversation_summaries`；已有摘要会折叠进新摘要并保留原始起始消息，形成滚动摘要。摘要生成失败时保留本地摘要，聊天继续按 token 预算回退。新增 `POST /api/v1/conversations/:id/summarize-context`，`GET /api/v1/conversations/:id` 增加 `summary_start_message_id`。
