@@ -681,10 +681,16 @@ fn group_queue_claims_mentions_first_and_cancels_cleanly() {
         .unwrap();
 
     // Enqueue in reverse priority order to prove the claim order.
-    db.enqueue_item(&QueueItem::new(&conversation.id, QueueSource::Auto, "自发讨论").from_member(&plan.id))
-        .unwrap();
-    db.enqueue_item(&QueueItem::new(&conversation.id, QueueSource::User, "大家介绍一下"))
-        .unwrap();
+    db.enqueue_item(
+        &QueueItem::new(&conversation.id, QueueSource::Auto, "自发讨论").from_member(&plan.id),
+    )
+    .unwrap();
+    db.enqueue_item(&QueueItem::new(
+        &conversation.id,
+        QueueSource::User,
+        "大家介绍一下",
+    ))
+    .unwrap();
     db.enqueue_item(
         &QueueItem::new(&conversation.id, QueueSource::Mention, "@论文挑刺 看看")
             .to_member(&review.id),
@@ -693,7 +699,10 @@ fn group_queue_claims_mentions_first_and_cancels_cleanly() {
 
     let first = db.claim_next_item(&conversation.id).unwrap().unwrap();
     assert_eq!(first.source, QueueSource::Mention);
-    assert_eq!(first.target_character_id.as_deref(), Some(review.id.as_str()));
+    assert_eq!(
+        first.target_character_id.as_deref(),
+        Some(review.id.as_str())
+    );
     db.complete_queue_item(&first.id).unwrap();
 
     let second = db.claim_next_item(&conversation.id).unwrap().unwrap();

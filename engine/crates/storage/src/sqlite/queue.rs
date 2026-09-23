@@ -27,9 +27,7 @@ fn queue_item_from_row(row: &Row<'_>) -> rusqlite::Result<QueueItem> {
         content: row.get(6)?,
         status: QueueStatus::from_str(&row.get::<_, String>(7)?).unwrap_or(QueueStatus::Pending),
         created_at: ts_to_dt(row.get::<_, i64>(8)?),
-        claimed_at: row
-            .get::<_, Option<i64>>(9)?
-            .map(ts_to_dt),
+        claimed_at: row.get::<_, Option<i64>>(9)?.map(ts_to_dt),
     })
 }
 

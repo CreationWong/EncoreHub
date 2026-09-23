@@ -6,15 +6,15 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use encorehub_conversation::context::{
+    build_context as select_context, ContextSummary as ContextSummaryRef,
+};
 use encorehub_core::{
     CharacterSnapshot, CharacterUpgradePreview, Conversation, ConversationParticipant,
     ConversationSummary, GroupChatSettings, Message, MessageStatus, QueueItem, QueueSource,
     ReplyMode, Role, ToolCall, DEFAULT_CHARACTER_ID,
 };
 use encorehub_storage::{AssistantTurn, AttachmentRecord, BlobStore, Database};
-use encorehub_conversation::context::{
-    build_context as select_context, ContextSummary as ContextSummaryRef,
-};
 use serde::{Deserialize, Serialize};
 
 // ===== Request / Response types =====
@@ -1272,7 +1272,10 @@ pub async fn list_queue(
     State(state): State<SharedState>,
     Path(conv_id): Path<String>,
 ) -> Result<Json<Vec<QueueItem>>, (StatusCode, Json<ErrorResponse>)> {
-    let items = state.db.list_queue_items(&conv_id).map_err(internal_error)?;
+    let items = state
+        .db
+        .list_queue_items(&conv_id)
+        .map_err(internal_error)?;
     Ok(Json(items))
 }
 

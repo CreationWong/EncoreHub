@@ -7,8 +7,8 @@ mod attachments;
 mod characters;
 mod chat_turns;
 mod data_management;
-mod queue;
 mod migrations;
+mod queue;
 mod secret_transactions;
 mod vectors;
 
