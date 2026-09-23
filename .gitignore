@@ -63,3 +63,6 @@ docs/ui-baseline/
 
 # Agent
 .codex/
+
+# Generated per-target duplicate of the tracked desktop schema
+frontend/src-tauri/gen/schemas/macOS-schema.json
