@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude, Google Gemini), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory vector retrieval, file upload, and auto-generated conversation titles are complete; hybrid ranking and the WASM sandbox remain on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
+EncoreHub is an AI chat desktop app aggregating multiple AI providers (OpenAI, Anthropic, DeepSeek, Claude, Google Gemini), with knowledge base, memory, skills, plugins, and MCP capabilities. Status: active development; core chat, web search, token counting, local Knowledge/Memory hybrid retrieval (FTS5 + vector, RRF fused), file upload, and auto-generated conversation titles are complete; the WASM sandbox remains on the roadmap. Windows, macOS, and Linux compile/no-bundle CI is required, but no platform is advertised as release-supported until its installed-app smoke passes.
 
 ```mermaid
 flowchart LR

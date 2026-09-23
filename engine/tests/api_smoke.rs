@@ -981,6 +981,7 @@ async fn knowledge_ingest_list_search_delete() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let hits = body_json(resp).await;
+    assert_eq!(hits["backend"], "hybrid");
     assert!(!hits["results"].as_array().unwrap().is_empty());
 
     // Delete
@@ -998,6 +999,190 @@ async fn knowledge_ingest_list_search_delete() {
         resp.status().is_success(),
         "delete status = {}",
         resp.status()
+    );
+}
+
+#[tokio::test]
+async fn knowledge_search_modes_fuse_and_deduplicate() {
+    let (_dir, app) = make_app();
+
+    for (title, content) in [
+        (
+            "telemetry",
+            "The ZQX-9000 telemetry probe reports every five seconds.".repeat(3),
+        ),
+        (
+            "unrelated",
+            "The desktop shell loads a dynamic library at startup.".repeat(3),
+        ),
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(json_post(
+                "POST",
+                "/api/knowledge",
+                json!({"title": title, "content": content}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // Lexical route: exact rare term, rank-based display score.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge/search?q=ZQX-9000&top_k=3&retrieval=lexical")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let lexical = body_json(resp).await;
+    assert_eq!(lexical["backend"], "sqlite_fts");
+    let lexical_results = lexical["results"].as_array().unwrap();
+    assert!(!lexical_results.is_empty());
+    assert_eq!(lexical_results[0]["score"], 1.0);
+
+    // Vector route keeps its own backend label.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge/search?q=ZQX-9000&top_k=3&retrieval=vector")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let vector = body_json(resp).await;
+    // LanceDB is primary; SQLite-Vec is the fallback when it is unavailable.
+    let vector_backend = vector["backend"].as_str().unwrap();
+    assert!(
+        vector_backend == "lance_db" || vector_backend == "sqlite_vec",
+        "vector backend = {vector_backend}"
+    );
+
+    // Hybrid default: one entry per chunk even when both routes found it,
+    // and the leading result reports normalized relevance 1.0.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/knowledge/search?q=ZQX-9000&top_k=5")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let hybrid = body_json(resp).await;
+    assert_eq!(hybrid["backend"], "hybrid");
+    let hybrid_results = hybrid["results"].as_array().unwrap();
+    assert!(!hybrid_results.is_empty());
+    assert_eq!(hybrid_results[0]["score"], 1.0);
+    let mut ids: Vec<&str> = hybrid_results
+        .iter()
+        .map(|hit| hit["id"].as_str().unwrap())
+        .collect();
+    let total = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), total, "hybrid results must be deduplicated");
+    assert!(
+        hybrid_results
+            .iter()
+            .any(|hit| hit["content"].as_str().unwrap().contains("ZQX-9000")),
+        "hybrid must surface the exact-term chunk: {hybrid_results:?}"
+    );
+}
+
+/// Search knowledge over one retrieval route and return the result ids.
+async fn knowledge_search_ids(
+    app: &axum::Router,
+    retrieval: Option<&str>,
+    query: &str,
+    top_k: i64,
+) -> Vec<String> {
+    let suffix = retrieval
+        .map(|value| format!("&retrieval={value}"))
+        .unwrap_or_default();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/knowledge/search?q={query}&top_k={top_k}{suffix}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload = body_json(response).await;
+    payload["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hit| hit["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn hybrid_retrieval_preserves_route_findings_on_fixed_corpus() {
+    // Fixed small corpus: each document is one chunk so result ids stay stable.
+    let corpus = [
+        "ZQX-9000 telemetry probe rotates its key weekly.",
+        "The desktop shell loads the engine runtime as a dynamic library.",
+        "Retry policy uses exponential backoff with jitter.",
+        "迁移策略 covers schema upgrades and rollback steps.",
+        "The telemetry dashboard shows probe uptime and key rotation.",
+        "Knowledge chunks are embedded offline with feature hashing.",
+    ];
+    let (_dir, app) = make_app();
+    for (index, content) in corpus.iter().enumerate() {
+        let resp = app
+            .clone()
+            .oneshot(json_post(
+                "POST",
+                "/api/knowledge",
+                json!({"title": format!("doc-{index}"), "content": content}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    let mut routes_disagreed = false;
+    for query in [
+        "ZQX-9000",
+        "retry%20backoff",
+        "%E8%BF%81%E7%A7%BB%E7%AD%96%E7%95%A5",
+        "probe%20uptime",
+    ] {
+        // One hit per route keeps the route leaders visible; the hybrid call
+        // has room for everything both routes found.
+        let lexical = knowledge_search_ids(&app, Some("lexical"), query, 1).await;
+        let vector = knowledge_search_ids(&app, Some("vector"), query, 1).await;
+        let hybrid = knowledge_search_ids(&app, None, query, 4).await;
+
+        let mut union: Vec<String> = lexical.iter().chain(vector.iter()).cloned().collect();
+        union.sort();
+        union.dedup();
+        if union.len() > lexical.len().max(vector.len()) {
+            routes_disagreed = true;
+        }
+        for id in &union {
+            assert!(
+                hybrid.contains(id),
+                "query={query}: hybrid lost a route finding; union={union:?} hybrid={hybrid:?}"
+            );
+        }
+    }
+    assert!(
+        routes_disagreed,
+        "the fixed corpus must exercise routes that disagree; refresh the corpus/queries"
     );
 }
 
@@ -1673,6 +1858,106 @@ async fn memories_can_be_updated_and_filtered_by_state_and_kind() {
         .map(|group| group["id"].as_str().unwrap().to_string())
         .collect();
     assert!(all_ids.contains(&archived_id));
+}
+
+#[tokio::test]
+async fn memory_search_hybrid_is_default_and_fuses_routes() {
+    let (_dir, app) = make_app();
+    let conversation = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/conversations",
+            json!({"title": "hybrid memory", "character_id": "default"}),
+        ))
+        .await
+        .unwrap();
+    let conversation_id = body_json(conversation).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Vector indexing only runs outside Simple mode; enable RAG first so both
+    // routes have data for the fusion assertion.
+    let rag = app
+        .clone()
+        .oneshot(json_post(
+            "PUT",
+            "/api/characters/default/memory-settings",
+            json!({
+                "default_mode": "rag",
+                "realistic_enabled": false,
+                "inherited_groups": []
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rag.status(), StatusCode::OK);
+
+    let saved = app
+        .clone()
+        .oneshot(json_post(
+            "POST",
+            "/api/memories",
+            json!({
+                "conversation_id": conversation_id,
+                "character_id": "default",
+                "source_turn_id": "turn-1",
+                "created_by_model": "test-model",
+                "content": "The telemetry key is ZQX-9000 and rotates weekly.",
+                "kind": "fact",
+                "reason": "Durable project context.",
+                "importance": 0.6,
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::CREATED);
+
+    for (retrieval, expected_backend) in [
+        (None, "hybrid"),
+        (Some("lexical"), "sqlite_fts"),
+        (Some("vector"), "sqlite_vec"),
+    ] {
+        let suffix = retrieval
+            .map(|value| format!("&retrieval={value}"))
+            .unwrap_or_default();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/memories/search?q=ZQX-9000&top_k=3{suffix}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "retrieval={retrieval:?}");
+        let payload = body_json(response).await;
+        assert_eq!(
+            payload["backend"], expected_backend,
+            "retrieval={retrieval:?}"
+        );
+        assert!(
+            payload["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|memory| memory["content"].as_str().unwrap().contains("ZQX-9000")),
+            "retrieval={retrieval:?} must surface the stored memory: {payload:?}"
+        );
+    }
+
+    let invalid = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/memories/search?q=ZQX-9000&retrieval=cosine")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

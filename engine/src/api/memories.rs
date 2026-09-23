@@ -10,7 +10,7 @@ use encorehub_core::{
     CharacterMemorySettings, Memory, MemoryGroup, MemoryGroupInheritance, MemoryKind, MemoryMode,
     MemoryScope, MemoryState, MemoryType,
 };
-use encorehub_storage::MemoryFilter;
+use encorehub_storage::{reciprocal_rank_fusion, MemoryFilter, RRF_K};
 use serde::{Deserialize, Serialize};
 
 /// Query parameters accepted by vector memory search.
@@ -199,57 +199,75 @@ pub async fn search(
         }
         visible_groups = Some(vec![group_id.to_string()]);
     }
-    let retrieval = params.retrieval.as_deref().unwrap_or("vector");
-    let (results, backend) = match retrieval {
-        "lexical" => {
-            let mut results = if let Some(groups) = visible_groups.as_deref() {
-                state
-                    .db
-                    .search_memories_fts_for_groups(&params.q, groups, params.top_k)
-            } else {
-                state
-                    .db
-                    .search_memories_fts(&params.q, scope.as_ref(), params.top_k)
-            }
-            .map_err(internal_error)?;
-            if results.is_empty() {
-                if let Some(groups) = visible_groups.as_deref() {
-                    // Simple mode may store English-normalized facts while the
-                    // recall query is in another language. A bounded recent
-                    // fallback remains explicit and role-scoped.
-                    results = state
-                        .db
-                        .list_memories_for_groups(
-                            MemoryFilter::default(),
-                            groups,
-                            params.top_k.clamp(1, 10),
-                            0,
-                        )
-                        .map_err(internal_error)?;
-                }
-            }
-            (results, "sqlite_fts")
-        }
-        "vector" => {
-            let results = state
+    let retrieval = params.retrieval.as_deref().unwrap_or("hybrid");
+    // Both routes are prepared as closures so hybrid can run each exactly once
+    // and share the existing role-scoped helpers.
+    let lexical_hits = || -> Result<Vec<Memory>, (StatusCode, Json<super::ErrorResponse>)> {
+        let mut results = if let Some(groups) = visible_groups.as_deref() {
+            state
                 .db
-                .search_memory_vectors_for_groups(
-                    &params.q,
-                    params.conversation_id.as_deref(),
-                    visible_groups.as_deref(),
-                    params.top_k,
-                )
-                .map_err(internal_error)?
-                .into_iter()
-                .map(|hit| hit.item)
-                .collect();
-            (results, "sqlite_vec")
+                .search_memories_fts_for_groups(&params.q, groups, params.top_k)
+        } else {
+            state
+                .db
+                .search_memories_fts(&params.q, scope.as_ref(), params.top_k)
+        }
+        .map_err(internal_error)?;
+        if results.is_empty() {
+            if let Some(groups) = visible_groups.as_deref() {
+                // Simple mode may store English-normalized facts while the
+                // recall query is in another language. A bounded recent
+                // fallback remains explicit and role-scoped.
+                results = state
+                    .db
+                    .list_memories_for_groups(
+                        MemoryFilter::default(),
+                        groups,
+                        params.top_k.clamp(1, 10),
+                        0,
+                    )
+                    .map_err(internal_error)?;
+            }
+        }
+        Ok(results)
+    };
+    let vector_hits = || -> Result<Vec<Memory>, (StatusCode, Json<super::ErrorResponse>)> {
+        Ok(state
+            .db
+            .search_memory_vectors_for_groups(
+                &params.q,
+                params.conversation_id.as_deref(),
+                visible_groups.as_deref(),
+                params.top_k,
+            )
+            .map_err(internal_error)?
+            .into_iter()
+            .map(|hit| hit.item)
+            .collect())
+    };
+    let (results, backend) = match retrieval {
+        "lexical" => (lexical_hits()?, "sqlite_fts"),
+        "vector" => (vector_hits()?, "sqlite_vec"),
+        "hybrid" => {
+            let lexical = lexical_hits()?;
+            let vector = vector_hits()?;
+            let fused =
+                reciprocal_rank_fusion(&[&lexical, &vector], |memory| memory.id.as_str(), RRF_K);
+            let limit = params.top_k.max(0) as usize;
+            (
+                fused
+                    .into_iter()
+                    .take(limit)
+                    .map(|(memory, _)| memory)
+                    .collect(),
+                "hybrid",
+            )
         }
         _ => {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(super::ErrorResponse {
-                    error: "retrieval must be vector or lexical".into(),
+                    error: "retrieval must be vector, lexical, or hybrid".into(),
                 }),
             ));
         }

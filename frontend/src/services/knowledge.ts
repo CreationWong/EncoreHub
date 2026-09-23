@@ -31,8 +31,12 @@ export interface KnowledgeDocChunk {
 	token_count: number;
 }
 
-/** Vector backend that served a Knowledge search request. */
-export type KnowledgeBackend = "lance_db" | "sqlite_vec";
+/** Retrieval route that served a Knowledge search request. */
+export type KnowledgeBackend =
+	| "lance_db"
+	| "sqlite_vec"
+	| "sqlite_fts"
+	| "hybrid";
 
 interface KnowledgeSearchResponse {
 	results: KnowledgeChunk[];

@@ -44,8 +44,10 @@
 
 ## 5. Vector Search And RAG Follow-up
 
+> Progress: hybrid ranking (RRF, hybrid default, fixed-corpus benchmark) is implemented; see `.agents/HYBRID_RANKING_PLAN.md`. Remaining: larger-corpus benchmark, installed-app ingest-to-query smoke, semantic embedding evaluation.
+
 - [ ] Benchmark LanceDB primary and SQLite-Vec fallback retrieval on larger knowledge sets.
-- [ ] Add FTS5/vector hybrid ranking and duplicate removal.
+- [x] Add FTS5/vector hybrid ranking and duplicate removal.
 - [ ] Add an end-to-end installed-app ingest-to-query smoke test.
 - [ ] Evaluate a local semantic embedding model only if feature hashing misses required recall targets.
 

@@ -35,10 +35,12 @@ import { useConversationStore } from "../../stores/conversationStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../../stores/toastStore";
 
-/** Product names for the serving vector backend; not translated. */
-const BACKEND_LABELS: Record<KnowledgeBackend, string> = {
-	lance_db: "LanceDB",
-	sqlite_vec: "SQLite-Vec",
+/** Retrieval route labels; hybrid fuses FTS5 with the vector index. */
+const BACKEND_LABEL_KEYS: Record<KnowledgeBackend, MessageKey> = {
+	lance_db: "knowledge.backendLanceDb",
+	sqlite_vec: "knowledge.backendSqliteVec",
+	sqlite_fts: "knowledge.backendFts",
+	hybrid: "knowledge.backendHybrid",
 };
 
 type DocSort = "recent" | "title" | "size";
@@ -331,7 +333,7 @@ export default function KnowledgePanel() {
 						{backend && (
 							<span className="flex items-center gap-1 text-[10px] text-text-muted">
 								<Database className="h-3 w-3" />
-								{BACKEND_LABELS[backend]}
+								{translate(BACKEND_LABEL_KEYS[backend])}
 							</span>
 						)}
 					</div>

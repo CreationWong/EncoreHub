@@ -1,8 +1,10 @@
 pub mod blob;
+pub mod fusion;
 pub mod lancedb;
 pub mod sqlite;
 
 pub use blob::{BlobStore, StagedBlobDeletion};
+pub use fusion::{reciprocal_rank_fusion, RRF_K};
 pub use lancedb::{ChunkEmbeddingResult, LanceDbConfig, LanceDbStore};
 pub use sqlite::{
     decode_hex, encode_hex, AssistantTurn, AttachmentRecord, CacheCleanup, ConversationCleanup,

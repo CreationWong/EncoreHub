@@ -9,6 +9,8 @@
 
 ### Added
 
+- **混合检索（FTS5 + 向量）**：Knowledge 与 Memory 搜索默认改为混合检索——FTS5 词面召回与向量语义召回各自排序后用 RRF（k=60）融合并按 id 去重，精确词面与语义近似都能命中；`retrieval=vector|lexical` 仍可显式回退。Knowledge 响应 `backend` 新增 `hybrid`，设置面板显示对应检索来源标签。新增固定语料回归基准，断言融合不会丢失任一路召回。
+
 - **模型生成的滚动压缩摘要**：上下文压缩不再只截取历史消息片段。达到自动压缩阈值或点击「压缩上下文」时，网关用会话自身的服务商与模型把较早消息压缩成摘要并写入 `conversation_summaries`；已有摘要会折叠进新摘要并保留原始起始消息，形成滚动摘要。摘要生成失败时保留本地摘要，聊天继续按 token 预算回退。新增 `POST /api/v1/conversations/:id/summarize-context`，`GET /api/v1/conversations/:id` 增加 `summary_start_message_id`。
 - **长对话按 token 预算选择上下文**：聊天请求声明模型窗口（`context_window`）后，Engine 依据 token 预算选择要发送的历史消息——保留从新到旧可容纳的连续消息序列，压缩摘要与历史共享同一预算；预算不足时更早的消息不再发送，避免长对话触发供应商上下文上限。未声明窗口或 Engine 不可用时保持原有的按消息条数截断行为。
 - **压缩摘要持久化**：上下文压缩摘要改由 Engine 持久化，重新打开会话或重启应用后自动恢复，继续参与 token 预算、自动压缩判定与上下文面板展示；面板的「清除压缩」会同时删除已存储的摘要。新增 `POST/DELETE /api/v1/conversations/:id/summary` 管理摘要，`GET /api/v1/conversations/:id` 增加 `summary_end_message_id`，客户端据此还原保留的最近消息范围。

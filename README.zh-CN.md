@@ -205,7 +205,8 @@ CI 配置见 `.github/workflows/ci.yml`，覆盖 Docs、Frontend、Gateway、Eng
 - ✅ 多供应商聊天、流式 SSE、token 计数、自动标题
 - ✅ 本地 Knowledge / Memory 向量检索、文件上传、密钥加密、端口协商
 - ✅ 联网搜索与网页读取、开发者模式
-- ⏳ 插件 WASM 沙箱、混合排序（FTS5 + vector）、gRPC 全链路
+- ✅ 混合检索（FTS5 + 向量，RRF 融合）
+- ⏳ 插件 WASM 沙箱、gRPC 全链路
 
 > Windows/macOS/Linux 均进入 CI 编译与 no-bundle smoke；各平台完成安装后启动验收前视为预发布。
 

@@ -45,29 +45,37 @@ flowchart TD
     PARSE["Rust document pipeline<br/>Pandoc first, native fallback"]
     CHUNK["Unicode-safe overlapping chunks"]
     META["SQLite documents and chunks"]
+    FTS["SQLite FTS5 chunk index"]
     EMBED["384-dimensional local embedding"]
     LANCE["LanceDB primary index"]
     FALLBACK["SQLite-Vec fallback index"]
-    QUERY["Knowledge query"]
+    QUERY["Knowledge or Memory query"]
+    RRF["Reciprocal rank fusion<br/>dedupe by id"]
     RESULT["RAG context"]
     TURN["Completed conversation turn"]
     MEMORY["SQLite memory metadata + SQLite-Vec"]
 
     UPLOAD --> PARSE --> CHUNK
     CHUNK --> META
+    CHUNK --> FTS
     CHUNK --> EMBED
     EMBED --> LANCE
     EMBED --> FALLBACK
-    QUERY --> LANCE --> RESULT
+    QUERY --> FTS --> RRF
+    QUERY --> LANCE --> RRF
     LANCE -.->|"operation unavailable"| FALLBACK
-    FALLBACK --> RESULT
+    FALLBACK --> RRF
+    RRF --> RESULT
     TURN --> MEMORY --> RESULT
 ```
 
 SQLite owns lifecycle and metadata. LanceDB and SQLite-Vec are local vector
 projections. Knowledge writes always mirror into SQLite-Vec before LanceDB, so
-retrieval remains available after a primary-store failure. Per-turn Memory uses
-SQLite-Vec directly because its dataset is small and follows SQLite lifecycle.
+retrieval remains available after a primary-store failure. Knowledge and Memory
+search default to hybrid retrieval: the FTS5 and vector routes run
+independently and their rankings are fused with reciprocal rank fusion
+(deduplicated by id). Per-turn Memory uses SQLite-Vec directly because its
+dataset is small and follows SQLite lifecycle.
 
 ## Attachment Routing
 

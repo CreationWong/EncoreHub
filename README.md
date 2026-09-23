@@ -206,7 +206,8 @@ CI configuration lives in `.github/workflows/ci.yml` and covers Docs, Frontend, 
 - ✅ Multi-provider chat, streaming SSE, token counting, auto-generated titles
 - ✅ Local Knowledge / Memory vector retrieval, file upload, secret encryption, port negotiation
 - ✅ Web search and page reads, developer mode
-- ⏳ Plugin WASM sandbox, hybrid ranking (FTS5 + vector), full gRPC pipeline
+- ✅ Hybrid retrieval (FTS5 + vector, RRF fused)
+- ⏳ Plugin WASM sandbox, full gRPC pipeline
 
 > Windows/macOS/Linux all build in CI with no-bundle smoke; each platform is treated as pre-release until its installed-app launch acceptance passes.
 

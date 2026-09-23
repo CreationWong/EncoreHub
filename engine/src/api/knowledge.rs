@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use encorehub_core::{Document, DocumentChunk};
+use encorehub_storage::{reciprocal_rank_fusion, RRF_K};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -53,6 +54,22 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(default = "default_top_k")]
     pub top_k: i64,
+    /// Retrieval route; defaults to hybrid (FTS5 + vector, RRF fused).
+    #[serde(default)]
+    pub retrieval: RetrievalMode,
+}
+
+/// Which route serves a knowledge search.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrievalMode {
+    /// FTS5 exact-term matching only.
+    Lexical,
+    /// Embedding similarity only (LanceDB, falling back to SQLite-Vec).
+    Vector,
+    /// Both routes fused with reciprocal rank fusion.
+    #[default]
+    Hybrid,
 }
 
 fn default_top_k() -> i64 {
@@ -231,55 +248,181 @@ pub async fn delete(State(state): State<SharedState>, Path(id): Path<String>) ->
     }
 }
 
-/// Search embedded LanceDB and automatically use SQLite-Vec when unavailable.
-pub async fn search(
-    State(state): State<SharedState>,
-    Query(params): Query<SearchQuery>,
-) -> Result<Json<SearchResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+/// One retrieval candidate shared by both routes before fusion.
+#[derive(Debug, Clone)]
+struct ChunkCandidate {
+    id: String,
+    document_id: String,
+    content: String,
+    chunk_index: i32,
+}
+
+fn chunk_response(candidate: ChunkCandidate, score: f64) -> SearchChunkResponse {
+    SearchChunkResponse {
+        id: candidate.id,
+        document_id: candidate.document_id,
+        content: candidate.content,
+        chunk_index: candidate.chunk_index,
+        score,
+    }
+}
+
+/// Route result: candidates with their display score, best first.
+type RouteHits = Vec<(ChunkCandidate, f64)>;
+
+/// Error shape every Knowledge handler returns.
+type ApiError = (StatusCode, Json<super::ErrorResponse>);
+
+fn internal_error(error: encorehub_core::EngineError) -> ApiError {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(super::ErrorResponse {
+            error: error.to_string(),
+        }),
+    )
+}
+
+/// Run the vector route, preferring LanceDB and falling back to SQLite-Vec.
+async fn vector_route(
+    state: &SharedState,
+    query: &str,
+    top_k: i64,
+) -> Result<(RouteHits, &'static str), ApiError> {
     let lance_results = match &state.knowledge_vectors {
-        Some(store) => store.search(&params.q, params.top_k).await,
+        Some(store) => store.search(query, top_k).await,
         None => Err(encorehub_core::EngineError::VectorStore(
             "LanceDB was unavailable during Engine startup".into(),
         )),
     };
-    let (items, backend) = match lance_results {
-        Ok(items) => (
-            items
-                .into_iter()
-                .map(|hit| SearchChunkResponse {
-                    id: hit.chunk_id,
-                    document_id: hit.document_id,
-                    content: hit.content,
-                    chunk_index: hit.chunk_index,
-                    score: hit.score,
+    match lance_results {
+        Ok(hits) => Ok((
+            hits.into_iter()
+                .map(|hit| {
+                    (
+                        ChunkCandidate {
+                            id: hit.chunk_id,
+                            document_id: hit.document_id,
+                            content: hit.content,
+                            chunk_index: hit.chunk_index,
+                        },
+                        hit.score,
+                    )
                 })
                 .collect(),
             "lance_db",
-        ),
+        )),
         Err(error) => {
             tracing::warn!(error = %error, "LanceDB search unavailable; using SQLite-Vec");
             let results = state
                 .db
-                .search_knowledge_vectors(&params.q, params.top_k)
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(super::ErrorResponse {
-                            error: e.to_string(),
-                        }),
-                    )
-                })?;
-            let items = results
+                .search_knowledge_vectors(query, top_k)
+                .map_err(internal_error)?;
+            Ok((
+                results
+                    .into_iter()
+                    .map(|hit| {
+                        (
+                            ChunkCandidate {
+                                id: hit.item.id,
+                                document_id: hit.item.document_id,
+                                content: hit.item.content,
+                                chunk_index: hit.item.chunk_index,
+                            },
+                            hit.score,
+                        )
+                    })
+                    .collect(),
+                "sqlite_vec",
+            ))
+        }
+    }
+}
+
+/// Run the lexical route over the FTS5 chunk index. Display scores are
+/// rank-based (`1.0` for the best hit, decaying by position) because BM25
+/// magnitudes are not comparable across queries.
+fn lexical_route(state: &SharedState, query: &str, top_k: i64) -> Result<RouteHits, ApiError> {
+    let results = state
+        .db
+        .search_chunks_fts(query, top_k)
+        .map_err(internal_error)?;
+    Ok(results
+        .into_iter()
+        .enumerate()
+        .map(|(index, (chunk, _rank))| {
+            (
+                ChunkCandidate {
+                    id: chunk.id,
+                    document_id: chunk.document_id,
+                    content: chunk.content,
+                    chunk_index: chunk.chunk_index,
+                },
+                1.0 / (index as f64 + 1.0),
+            )
+        })
+        .collect())
+}
+
+/// Search embedded LanceDB and automatically use SQLite-Vec when unavailable.
+/// The default hybrid route fuses lexical and vector rankings.
+pub async fn search(
+    State(state): State<SharedState>,
+    Query(params): Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, (StatusCode, Json<super::ErrorResponse>)> {
+    let (items, backend) = match params.retrieval {
+        RetrievalMode::Vector => {
+            let (hits, backend) = vector_route(&state, &params.q, params.top_k).await?;
+            (
+                hits.into_iter()
+                    .map(|(candidate, score)| chunk_response(candidate, score))
+                    .collect(),
+                backend,
+            )
+        }
+        RetrievalMode::Lexical => {
+            let hits = lexical_route(&state, &params.q, params.top_k)?;
+            (
+                hits.into_iter()
+                    .map(|(candidate, score)| chunk_response(candidate, score))
+                    .collect(),
+                "sqlite_fts",
+            )
+        }
+        RetrievalMode::Hybrid => {
+            let (vector_hits, _) = vector_route(&state, &params.q, params.top_k).await?;
+            let lexical_hits = lexical_route(&state, &params.q, params.top_k)?;
+            let vector_only: Vec<ChunkCandidate> = vector_hits
                 .into_iter()
-                .map(|hit| SearchChunkResponse {
-                    id: hit.item.id,
-                    document_id: hit.item.document_id,
-                    content: hit.item.content,
-                    chunk_index: hit.item.chunk_index,
-                    score: hit.score,
-                })
+                .map(|(candidate, _)| candidate)
                 .collect();
-            (items, "sqlite_vec")
+            let lexical_only: Vec<ChunkCandidate> = lexical_hits
+                .into_iter()
+                .map(|(candidate, _)| candidate)
+                .collect();
+            let fused = reciprocal_rank_fusion(
+                &[&vector_only, &lexical_only],
+                |candidate| candidate.id.as_str(),
+                RRF_K,
+            );
+            // Normalize so the leading result reports relevance 1.0; the raw
+            // RRF sum depends on the number of routes and is not user-facing.
+            let top_score = fused.first().map(|(_, score)| *score).unwrap_or(1.0);
+            let limit = params.top_k.max(0) as usize;
+            (
+                fused
+                    .into_iter()
+                    .take(limit)
+                    .map(|(candidate, score)| {
+                        let normalized = if top_score > 0.0 {
+                            score / top_score
+                        } else {
+                            0.0
+                        };
+                        chunk_response(candidate, normalized)
+                    })
+                    .collect(),
+                "hybrid",
+            )
         }
     };
 
